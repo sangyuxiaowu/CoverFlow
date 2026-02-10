@@ -10,7 +10,7 @@ import { generateId, downloadFile } from './utils/helpers.ts';
 import { 
   Download, Trash2, Plus, Share2, ArrowLeft, Clock, 
   Layout as LayoutIcon, ChevronRight, LayoutGrid, CheckCircle2, AlertCircle,
-  Upload, Type as TextIcon, ImagePlus, FileOutput
+  Upload, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 
@@ -57,15 +57,25 @@ const App: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ message: string, onConfirm: () => void } | null>(null);
+  
+  // Undo/Redo states
   const [history, setHistory] = useState<ProjectState[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
   const isUndoRedoAction = useRef(false);
   const ignoreHistoryChange = useRef(false);
 
+  // Persistence: Save projects list to localStorage
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(projects)); } catch (e) {}
   }, [projects]);
+
+  // Sync current active project back to projects list for persistence
+  useEffect(() => {
+    if (project && view === 'editor') {
+      setProjects(prev => prev.map(p => p.id === project.id ? { ...project, updatedAt: Date.now() } : p));
+    }
+  }, [project, view]);
 
   useEffect(() => { localStorage.setItem('coverflow_lang', lang); }, [lang]);
 
@@ -74,34 +84,59 @@ const App: React.FC = () => {
     setTimeout(() => setToast(null), 3000);
   };
 
+  // History tracking logic
   useEffect(() => {
     if (project && !isUndoRedoAction.current && !ignoreHistoryChange.current) {
       const lastState = history[historyIndex];
+      // Simple stringify check to avoid adding history for non-visual changes if needed
       if (JSON.stringify(lastState) !== JSON.stringify(project)) {
          const newHistory = history.slice(0, historyIndex + 1);
          newHistory.push(JSON.parse(JSON.stringify(project)));
-         if (newHistory.length > 30) newHistory.shift();
+         if (newHistory.length > 50) newHistory.shift();
          setHistory(newHistory);
          setHistoryIndex(newHistory.length - 1);
       }
     }
     isUndoRedoAction.current = false;
     ignoreHistoryChange.current = false;
-  }, [project, history, historyIndex]);
+  }, [project]);
 
   const initProjectHistory = (p: ProjectState) => {
     setHistory([JSON.parse(JSON.stringify(p))]);
     setHistoryIndex(0);
   };
 
+  const handleUndo = () => {
+    if (historyIndex > 0) {
+      isUndoRedoAction.current = true;
+      const prevIndex = historyIndex - 1;
+      const prevState = JSON.parse(JSON.stringify(history[prevIndex]));
+      setProject(prevState);
+      setHistoryIndex(prevIndex);
+    }
+  };
+
+  const handleRedo = () => {
+    if (historyIndex < history.length - 1) {
+      isUndoRedoAction.current = true;
+      const nextIndex = historyIndex + 1;
+      const nextState = JSON.parse(JSON.stringify(history[nextIndex]));
+      setProject(nextState);
+      setHistoryIndex(nextIndex);
+    }
+  };
+
   const saveHistorySnapshot = () => {
+    // This is called on mouseUp or explicit commit actions to finalize a history state
+    // The visual updates during dragging don't trigger history (see ignoreHistoryChange)
     if (!project) return;
+    ignoreHistoryChange.current = false;
     const lastState = history[historyIndex];
     if (JSON.stringify(lastState) !== JSON.stringify(project)) {
-         const newHistory = history.slice(0, historyIndex + 1);
-         newHistory.push(JSON.parse(JSON.stringify(project)));
-         setHistory(newHistory);
-         setHistoryIndex(newHistory.length - 1);
+      const newHistory = history.slice(0, historyIndex + 1);
+      newHistory.push(JSON.parse(JSON.stringify(project)));
+      setHistory(newHistory);
+      setHistoryIndex(newHistory.length - 1);
     }
   };
 
@@ -126,12 +161,12 @@ const App: React.FC = () => {
     initProjectHistory(newProject);
   };
 
-  const modifyProject = (modifier: (p: ProjectState) => ProjectState, saveHistory: boolean = true) => {
-    if (!saveHistory) ignoreHistoryChange.current = true;
+  const modifyProject = (modifier: (p: ProjectState) => ProjectState, saveToHistory: boolean = true) => {
+    if (!saveToHistory) ignoreHistoryChange.current = true;
     setProject(prev => prev ? modifier(prev) : null);
   };
 
-  const updateLayer = (id: string, updates: Partial<Layer>, saveHistory: boolean = true) => {
+  const updateLayer = (id: string, updates: Partial<Layer>, record: boolean = true) => {
     modifyProject(p => ({
       ...p,
       layers: p.layers.map(l => {
@@ -143,7 +178,7 @@ const App: React.FC = () => {
         }
         return newL;
       })
-    }), saveHistory);
+    }), record);
   };
 
   const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -258,6 +293,21 @@ const App: React.FC = () => {
     setIsExporting(false);
   };
 
+  // Listen for keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        if (e.shiftKey) handleRedo();
+        else handleUndo();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        handleRedo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [historyIndex, history]);
+
   if (view === 'landing') {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-200 p-8 md:p-16 flex flex-col gap-12 max-w-7xl mx-auto">
@@ -289,8 +339,33 @@ const App: React.FC = () => {
       {toast && <Toast message={toast.msg} type={toast.type} />}
       {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
       <header className="h-14 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between px-6 z-50">
-        <div className="flex items-center gap-4"><button onClick={() => { modifyProject(p => ({...p, updatedAt: Date.now()})); setView('landing'); }} className="p-2 hover:bg-slate-800 rounded-lg"><ArrowLeft className="w-5 h-5 text-slate-400" /></button><input value={project.title} onChange={(e) => modifyProject(p => ({ ...p, title: e.target.value }))} className="bg-transparent font-bold text-sm outline-none hover:bg-slate-800 rounded px-1" /></div>
+        <div className="flex items-center gap-4">
+          <button onClick={() => { modifyProject(p => ({...p, updatedAt: Date.now()})); setView('landing'); }} className="p-2 hover:bg-slate-800 rounded-lg">
+            <ArrowLeft className="w-5 h-5 text-slate-400" />
+          </button>
+          <div className="flex items-center gap-2">
+            <input value={project.title} onChange={(e) => modifyProject(p => ({ ...p, title: e.target.value }))} className="bg-transparent font-bold text-sm outline-none hover:bg-slate-800 rounded px-1" />
+          </div>
+        </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 mr-4 bg-slate-800 p-1 rounded-lg">
+            <button 
+              onClick={handleUndo} 
+              disabled={historyIndex <= 0}
+              className="p-1.5 rounded hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-all text-slate-300"
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo2 className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={handleRedo} 
+              disabled={historyIndex >= history.length - 1}
+              className="p-1.5 rounded hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-all text-slate-300"
+              title="Redo (Ctrl+Shift+Z)"
+            >
+              <Redo2 className="w-4 h-4" />
+            </button>
+          </div>
           <button onClick={handleExportJson} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300 border border-slate-700 transition-colors">
             <FileOutput className="w-4 h-4" />
             {t.exportJson}
@@ -304,7 +379,7 @@ const App: React.FC = () => {
       <main className="flex-1 flex overflow-hidden min-h-0 relative">
         <Sidebar lang={lang} activeTab={activeTab} setActiveTab={setActiveTab} background={project.background} onAddLayer={(l) => modifyProject(p => ({ ...p, layers: [...p.layers, { id: generateId(), name: l.name || 'Layer', type: l.type || 'svg', x: p.canvasConfig.width/2-50, y: p.canvasConfig.height/2-50, width: l.width || 100, height: l.height || 100, rotation: 0, zIndex: p.layers.length+1, visible: true, locked: false, opacity: 1, color: l.color || '#3b82f6', ratioLocked: true, content: l.content || '' }] }))} onUpdateBackground={(bg) => modifyProject(p => ({ ...p, background: { ...p.background, ...bg } }))} />
         <div className="flex-1 flex flex-col min-h-0 relative">
-          <Canvas lang={lang} project={project} onSelectLayer={(id) => modifyProject(p => ({ ...p, selectedLayerId: id }))} updateLayer={updateLayer} onCommit={saveHistorySnapshot} />
+          <Canvas lang={lang} project={project} onSelectLayer={(id) => modifyProject(p => ({ ...p, selectedLayerId: id }), false)} updateLayer={updateLayer} onCommit={saveHistorySnapshot} />
           
           {/* Toolbar below canvas */}
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-slate-900/95 backdrop-blur-xl border border-slate-800 rounded-2xl p-2 shadow-2xl z-40">
@@ -319,7 +394,7 @@ const App: React.FC = () => {
             </button>
           </div>
         </div>
-        <LayersPanel lang={lang} project={project} onUpdateLayer={updateLayer} onDeleteLayer={(id) => setConfirmDialog({ message: t.confirmDelete, onConfirm: () => modifyProject(p => ({ ...p, layers: p.layers.filter(l => l.id !== id), selectedLayerId: p.selectedLayerId === id ? null : p.selectedLayerId })) })} onSelectLayer={(id) => modifyProject(p => ({ ...p, selectedLayerId: id }))} onReorderLayers={(newLayers) => modifyProject(p => ({ ...p, layers: newLayers.map((l, i) => ({ ...l, zIndex: i + 1 })) }))} onCommit={saveHistorySnapshot} />
+        <LayersPanel lang={lang} project={project} onUpdateLayer={updateLayer} onDeleteLayer={(id) => setConfirmDialog({ message: t.confirmDelete, onConfirm: () => modifyProject(p => ({ ...p, layers: p.layers.filter(l => l.id !== id), selectedLayerId: p.selectedLayerId === id ? null : p.selectedLayerId })) })} onSelectLayer={(id) => modifyProject(p => ({ ...p, selectedLayerId: id }), false)} onReorderLayers={(newLayers) => modifyProject(p => ({ ...p, layers: newLayers.map((l, i) => ({ ...l, zIndex: i + 1 })) }))} onCommit={saveHistorySnapshot} />
       </main>
     </div>
   );

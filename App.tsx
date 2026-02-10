@@ -232,6 +232,32 @@ const App: React.FC = () => {
     input.click();
   };
 
+  const handleExportImage = async () => {
+    if (!project) return;
+    setIsExporting(true);
+    
+    // 1. Deselect layer to hide handles
+    modifyProject(p => ({ ...p, selectedLayerId: null }), false);
+    
+    // 2. Wait for DOM to update
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const node = document.getElementById('export-target');
+    if (node) { 
+      try { 
+        const dataUrl = await htmlToImage.toPng(node, { pixelRatio: 2 }); 
+        const link = document.createElement('a'); 
+        link.download = `${project.title}.png`; 
+        link.href = dataUrl; 
+        link.click(); 
+        showToast(lang === 'zh' ? "导出成功" : "Exported successfully");
+      } catch (e) { 
+        showToast(lang === 'zh' ? "导出失败" : "Export Failed", "error"); 
+      } 
+    }
+    setIsExporting(false);
+  };
+
   if (view === 'landing') {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-200 p-8 md:p-16 flex flex-col gap-12 max-w-7xl mx-auto">
@@ -269,12 +295,10 @@ const App: React.FC = () => {
             <FileOutput className="w-4 h-4" />
             {t.exportJson}
           </button>
-          <button onClick={async () => {
-            setIsExporting(true);
-            const node = document.getElementById('export-target');
-            if (node) { try { const dataUrl = await htmlToImage.toPng(node, { pixelRatio: 2 }); const link = document.createElement('a'); link.download = `${project.title}.png`; link.href = dataUrl; link.click(); } catch (e) { showToast("Export Failed", "error"); } }
-            setIsExporting(false);
-          }} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white shadow-lg shadow-blue-900/20">{isExporting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Download className="w-4 h-4" />}{t.export}</button>
+          <button onClick={handleExportImage} disabled={isExporting} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white shadow-lg shadow-blue-900/20 disabled:opacity-50">
+            {isExporting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
+            {t.export}
+          </button>
         </div>
       </header>
       <main className="flex-1 flex overflow-hidden min-h-0 relative">

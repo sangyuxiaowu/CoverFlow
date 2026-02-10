@@ -146,7 +146,10 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
   }, [interaction, handleGlobalMouseMove, handleGlobalMouseUp]);
 
   const handleBackgroundClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) onSelectLayer(null);
+    // If clicking directly on the scroll container or the centering wrapper, deselect.
+    if (e.target === e.currentTarget) {
+      onSelectLayer(null);
+    }
   };
 
   const getBackgroundStyles = (): React.CSSProperties => {
@@ -169,9 +172,11 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
     let patternImage = '';
     let patternSize = '';
     if (bg.overlayType !== 'none') {
-      const rgba = bg.overlayColor.startsWith('#') 
-        ? `${bg.overlayColor}${Math.round(bg.overlayOpacity * 255).toString(16).padStart(2, '0')}` 
-        : bg.overlayColor;
+      const rgba = bg.overlayType === 'dots' || bg.overlayType === 'grid' || bg.overlayType === 'stripes'
+        ? (bg.overlayColor.startsWith('#') 
+          ? `${bg.overlayColor}${Math.round(bg.overlayOpacity * 255).toString(16).padStart(2, '0')}` 
+          : bg.overlayColor)
+        : '';
       const scale = bg.overlayScale || 20;
 
       if (bg.overlayType === 'dots') {
@@ -184,7 +189,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
       patternSize = `${scale}px ${scale}px`;
     }
 
-    // 3. Stack background images: Pattern goes ON TOP (listed first)
+    // 3. Stack background images
     const backgroundImages: string[] = [];
     const backgroundSizes: string[] = [];
     
@@ -212,7 +217,10 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
       className="flex-1 overflow-auto bg-slate-950 canvas-checkerboard relative w-full h-full"
       onMouseDown={handleBackgroundClick}
     >
-      <div className="flex items-center justify-center min-w-full min-h-full p-16 md:p-32">
+      <div 
+        className="flex items-center justify-center min-w-full min-h-full p-16 md:p-32"
+        onMouseDown={handleBackgroundClick}
+      >
         <div 
           style={{
             width: project.canvasConfig.width * zoom,

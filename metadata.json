@@ -1,0 +1,7 @@
+{
+  "name": "CoverFlow - Pro SVG Article Cover Designer",
+  "description": "A high-end web application for creating and editing multi-platform article cover images with advanced SVG resource management and layer controls.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

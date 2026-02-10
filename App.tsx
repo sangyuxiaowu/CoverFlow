@@ -6,10 +6,9 @@ import LayersPanel from './components/LayersPanel.tsx';
 import { ProjectState, Layer, BackgroundConfig } from './types.ts';
 import { translations, Language } from './translations.ts';
 import { PRESET_RATIOS } from './constants.ts';
-import { generateId, getSVGDimensions, normalizeSVG, downloadFile } from './utils/helpers.ts';
+import { generateId, downloadFile } from './utils/helpers.ts';
 import { 
-  Save, Download, FileJson, Trash2, Undo2, Redo2, 
-  Plus, Share2, ArrowLeft, Clock, 
+  Download, Trash2, Plus, Share2, ArrowLeft, Clock, 
   Layout as LayoutIcon, ChevronRight, LayoutGrid, CheckCircle2, AlertCircle,
   Upload, Type as TextIcon, ImagePlus, FileOutput
 } from 'lucide-react';
@@ -88,7 +87,7 @@ const App: React.FC = () => {
     }
     isUndoRedoAction.current = false;
     ignoreHistoryChange.current = false;
-  }, [project]);
+  }, [project, history, historyIndex]);
 
   const initProjectHistory = (p: ProjectState) => {
     setHistory([JSON.parse(JSON.stringify(p))]);
@@ -262,6 +261,7 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col h-screen bg-slate-950 text-slate-200 overflow-hidden">
       {toast && <Toast message={toast.msg} type={toast.type} />}
+      {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
       <header className="h-14 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between px-6 z-50">
         <div className="flex items-center gap-4"><button onClick={() => { modifyProject(p => ({...p, updatedAt: Date.now()})); setView('landing'); }} className="p-2 hover:bg-slate-800 rounded-lg"><ArrowLeft className="w-5 h-5 text-slate-400" /></button><input value={project.title} onChange={(e) => modifyProject(p => ({ ...p, title: e.target.value }))} className="bg-transparent font-bold text-sm outline-none hover:bg-slate-800 rounded px-1" /></div>
         <div className="flex items-center gap-2">

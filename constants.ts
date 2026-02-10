@@ -56,3 +56,12 @@ export const TEXT_GRADIENT_PRESETS = [
   { from: '#12c2e9', to: '#f64f59', angle: 45 },
   { from: '#fc466b', to: '#3f5efb', angle: 90 },
 ];
+
+export const PRESET_COLORS = ['#ffffff', '#1e293b', '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
+
+export const PRESET_GRADIENTS = [
+  'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
+  'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)',
+  'linear-gradient(135deg, #10b981 0%, #3b82f6 100%)',
+  'linear-gradient(45deg, #1e293b 0%, #0f172a 100%)',
+];

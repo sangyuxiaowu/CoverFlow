@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { CATEGORIZED_ASSETS } from '../constants.ts';
+import { CATEGORIZED_ASSETS, PRESET_COLORS, PRESET_GRADIENTS } from '../constants.ts';
 import { BackgroundConfig, Layer } from '../types.ts';
 import { translations, Language } from '../translations.ts';
 import { Box, Palette, Search, Plus, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, AlertCircle } from 'lucide-react';
@@ -13,14 +13,6 @@ interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
 }
-
-const PRESET_COLORS = ['#ffffff', '#1e293b', '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
-const PRESET_GRADIENTS = [
-  'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
-  'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)',
-  'linear-gradient(135deg, #10b981 0%, #3b82f6 100%)',
-  'linear-gradient(45deg, #1e293b 0%, #0f172a 100%)',
-];
 
 const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground, background, activeTab, setActiveTab }) => {
   const [searchTerm, setSearchTerm] = useState('');

@@ -187,8 +187,30 @@ const App: React.FC = () => {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const imported = JSON.parse(event.target?.result as string);
+        const imported: ProjectState = JSON.parse(event.target?.result as string);
         if (imported.id && imported.layers) {
+          // 1. Check if Project ID is duplicated
+          const existingProjectIds = new Set(projects.map(p => p.id));
+          if (existingProjectIds.has(imported.id)) {
+            // Generate new ID for the project
+            imported.id = generateId();
+            imported.updatedAt = Date.now();
+            // Append suffix to title to distinguish from original
+            if (lang === 'zh') imported.title += ' (导入副本)';
+            else imported.title += ' (Imported Copy)';
+          }
+
+          // 2. Always regenerate layer IDs on import to be absolutely safe
+          // This ensures that even if internal layer IDs were somehow duplicated elsewhere, 
+          // the new instance is completely fresh.
+          imported.layers = imported.layers.map(layer => ({
+            ...layer,
+            id: generateId()
+          }));
+          
+          // Clear selection since IDs changed
+          imported.selectedLayerId = null;
+
           setProjects(prev => [imported, ...prev]);
           showToast(lang === 'zh' ? "导入成功" : "Imported Successfully");
         }

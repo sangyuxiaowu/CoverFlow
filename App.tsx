@@ -6,7 +6,7 @@ import LayersPanel from './components/LayersPanel.tsx';
 import { ProjectState, Layer, BackgroundConfig } from './types.ts';
 import { translations, Language } from './translations.ts';
 import { PRESET_RATIOS } from './constants.ts';
-import { generateId, downloadFile } from './utils/helpers.ts';
+import { generateId, downloadFile, normalizeSVG, getSVGDimensions } from './utils/helpers.ts';
 import { 
   Download, Trash2, Plus, Share2, ArrowLeft, Clock, 
   Layout as LayoutIcon, ChevronRight, LayoutGrid, CheckCircle2, AlertCircle,
@@ -253,6 +253,114 @@ const App: React.FC = () => {
     }));
   };
 
+  const addTextLayerWithContent = (text: string) => {
+    if (!project) return;
+    modifyProject(p => {
+      const width = Math.min(Math.max(200, text.length * 18), p.canvasConfig.width * 0.9);
+      const height = Math.min(120, p.canvasConfig.height * 0.5);
+      const newId = generateId();
+      return {
+        ...p,
+        layers: [...p.layers, {
+          id: newId,
+          name: lang === 'zh' ? '文字图层' : 'Text Layer',
+          type: 'text',
+          content: text,
+          x: p.canvasConfig.width / 2 - width / 2,
+          y: p.canvasConfig.height / 2 - height / 2,
+          width,
+          height,
+          fontSize: 32,
+          rotation: 0,
+          zIndex: p.layers.length + 1,
+          visible: true,
+          locked: false,
+          opacity: 1,
+          color: '#ffffff',
+          ratioLocked: true
+        }],
+        selectedLayerId: newId
+      };
+    });
+  };
+
+  const addSvgLayerWithContent = (svgText: string) => {
+    if (!project) return;
+    const normalized = normalizeSVG(svgText);
+    const dims = getSVGDimensions(normalized);
+    modifyProject(p => {
+      const maxW = p.canvasConfig.width * 0.7;
+      const maxH = p.canvasConfig.height * 0.7;
+      const rawW = dims.width || 200;
+      const rawH = dims.height || 200;
+      const scale = Math.min(1, maxW / rawW, maxH / rawH);
+      const width = Math.max(40, rawW * scale);
+      const height = Math.max(40, rawH * scale);
+      const newId = generateId();
+      return {
+        ...p,
+        layers: [...p.layers, {
+          id: newId,
+          name: lang === 'zh' ? 'SVG 图层' : 'SVG Layer',
+          type: 'svg',
+          content: normalized,
+          x: p.canvasConfig.width / 2 - width / 2,
+          y: p.canvasConfig.height / 2 - height / 2,
+          width,
+          height,
+          rotation: 0,
+          zIndex: p.layers.length + 1,
+          visible: true,
+          locked: false,
+          opacity: 1,
+          color: '#3b82f6',
+          ratioLocked: true
+        }],
+        selectedLayerId: newId
+      };
+    });
+  };
+
+  const addImageLayerWithContent = (dataUrl: string) => {
+    if (!project) return;
+    modifyProject(p => {
+      const size = Math.min(320, p.canvasConfig.width * 0.6, p.canvasConfig.height * 0.6);
+      const newId = generateId();
+      return {
+        ...p,
+        layers: [...p.layers, {
+          id: newId,
+          name: lang === 'zh' ? '图片图层' : 'Image Layer',
+          type: 'image',
+          content: dataUrl,
+          x: p.canvasConfig.width / 2 - size / 2,
+          y: p.canvasConfig.height / 2 - size / 2,
+          width: size,
+          height: size,
+          rotation: 0,
+          zIndex: p.layers.length + 1,
+          visible: true,
+          locked: false,
+          opacity: 1,
+          ratioLocked: true
+        }],
+        selectedLayerId: newId
+      };
+    });
+  };
+
+  const applyProjectFromJson = (data: ProjectState) => {
+    if (!project) return;
+    modifyProject(p => ({
+      ...p,
+      layers: data.layers || p.layers,
+      background: data.background || p.background,
+      canvasConfig: data.canvasConfig || p.canvasConfig,
+      selectedLayerId: null,
+      updatedAt: Date.now()
+    }));
+  };
+
   const handleAddImage = () => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -329,6 +437,79 @@ const App: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [historyIndex, history]);
+
+  useEffect(() => {
+    if (view !== 'editor' || !project) return;
+
+    const readFileAsText = (file: File) => new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(file);
+    });
+
+    const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+
+    const handlePaste = async (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
+      const clipboard = e.clipboardData;
+      if (!clipboard) return;
+
+      const files = Array.from(clipboard.files || []);
+      if (files.length > 0) {
+        e.preventDefault();
+        for (const file of files) {
+          if (file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) {
+            const text = await readFileAsText(file);
+            addSvgLayerWithContent(text);
+          } else if (file.type.startsWith('image/')) {
+            const dataUrl = await readFileAsDataUrl(file);
+            addImageLayerWithContent(dataUrl);
+          }
+        }
+        return;
+      }
+
+      const text = clipboard.getData('text/plain');
+      if (!text || !text.trim()) return;
+
+      const trimmed = text.trim();
+
+      if (trimmed.toLowerCase().includes('<svg')) {
+        e.preventDefault();
+        addSvgLayerWithContent(trimmed);
+        return;
+      }
+
+      if (trimmed.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (parsed && parsed.layers && parsed.background && parsed.canvasConfig) {
+            e.preventDefault();
+            applyProjectFromJson(parsed as ProjectState);
+            return;
+          }
+        } catch (err) {
+          // Ignore JSON parse errors and fall back to text
+        }
+      }
+
+      e.preventDefault();
+      addTextLayerWithContent(trimmed);
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [view, project, lang]);
 
   if (view === 'landing') {
     return (

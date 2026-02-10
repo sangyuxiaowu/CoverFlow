@@ -213,9 +213,9 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><Palette className="w-3 h-3" /> {t.textGradient}</h4>
-                      <label className="relative inline-flex items-center cursor-pointer scale-75">
+                      <label className="relative inline-flex items-center cursor-pointer">
                         <input type="checkbox" className="sr-only peer" checked={selectedLayer.textGradient?.enabled || false} onChange={handleToggleGradient} />
-                        <div className="w-8 h-4.5 bg-slate-700 rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:bg-blue-600 after:content-[''] after:absolute after:top-[2.5px] after:left-[2.5px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all"></div>
+                        <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                       </label>
                     </div>
 

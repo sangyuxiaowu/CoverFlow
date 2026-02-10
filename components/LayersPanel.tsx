@@ -2,9 +2,11 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Layer, ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
+import { TEXT_GRADIENT_PRESETS } from '../constants.ts';
 import { 
   Eye, EyeOff, Lock, Unlock, Trash2, Hash, RotateCw, Maximize2, 
-  Type as TextIcon, Image as ImageIcon, GripVertical, Link as LinkIcon, Link2Off, MoveHorizontal, MoveVertical 
+  Type as TextIcon, Image as ImageIcon, GripVertical, Link as LinkIcon, Link2Off, MoveHorizontal, MoveVertical,
+  Palette
 } from 'lucide-react';
 
 interface LayersPanelProps {
@@ -40,7 +42,6 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
     const delta = (e.clientX - scrubbingRef.current.startX);
     const sensitivity = scrubbingRef.current.prop === 'rotation' ? 0.5 : 1;
     const newValue = scrubbingRef.current.startValue + (delta * sensitivity);
-    // Pass false to skip history recording during scrub move
     onUpdateLayerRef.current(latestSelectedLayerRef.current.id, { [scrubbingRef.current.prop]: Math.round(newValue) }, false);
   }, []);
 
@@ -49,7 +50,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
     document.body.style.cursor = '';
     window.removeEventListener('mousemove', handleScrubMove);
     window.removeEventListener('mouseup', handleScrubMouseUp);
-    onCommit(); // Commit history on scrub end
+    onCommit(); 
   }, [handleScrubMove, onCommit]);
 
   const handleScrubMouseDown = (e: React.MouseEvent, prop: string, startValue: number) => {
@@ -63,13 +64,11 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
   const handleDelete = (e: React.MouseEvent | React.TouchEvent, id: string) => {
     e.preventDefault();
     e.stopPropagation();
-    // Replaced window.confirm with direct call; the parent component handles the modal confirmation now
     onDeleteLayer(id);
   };
 
   const preventDragInterference = (e: React.PointerEvent | React.MouseEvent) => {
     e.stopPropagation();
-    e.preventDefault();
   };
 
   const sortedLayers = [...project.layers].sort((a, b) => b.zIndex - a.zIndex);
@@ -84,10 +83,24 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
     setEditingId(null);
   };
 
+  const handleToggleGradient = () => {
+    if (!selectedLayer || selectedLayer.type !== 'text') return;
+    const current = selectedLayer.textGradient || { enabled: false, from: '#3b82f6', to: '#8b5cf6', angle: 90 };
+    onUpdateLayer(selectedLayer.id, {
+      textGradient: { ...current, enabled: !current.enabled }
+    });
+  };
+
+  const handleUpdateTextGradient = (updates: any) => {
+    if (!selectedLayer || selectedLayer.type !== 'text') return;
+    const current = selectedLayer.textGradient || { enabled: false, from: '#3b82f6', to: '#8b5cf6', angle: 90 };
+    onUpdateLayer(selectedLayer.id, {
+      textGradient: { ...current, ...updates }
+    });
+  };
+
   return (
     <div className="w-72 bg-slate-900 border-l border-slate-800 flex flex-col flex-shrink-0 shadow-2xl relative z-20 h-full">
-      
-      {/* 上半部分：属性检查器 (固定高度比例 55%) */}
       <div className="h-[55%] flex flex-col border-b border-slate-800">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800/50 bg-slate-900 flex-shrink-0">
           <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t.inspector}</h3>
@@ -154,23 +167,13 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                    value={selectedLayer.opacity} 
                    onChange={(e) => onUpdateLayer(selectedLayer.id, { opacity: parseFloat(e.target.value) }, false)} 
                    onMouseUp={onCommit}
-                   onTouchEnd={onCommit}
                    className="w-full accent-blue-600" 
                  />
               </div>
 
-              {(selectedLayer.type === 'svg' || selectedLayer.type === 'text') && (
-                <div className="col-span-2 space-y-2">
-                  <label className="text-[10px] text-slate-500 uppercase select-none">{t.primaryColor}</label>
-                  <div className="flex gap-2">
-                    <input type="color" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="h-8 w-8 bg-transparent cursor-pointer rounded overflow-hidden" />
-                    <input type="text" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
-                  </div>
-                </div>
-              )}
-
-               {selectedLayer.type === 'text' && (
-                <div className="col-span-2 space-y-2">
+              {/* Text Content - Moved up before color controls */}
+              {selectedLayer.type === 'text' && (
+                <div className="col-span-2 space-y-2 pt-2 border-t border-slate-800/50">
                   <label className="text-[10px] text-slate-500 uppercase select-none">{t.textContent}</label>
                   <textarea 
                     value={selectedLayer.content} 
@@ -179,6 +182,63 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                   />
                 </div>
               )}
+
+              {/* Text-Specific: Gradient Toggle and Gradient Controls */}
+              {selectedLayer.type === 'text' && (
+                <div className="col-span-2 pt-4 border-t border-slate-800 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><Palette className="w-3 h-3" /> {t.textGradient}</h4>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={selectedLayer.textGradient?.enabled || false} onChange={handleToggleGradient} />
+                      <div className="w-7 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+
+                  {selectedLayer.textGradient?.enabled && (
+                    <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-[9px] text-slate-500 uppercase">{t.startColor}</label>
+                          <input type="color" value={selectedLayer.textGradient.from} onChange={(e) => handleUpdateTextGradient({ from: e.target.value })} className="w-full h-8 rounded bg-slate-800 border border-slate-700 cursor-pointer" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] text-slate-500 uppercase">{t.endColor}</label>
+                          <input type="color" value={selectedLayer.textGradient.to} onChange={(e) => handleUpdateTextGradient({ to: e.target.value })} className="w-full h-8 rounded bg-slate-800 border border-slate-700 cursor-pointer" />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[9px] text-slate-500 uppercase"><span>{t.angle}</span><span>{selectedLayer.textGradient.angle}°</span></div>
+                        <input type="range" min="0" max="360" value={selectedLayer.textGradient.angle} onChange={(e) => handleUpdateTextGradient({ angle: parseInt(e.target.value) })} onMouseUp={onCommit} className="w-full accent-blue-600" />
+                      </div>
+                      <div className="pt-2">
+                         <label className="text-[9px] text-slate-500 uppercase mb-2 block">{lang === 'zh' ? '渐变预设' : 'Presets'}</label>
+                         <div className="grid grid-cols-4 gap-2">
+                            {TEXT_GRADIENT_PRESETS.map((p, idx) => (
+                              <button 
+                                key={idx} 
+                                onClick={() => handleUpdateTextGradient({ from: p.from, to: p.to, angle: p.angle })}
+                                className="h-6 rounded border border-slate-700 hover:border-blue-500 transition-all hover:scale-105 active:scale-95 shadow-sm"
+                                style={{ background: `linear-gradient(${p.angle}deg, ${p.from}, ${p.to})` }}
+                              />
+                            ))}
+                         </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Shared Primary Color Picker: Only show if gradient is NOT enabled for text, OR if it's an SVG layer */}
+              {((selectedLayer.type === 'text' && !selectedLayer.textGradient?.enabled) || selectedLayer.type === 'svg') && (
+                <div className="col-span-2 space-y-2 pt-4 border-t border-slate-800">
+                  <label className="text-[10px] text-slate-500 uppercase select-none">{t.primaryColor}</label>
+                  <div className="flex gap-2">
+                    <input type="color" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="h-8 w-8 bg-transparent cursor-pointer rounded overflow-hidden" />
+                    <input type="text" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200" />
+                  </div>
+                </div>
+              )}
+
             </div>
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-slate-600 text-center gap-3">
@@ -189,7 +249,6 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
         </div>
       </div>
 
-      {/* 下半部分：图层列表 (剩余空间 45%) */}
       <div className="flex-1 flex flex-col min-h-0 bg-slate-900/50">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800/50 bg-slate-900 flex-shrink-0">
           <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t.layers}</h3>
@@ -244,7 +303,6 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
               <div className={`flex gap-1 ${project.selectedLayerId === layer.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                  <button
                   type="button"
-                  onPointerDown={preventDragInterference}
                   onClick={(e) => { e.stopPropagation(); onUpdateLayer(layer.id, { visible: !layer.visible }); }}
                   className="p-1 hover:text-white"
                  >
@@ -252,7 +310,6 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                  </button>
                  <button
                   type="button"
-                  onPointerDown={preventDragInterference}
                   onClick={(e) => { e.stopPropagation(); onUpdateLayer(layer.id, { locked: !layer.locked }); }}
                   className="p-1 hover:text-white"
                  >
@@ -260,8 +317,6 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                  </button>
                  <button 
                   type="button"
-                  onPointerDown={preventDragInterference}
-                  onMouseDown={preventDragInterference}
                   onClick={(e) => handleDelete(e, layer.id)} 
                   className="p-1 text-slate-400 hover:text-red-400 bg-slate-900/50 rounded"
                  >

@@ -33,7 +33,7 @@ export const translations = {
     width: "宽度",
     rotation: "旋转角度",
     opacity: "透明度",
-    primaryColor: "主题颜色",
+    primaryColor: "文字颜色",
     textContent: "文字内容",
     emptyInspector: "在画布上选择一个图层\n进行属性编辑",
     addHeadline: "添加标题",
@@ -65,7 +65,9 @@ export const translations = {
     none: "无纹理",
     dots: "波点",
     grid: "网格",
-    stripes: "条纹"
+    stripes: "条纹",
+    textGradient: "文字渐变",
+    gradientEnabled: "开启渐变"
   },
   en: {
     title: "CoverFlow",
@@ -100,7 +102,7 @@ export const translations = {
     width: "Width",
     rotation: "Rotation",
     opacity: "Opacity",
-    primaryColor: "Primary Color",
+    primaryColor: "Text Color",
     textContent: "Text Content",
     emptyInspector: "Select a layer on canvas\nto edit properties",
     addHeadline: "Add Headline",
@@ -112,6 +114,7 @@ export const translations = {
     exporting: "Exporting...",
     backToLanding: "Dashboard",
     lastModified: "Last modified",
+    // Fixed duplicate key error on line 118
     deleteProject: "Delete Project",
     confirmDeleteProject: "Are you sure to permanently delete this project?",
     noProjects: "No projects yet. Let's create one!",
@@ -132,7 +135,9 @@ export const translations = {
     none: "None",
     dots: "Dots",
     grid: "Grid",
-    stripes: "Stripes"
+    stripes: "Stripes",
+    textGradient: "Text Gradient",
+    gradientEnabled: "Enable Gradient"
   }
 };
 

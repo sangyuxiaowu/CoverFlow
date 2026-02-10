@@ -37,3 +37,22 @@ export const PATTERNS = [
   { name: 'Grid', nameZh: '网格', value: 'linear-gradient(#ffffff11 1px, transparent 1px), linear-gradient(90deg, #ffffff11 1px, transparent 1px)' },
   { name: 'Stripes', nameZh: '条纹', value: 'repeating-linear-gradient(45deg, #ffffff05, #ffffff05 10px, #ffffff11 10px, #ffffff11 20px)' }
 ];
+
+export const TEXT_GRADIENT_PRESETS = [
+  { from: '#3b82f6', to: '#8b5cf6', angle: 90 },
+  { from: '#f59e0b', to: '#ef4444', angle: 90 },
+  { from: '#10b981', to: '#3b82f6', angle: 90 },
+  { from: '#ff9a9e', to: '#fecfef', angle: 45 },
+  { from: '#a1c4fd', to: '#c2e9fb', angle: 135 },
+  { from: '#f6d365', to: '#fda085', angle: 120 },
+  { from: '#667eea', to: '#764ba2', angle: 180 },
+  { from: '#00c6fb', to: '#005bea', angle: 90 },
+  { from: '#ff00ff', to: '#00ffff', angle: 135 },
+  { from: '#fceabb', to: '#f8b500', angle: 45 },
+  { from: '#232526', to: '#414345', angle: 180 },
+  { from: '#00b09b', to: '#96c93d', angle: 90 },
+  { from: '#8e2de2', to: '#4a00e0', angle: 135 },
+  { from: '#ed213a', to: '#93291e', angle: 90 },
+  { from: '#12c2e9', to: '#f64f59', angle: 45 },
+  { from: '#fc466b', to: '#3f5efb', angle: 90 },
+];

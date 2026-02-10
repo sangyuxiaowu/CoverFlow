@@ -146,7 +146,6 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
   }, [interaction, handleGlobalMouseMove, handleGlobalMouseUp]);
 
   const handleBackgroundClick = (e: React.MouseEvent) => {
-    // If clicking directly on the scroll container or the centering wrapper, deselect.
     if (e.target === e.currentTarget) {
       onSelectLayer(null);
     }
@@ -156,7 +155,6 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
     const bg = project.background;
     const styles: React.CSSProperties = {};
     
-    // 1. Determine base layers (Color, Gradient, or Image)
     let baseBackground = '';
     if (bg.type === 'color') {
       styles.backgroundColor = bg.value;
@@ -168,7 +166,6 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
       styles.backgroundPosition = 'center';
     }
 
-    // 2. Overlay Pattern (Grid/Dots/Stripes)
     let patternImage = '';
     let patternSize = '';
     if (bg.overlayType !== 'none') {
@@ -189,7 +186,6 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
       patternSize = `${scale}px ${scale}px`;
     }
 
-    // 3. Stack background images
     const backgroundImages: string[] = [];
     const backgroundSizes: string[] = [];
     
@@ -244,47 +240,74 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
             {project.layers
               .filter(l => l.visible)
               .sort((a, b) => a.zIndex - b.zIndex)
-              .map(layer => (
-                <div
-                  key={layer.id}
-                  onMouseDown={(e) => handleLayerMouseDown(e, layer)}
-                  className={`absolute select-none group ${project.selectedLayerId === layer.id ? 'z-50' : ''}`}
-                  style={{
-                    left: layer.x,
-                    top: layer.y,
-                    width: layer.width,
-                    height: layer.height,
-                    transform: `rotate(${layer.rotation}deg)`,
-                    opacity: layer.opacity,
-                    zIndex: layer.zIndex,
-                    cursor: interaction ? 'grabbing' : 'move'
-                  }}
-                >
-                  {layer.type === 'svg' ? (
-                    <div className="w-full h-full pointer-events-none overflow-hidden" style={{ color: layer.color }}>
-                      {layer.content.toLowerCase().includes('<svg') ? <div className="w-full h-full" dangerouslySetInnerHTML={{ __html: layer.content }} /> : <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" dangerouslySetInnerHTML={{ __html: layer.content }} />}
-                    </div>
-                  ) : layer.type === 'text' ? (
-                    <div className="w-full h-full flex items-center justify-center text-center font-bold break-words px-4 leading-tight pointer-events-none" style={{ color: layer.color, fontSize: `${layer.fontSize || Math.max(12, layer.height * 0.7)}px`, wordBreak: 'break-word' }}>
-                      {layer.content}
-                    </div>
-                  ) : (
-                    <img src={layer.content} className="w-full h-full object-contain pointer-events-none" draggable={false} alt="layer" />
-                  )}
-                  {project.selectedLayerId === layer.id && !layer.locked && (
-                    <>
-                      <div className="absolute inset-0 border border-blue-500 pointer-events-none" />
-                      <div className="absolute left-1/2 -top-8 -translate-x-1/2 flex flex-col items-center cursor-grab" onMouseDown={(e) => handleControlMouseDown(e, layer, 'rotate')}>
-                        <div className="w-5 h-5 bg-white border border-blue-600 rounded-full flex items-center justify-center text-blue-600"><RotateCw className="w-3 h-3" /></div>
-                        <div className="w-px h-3 bg-blue-600" />
+              .map(layer => {
+                const textStyle: React.CSSProperties = {
+                  fontSize: `${layer.fontSize || Math.max(12, layer.height * 0.7)}px`,
+                  wordBreak: 'break-word',
+                  opacity: layer.opacity,
+                  width: '100%',
+                  height: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  textAlign: 'center',
+                  fontWeight: 'bold',
+                  padding: '0 1rem',
+                  lineHeight: 1.1,
+                  pointerEvents: 'none',
+                };
+
+                if (layer.type === 'text' && layer.textGradient?.enabled) {
+                  textStyle.backgroundImage = `linear-gradient(${layer.textGradient.angle}deg, ${layer.textGradient.from}, ${layer.textGradient.to})`;
+                  textStyle.WebkitBackgroundClip = 'text';
+                  textStyle.WebkitTextFillColor = 'transparent';
+                  textStyle.backgroundClip = 'text';
+                  textStyle.color = 'transparent';
+                } else if (layer.type === 'text' || layer.type === 'svg') {
+                  textStyle.color = layer.color || '#ffffff';
+                }
+
+                return (
+                  <div
+                    key={layer.id}
+                    onMouseDown={(e) => handleLayerMouseDown(e, layer)}
+                    className={`absolute select-none group ${project.selectedLayerId === layer.id ? 'z-50' : ''}`}
+                    style={{
+                      left: layer.x,
+                      top: layer.y,
+                      width: layer.width,
+                      height: layer.height,
+                      transform: `rotate(${layer.rotation}deg)`,
+                      zIndex: layer.zIndex,
+                      cursor: interaction ? 'grabbing' : 'move'
+                    }}
+                  >
+                    {layer.type === 'svg' ? (
+                      <div className="w-full h-full pointer-events-none overflow-hidden" style={{ color: layer.color }}>
+                        {layer.content.toLowerCase().includes('<svg') ? <div className="w-full h-full" dangerouslySetInnerHTML={{ __html: layer.content }} /> : <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" dangerouslySetInnerHTML={{ __html: layer.content }} />}
                       </div>
-                      {['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'].map(h => (
-                        <div key={h} className={`absolute w-2.5 h-2.5 bg-white border border-blue-600 rounded-full z-50 pointer-events-auto cursor-${h}-resize ${h.includes('n') ? 'top-0' : h.includes('s') ? 'bottom-0' : 'top-1/2'} ${h.includes('w') ? 'left-0' : h.includes('e') ? 'right-0' : 'left-1/2'} -translate-x-1/2 -translate-y-1/2`} onMouseDown={(e) => handleControlMouseDown(e, layer, 'resize', h)} />
-                      ))}
-                    </>
-                  )}
-                </div>
-              ))}
+                    ) : layer.type === 'text' ? (
+                      <div style={textStyle}>
+                        {layer.content}
+                      </div>
+                    ) : (
+                      <img src={layer.content} className="w-full h-full object-contain pointer-events-none" style={{ opacity: layer.opacity }} draggable={false} alt="layer" />
+                    )}
+                    {project.selectedLayerId === layer.id && !layer.locked && (
+                      <>
+                        <div className="absolute inset-0 border border-blue-500 pointer-events-none" />
+                        <div className="absolute left-1/2 -top-8 -translate-x-1/2 flex flex-col items-center cursor-grab" onMouseDown={(e) => handleControlMouseDown(e, layer, 'rotate')}>
+                          <div className="w-5 h-5 bg-white border border-blue-600 rounded-full flex items-center justify-center text-blue-600"><RotateCw className="w-3 h-3" /></div>
+                          <div className="w-px h-3 bg-blue-600" />
+                        </div>
+                        {['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'].map(h => (
+                          <div key={h} className={`absolute w-2.5 h-2.5 bg-white border border-blue-600 rounded-full z-50 pointer-events-auto cursor-${h}-resize ${h.includes('n') ? 'top-0' : h.includes('s') ? 'bottom-0' : 'top-1/2'} ${h.includes('w') ? 'left-0' : h.includes('e') ? 'right-0' : 'left-1/2'} -translate-x-1/2 -translate-y-1/2`} onMouseDown={(e) => handleControlMouseDown(e, layer, 'resize', h)} />
+                        ))}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
           </div>
         </div>
       </div>

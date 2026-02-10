@@ -1,6 +1,13 @@
 
 export type LayerType = 'svg' | 'text' | 'image' | 'group';
 
+export interface TextGradient {
+  enabled: boolean;
+  from: string;
+  to: string;
+  angle: number;
+}
+
 export interface Layer {
   id: string;
   name: string;
@@ -18,6 +25,7 @@ export interface Layer {
   color?: string;
   fontSize?: number;
   ratioLocked?: boolean;
+  textGradient?: TextGradient;
   children?: string[]; // Layer IDs if type is 'group'
 }
 

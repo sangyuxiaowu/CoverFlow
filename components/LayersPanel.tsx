@@ -19,6 +19,13 @@ interface LayersPanelProps {
   onCommit: () => void;
 }
 
+interface LocalFont {
+  fullName: string;
+  family: string;
+  isChinese: boolean;
+  value: string;
+}
+
 const COMMON_FONTS = [
   { name: 'Inter', value: 'Inter, sans-serif' },
   { name: 'System UI', value: 'system-ui, sans-serif' },
@@ -42,6 +49,8 @@ const FONT_WEIGHTS = [
   { label: 'Black', value: 900 }
 ];
 
+const isChineseText = (text: string) => /[\u4e00-\u9fa5]/.test(text);
+
 const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer, onDeleteLayer, onSelectLayer, onReorderLayers, onCommit }) => {
   const selectedLayer = project.layers.find(l => l.id === project.selectedLayerId);
   const t = translations[lang];
@@ -52,7 +61,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   
   // Font related states
-  const [localFonts, setLocalFonts] = useState<{name: string, value: string}[]>([]);
+  const [localFonts, setLocalFonts] = useState<LocalFont[]>([]);
   const [fontSearch, setFontSearch] = useState("");
   const [isFontPickerOpen, setIsFontPickerOpen] = useState(false);
   const fontPickerRef = useRef<HTMLDivElement>(null);
@@ -71,15 +80,28 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
     const fetchLocalFonts = async () => {
       if ('queryLocalFonts' in window) {
         try {
-          // @ts-ignore - queryLocalFonts is a new API
-          const fonts = await (window as any).queryLocalFonts();
-          // Extract unique family names
-          const uniqueFamilies = Array.from(new Set(fonts.map((f: any) => f.fullName))) as string[];
-          const formatted = uniqueFamilies.map(f => ({
-            name: f,
-            value: `"${f}", sans-serif`
-          }));
-          setLocalFonts(formatted);
+          // @ts-ignore
+          const fonts: any[] = await (window as any).queryLocalFonts();
+          
+          // Deduplicate and group
+          // Usually we want to show unique full names for selection, 
+          // but apply the family name for CSS to handle weights/styles separately via other props
+          const seenFullNames = new Set<string>();
+          const processed: LocalFont[] = [];
+
+          for (const f of fonts) {
+            if (!seenFullNames.has(f.fullName)) {
+              seenFullNames.add(f.fullName);
+              const isChinese = isChineseText(f.fullName) || isChineseText(f.family);
+              processed.push({
+                fullName: f.fullName,
+                family: f.family,
+                isChinese,
+                value: `"${f.family}", sans-serif`
+              });
+            }
+          }
+          setLocalFonts(processed);
         } catch (e) {
           console.warn("Failed to fetch local fonts", e);
         }
@@ -170,16 +192,34 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
   };
 
   const availableFonts = useMemo(() => {
-    const baseList = localFonts.length > 0 ? localFonts : COMMON_FONTS;
-    if (!fontSearch) return baseList;
-    return baseList.filter(f => f.name.toLowerCase().includes(fontSearch.toLowerCase()));
-  }, [localFonts, fontSearch]);
+    const baseList = localFonts.length > 0 
+      ? localFonts 
+      : COMMON_FONTS.map(f => ({ fullName: f.name, family: f.name, isChinese: isChineseText(f.name), value: f.value }));
+    
+    const filtered = fontSearch 
+      ? baseList.filter(f => f.fullName.toLowerCase().includes(fontSearch.toLowerCase()) || f.family.toLowerCase().includes(fontSearch.toLowerCase())) 
+      : baseList;
 
-  const currentFontName = useMemo(() => {
+    const chinese = filtered.filter(f => f.isChinese).sort((a, b) => a.fullName.localeCompare(b.fullName, 'zh'));
+    const western = filtered.filter(f => !f.isChinese).sort((a, b) => a.fullName.localeCompare(b.fullName, 'en'));
+
+    // Adjust display priority based on current language
+    return lang === 'zh' ? [...chinese, ...western] : [...western, ...chinese];
+  }, [localFonts, fontSearch, lang]);
+
+  const currentFontDisplayName = useMemo(() => {
     if (!selectedLayer || selectedLayer.type !== 'text') return '';
     const val = selectedLayer.fontFamily || 'Inter, sans-serif';
-    const found = [...localFonts, ...COMMON_FONTS].find(f => f.value === val);
-    return found ? found.name : val.replace(/"/g, '').split(',')[0];
+    // Try to find in local fonts by value (family name wrapper)
+    const foundLocal = localFonts.find(f => f.value === val);
+    if (foundLocal) return foundLocal.fullName;
+    
+    // Try to find in common fonts
+    const foundCommon = COMMON_FONTS.find(f => f.value === val);
+    if (foundCommon) return foundCommon.name;
+
+    // Fallback: clean the string
+    return val.replace(/"/g, '').split(',')[0];
   }, [selectedLayer, localFonts]);
 
   return (
@@ -283,7 +323,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                           onClick={() => setIsFontPickerOpen(!isFontPickerOpen)}
                           className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-[11px] text-slate-200 focus:border-blue-500 outline-none transition-colors text-left flex items-center justify-between"
                         >
-                          <span className="truncate">{currentFontName}</span>
+                          <span className="truncate">{currentFontDisplayName}</span>
                           <ChevronDown className="w-3 h-3 opacity-50" />
                         </button>
                         
@@ -304,7 +344,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                               {availableFonts.length > 0 ? (
                                 availableFonts.map(f => (
                                   <button
-                                    key={f.value}
+                                    key={`${f.value}-${f.fullName}`}
                                     onClick={() => {
                                       onUpdateLayer(selectedLayer.id, { fontFamily: f.value });
                                       setIsFontPickerOpen(false);
@@ -312,7 +352,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                                     }}
                                     className={`w-full text-left px-3 py-2 rounded-md flex items-center justify-between text-[11px] hover:bg-slate-800 transition-colors ${selectedLayer.fontFamily === f.value ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400'}`}
                                   >
-                                    <span style={{ fontFamily: f.value }}>{f.name}</span>
+                                    <span style={{ fontFamily: f.value }}>{f.fullName}</span>
                                     {selectedLayer.fontFamily === f.value && <Check className="w-3 h-3" />}
                                   </button>
                                 ))

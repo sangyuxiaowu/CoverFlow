@@ -234,7 +234,8 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
               height: project.canvasConfig.height,
               transform: `scale(${zoom})`,
               transformOrigin: 'top left',
-              ...getBackgroundStyles()
+              ...getBackgroundStyles(),
+              backfaceVisibility: 'hidden'
             }}
           >
             {project.layers
@@ -279,7 +280,9 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                       height: layer.height,
                       transform: `rotate(${layer.rotation}deg)`,
                       zIndex: layer.zIndex,
-                      cursor: interaction ? 'grabbing' : 'move'
+                      cursor: interaction ? 'grabbing' : 'move',
+                      willChange: 'transform',
+                      backfaceVisibility: 'hidden'
                     }}
                   >
                     {layer.type === 'svg' ? (
@@ -295,13 +298,13 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                     )}
                     {project.selectedLayerId === layer.id && !layer.locked && (
                       <>
-                        <div className="absolute inset-0 border border-blue-500 pointer-events-none" />
+                        <div className="absolute inset-0 border border-blue-500 pointer-events-none" style={{ willChange: 'transform', backfaceVisibility: 'hidden' }} />
                         <div className="absolute left-1/2 -top-8 -translate-x-1/2 flex flex-col items-center cursor-grab" onMouseDown={(e) => handleControlMouseDown(e, layer, 'rotate')}>
                           <div className="w-5 h-5 bg-white border border-blue-600 rounded-full flex items-center justify-center text-blue-600"><RotateCw className="w-3 h-3" /></div>
                           <div className="w-px h-3 bg-blue-600" />
                         </div>
                         {['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'].map(h => (
-                          <div key={h} className={`absolute w-2.5 h-2.5 bg-white border border-blue-600 rounded-full z-50 pointer-events-auto cursor-${h}-resize ${h.includes('n') ? 'top-0' : h.includes('s') ? 'bottom-0' : 'top-1/2'} ${h.includes('w') ? 'left-0' : h.includes('e') ? 'right-0' : 'left-1/2'} -translate-x-1/2 -translate-y-1/2`} onMouseDown={(e) => handleControlMouseDown(e, layer, 'resize', h)} />
+                          <div key={h} className={`absolute w-2.5 h-2.5 bg-white border border-blue-600 rounded-full z-50 pointer-events-auto cursor-${h}-resize ${h.includes('n') ? 'top-0' : h.includes('s') ? 'bottom-0' : 'top-1/2'} ${h.includes('w') ? 'left-0' : h.includes('e') ? 'right-0' : 'left-1/2'} -translate-x-1/2 -translate-y-1/2`} onMouseDown={(e) => handleControlMouseDown(e, layer, 'resize', h)} style={{ backfaceVisibility: 'hidden' }} />
                         ))}
                       </>
                     )}

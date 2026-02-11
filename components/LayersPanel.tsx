@@ -89,6 +89,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   const fontPickerRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; layerId: string } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const [collapsedGroupIds, setCollapsedGroupIds] = useState<string[]>([]);
 
   const latestSelectedLayerRef = useRef(selectedLayer);
   const onUpdateLayerRef = useRef(onUpdateLayer);
@@ -206,6 +207,45 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   };
 
   const sortedLayers = [...project.layers].sort((a, b) => b.zIndex - a.zIndex);
+
+  const displayLayers = useMemo(() => {
+    const added = new Set<string>();
+    const items: { layer: Layer; isChild: boolean }[] = [];
+
+    const addLayer = (layer: Layer, isChild: boolean) => {
+      if (added.has(layer.id)) return;
+      items.push({ layer, isChild });
+      added.add(layer.id);
+    };
+
+    sortedLayers.forEach(layer => {
+      if (layer.type === 'group') {
+        addLayer(layer, false);
+        if (!collapsedGroupIds.includes(layer.id)) {
+          const children = (layer.children || [])
+            .map(id => layerMap.get(id))
+            .filter((child): child is Layer => Boolean(child))
+            .sort((a, b) => b.zIndex - a.zIndex);
+          children.forEach(child => addLayer(child, true));
+        }
+        return;
+      }
+
+      if (layer.parentId && layerMap.has(layer.parentId)) return;
+      addLayer(layer, false);
+    });
+
+    sortedLayers.forEach(layer => {
+      if (added.has(layer.id)) return;
+      if (layer.parentId) {
+        const parent = layerMap.get(layer.parentId);
+        if (parent?.type === 'group' && collapsedGroupIds.includes(parent.id)) return;
+      }
+      addLayer(layer, Boolean(layer.parentId));
+    });
+
+    return items;
+  }, [sortedLayers, collapsedGroupIds, layerMap]);
 
   const menuSelection = contextMenu
     ? (selectedLayerIds.includes(contextMenu.layerId) ? selectedLayerIds : [contextMenu.layerId])
@@ -534,8 +574,10 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
         </div>
         
         <div className="flex-1 overflow-y-auto p-3 space-y-1 scrollbar-hide">
-          {sortedLayers.map((layer, index) => {
+          {displayLayers.map(({ layer, isChild }, index) => {
             const isSelected = selectedLayerIds.includes(layer.id);
+            const isGroup = layer.type === 'group';
+            const isCollapsed = isGroup && collapsedGroupIds.includes(layer.id);
             return (
               <div
                 key={layer.id}
@@ -557,9 +599,22 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                 onContextMenu={(e) => handleLayerContextMenu(e, layer.id)}
                 className={`group relative flex items-center gap-2.5 p-2 rounded-md cursor-pointer transition-all ${
                   isSelected ? 'bg-blue-600 text-white shadow-md' : 'hover:bg-slate-800 text-slate-400'
-                } ${draggedIndex === index ? 'opacity-40' : ''} ${dragOverIndex === index && draggedIndex !== index ? 'border-t-2 border-blue-400' : ''} ${layer.parentId ? 'pl-6' : ''}`}
+                } ${draggedIndex === index ? 'opacity-40' : ''} ${dragOverIndex === index && draggedIndex !== index ? 'border-t-2 border-blue-400' : ''} ${isChild ? 'pl-7' : ''}`}
               >
               <div className="cursor-grab p-0.5 opacity-0 group-hover:opacity-100" onMouseDown={preventDragInterference}><GripVertical className="w-3 h-3"/></div>
+              {isGroup && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCollapsedGroupIds(prev => prev.includes(layer.id) ? prev.filter(id => id !== layer.id) : [...prev, layer.id]);
+                  }}
+                  className="p-0.5 text-slate-400 hover:text-slate-200 transition-colors"
+                  title={isCollapsed ? (lang === 'zh' ? '展开分组' : 'Expand Group') : (lang === 'zh' ? '折叠分组' : 'Collapse Group')}
+                >
+                  <ChevronDown className={`w-3 h-3 transition-transform ${isCollapsed ? '-rotate-90' : 'rotate-0'}`} />
+                </button>
+              )}
               <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
                 {layer.type === 'group' ? (
                   <Folder className="w-3 h-3" />

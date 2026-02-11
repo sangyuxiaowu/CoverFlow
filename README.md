@@ -19,6 +19,12 @@ CoverFlow - 专业 SVG 文章封面设计器
 - 搜索与过滤：按名称关键词筛选
 - 资源预览：缩略图快速预览
 
+### 图标库
+
+- 集成 Font Awesome 图标库（需手动加载数据）
+- 启用方式：从 Font Awesome 下载 `icon-families.json` 与 `categories.yml`，在图标库面板上传后即可使用
+- 支持搜索与分类浏览，一键添加到画布生成图层
+
 ### 图层编辑系统
 
 - 图层面板：列表展示全部图层
@@ -66,7 +72,7 @@ CoverFlow - 专业 SVG 文章封面设计器
 - Ctrl + J：克隆选中图层
 - Ctrl + 上下：调整图层层级
 - Ctrl + 左右：调整旋转角度
-- Enter：编辑文本图层
+- Enter：编辑文本图层，也可以使用双击
 - Ctrl + Z：撤销
 - Ctrl + Y：重做
 

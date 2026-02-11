@@ -30,6 +30,7 @@ export interface Layer {
   ratioLocked?: boolean;
   textGradient?: TextGradient;
   children?: string[]; // Layer IDs if type is 'group'
+  parentId?: string; // Group layer ID if part of a group
 }
 
 export interface CanvasConfig {

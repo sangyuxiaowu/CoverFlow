@@ -89,7 +89,13 @@ export const translations = {
     fontWeight: "字重",
     textDirection: "文字方向",
     horizontal: "横向",
-    vertical: "纵向"
+    vertical: "纵向",
+    cloneLayer: "克隆",
+    deleteLayer: "删除",
+    bringToFront: "置顶",
+    sendToBack: "置底",
+    groupLayers: "组合",
+    ungroupLayers: "取消组合"
   },
   en: {
     title: "CoverFlow",
@@ -180,7 +186,13 @@ export const translations = {
     fontWeight: "Weight",
     textDirection: "Direction",
     horizontal: "Horizontal",
-    vertical: "Vertical"
+    vertical: "Vertical",
+    cloneLayer: "Clone",
+    deleteLayer: "Delete",
+    bringToFront: "Bring to Front",
+    sendToBack: "Send to Back",
+    groupLayers: "Group",
+    ungroupLayers: "Ungroup"
   }
 };
 

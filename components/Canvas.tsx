@@ -56,7 +56,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
     const layer = project.layers.find(l => l.id === editingLayerId);
     if (!layer || layer.type !== 'text') return;
     lastEditIdRef.current = editingLayerId;
-    setEditingValue(layer.content);
+    setEditingValue(prev => (prev === layer.content ? prev : layer.content));
     requestAnimationFrame(() => {
       textEditRef.current?.focus();
       textEditRef.current?.select();
@@ -134,7 +134,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
 
       // Snapping Targets: Other layers
       project.layers.forEach(l => {
-        if (l.id === movingLayer.id || !l.visible) return;
+        if (l.id === movingLayer.id || !l.visible || l.type === 'group') return;
         targetsX.push(l.x, l.x + l.width / 2, l.x + l.width);
         targetsY.push(l.y, l.y + l.height / 2, l.y + l.height);
       });
@@ -342,7 +342,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
             }}
           >
             {project.layers
-              .filter(l => l.visible)
+              .filter(l => l.visible && l.type !== 'group')
               .sort((a, b) => a.zIndex - b.zIndex)
               .map(layer => {
                 const textStyle: React.CSSProperties = {
@@ -454,6 +454,35 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                   </div>
                 );
               })}
+
+            {(() => {
+              const selectedGroup = project.layers.find(l => l.id === project.selectedLayerId && l.type === 'group');
+              if (!selectedGroup || selectedGroup.locked) return null;
+              return (
+                <div
+                  onMouseDown={(e) => handleLayerMouseDown(e, selectedGroup)}
+                  className="absolute select-none"
+                  style={{
+                    left: selectedGroup.x,
+                    top: selectedGroup.y,
+                    width: selectedGroup.width,
+                    height: selectedGroup.height,
+                    transform: `rotate(${selectedGroup.rotation}deg)`,
+                    zIndex: 9999,
+                    cursor: interaction ? 'grabbing' : 'move'
+                  }}
+                >
+                  <div className="absolute inset-0 border border-blue-400 border-dashed pointer-events-none" />
+                  <div className="absolute left-1/2 -top-8 -translate-x-1/2 flex flex-col items-center cursor-grab" onMouseDown={(e) => handleControlMouseDown(e, selectedGroup, 'rotate')}>
+                    <div className="w-5 h-5 bg-white border border-blue-600 rounded-full flex items-center justify-center text-blue-600"><RotateCw className="w-3 h-3" /></div>
+                    <div className="w-px h-3 bg-blue-600" />
+                  </div>
+                  {['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'].map(h => (
+                    <div key={h} className={`absolute w-2.5 h-2.5 bg-white border border-blue-600 rounded-full z-50 pointer-events-auto cursor-${h}-resize ${h.includes('n') ? 'top-0' : h.includes('s') ? 'bottom-0' : 'top-1/2'} ${h.includes('w') ? 'left-0' : h.includes('e') ? 'right-0' : 'left-1/2'} -translate-x-1/2 -translate-y-1/2`} onMouseDown={(e) => handleControlMouseDown(e, selectedGroup, 'resize', h)} />
+                  ))}
+                </div>
+              );
+            })()}
             
             {/* Alignment Guidelines Overlay */}
             {guidelines.map((g, i) => (

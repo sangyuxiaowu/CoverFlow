@@ -6,16 +6,23 @@ import { TEXT_GRADIENT_PRESETS } from '../constants.ts';
 import { 
   Eye, EyeOff, Lock, Unlock, Trash2, Hash, RotateCw, Maximize2, 
   Type as TextIcon, Image as ImageIcon, GripVertical, Link as LinkIcon, Link2Off, MoveHorizontal, MoveVertical,
-  Palette, Sliders, AlignLeft, AlignCenter, AlignRight, Type, Search, ChevronDown, Check
+  Palette, Sliders, AlignLeft, AlignCenter, AlignRight, Type, Search, ChevronDown, Check, Folder
 } from 'lucide-react';
 
 interface LayersPanelProps {
   lang: Language;
   project: ProjectState;
+  selectedLayerIds: string[];
   onUpdateLayer: (id: string, updates: Partial<Layer>, record?: boolean) => void;
   onDeleteLayer: (id: string) => void;
-  onSelectLayer: (id: string | null) => void;
+  onSelectLayer: (id: string | null, mode?: 'replace' | 'toggle') => void;
   onReorderLayers: (newLayers: Layer[]) => void;
+  onCloneLayers: (ids: string[]) => void;
+  onDeleteLayers: (ids: string[]) => void;
+  onMoveLayersTop: (ids: string[]) => void;
+  onMoveLayersBottom: (ids: string[]) => void;
+  onGroupLayers: (ids: string[]) => void;
+  onUngroupLayer: (id: string) => void;
   onCommit: () => void;
 }
 
@@ -51,7 +58,22 @@ const FONT_WEIGHTS = [
 
 const isChineseText = (text: string) => /[\u4e00-\u9fa5]/.test(text);
 
-const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer, onDeleteLayer, onSelectLayer, onReorderLayers, onCommit }) => {
+const LayersPanel: React.FC<LayersPanelProps> = ({
+  lang,
+  project,
+  selectedLayerIds,
+  onUpdateLayer,
+  onDeleteLayer,
+  onSelectLayer,
+  onReorderLayers,
+  onCloneLayers,
+  onDeleteLayers,
+  onMoveLayersTop,
+  onMoveLayersBottom,
+  onGroupLayers,
+  onUngroupLayer,
+  onCommit
+}) => {
   const selectedLayer = project.layers.find(l => l.id === project.selectedLayerId);
   const t = translations[lang];
 
@@ -65,10 +87,14 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
   const [fontSearch, setFontSearch] = useState("");
   const [isFontPickerOpen, setIsFontPickerOpen] = useState(false);
   const fontPickerRef = useRef<HTMLDivElement>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; layerId: string } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   const latestSelectedLayerRef = useRef(selectedLayer);
   const onUpdateLayerRef = useRef(onUpdateLayer);
   const scrubbingRef = useRef<{ prop: string, startValue: number, startX: number } | null>(null);
+
+  const layerMap = useMemo(() => new Map(project.layers.map(l => [l.id, l])), [project.layers]);
 
   useEffect(() => {
     latestSelectedLayerRef.current = selectedLayer;
@@ -121,6 +147,22 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handleClick = (event: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+    const handleScroll = () => setContextMenu(null);
+    window.addEventListener('mousedown', handleClick);
+    window.addEventListener('scroll', handleScroll, true);
+    return () => {
+      window.removeEventListener('mousedown', handleClick);
+      window.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [contextMenu]);
+
   const handleScrubMove = useCallback((e: MouseEvent) => {
     if (!scrubbingRef.current || !latestSelectedLayerRef.current) return;
     const delta = (e.clientX - scrubbingRef.current.startX);
@@ -164,6 +206,21 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
   };
 
   const sortedLayers = [...project.layers].sort((a, b) => b.zIndex - a.zIndex);
+
+  const menuSelection = contextMenu
+    ? (selectedLayerIds.includes(contextMenu.layerId) ? selectedLayerIds : [contextMenu.layerId])
+    : [];
+  const canGroup = menuSelection.length > 1 && menuSelection.every(id => layerMap.get(id)?.type !== 'group');
+  const canUngroup = menuSelection.length === 1 && layerMap.get(menuSelection[0])?.type === 'group';
+
+  const handleLayerContextMenu = (e: React.MouseEvent, layerId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!selectedLayerIds.includes(layerId)) {
+      onSelectLayer(layerId, 'replace');
+    }
+    setContextMenu({ x: e.clientX, y: e.clientY, layerId });
+  };
 
   const startRename = (id: string, name: string) => {
     setEditingId(id);
@@ -477,31 +534,36 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
         </div>
         
         <div className="flex-1 overflow-y-auto p-3 space-y-1 scrollbar-hide">
-          {sortedLayers.map((layer, index) => (
-            <div
-              key={layer.id}
-              draggable
-              onDragStart={(e) => { setDraggedIndex(index); e.dataTransfer.effectAllowed = 'move'; }}
-              onDragOver={(e) => { e.preventDefault(); setDragOverIndex(index); }}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (draggedIndex !== null && draggedIndex !== index) {
-                  const newSorted = [...sortedLayers];
-                  const [removed] = newSorted.splice(draggedIndex, 1);
-                  newSorted.splice(index, 0, removed);
-                  onReorderLayers([...newSorted].reverse());
-                }
-                setDraggedIndex(null); setDragOverIndex(null);
-              }}
-              onDragEnd={() => { setDraggedIndex(null); setDragOverIndex(null); }}
-              onClick={() => onSelectLayer(layer.id)}
-              className={`group relative flex items-center gap-2.5 p-2 rounded-md cursor-pointer transition-all ${
-                project.selectedLayerId === layer.id ? 'bg-blue-600 text-white shadow-md' : 'hover:bg-slate-800 text-slate-400'
-              } ${draggedIndex === index ? 'opacity-40' : ''} ${dragOverIndex === index && draggedIndex !== index ? 'border-t-2 border-blue-400' : ''}`}
-            >
+          {sortedLayers.map((layer, index) => {
+            const isSelected = selectedLayerIds.includes(layer.id);
+            return (
+              <div
+                key={layer.id}
+                draggable
+                onDragStart={(e) => { setDraggedIndex(index); e.dataTransfer.effectAllowed = 'move'; }}
+                onDragOver={(e) => { e.preventDefault(); setDragOverIndex(index); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (draggedIndex !== null && draggedIndex !== index) {
+                    const newSorted = [...sortedLayers];
+                    const [removed] = newSorted.splice(draggedIndex, 1);
+                    newSorted.splice(index, 0, removed);
+                    onReorderLayers([...newSorted].reverse());
+                  }
+                  setDraggedIndex(null); setDragOverIndex(null);
+                }}
+                onDragEnd={() => { setDraggedIndex(null); setDragOverIndex(null); }}
+                onClick={(e) => onSelectLayer(layer.id, e.ctrlKey || e.metaKey ? 'toggle' : 'replace')}
+                onContextMenu={(e) => handleLayerContextMenu(e, layer.id)}
+                className={`group relative flex items-center gap-2.5 p-2 rounded-md cursor-pointer transition-all ${
+                  isSelected ? 'bg-blue-600 text-white shadow-md' : 'hover:bg-slate-800 text-slate-400'
+                } ${draggedIndex === index ? 'opacity-40' : ''} ${dragOverIndex === index && draggedIndex !== index ? 'border-t-2 border-blue-400' : ''} ${layer.parentId ? 'pl-6' : ''}`}
+              >
               <div className="cursor-grab p-0.5 opacity-0 group-hover:opacity-100" onMouseDown={preventDragInterference}><GripVertical className="w-3 h-3"/></div>
               <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
-                {layer.type === 'text' ? (
+                {layer.type === 'group' ? (
+                  <Folder className="w-3 h-3" />
+                ) : layer.type === 'text' ? (
                    <TextIcon className="w-3 h-3" /> 
                 ) : layer.type === 'image' ? (
                    <ImageIcon className="w-3 h-3" /> 
@@ -522,7 +584,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                   <span className="block text-[11px] truncate font-medium">{layer.name}</span>
                 )}
               </div>
-              <div className={`flex gap-0.5 ${project.selectedLayerId === layer.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+              <div className={`flex gap-0.5 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                  <button type="button" onClick={(e) => { e.stopPropagation(); onUpdateLayer(layer.id, { visible: !layer.visible }); }} className="p-0.5 hover:text-white transition-colors">
                    {layer.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
                  </button>
@@ -534,9 +596,59 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                  </button>
               </div>
             </div>
-          ))}
+          );
+        })}
         </div>
       </div>
+
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="fixed z-[200] min-w-[160px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden text-[11px]"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors"
+            onClick={() => { onCloneLayers(menuSelection); setContextMenu(null); }}
+          >
+            {t.cloneLayer}
+          </button>
+          <button
+            className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors"
+            onClick={() => { onDeleteLayers(menuSelection); setContextMenu(null); }}
+          >
+            {t.deleteLayer}
+          </button>
+          <button
+            className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors"
+            onClick={() => { onMoveLayersTop(menuSelection); setContextMenu(null); }}
+          >
+            {t.bringToFront}
+          </button>
+          <button
+            className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors"
+            onClick={() => { onMoveLayersBottom(menuSelection); setContextMenu(null); }}
+          >
+            {t.sendToBack}
+          </button>
+          {canGroup && (
+            <button
+              className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors"
+              onClick={() => { onGroupLayers(menuSelection); setContextMenu(null); }}
+            >
+              {t.groupLayers}
+            </button>
+          )}
+          {canUngroup && (
+            <button
+              className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors"
+              onClick={() => { onUngroupLayer(menuSelection[0]); setContextMenu(null); }}
+            >
+              {t.ungroupLayers}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };

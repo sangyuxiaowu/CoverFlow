@@ -114,7 +114,7 @@ const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObjec
         }}
       >
         {project.layers
-          .filter(l => l.visible)
+          .filter(l => l.visible && l.type !== 'group')
           .sort((a, b) => a.zIndex - b.zIndex)
           .map(layer => {
             const textStyle: React.CSSProperties = {
@@ -288,6 +288,7 @@ const App: React.FC = () => {
   
   const [view, setView] = useState<'landing' | 'editor'>('landing');
   const [project, setProject] = useState<ProjectState | null>(null);
+  const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState('assets');
   const [isExporting, setIsExporting] = useState(false);
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
@@ -311,6 +312,22 @@ const App: React.FC = () => {
   }, [project, view]);
 
   useEffect(() => { localStorage.setItem('coverflow_lang', lang); }, [lang]);
+
+  useEffect(() => {
+    if (!project) {
+      setSelectedLayerIds([]);
+      return;
+    }
+    if (!project.selectedLayerId) {
+      setSelectedLayerIds([]);
+      return;
+    }
+    setSelectedLayerIds(prev => {
+      if (prev.length === 1 && prev[0] === project.selectedLayerId) return prev;
+      if (prev.length > 1 && prev.includes(project.selectedLayerId)) return prev;
+      return [project.selectedLayerId];
+    });
+  }, [project?.id, project?.selectedLayerId]);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -395,20 +412,283 @@ const App: React.FC = () => {
     setProject(prev => prev ? modifier(prev) : null);
   };
 
+  const getGroupBounds = (layers: Layer[], childIds: string[]) => {
+    const children = layers.filter(l => childIds.includes(l.id));
+    if (children.length === 0) return { x: 0, y: 0, width: 1, height: 1 };
+    const minX = Math.min(...children.map(l => l.x));
+    const minY = Math.min(...children.map(l => l.y));
+    const maxX = Math.max(...children.map(l => l.x + l.width));
+    const maxY = Math.max(...children.map(l => l.y + l.height));
+    return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+  };
+
   const updateLayer = useCallback((id: string, updates: Partial<Layer>, record: boolean = true) => {
-    modifyProject(p => ({
-      ...p,
-      layers: p.layers.map(l => {
+    modifyProject(p => {
+      const target = p.layers.find(l => l.id === id);
+      if (!target) return p;
+
+      if (target.type === 'group') {
+        const childIds = target.children || [];
+        const baseBounds = {
+          x: target.x,
+          y: target.y,
+          width: Math.max(1, target.width),
+          height: Math.max(1, target.height),
+          rotation: target.rotation || 0
+        };
+        const nextBounds = {
+          x: updates.x !== undefined ? updates.x : baseBounds.x,
+          y: updates.y !== undefined ? updates.y : baseBounds.y,
+          width: updates.width !== undefined ? Math.max(1, updates.width) : baseBounds.width,
+          height: updates.height !== undefined ? Math.max(1, updates.height) : baseBounds.height,
+          rotation: updates.rotation !== undefined ? updates.rotation : baseBounds.rotation
+        };
+        const scaleX = nextBounds.width / baseBounds.width;
+        const scaleY = nextBounds.height / baseBounds.height;
+        const deltaRotation = nextBounds.rotation - baseBounds.rotation;
+        const baseCenter = { x: baseBounds.x + baseBounds.width / 2, y: baseBounds.y + baseBounds.height / 2 };
+        const nextCenter = { x: nextBounds.x + nextBounds.width / 2, y: nextBounds.y + nextBounds.height / 2 };
+        const rad = deltaRotation * (Math.PI / 180);
+
+        const hasTransform = updates.x !== undefined || updates.y !== undefined || updates.width !== undefined || updates.height !== undefined || updates.rotation !== undefined;
+
+        const nextLayers = p.layers.map(l => {
+          if (l.id === target.id) {
+            return { ...target, ...updates, ...nextBounds };
+          }
+          if (!childIds.includes(l.id)) return l;
+
+          let updatedChild = { ...l };
+          if (updates.opacity !== undefined) updatedChild.opacity = updates.opacity;
+          if (updates.visible !== undefined) updatedChild.visible = updates.visible;
+          if (updates.locked !== undefined) updatedChild.locked = updates.locked;
+
+          if (hasTransform) {
+            const childCenter = { x: l.x + l.width / 2, y: l.y + l.height / 2 };
+            let relX = (childCenter.x - baseCenter.x) * scaleX;
+            let relY = (childCenter.y - baseCenter.y) * scaleY;
+            if (deltaRotation !== 0) {
+              const rx = relX * Math.cos(rad) - relY * Math.sin(rad);
+              const ry = relX * Math.sin(rad) + relY * Math.cos(rad);
+              relX = rx;
+              relY = ry;
+            }
+            const newCenter = { x: nextCenter.x + relX, y: nextCenter.y + relY };
+            const newW = Math.max(10, l.width * scaleX);
+            const newH = Math.max(10, l.height * scaleY);
+            updatedChild = {
+              ...updatedChild,
+              x: newCenter.x - newW / 2,
+              y: newCenter.y - newH / 2,
+              width: newW,
+              height: newH,
+              rotation: l.rotation + deltaRotation
+            };
+          }
+          return updatedChild;
+        });
+
+        return { ...p, layers: nextLayers };
+      }
+
+      const layers = p.layers.map(l => {
         if (l.id !== id) return l;
         const newL = { ...l, ...updates };
         if (l.ratioLocked) {
-           if (updates.width !== undefined && updates.height === undefined) newL.height = updates.width * (l.height / l.width);
-           else if (updates.height !== undefined && updates.width === undefined) newL.width = updates.height * (l.width / l.height);
+          if (updates.width !== undefined && updates.height === undefined) newL.height = updates.width * (l.height / l.width);
+          else if (updates.height !== undefined && updates.width === undefined) newL.width = updates.height * (l.width / l.height);
         }
         return newL;
-      })
-    }), record);
-  }, []);
+      });
+
+      const updatedLayer = layers.find(l => l.id === id);
+      if (updatedLayer?.parentId) {
+        const parentLayer = layers.find(l => l.id === updatedLayer.parentId);
+        if (parentLayer?.type === 'group') {
+          const bounds = getGroupBounds(layers, parentLayer.children || []);
+          return {
+            ...p,
+            layers: layers.map(l => l.id === parentLayer.id ? { ...parentLayer, ...bounds } : l)
+          };
+        }
+      }
+
+      return { ...p, layers };
+    }, record);
+  }, [getGroupBounds]);
+
+  const getExpandedSelection = (layers: Layer[], ids: string[]) => {
+    const expanded = new Set(ids);
+    layers.forEach(l => {
+      if (l.type === 'group' && expanded.has(l.id)) {
+        (l.children || []).forEach(childId => expanded.add(childId));
+      }
+    });
+    return expanded;
+  };
+
+  const handleSelectLayer = (id: string | null, mode: 'replace' | 'toggle' = 'replace') => {
+    if (!project) return;
+    if (!id) {
+      setSelectedLayerIds([]);
+      modifyProject(p => ({ ...p, selectedLayerId: null }), false);
+      return;
+    }
+
+    if (mode === 'replace') {
+      setSelectedLayerIds([id]);
+      modifyProject(p => ({ ...p, selectedLayerId: id }), false);
+      return;
+    }
+
+    const exists = selectedLayerIds.includes(id);
+    const nextIds = exists ? selectedLayerIds.filter(lid => lid !== id) : [...selectedLayerIds, id];
+    const nextActiveId = exists
+      ? (project.selectedLayerId === id ? (nextIds[nextIds.length - 1] || null) : project.selectedLayerId)
+      : id;
+    setSelectedLayerIds(nextIds);
+    modifyProject(p => ({ ...p, selectedLayerId: nextActiveId }), false);
+  };
+
+  const handleDeleteLayers = (ids: string[]) => {
+    if (!project || ids.length === 0) return;
+    const expanded = getExpandedSelection(project.layers, ids);
+    modifyProject(p => {
+      const nextLayers = p.layers
+        .filter(l => !expanded.has(l.id))
+        .map(l => {
+          if (l.parentId && expanded.has(l.parentId)) return { ...l, parentId: undefined };
+          if (l.type === 'group') {
+            const nextChildren = (l.children || []).filter(cid => !expanded.has(cid));
+            return { ...l, children: nextChildren };
+          }
+          return l;
+        });
+
+      const normalizedLayers = nextLayers
+        .filter(l => l.type !== 'group' || (l.children || []).length > 0)
+        .map(l => {
+          if (l.type !== 'group') return l;
+          const bounds = getGroupBounds(nextLayers, l.children || []);
+          return { ...l, ...bounds };
+        });
+
+      const nextSelected = p.selectedLayerId && expanded.has(p.selectedLayerId) ? null : p.selectedLayerId;
+      return { ...p, layers: normalizedLayers, selectedLayerId: nextSelected };
+    });
+    setSelectedLayerIds(prev => prev.filter(id => !expanded.has(id)));
+  };
+
+  const handleCloneLayers = (ids: string[]) => {
+    if (!project || ids.length === 0) return;
+    modifyProject(p => {
+      const layerMap = new Map(p.layers.map(l => [l.id, l]));
+      const expanded = getExpandedSelection(p.layers, ids);
+      const idMap = new Map<string, string>();
+      expanded.forEach(id => idMap.set(id, generateId()));
+
+      const baseZ = Math.max(0, ...p.layers.map(l => l.zIndex));
+      let zCursor = baseZ + 1;
+
+      const clones: Layer[] = [];
+      expanded.forEach(id => {
+        const layer = layerMap.get(id);
+        if (!layer) return;
+        const newId = idMap.get(id) as string;
+        const parentId = layer.parentId && idMap.has(layer.parentId) ? idMap.get(layer.parentId) : undefined;
+        const nextLayer: Layer = {
+          ...JSON.parse(JSON.stringify(layer)),
+          id: newId,
+          parentId,
+          x: layer.x + 20,
+          y: layer.y + 20,
+          zIndex: zCursor++
+        };
+        if (nextLayer.type === 'group') {
+          nextLayer.children = (layer.children || []).map(cid => idMap.get(cid) as string).filter(Boolean);
+        }
+        clones.push(nextLayer);
+      });
+
+      const nextSelectedIds = ids.map(id => idMap.get(id)).filter((val): val is string => Boolean(val));
+      const nextActiveId = nextSelectedIds[nextSelectedIds.length - 1] || null;
+      setSelectedLayerIds(nextSelectedIds);
+
+      return { ...p, layers: [...p.layers, ...clones], selectedLayerId: nextActiveId };
+    });
+    showToast(lang === 'zh' ? "图层已复制" : "Layer cloned");
+  };
+
+  const handleMoveLayers = (ids: string[], toFront: boolean) => {
+    if (!project || ids.length === 0) return;
+    modifyProject(p => {
+      const expanded = getExpandedSelection(p.layers, ids);
+      const ordered = [...p.layers].sort((a, b) => a.zIndex - b.zIndex);
+      const moving = ordered.filter(l => expanded.has(l.id));
+      const staying = ordered.filter(l => !expanded.has(l.id));
+      const nextOrder = toFront ? [...staying, ...moving] : [...moving, ...staying];
+      return { ...p, layers: nextOrder.map((l, i) => ({ ...l, zIndex: i + 1 })) };
+    });
+  };
+
+  const handleGroupLayers = (ids: string[]) => {
+    if (!project) return;
+    const candidates = ids
+      .map(id => project.layers.find(l => l.id === id))
+      .filter((l): l is Layer => Boolean(l))
+      .filter(l => l.type !== 'group');
+    if (candidates.length < 2) return;
+
+    const candidateIds = new Set(candidates.map(l => l.id));
+
+    const groupId = generateId();
+    const bounds = getGroupBounds(project.layers, candidates.map(l => l.id));
+    const groupLayer: Layer = {
+      id: groupId,
+      name: lang === 'zh' ? '分组' : 'Group',
+      type: 'group',
+      content: '',
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      rotation: 0,
+      zIndex: Math.max(0, ...project.layers.map(l => l.zIndex)) + 1,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      children: candidates.map(l => l.id)
+    };
+
+    modifyProject(p => ({
+      ...p,
+      layers: p.layers.map(l => {
+        if (candidateIds.has(l.id)) return { ...l, parentId: groupId };
+        if (l.type === 'group') {
+          const nextChildren = (l.children || []).filter(cid => !candidateIds.has(cid));
+          return { ...l, children: nextChildren };
+        }
+        return l;
+      }).concat(groupLayer),
+      selectedLayerId: groupId
+    }));
+    setSelectedLayerIds([groupId]);
+  };
+
+  const handleUngroupLayer = (groupId: string) => {
+    if (!project) return;
+    const group = project.layers.find(l => l.id === groupId && l.type === 'group');
+    if (!group) return;
+    const childIds = group.children || [];
+    modifyProject(p => ({
+      ...p,
+      layers: p.layers
+        .filter(l => l.id !== groupId)
+        .map(l => childIds.includes(l.id) ? { ...l, parentId: undefined } : l),
+      selectedLayerId: childIds[0] || null
+    }));
+    setSelectedLayerIds(childIds);
+  };
 
   const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -476,10 +756,10 @@ const App: React.FC = () => {
 
   const addTextLayerWithContent = (text: string) => {
     if (!project) return;
+    const newId = generateId();
     modifyProject(p => {
       const width = Math.min(Math.max(200, text.length * 18), p.canvasConfig.width * 0.9);
       const height = Math.min(120, p.canvasConfig.height * 0.5);
-      const newId = generateId();
       return {
         ...p,
         layers: [...p.layers, {
@@ -506,11 +786,13 @@ const App: React.FC = () => {
         selectedLayerId: newId
       };
     });
+    setSelectedLayerIds([newId]);
     showToast(lang === 'zh' ? "已粘贴文字图层" : "Text layer pasted");
   };
 
   const addSvgLayerWithContent = (svgText: string) => {
     if (!project) return;
+    const newId = generateId();
     const normalized = normalizeSVG(svgText);
     const dims = getSVGDimensions(normalized);
     modifyProject(p => {
@@ -544,14 +826,15 @@ const App: React.FC = () => {
         selectedLayerId: newId
       };
     });
+    setSelectedLayerIds([newId]);
     showToast(lang === 'zh' ? "已粘贴 SVG 图层" : "SVG layer pasted");
   };
 
   const addImageLayerWithContent = (dataUrl: string) => {
     if (!project) return;
+    const newId = generateId();
     modifyProject(p => {
       const size = Math.min(320, p.canvasConfig.width * 0.6, p.canvasConfig.height * 0.6);
-      const newId = generateId();
       return {
         ...p,
         layers: [...p.layers, {
@@ -573,6 +856,7 @@ const App: React.FC = () => {
         selectedLayerId: newId
       };
     });
+    setSelectedLayerIds([newId]);
     showToast(lang === 'zh' ? "已粘贴图片图层" : "Image layer pasted");
   };
 
@@ -593,6 +877,7 @@ const App: React.FC = () => {
         updatedAt: Date.now()
       };
     });
+    setSelectedLayerIds([]);
     showToast(lang === 'zh' ? "已应用 JSON 项目内容" : "Project JSON content applied");
   };
 
@@ -691,6 +976,7 @@ const App: React.FC = () => {
       ratioLocked: true
     };
     modifyProject(p => ({ ...p, layers: [...p.layers, newLayer], selectedLayerId: newLayer.id }));
+    setSelectedLayerIds([newLayer.id]);
   };
 
   const handleAddImage = () => {
@@ -731,6 +1017,7 @@ const App: React.FC = () => {
               ratioLocked: true
             };
             modifyProject(p => ({ ...p, layers: [...p.layers, newLayer], selectedLayerId: newLayer.id }));
+            setSelectedLayerIds([newLayer.id]);
           };
           img.src = content;
         };
@@ -762,6 +1049,14 @@ const App: React.FC = () => {
         return;
       }
 
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+        if (selectedLayerIds.length > 1) {
+          e.preventDefault();
+          handleGroupLayers(selectedLayerIds);
+        }
+        return;
+      }
+
       if (!project || !project.selectedLayerId) return;
 
       const layer = project.layers.find(l => l.id === project.selectedLayerId);
@@ -780,11 +1075,8 @@ const App: React.FC = () => {
       // Delete/Backspace
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
-        modifyProject(p => ({
-          ...p,
-          layers: p.layers.filter(l => l.id !== project.selectedLayerId),
-          selectedLayerId: null
-        }));
+        if (selectedLayerIds.length > 1) handleDeleteLayers(selectedLayerIds);
+        else handleDeleteLayers([project.selectedLayerId]);
         return;
       }
 
@@ -817,10 +1109,8 @@ const App: React.FC = () => {
         // Clone (Ctrl+J)
         if (e.key.toLowerCase() === 'j') {
           e.preventDefault();
-          const newId = generateId();
-          const clone = { ...JSON.parse(JSON.stringify(layer)), id: newId, x: layer.x + 20, y: layer.y + 20, zIndex: project.layers.length + 1 };
-          modifyProject(p => ({ ...p, layers: [...p.layers, clone], selectedLayerId: newId }));
-          showToast(lang === 'zh' ? "图层已复制" : "Layer cloned");
+          if (selectedLayerIds.length > 1) handleCloneLayers(selectedLayerIds);
+          else handleCloneLayers([project.selectedLayerId]);
           return;
         }
       }
@@ -841,7 +1131,7 @@ const App: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [project, handleUndo, handleRedo, updateLayer, lang]);
+  }, [project, handleUndo, handleRedo, updateLayer, lang, selectedLayerIds, handleDeleteLayers, handleCloneLayers, handleGroupLayers]);
 
   const groupedProjects = useMemo(() => {
     const filtered = projects.filter(p => p.title.toLowerCase().includes(projectSearchTerm.toLowerCase()));
@@ -1013,7 +1303,7 @@ const App: React.FC = () => {
           <Canvas
             lang={lang}
             project={project}
-            onSelectLayer={(id) => modifyProject(p => ({ ...p, selectedLayerId: id }), false)}
+            onSelectLayer={(id) => handleSelectLayer(id, 'replace')}
             updateLayer={updateLayer}
             onCommit={saveHistorySnapshot}
           />
@@ -1032,10 +1322,17 @@ const App: React.FC = () => {
         <LayersPanel
           lang={lang}
           project={project}
+          selectedLayerIds={selectedLayerIds}
           onUpdateLayer={updateLayer}
-          onDeleteLayer={(id) => setConfirmDialog({ message: t.confirmDelete, onConfirm: () => modifyProject(p => ({ ...p, layers: p.layers.filter(l => l.id !== id), selectedLayerId: p.selectedLayerId === id ? null : p.selectedLayerId })) })}
-          onSelectLayer={(id) => modifyProject(p => ({ ...p, selectedLayerId: id }), false)}
+          onDeleteLayer={(id) => setConfirmDialog({ message: t.confirmDelete, onConfirm: () => handleDeleteLayers([id]) })}
+          onSelectLayer={handleSelectLayer}
           onReorderLayers={(newLayers) => modifyProject(p => ({ ...p, layers: newLayers.map((l, i) => ({ ...l, zIndex: i + 1 })) }))}
+          onCloneLayers={handleCloneLayers}
+          onDeleteLayers={(ids) => setConfirmDialog({ message: t.confirmDelete, onConfirm: () => handleDeleteLayers(ids) })}
+          onMoveLayersTop={(ids) => handleMoveLayers(ids, true)}
+          onMoveLayersBottom={(ids) => handleMoveLayers(ids, false)}
+          onGroupLayers={handleGroupLayers}
+          onUngroupLayer={handleUngroupLayer}
           onCommit={saveHistorySnapshot}
         />
       </main>

@@ -6,9 +6,10 @@ export const PRESET_RATIOS: (PresetRatio & { nameZh?: string })[] = [
   { name: 'Square 1:1', nameZh: '正方形 1:1', ratio: '1:1', width: 900, height: 900 },
   { name: 'Mini 16:9', nameZh: '小巧 16:9', ratio: '16:9', width: 720, height: 405 },
   { name: 'HD 16:9', nameZh: '高清视频 16:9', ratio: '16:9', width: 1280, height: 720 },
+  { name: 'Vertical 9:16', nameZh: '手机竖屏 9:16', ratio: '9:16', width: 720, height: 1280 },
   { name: 'Classic 4:3', nameZh: '经典比例 4:3', ratio: '4:3', width: 1024, height: 768 },
   { name: 'Portrait 3:4', nameZh: '竖版 3:4', ratio: '3:4', width: 900, height: 1200 },
-  { name: 'Vertical 9:16', nameZh: '手机竖屏 9:16', ratio: '9:16', width: 720, height: 1280 },
+  { name: 'Photo 3:2', nameZh: '照片比例 3:2', ratio: '3:2', width: 900, height: 600 }
 ];
 
 export const CATEGORIZED_ASSETS = [

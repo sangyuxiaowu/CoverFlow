@@ -504,12 +504,12 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
         </div>
       </div>
       
-      <div className="fixed bottom-6 right-6 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-2xl px-5 py-3 flex items-center gap-5 text-xs font-bold text-slate-200 shadow-2xl z-50">
-        <button onClick={() => setZoom(z => Math.max(0.05, z - 0.1))} className="hover:text-blue-400 font-black w-8 h-8 flex items-center justify-center rounded-lg bg-slate-800 border border-slate-700 transition-all active:scale-95">－</button>
-        <span className="w-16 text-center font-mono text-sm tracking-tight">{Math.round(zoom * 100)}%</span>
-        <button onClick={() => setZoom(z => Math.min(5, z + 0.1))} className="hover:text-blue-400 font-black w-8 h-8 flex items-center justify-center rounded-lg bg-slate-800 border border-slate-700 transition-all active:scale-95">＋</button>
-        <div className="w-px h-6 bg-slate-700 mx-1" />
-        <button onClick={() => setZoom(0.8)} className="hover:text-blue-400 text-slate-400 transition-colors uppercase tracking-widest">{t.resetZoom}</button>
+      <div className="absolute bottom-3 right-3 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-xl px-3 py-2 flex items-center gap-3 text-[10px] font-bold text-slate-200 shadow-2xl z-50">
+        <button onClick={() => setZoom(z => Math.max(0.05, z - 0.1))} className="hover:text-blue-400 font-black w-7 h-7 flex items-center justify-center rounded-md bg-slate-800 border border-slate-700 transition-all active:scale-95">－</button>
+        <span className="w-12 text-center font-mono text-xs tracking-tight">{Math.round(zoom * 100)}%</span>
+        <button onClick={() => setZoom(z => Math.min(5, z + 0.1))} className="hover:text-blue-400 font-black w-7 h-7 flex items-center justify-center rounded-md bg-slate-800 border border-slate-700 transition-all active:scale-95">＋</button>
+        <div className="w-px h-4 bg-slate-700" />
+        <button onClick={() => setZoom(0.8)} className="hover:text-blue-400 text-slate-400 transition-colors uppercase tracking-widest text-[9px]">{t.resetZoom}</button>
       </div>
     </div>
   );

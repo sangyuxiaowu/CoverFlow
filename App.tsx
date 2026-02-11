@@ -155,7 +155,12 @@ const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObjec
                 }}
               >
                 {layer.type === 'svg' ? (
-                  <div className="w-full h-full" style={{ color: layer.color }} dangerouslySetInnerHTML={{ __html: layer.content }} />
+                  <div className="w-full h-full pointer-events-none overflow-hidden" style={{ color: layer.color }}>
+                    {layer.content.toLowerCase().includes('<svg')
+                      ? <div className="w-full h-full" dangerouslySetInnerHTML={{ __html: layer.content }} />
+                      : <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" dangerouslySetInnerHTML={{ __html: layer.content }} />
+                    }
+                  </div>
                 ) : layer.type === 'text' ? (
                   <div style={textStyle}>{layer.content}</div>
                 ) : (
@@ -435,8 +440,20 @@ const App: React.FC = () => {
       showToast(lang === 'zh' ? "导出失败：预览未加载" : "Export failed: Preview not loaded", "error");
       return;
     }
+    setIsExporting(true);
     try { 
-      const dataUrl = await htmlToImage.toPng(previewNode, { pixelRatio: 2 }); 
+      const { width, height } = targetProject.canvasConfig;
+      const dataUrl = await htmlToImage.toPng(previewNode, {
+        pixelRatio: 2,
+        width,
+        height,
+        style: {
+          transform: 'scale(1)',
+          transformOrigin: 'top left',
+          width: `${width}px`,
+          height: `${height}px`
+        }
+      }); 
       const link = document.createElement('a'); 
       link.download = `${targetProject.title}.png`; 
       link.href = dataUrl; 
@@ -444,6 +461,8 @@ const App: React.FC = () => {
       showToast(lang === 'zh' ? "导出成功" : "Exported successfully");
     } catch (e) { 
       showToast(lang === 'zh' ? "导出失败" : "Export Failed", "error"); 
+    } finally {
+      setIsExporting(false);
     }
   };
 

@@ -1,12 +1,12 @@
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Layer, ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
 import { TEXT_GRADIENT_PRESETS } from '../constants.ts';
 import { 
   Eye, EyeOff, Lock, Unlock, Trash2, Hash, RotateCw, Maximize2, 
   Type as TextIcon, Image as ImageIcon, GripVertical, Link as LinkIcon, Link2Off, MoveHorizontal, MoveVertical,
-  Palette, Sliders, AlignLeft, AlignCenter, AlignRight, Type
+  Palette, Sliders, AlignLeft, AlignCenter, AlignRight, Type, Search, ChevronDown, Check
 } from 'lucide-react';
 
 interface LayersPanelProps {
@@ -50,6 +50,12 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
   const [editValue, setEditValue] = useState("");
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  
+  // Font related states
+  const [localFonts, setLocalFonts] = useState<{name: string, value: string}[]>([]);
+  const [fontSearch, setFontSearch] = useState("");
+  const [isFontPickerOpen, setIsFontPickerOpen] = useState(false);
+  const fontPickerRef = useRef<HTMLDivElement>(null);
 
   const latestSelectedLayerRef = useRef(selectedLayer);
   const onUpdateLayerRef = useRef(onUpdateLayer);
@@ -60,6 +66,38 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
     onUpdateLayerRef.current = onUpdateLayer;
   }, [selectedLayer, onUpdateLayer]);
 
+  // Load Local Fonts
+  useEffect(() => {
+    const fetchLocalFonts = async () => {
+      if ('queryLocalFonts' in window) {
+        try {
+          // @ts-ignore - queryLocalFonts is a new API
+          const fonts = await (window as any).queryLocalFonts();
+          // Extract unique family names
+          const uniqueFamilies = Array.from(new Set(fonts.map((f: any) => f.fullName))) as string[];
+          const formatted = uniqueFamilies.map(f => ({
+            name: f,
+            value: `"${f}", sans-serif`
+          }));
+          setLocalFonts(formatted);
+        } catch (e) {
+          console.warn("Failed to fetch local fonts", e);
+        }
+      }
+    };
+    fetchLocalFonts();
+  }, []);
+
+  // Close font picker on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (fontPickerRef.current && !fontPickerRef.current.contains(event.target as Node)) {
+        setIsFontPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleScrubMove = useCallback((e: MouseEvent) => {
     if (!scrubbingRef.current || !latestSelectedLayerRef.current) return;
@@ -130,6 +168,19 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
       textGradient: { ...current, ...updates }
     });
   };
+
+  const availableFonts = useMemo(() => {
+    const baseList = localFonts.length > 0 ? localFonts : COMMON_FONTS;
+    if (!fontSearch) return baseList;
+    return baseList.filter(f => f.name.toLowerCase().includes(fontSearch.toLowerCase()));
+  }, [localFonts, fontSearch]);
+
+  const currentFontName = useMemo(() => {
+    if (!selectedLayer || selectedLayer.type !== 'text') return '';
+    const val = selectedLayer.fontFamily || 'Inter, sans-serif';
+    const found = [...localFonts, ...COMMON_FONTS].find(f => f.value === val);
+    return found ? found.name : val.replace(/"/g, '').split(',')[0];
+  }, [selectedLayer, localFonts]);
 
   return (
     <div className="w-72 bg-slate-900 border-l border-slate-800 flex flex-col flex-shrink-0 shadow-2xl relative z-20 h-full">
@@ -223,23 +274,61 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
               {/* Text Specific Property Group */}
               {selectedLayer.type === 'text' && (
                 <div className="space-y-5 pt-4 border-t border-slate-800/80">
-                  {/* Font Family & Weight Row */}
+                  {/* Font Family (Searchable Dropdown) & Weight Row */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.fontFamily}</label>
-                      <select 
-                        value={selectedLayer.fontFamily || 'Inter, sans-serif'} 
-                        onChange={(e) => onUpdateLayer(selectedLayer.id, { fontFamily: e.target.value })}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-[11px] text-slate-200 focus:border-blue-500 outline-none transition-colors"
-                      >
-                        {COMMON_FONTS.map(f => <option key={f.value} value={f.value}>{f.name}</option>)}
-                      </select>
+                      <div className="relative" ref={fontPickerRef}>
+                        <button 
+                          onClick={() => setIsFontPickerOpen(!isFontPickerOpen)}
+                          className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-[11px] text-slate-200 focus:border-blue-500 outline-none transition-colors text-left flex items-center justify-between"
+                        >
+                          <span className="truncate">{currentFontName}</span>
+                          <ChevronDown className="w-3 h-3 opacity-50" />
+                        </button>
+                        
+                        {isFontPickerOpen && (
+                          <div className="absolute top-full left-0 w-64 mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-[100] flex flex-col max-h-80 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-200">
+                            <div className="p-2 border-b border-slate-800 flex items-center gap-2">
+                              <Search className="w-3.5 h-3.5 text-slate-500" />
+                              <input 
+                                autoFocus
+                                type="text"
+                                placeholder={lang === 'zh' ? "搜索字体..." : "Search fonts..."}
+                                value={fontSearch}
+                                onChange={(e) => setFontSearch(e.target.value)}
+                                className="bg-transparent border-none outline-none text-[11px] w-full text-slate-200 placeholder-slate-600"
+                              />
+                            </div>
+                            <div className="flex-1 overflow-y-auto custom-scrollbar p-1">
+                              {availableFonts.length > 0 ? (
+                                availableFonts.map(f => (
+                                  <button
+                                    key={f.value}
+                                    onClick={() => {
+                                      onUpdateLayer(selectedLayer.id, { fontFamily: f.value });
+                                      setIsFontPickerOpen(false);
+                                      setFontSearch("");
+                                    }}
+                                    className={`w-full text-left px-3 py-2 rounded-md flex items-center justify-between text-[11px] hover:bg-slate-800 transition-colors ${selectedLayer.fontFamily === f.value ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400'}`}
+                                  >
+                                    <span style={{ fontFamily: f.value }}>{f.name}</span>
+                                    {selectedLayer.fontFamily === f.value && <Check className="w-3 h-3" />}
+                                  </button>
+                                ))
+                              ) : (
+                                <div className="p-4 text-center text-[10px] text-slate-600 uppercase font-bold italic">{lang === 'zh' ? '未找到字体' : 'No fonts found'}</div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.fontWeight}</label>
                       <select 
                         value={selectedLayer.fontWeight || 700} 
-                        onChange={(e) => onUpdateLayer(selectedLayer.id, { fontWeight: e.target.value })}
+                        onChange={(e) => onUpdateLayer(selectedLayer.id, { fontWeight: parseInt(e.target.value) || e.target.value })}
                         className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-[11px] text-slate-200 focus:border-blue-500 outline-none transition-colors"
                       >
                         {FONT_WEIGHTS.map(w => <option key={w.value} value={w.value}>{w.label}</option>)}
@@ -291,11 +380,11 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                         <div className="grid grid-cols-2 gap-3">
                           <div className="space-y-1.5">
                             <label className="text-[8px] text-slate-500 uppercase font-bold">{t.startColor}</label>
-                            <input type="color" value={selectedLayer.textGradient.from} onChange={(e) => handleUpdateTextGradient({ from: e.target.value })} className="w-full h-8 rounded-lg bg-slate-800 border border-slate-700 cursor-pointer p-0.5" />
+                            <input type="color" value={selectedLayer.textGradient.from} onChange={(e) => handleUpdateTextGradient({ from: e.target.value })} className="w-full h-8 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer p-0.5" />
                           </div>
                           <div className="space-y-1.5">
                             <label className="text-[8px] text-slate-500 uppercase font-bold">{t.endColor}</label>
-                            <input type="color" value={selectedLayer.textGradient.to} onChange={(e) => handleUpdateTextGradient({ to: e.target.value })} className="w-full h-8 rounded-lg bg-slate-800 border border-slate-700 cursor-pointer p-0.5" />
+                            <input type="color" value={selectedLayer.textGradient.to} onChange={(e) => handleUpdateTextGradient({ to: e.target.value })} className="w-full h-8 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer p-0.5" />
                           </div>
                         </div>
                         <div className="space-y-1">
@@ -312,7 +401,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                       <div className="space-y-1.5 animate-in fade-in duration-200">
                         <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.primaryColor}</label>
                         <div className="flex gap-2">
-                          <input type="color" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="h-8 w-8 bg-slate-800 border border-slate-700 cursor-pointer rounded-md p-1" />
+                          <input type="color" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="h-8 w-8 bg-slate-900 border border-slate-700 cursor-pointer rounded-md p-1" />
                           <input type="text" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="flex-1 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 font-mono focus:border-blue-500 outline-none" />
                         </div>
                       </div>
@@ -326,7 +415,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                 <div className="space-y-2 pt-3 border-t border-slate-800">
                   <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.primaryColor}</label>
                   <div className="flex gap-2">
-                    <input type="color" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="h-8 w-8 bg-slate-800 border border-slate-700 cursor-pointer rounded-md p-1" />
+                    <input type="color" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="h-8 w-8 bg-slate-900 border border-slate-700 cursor-pointer rounded-md p-1" />
                     <input type="text" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="flex-1 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 font-mono focus:border-blue-500 outline-none" />
                   </div>
                 </div>

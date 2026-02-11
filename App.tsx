@@ -10,7 +10,8 @@ import { generateId, downloadFile, normalizeSVG, getSVGDimensions } from './util
 import { 
   Download, Trash2, Plus, Share2, ArrowLeft, Clock, 
   Layout as LayoutIcon, ChevronRight, LayoutGrid, CheckCircle2, AlertCircle,
-  Upload, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, Search, X
+  Upload, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, Search, X,
+  FileJson, ImageIcon as ImageIconLucide
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 
@@ -35,6 +36,227 @@ const ConfirmModal = ({ isOpen, message, onConfirm, onCancel, lang }: { isOpen: 
         <div className="flex items-center justify-end gap-3">
           <button onClick={onCancel} className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors">{lang === 'zh' ? '取消' : 'Cancel'}</button>
           <button onClick={onConfirm} className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-900/20 transition-all active:scale-95">{lang === 'zh' ? '确认删除' : 'Delete'}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// PS-Style Live Preview: Renders the actual cover design using CSS scaling
+const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObject<HTMLDivElement> }> = ({ project, previewRef }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const updateScale = () => {
+      if (!containerRef.current) return;
+      const { width: cw, height: ch } = containerRef.current.getBoundingClientRect();
+      const sw = (cw - 40) / project.canvasConfig.width;
+      const sh = (ch - 40) / project.canvasConfig.height;
+      setScale(Math.min(sw, sh));
+    };
+    updateScale();
+    const ro = new ResizeObserver(updateScale);
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, [project.canvasConfig]);
+
+  const getBackgroundStyles = (bg: BackgroundConfig): React.CSSProperties => {
+    const styles: React.CSSProperties = {};
+    let baseBackground = '';
+    if (bg.type === 'color') styles.backgroundColor = bg.value;
+    else if (bg.type === 'gradient') baseBackground = bg.value;
+    else if (bg.type === 'image') {
+      baseBackground = `url(${bg.value})`;
+      styles.backgroundSize = 'cover';
+      styles.backgroundPosition = 'center';
+    }
+
+    let patternImage = '';
+    let patternSize = '';
+    if (bg.overlayType !== 'none') {
+      const rgba = bg.overlayColor.startsWith('#') 
+        ? `${bg.overlayColor}${Math.round(bg.overlayOpacity * 255).toString(16).padStart(2, '0')}` 
+        : bg.overlayColor;
+      const s = bg.overlayScale || 20;
+      if (bg.overlayType === 'dots') patternImage = `radial-gradient(${rgba} 2px, transparent 2px)`;
+      else if (bg.overlayType === 'grid') patternImage = `linear-gradient(${rgba} 1px, transparent 1px), linear-gradient(90deg, ${rgba} 1px, transparent 1px)`;
+      else if (bg.overlayType === 'stripes') patternImage = `repeating-linear-gradient(45deg, ${rgba}, ${rgba} 2px, transparent 2px, transparent ${s/2}px)`;
+      patternSize = `${s}px ${s}px`;
+    }
+
+    const bgs: string[] = [];
+    const sizes: string[] = [];
+    if (patternImage) { bgs.push(patternImage); sizes.push(patternSize); }
+    if (baseBackground) { bgs.push(baseBackground); sizes.push(bg.type === 'image' ? 'cover' : '100% 100%'); }
+
+    if (bgs.length > 0) {
+      styles.backgroundImage = bgs.join(', ');
+      styles.backgroundSize = sizes.join(', ');
+    }
+    return styles;
+  };
+
+  return (
+    <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-[#0c0c0e] overflow-hidden">
+      <div 
+        ref={previewRef}
+        style={{
+          width: project.canvasConfig.width,
+          height: project.canvasConfig.height,
+          transform: `scale(${scale})`,
+          ...getBackgroundStyles(project.background),
+          boxShadow: '0 15px 45px rgba(0,0,0,0.6)',
+          flexShrink: 0,
+          position: 'relative',
+          overflow: 'hidden'
+        }}
+      >
+        {project.layers
+          .filter(l => l.visible)
+          .sort((a, b) => a.zIndex - b.zIndex)
+          .map(layer => {
+            const textStyle: React.CSSProperties = {
+              fontSize: `${layer.fontSize || Math.max(12, layer.height * 0.7)}px`,
+              wordBreak: 'break-word',
+              opacity: layer.opacity,
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textAlign: 'center',
+              fontWeight: 'bold',
+              lineHeight: 1.1,
+              pointerEvents: 'none',
+              padding: '0 0.5rem'
+            };
+            if (layer.type === 'text' && layer.textGradient?.enabled) {
+              textStyle.backgroundImage = `linear-gradient(${layer.textGradient.angle}deg, ${layer.textGradient.from}, ${layer.textGradient.to})`;
+              textStyle.WebkitBackgroundClip = 'text';
+              textStyle.WebkitTextFillColor = 'transparent';
+              textStyle.color = 'transparent';
+            } else {
+              textStyle.color = layer.color || '#ffffff';
+            }
+
+            return (
+              <div
+                key={layer.id}
+                className="absolute"
+                style={{
+                  left: layer.x,
+                  top: layer.y,
+                  width: layer.width,
+                  height: layer.height,
+                  transform: `rotate(${layer.rotation}deg)`,
+                  zIndex: layer.zIndex,
+                }}
+              >
+                {layer.type === 'svg' ? (
+                  <div className="w-full h-full" style={{ color: layer.color }} dangerouslySetInnerHTML={{ __html: layer.content }} />
+                ) : layer.type === 'text' ? (
+                  <div style={textStyle}>{layer.content}</div>
+                ) : (
+                  <img src={layer.content} className="w-full h-full object-contain" style={{ opacity: layer.opacity }} alt="" />
+                )}
+              </div>
+            );
+          })}
+      </div>
+    </div>
+  );
+};
+
+const ProjectCard = ({ 
+  project, 
+  lang, 
+  onClick, 
+  onDelete, 
+  onDownloadJson, 
+  onDownloadImage 
+}: { 
+  project: ProjectState, 
+  lang: Language, 
+  onClick: () => void, 
+  onDelete: (e: React.MouseEvent) => void,
+  onDownloadJson: (e: React.MouseEvent) => void,
+  onDownloadImage: (previewNode: HTMLDivElement | null, e: React.MouseEvent) => void
+}) => {
+  const [isVisible, setIsVisible] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const previewNodeRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setIsVisible(true);
+        observer.disconnect();
+      }
+    }, { threshold: 0.05 });
+
+    if (cardRef.current) observer.observe(cardRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div 
+      ref={cardRef}
+      onClick={onClick} 
+      className="group bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden hover:border-blue-500/50 transition-all cursor-pointer shadow-xl hover:shadow-blue-900/10 flex flex-col h-[300px]"
+    >
+      <div className="flex-1 bg-[#0c0c0e] relative overflow-hidden flex items-center justify-center">
+        {isVisible ? (
+          <LivePreview project={project} previewRef={previewNodeRef} />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-[#0c0c0e]">
+            <div className="w-8 h-8 rounded-full border border-slate-800 border-t-slate-600 animate-spin opacity-20" />
+          </div>
+        )}
+        
+        {/* Floating Delete Button (Top-Right) */}
+        <button 
+          onClick={onDelete} 
+          className="absolute top-3 right-3 z-20 p-2 text-white bg-red-600/80 hover:bg-red-500 rounded-xl transition-all shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95"
+          title="Delete Project"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+
+        {/* Ratio Tag */}
+        <div className="absolute bottom-3 right-3 z-10 opacity-60 group-hover:opacity-100 transition-opacity">
+           <span className="text-[9px] px-2 py-1 bg-slate-800 text-slate-400 font-black rounded-lg border border-slate-700 uppercase tracking-tight">
+              {project.canvasConfig.ratio}
+           </span>
+        </div>
+      </div>
+
+      <div className="px-5 py-4 flex items-center justify-between border-t border-slate-800/50 bg-slate-900/60 backdrop-blur-sm">
+        <div className="flex flex-col gap-1 min-w-0">
+          <h3 className="text-sm font-bold text-slate-100 group-hover:text-blue-400 transition-colors truncate">
+            {project.title}
+          </h3>
+          <p className="text-[10px] flex items-center gap-1.5 uppercase font-bold tracking-widest text-slate-600">
+            <Clock className="w-3 h-3" /> {new Date(project.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </p>
+        </div>
+        
+        <div className="flex items-center gap-1">
+          <button 
+            onClick={(e) => onDownloadJson(e)} 
+            className="p-2.5 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
+            title="Export JSON"
+          >
+            <FileJson className="w-4 h-4" />
+          </button>
+          <button 
+            onClick={(e) => onDownloadImage(previewNodeRef.current, e)} 
+            className="p-2.5 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
+            title="Export Image"
+          >
+            <ImageIconLucide className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </div>
@@ -203,341 +425,97 @@ const App: React.FC = () => {
     e.target.value = '';
   };
 
-  const handleExportJson = () => {
-    if (!project) return;
-    const json = JSON.stringify(project, null, 2);
-    downloadFile(json, `${project.title}.json`, 'application/json');
+  const handleExportJson = (targetProject: ProjectState) => {
+    const json = JSON.stringify(targetProject, null, 2);
+    downloadFile(json, `${targetProject.title}.json`, 'application/json');
   };
 
-  const addTextLayerWithContent = (text: string) => {
-    if (!project) return;
-    modifyProject(p => {
-      const width = Math.min(Math.max(200, text.length * 18), p.canvasConfig.width * 0.9);
-      const height = Math.min(120, p.canvasConfig.height * 0.5);
-      const newId = generateId();
-      return {
-        ...p,
-        layers: [...p.layers, {
-          id: newId,
-          name: lang === 'zh' ? '文字图层' : 'Text Layer',
-          type: 'text',
-          content: text,
-          x: p.canvasConfig.width / 2 - width / 2,
-          y: p.canvasConfig.height / 2 - height / 2,
-          width,
-          height,
-          fontSize: 32,
-          rotation: 0,
-          zIndex: p.layers.length + 1,
-          visible: true,
-          locked: false,
-          opacity: 1,
-          color: '#ffffff',
-          ratioLocked: true
-        }],
-        selectedLayerId: newId
-      };
-    });
-    showToast(lang === 'zh' ? "已添加文字图层" : "Text layer added");
+  const handleExportImage = async (previewNode: HTMLDivElement | null, targetProject: ProjectState) => {
+    if (!previewNode) {
+      showToast(lang === 'zh' ? "导出失败：预览未加载" : "Export failed: Preview not loaded", "error");
+      return;
+    }
+    try { 
+      const dataUrl = await htmlToImage.toPng(previewNode, { pixelRatio: 2 }); 
+      const link = document.createElement('a'); 
+      link.download = `${targetProject.title}.png`; 
+      link.href = dataUrl; 
+      link.click(); 
+      showToast(lang === 'zh' ? "导出成功" : "Exported successfully");
+    } catch (e) { 
+      showToast(lang === 'zh' ? "导出失败" : "Export Failed", "error"); 
+    }
   };
 
-  const addSvgLayerWithContent = (svgText: string) => {
+  const handleAddText = () => {
     if (!project) return;
-    const normalized = normalizeSVG(svgText);
-    const dims = getSVGDimensions(normalized);
-    modifyProject(p => {
-      const maxW = p.canvasConfig.width * 0.7;
-      const maxH = p.canvasConfig.height * 0.7;
-      const rawW = dims.width || 200;
-      const rawH = dims.height || 200;
-      const scale = Math.min(1, maxW / rawW, maxH / rawH);
-      const width = Math.max(40, rawW * scale);
-      const height = Math.max(40, rawH * scale);
-      const newId = generateId();
-      return {
-        ...p,
-        layers: [...p.layers, {
-          id: newId,
-          name: lang === 'zh' ? 'SVG 图层' : 'SVG Layer',
-          type: 'svg',
-          content: normalized,
-          x: p.canvasConfig.width / 2 - width / 2,
-          y: p.canvasConfig.height / 2 - height / 2,
-          width,
-          height,
-          rotation: 0,
-          zIndex: p.layers.length + 1,
-          visible: true,
-          locked: false,
-          opacity: 1,
-          color: '#3b82f6',
-          ratioLocked: true
-        }],
-        selectedLayerId: newId
-      };
-    });
-    showToast(lang === 'zh' ? "已添加 SVG 图层" : "SVG layer added");
+    const newLayer: Layer = {
+      id: generateId(),
+      name: lang === 'zh' ? '新文本' : 'New Text',
+      type: 'text',
+      content: lang === 'zh' ? '双击编辑文本' : 'Double click to edit',
+      x: project.canvasConfig.width / 2 - 150,
+      y: project.canvasConfig.height / 2 - 25,
+      width: 300,
+      height: 50,
+      fontSize: 48,
+      rotation: 0,
+      zIndex: project.layers.length + 1,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      color: '#ffffff',
+      ratioLocked: true
+    };
+    modifyProject(p => ({ ...p, layers: [...p.layers, newLayer], selectedLayerId: newLayer.id }));
   };
-
-  const addImageLayerWithContent = (dataUrl: string) => {
-    if (!project) return;
-    modifyProject(p => {
-      const size = Math.min(320, p.canvasConfig.width * 0.6, p.canvasConfig.height * 0.6);
-      const newId = generateId();
-      return {
-        ...p,
-        layers: [...p.layers, {
-          id: newId,
-          name: lang === 'zh' ? '图片图层' : 'Image Layer',
-          type: 'image',
-          content: dataUrl,
-          x: p.canvasConfig.width / 2 - size / 2,
-          y: p.canvasConfig.height / 2 - size / 2,
-          width: size,
-          height: size,
-          rotation: 0,
-          zIndex: p.layers.length + 1,
-          visible: true,
-          locked: false,
-          opacity: 1,
-          ratioLocked: true
-        }],
-        selectedLayerId: newId
-      };
-    });
-    showToast(lang === 'zh' ? "已添加图片图层" : "Image layer added");
-  };
-
-  const applyProjectFromJson = (data: Partial<ProjectState>) => {
-    if (!project) return;
-    modifyProject(p => {
-      const newLayers = (data.layers || []).map(l => ({
-        ...l,
-        id: generateId()
-      }));
-
-      return {
-        ...p,
-        layers: newLayers.length > 0 ? newLayers : p.layers,
-        background: data.background || p.background,
-        canvasConfig: data.canvasConfig || p.canvasConfig,
-        selectedLayerId: null,
-        updatedAt: Date.now()
-      };
-    });
-    showToast(lang === 'zh' ? "已应用项目内容" : "Project content applied");
-  };
-
-  const handleAddText = () => addTextLayerWithContent(lang === 'zh' ? '新文字' : 'New Text');
 
   const handleAddImage = () => {
+    if (!project) return;
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
-    input.onchange = (e: any) => {
-      const file = e.target.files?.[0];
+    input.onchange = (e: Event) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
       if (file) {
         const reader = new FileReader();
-        reader.onload = (ev) => addImageLayerWithContent(ev.target?.result as string);
+        reader.onload = (ev) => {
+          const content = ev.target?.result as string;
+          const img = new Image();
+          img.onload = () => {
+            const maxW = project.canvasConfig.width * 0.8;
+            const maxH = project.canvasConfig.height * 0.8;
+            let w = img.width;
+            let h = img.height;
+            const ratio = w / h;
+            if (w > maxW) { w = maxW; h = w / ratio; }
+            if (h > maxH) { h = maxH; w = h * ratio; }
+
+            const newLayer: Layer = {
+              id: generateId(),
+              name: lang === 'zh' ? '新图片' : 'New Image',
+              type: 'image',
+              content: content,
+              x: (project.canvasConfig.width - w) / 2,
+              y: (project.canvasConfig.height - h) / 2,
+              width: w,
+              height: h,
+              rotation: 0,
+              zIndex: project.layers.length + 1,
+              visible: true,
+              locked: false,
+              opacity: 1,
+              ratioLocked: true
+            };
+            modifyProject(p => ({ ...p, layers: [...p.layers, newLayer], selectedLayerId: newLayer.id }));
+          };
+          img.src = content;
+        };
         reader.readAsDataURL(file);
       }
     };
     input.click();
   };
-
-  const handleExportImage = async () => {
-    if (!project) return;
-    setIsExporting(true);
-    modifyProject(p => ({ ...p, selectedLayerId: null }), false);
-    await new Promise(resolve => setTimeout(resolve, 100));
-    const node = document.getElementById('export-target');
-    if (node) { 
-      try { 
-        const dataUrl = await htmlToImage.toPng(node, { pixelRatio: 2 }); 
-        const link = document.createElement('a'); 
-        link.download = `${project.title}.png`; 
-        link.href = dataUrl; 
-        link.click(); 
-        showToast(lang === 'zh' ? "导出成功" : "Exported successfully");
-      } catch (e) { 
-        showToast(lang === 'zh' ? "导出失败" : "Export Failed", "error"); 
-      } 
-    }
-    setIsExporting(false);
-  };
-
-  // Keyboard Shortcuts Handler
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
-        return;
-      }
-
-      // Undo/Redo
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) handleRedo();
-        else handleUndo();
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
-        e.preventDefault();
-        handleRedo();
-        return;
-      }
-
-      if (!project || !project.selectedLayerId) return;
-
-      const layer = project.layers.find(l => l.id === project.selectedLayerId);
-      if (!layer || layer.locked) return;
-
-      // Enter - Activate text input box
-      if (e.key === 'Enter') {
-        if (layer.type === 'text') {
-          e.preventDefault();
-          const textarea = document.querySelector('textarea');
-          if (textarea) textarea.focus();
-          return;
-        }
-      }
-
-      // Delete/Backspace
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        e.preventDefault();
-        modifyProject(p => ({
-          ...p,
-          layers: p.layers.filter(l => l.id !== project.selectedLayerId),
-          selectedLayerId: null
-        }));
-        return;
-      }
-
-      // COMBINATION KEYS (Ctrl + Arrow)
-      if (e.ctrlKey || e.metaKey) {
-        // Hierarchy Adjustment
-        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-          e.preventDefault();
-          modifyProject(p => {
-            const index = p.layers.findIndex(l => l.id === project.selectedLayerId);
-            const newLayers = [...p.layers];
-            if (e.key === 'ArrowUp' && index < newLayers.length - 1) {
-              [newLayers[index], newLayers[index + 1]] = [newLayers[index + 1], newLayers[index]];
-            } else if (e.key === 'ArrowDown' && index > 0) {
-              [newLayers[index], newLayers[index - 1]] = [newLayers[index - 1], newLayers[index]];
-            }
-            return { ...p, layers: newLayers.map((l, i) => ({ ...l, zIndex: i + 1 })) };
-          });
-          return;
-        }
-
-        // Rotation Adjustment
-        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-          e.preventDefault();
-          const dr = e.key === 'ArrowLeft' ? -15 : 15;
-          updateLayer(project.selectedLayerId, { rotation: (layer.rotation + dr) % 360 });
-          return;
-        }
-
-        // Clone (Ctrl+J)
-        if (e.key.toLowerCase() === 'j') {
-          e.preventDefault();
-          const newId = generateId();
-          const clone = { ...JSON.parse(JSON.stringify(layer)), id: newId, x: layer.x + 20, y: layer.y + 20, zIndex: project.layers.length + 1 };
-          modifyProject(p => ({ ...p, layers: [...p.layers, clone], selectedLayerId: newId }));
-          showToast(lang === 'zh' ? "图层已复制" : "Layer cloned");
-          return;
-        }
-      }
-
-      // SIMPLE MOVEMENT
-      if (!e.ctrlKey && !e.metaKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-        e.preventDefault();
-        const step = e.shiftKey ? 10 : 1;
-        let dx = 0, dy = 0;
-        if (e.key === 'ArrowUp') dy = -step;
-        if (e.key === 'ArrowDown') dy = step;
-        if (e.key === 'ArrowLeft') dx = -step;
-        if (e.key === 'ArrowRight') dx = step;
-        updateLayer(project.selectedLayerId, { x: layer.x + dx, y: layer.y + dy });
-        return;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [project, handleUndo, handleRedo, updateLayer, lang]);
-
-  useEffect(() => {
-    if (view !== 'editor' || !project) return;
-
-    const readFileAsText = (file: File) => new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsText(file);
-    });
-
-    const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-
-    const handlePaste = async (e: ClipboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
-        return;
-      }
-
-      const clipboard = e.clipboardData;
-      if (!clipboard) return;
-
-      const files = Array.from(clipboard.files || []);
-      if (files.length > 0) {
-        e.preventDefault();
-        for (const file of files) {
-          if (file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) {
-            const text = await readFileAsText(file);
-            addSvgLayerWithContent(text);
-          } else if (file.type.startsWith('image/')) {
-            const dataUrl = await readFileAsDataUrl(file);
-            addImageLayerWithContent(dataUrl);
-          }
-        }
-        return;
-      }
-
-      const text = clipboard.getData('text/plain');
-      if (!text || !text.trim()) return;
-
-      const trimmed = text.trim();
-
-      if (trimmed.toLowerCase().includes('<svg')) {
-        e.preventDefault();
-        addSvgLayerWithContent(trimmed);
-        return;
-      }
-
-      if (trimmed.startsWith('{')) {
-        try {
-          const parsed = JSON.parse(trimmed);
-          if (parsed && (parsed.layers || parsed.background || parsed.canvasConfig)) {
-            e.preventDefault();
-            applyProjectFromJson(parsed as ProjectState);
-            return;
-          }
-        } catch (err) {}
-      }
-
-      e.preventDefault();
-      addTextLayerWithContent(trimmed);
-    };
-
-    window.addEventListener('paste', handlePaste);
-    return () => window.removeEventListener('paste', handlePaste);
-  }, [view, project, lang]);
 
   const groupedProjects = useMemo(() => {
     const filtered = projects.filter(p => p.title.toLowerCase().includes(projectSearchTerm.toLowerCase()));
@@ -616,7 +594,7 @@ const App: React.FC = () => {
               </div>
             </div>
             
-            <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar space-y-8">
+            <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar space-y-10 pb-16">
               {projects.length === 0 ? (
                 <div className="bg-slate-900/50 border-2 border-dashed border-slate-800 rounded-3xl h-80 flex flex-col items-center justify-center text-slate-600 gap-4"><LayoutGrid className="w-12 h-12 opacity-20" /><p className="text-sm font-medium">{t.noProjects}</p></div>
               ) : groupedProjects.length === 0 ? (
@@ -625,31 +603,28 @@ const App: React.FC = () => {
                 </div>
               ) : (
                 groupedProjects.map(group => (
-                  <div key={group.key} className="space-y-4">
-                    <h3 className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] border-b border-slate-900 pb-2">{group.label}</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div key={group.key} className="space-y-6">
+                    <h3 className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em] flex items-center gap-4">
+                      <span>{group.label}</span>
+                      <div className="flex-1 h-px bg-slate-900"></div>
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       {group.items.map(p => (
-                        <div key={p.id} onClick={() => { setProject(JSON.parse(JSON.stringify(p))); setView('editor'); initProjectHistory(p); }} className="group relative bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-blue-500 transition-all cursor-pointer shadow-lg hover:shadow-blue-900/10 overflow-hidden">
-                          <div className="flex flex-col gap-4 relative z-10">
-                            <div className="flex justify-between items-start">
-                              <div className="w-10 h-10 bg-blue-600/10 rounded-lg flex items-center justify-center">
-                                <Share2 className="w-5 h-5 text-blue-500" />
-                              </div>
-                              <button onClick={(e) => { e.stopPropagation(); setConfirmDialog({ message: t.confirmDeleteProject, onConfirm: () => setProjects(prev => prev.filter(pr => pr.id !== p.id)) }); }} className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-red-500 rounded-lg transition-colors">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                            <h3 className="text-base font-bold text-white group-hover:text-blue-400 transition-colors truncate pr-8">{p.title}</h3>
-                            <div className="flex items-center justify-between mt-1">
-                              <p className="text-[10px] text-slate-500 flex items-center gap-1 uppercase font-bold tracking-widest">
-                                <Clock className="w-3 h-3" /> {new Date(p.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </p>
-                              <span className="text-[9px] px-2 py-0.5 bg-slate-800 rounded text-slate-400 font-bold uppercase tracking-tight">
-                                {p.canvasConfig.ratio}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
+                        <ProjectCard 
+                          key={p.id} 
+                          project={p} 
+                          lang={lang} 
+                          onClick={() => { setProject(JSON.parse(JSON.stringify(p))); setView('editor'); initProjectHistory(p); }} 
+                          onDelete={(e) => { 
+                            e.stopPropagation(); 
+                            setConfirmDialog({ 
+                              message: t.confirmDeleteProject, 
+                              onConfirm: () => setProjects(prev => prev.filter(pr => pr.id !== p.id)) 
+                            }); 
+                          }} 
+                          onDownloadJson={(e) => { e.stopPropagation(); handleExportJson(p); }}
+                          onDownloadImage={(node, e) => { e.stopPropagation(); handleExportImage(node, p); }}
+                        />
                       ))}
                     </div>
                   </div>
@@ -670,7 +645,7 @@ const App: React.FC = () => {
       {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
       <header className="h-14 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between px-6 z-50">
         <div className="flex items-center gap-4">
-          <button onClick={() => { modifyProject(p => ({...p, updatedAt: Date.now()})); setView('landing'); }} className="p-2 hover:bg-slate-800 rounded-lg">
+          <button onClick={() => { setProject(null); setView('landing'); }} className="p-2 hover:bg-slate-800 rounded-lg">
             <ArrowLeft className="w-5 h-5 text-slate-400" />
           </button>
           <div className="flex items-center gap-2">
@@ -696,11 +671,11 @@ const App: React.FC = () => {
               <Redo2 className="w-4 h-4" />
             </button>
           </div>
-          <button onClick={handleExportJson} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300 border border-slate-700 transition-colors">
+          <button onClick={() => handleExportJson(project)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300 border border-slate-700 transition-colors">
             <FileOutput className="w-4 h-4" />
             {t.exportJson}
           </button>
-          <button onClick={handleExportImage} disabled={isExporting} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white shadow-lg shadow-blue-900/20 disabled:opacity-50">
+          <button onClick={() => handleExportImage(document.getElementById('export-target') as HTMLDivElement, project)} disabled={isExporting} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white shadow-lg shadow-blue-900/20 disabled:opacity-50">
             {isExporting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
             {t.export}
           </button>

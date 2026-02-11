@@ -57,6 +57,19 @@ CoverFlow - 专业 SVG 文章封面设计器
 - 粘贴 SVG 代码 / SVG 文件：快速生成 SVG 图层
 - 粘贴图片文件：快速生成图片图层
 
+快捷键
+------
+
+- Delete / Backspace：删除选中图层
+- Arrow Keys：1px 移动
+- Shift + Arrow：10px 移动
+- Ctrl + J：克隆选中图层
+- Ctrl + 上下：调整图层层级
+- Ctrl + 左右：调整旋转角度
+- Enter：编辑文本图层
+- Ctrl + Z：撤销
+- Ctrl + Y：重做
+
 技术栈
 ------
 

@@ -206,6 +206,16 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
     e.stopPropagation();
   };
 
+  const getGroupBounds = (layers: Layer[], childIds: string[]) => {
+    const children = layers.filter(l => childIds.includes(l.id));
+    if (children.length === 0) return { x: 0, y: 0, width: 1, height: 1 };
+    const minX = Math.min(...children.map(l => l.x));
+    const minY = Math.min(...children.map(l => l.y));
+    const maxX = Math.max(...children.map(l => l.x + l.width));
+    const maxY = Math.max(...children.map(l => l.y + l.height));
+    return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+  };
+
   const sortedLayers = [...project.layers].sort((a, b) => b.zIndex - a.zIndex);
 
   const displayLayers = useMemo(() => {
@@ -588,11 +598,66 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                   e.preventDefault();
                   if (draggedIndex !== null && draggedIndex !== index) {
                     const draggedId = displayLayers[draggedIndex]?.layer.id;
-                    const targetId = layer.id;
-                    if (draggedId) {
-                      const newSorted = [...sortedLayers];
+                    const draggedLayer = draggedId ? layerMap.get(draggedId) : undefined;
+                    const targetGroupId = layer.type === 'group' ? layer.id : layer.parentId || null;
+                    const draggedParentId = draggedLayer?.parentId || null;
+                    const canJoinGroup = Boolean(targetGroupId && draggedLayer && !draggedLayer.parentId && draggedLayer.type !== 'group' && draggedLayer.id !== targetGroupId);
+                    const canLeaveGroup = Boolean(draggedLayer && draggedParentId && !targetGroupId);
+
+                    if (canJoinGroup) {
+                      const nextLayers = project.layers.map(l => {
+                        if (l.id === draggedLayer!.id) return { ...l, parentId: targetGroupId as string };
+                        if (l.id === targetGroupId) {
+                          const nextChildren = Array.from(new Set([...(l.children || []), draggedLayer!.id]));
+                          return { ...l, children: nextChildren };
+                        }
+                        if (l.type === 'group' && (l.children || []).includes(draggedLayer!.id)) {
+                          return { ...l, children: (l.children || []).filter(id => id !== draggedLayer!.id) };
+                        }
+                        return l;
+                      });
+
+                      const normalized = nextLayers.map(l => {
+                        if (l.type !== 'group') return l;
+                        const bounds = getGroupBounds(nextLayers, l.children || []);
+                        return { ...l, ...bounds };
+                      });
+
+                      onReorderLayers(normalized);
+                    } else if (canLeaveGroup) {
+                      const targetId = layer.id;
+                      let nextLayers = project.layers.map(l => {
+                        if (l.id === draggedLayer!.id) return { ...l, parentId: undefined };
+                        if (l.id === draggedParentId) {
+                          const nextChildren = (l.children || []).filter(id => id !== draggedLayer!.id);
+                          return { ...l, children: nextChildren };
+                        }
+                        return l;
+                      });
+
+                      nextLayers = nextLayers.filter(l => l.type !== 'group' || (l.children || []).length > 0);
+
+                      const nextLayerMap = new Map(nextLayers.map(l => [l.id, l]));
+                      let newSorted = [...sortedLayers].filter(l => nextLayerMap.has(l.id));
                       const fromIndex = newSorted.findIndex(l => l.id === draggedId);
                       const toIndex = newSorted.findIndex(l => l.id === targetId);
+                      if (fromIndex !== -1 && toIndex !== -1) {
+                        const [removed] = newSorted.splice(fromIndex, 1);
+                        newSorted.splice(toIndex, 0, removed);
+                      }
+
+                      const normalized = newSorted.map(l => {
+                        const updated = nextLayerMap.get(l.id) as Layer;
+                        if (updated.type !== 'group') return updated;
+                        const bounds = getGroupBounds(nextLayers, updated.children || []);
+                        return { ...updated, ...bounds };
+                      });
+
+                      onReorderLayers([...normalized].reverse());
+                    } else if (draggedId) {
+                      const newSorted = [...sortedLayers];
+                      const fromIndex = newSorted.findIndex(l => l.id === draggedId);
+                      const toIndex = newSorted.findIndex(l => l.id === layer.id);
                       if (fromIndex !== -1 && toIndex !== -1) {
                         const [removed] = newSorted.splice(fromIndex, 1);
                         newSorted.splice(toIndex, 0, removed);

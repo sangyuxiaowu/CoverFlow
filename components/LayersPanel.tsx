@@ -587,10 +587,18 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                 onDrop={(e) => {
                   e.preventDefault();
                   if (draggedIndex !== null && draggedIndex !== index) {
-                    const newSorted = [...sortedLayers];
-                    const [removed] = newSorted.splice(draggedIndex, 1);
-                    newSorted.splice(index, 0, removed);
-                    onReorderLayers([...newSorted].reverse());
+                    const draggedId = displayLayers[draggedIndex]?.layer.id;
+                    const targetId = layer.id;
+                    if (draggedId) {
+                      const newSorted = [...sortedLayers];
+                      const fromIndex = newSorted.findIndex(l => l.id === draggedId);
+                      const toIndex = newSorted.findIndex(l => l.id === targetId);
+                      if (fromIndex !== -1 && toIndex !== -1) {
+                        const [removed] = newSorted.splice(fromIndex, 1);
+                        newSorted.splice(toIndex, 0, removed);
+                        onReorderLayers([...newSorted].reverse());
+                      }
+                    }
                   }
                   setDraggedIndex(null); setDragOverIndex(null);
                 }}

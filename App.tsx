@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Sidebar from './components/Sidebar.tsx';
 import Canvas from './components/Canvas.tsx';
 import LayersPanel from './components/LayersPanel.tsx';
@@ -10,7 +10,7 @@ import { generateId, downloadFile, normalizeSVG, getSVGDimensions } from './util
 import { 
   Download, Trash2, Plus, Share2, ArrowLeft, Clock, 
   Layout as LayoutIcon, ChevronRight, LayoutGrid, CheckCircle2, AlertCircle,
-  Upload, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2
+  Upload, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, Search, X
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 
@@ -57,6 +57,7 @@ const App: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ message: string, onConfirm: () => void } | null>(null);
+  const [projectSearchTerm, setProjectSearchTerm] = useState('');
   
   const [history, setHistory] = useState<ProjectState[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -538,12 +539,43 @@ const App: React.FC = () => {
     return () => window.removeEventListener('paste', handlePaste);
   }, [view, project, lang]);
 
+  const groupedProjects = useMemo(() => {
+    const filtered = projects.filter(p => p.title.toLowerCase().includes(projectSearchTerm.toLowerCase()));
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfYesterday = startOfToday - 86400000;
+    const startOfThisWeek = startOfToday - (now.getDay() * 86400000);
+    const startOfLastWeek = startOfThisWeek - (7 * 86400000);
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()).getTime();
+
+    const groups: { label: string, key: string, items: ProjectState[] }[] = [
+      { label: t.dateGroups.today, key: 'today', items: [] },
+      { label: t.dateGroups.yesterday, key: 'yesterday', items: [] },
+      { label: t.dateGroups.thisWeek, key: 'thisWeek', items: [] },
+      { label: t.dateGroups.lastWeek, key: 'lastWeek', items: [] },
+      { label: t.dateGroups.lastMonth, key: 'lastMonth', items: [] },
+      { label: t.dateGroups.older, key: 'older', items: [] }
+    ];
+
+    filtered.forEach(p => {
+      const time = p.updatedAt;
+      if (time >= startOfToday) groups[0].items.push(p);
+      else if (time >= startOfYesterday) groups[1].items.push(p);
+      else if (time >= startOfThisWeek) groups[2].items.push(p);
+      else if (time >= startOfLastWeek) groups[3].items.push(p);
+      else if (time >= startOfLastMonth) groups[4].items.push(p);
+      else groups[5].items.push(p);
+    });
+
+    return groups.filter(g => g.items.length > 0);
+  }, [projects, projectSearchTerm, t.dateGroups]);
+
   if (view === 'landing') {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-200 p-8 md:p-16 flex flex-col gap-12 max-w-7xl mx-auto">
+      <div className="min-h-screen bg-slate-950 text-slate-200 p-8 md:p-16 flex flex-col gap-12 max-w-7xl mx-auto h-screen overflow-hidden">
         {toast && <Toast message={toast.msg} type={toast.type} />}
         {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-center flex-shrink-0">
           <div className="flex items-center gap-4"><div className="bg-blue-600 p-2.5 rounded-2xl shadow-xl shadow-blue-900/20"><Share2 className="w-8 h-8 text-white" /></div><div><h1 className="text-3xl font-black tracking-tight text-white">{t.title}</h1><p className="text-slate-500 text-sm font-medium">{t.landingHeader}</p></div></div>
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-2 px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 cursor-pointer transition-all">
@@ -554,9 +586,77 @@ const App: React.FC = () => {
             <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800"><button onClick={() => setLang('zh')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'zh' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>中</button><button onClick={() => setLang('en')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'en' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>EN</button></div>
           </div>
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-          <div className="lg:col-span-4 space-y-6"><h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Plus className="w-4 h-4" /> {t.createNew}</h2><div className="grid grid-cols-1 gap-3">{PRESET_RATIOS.map(ratio => (<button key={ratio.name} onClick={() => createNewProject(ratio)} className="flex items-center justify-between p-4 bg-slate-900 border border-slate-800 rounded-2xl hover:border-blue-500 hover:bg-slate-800/50 transition-all group text-left"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center border border-slate-700 group-hover:bg-blue-900/20 transition-colors"><LayoutIcon className="w-6 h-6 text-slate-500 group-hover:text-blue-400" /></div><div><p className="text-sm font-bold text-slate-100">{lang === 'zh' ? ratio.nameZh : ratio.name}</p><p className="text-[10px] text-slate-500 uppercase font-bold tracking-tight">{ratio.width} × {ratio.height} PX</p></div></div><ChevronRight className="w-5 h-5 text-slate-700 group-hover:text-blue-400 group-hover:translate-x-1 transition-all" /></button>))}</div></div>
-          <div className="lg:col-span-8 space-y-6"><h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Clock className="w-4 h-4" /> {t.recentProjects}</h2>{projects.length === 0 ? (<div className="bg-slate-900/50 border-2 border-dashed border-slate-800 rounded-3xl h-80 flex flex-col items-center justify-center text-slate-600 gap-4"><LayoutGrid className="w-12 h-12 opacity-20" /><p className="text-sm font-medium">{t.noProjects}</p></div>) : (<div className="grid grid-cols-1 md:grid-cols-2 gap-4">{projects.map(p => (<div key={p.id} onClick={() => { setProject(JSON.parse(JSON.stringify(p))); setView('editor'); initProjectHistory(p); }} className="group relative bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-blue-500 transition-all cursor-pointer shadow-lg hover:shadow-blue-900/10 overflow-hidden"><div className="flex flex-col gap-4 relative z-10"><div className="flex justify-between items-start"><div className="w-10 h-10 bg-blue-600/10 rounded-lg flex items-center justify-center"><Share2 className="w-5 h-5 text-blue-500" /></div><button onClick={(e) => { e.stopPropagation(); setProjects(prev => prev.filter(pr => pr.id !== p.id)); }} className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-red-500 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button></div><h3 className="text-base font-bold text-white group-hover:text-blue-400 transition-colors truncate pr-8">{p.title}</h3><p className="text-[10px] text-slate-500 mt-1 flex items-center gap-1 uppercase font-bold tracking-widest"><Clock className="w-3 h-3" /> {t.lastModified} {new Date(p.updatedAt).toLocaleDateString()}</p></div></div>))}</div>)}</div>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 flex-1 min-h-0">
+          <div className="lg:col-span-4 flex flex-col gap-6 h-full overflow-hidden">
+            <h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2 flex-shrink-0"><Plus className="w-4 h-4" /> {t.createNew}</h2>
+            <div className="grid grid-cols-1 gap-3 overflow-y-auto pr-2 custom-scrollbar">
+              {PRESET_RATIOS.map(ratio => (<button key={ratio.name} onClick={() => createNewProject(ratio)} className="flex items-center justify-between p-4 bg-slate-900 border border-slate-800 rounded-2xl hover:border-blue-500 hover:bg-slate-800/50 transition-all group text-left flex-shrink-0"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center border border-slate-700 group-hover:bg-blue-900/20 transition-colors"><LayoutIcon className="w-6 h-6 text-slate-500 group-hover:text-blue-400" /></div><div><p className="text-sm font-bold text-slate-100">{lang === 'zh' ? ratio.nameZh : ratio.name}</p><p className="text-[10px] text-slate-500 uppercase font-bold tracking-tight">{ratio.width} × {ratio.height} PX</p></div></div><ChevronRight className="w-5 h-5 text-slate-700 group-hover:text-blue-400 group-hover:translate-x-1 transition-all" /></button>))}
+            </div>
+          </div>
+          <div className="lg:col-span-8 flex flex-col gap-6 h-full overflow-hidden">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 flex-shrink-0">
+              <h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Clock className="w-4 h-4" /> {t.recentProjects}</h2>
+              <div className="relative w-full md:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+                <input 
+                  type="text" 
+                  placeholder={t.searchProjects}
+                  value={projectSearchTerm}
+                  onChange={(e) => setProjectSearchTerm(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl py-2 pl-12 pr-4 text-xs font-medium text-slate-200 placeholder-slate-600 outline-none focus:border-blue-500 transition-all"
+                />
+                {projectSearchTerm && (
+                  <button 
+                    onClick={() => setProjectSearchTerm('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 hover:text-slate-300"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar space-y-8">
+              {projects.length === 0 ? (
+                <div className="bg-slate-900/50 border-2 border-dashed border-slate-800 rounded-3xl h-80 flex flex-col items-center justify-center text-slate-600 gap-4"><LayoutGrid className="w-12 h-12 opacity-20" /><p className="text-sm font-medium">{t.noProjects}</p></div>
+              ) : groupedProjects.length === 0 ? (
+                <div className="h-64 flex flex-col items-center justify-center text-slate-600 opacity-50 italic">
+                  <p className="text-sm">{lang === 'zh' ? '未找到匹配的项目' : 'No matching projects found'}</p>
+                </div>
+              ) : (
+                groupedProjects.map(group => (
+                  <div key={group.key} className="space-y-4">
+                    <h3 className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] border-b border-slate-900 pb-2">{group.label}</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {group.items.map(p => (
+                        <div key={p.id} onClick={() => { setProject(JSON.parse(JSON.stringify(p))); setView('editor'); initProjectHistory(p); }} className="group relative bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-blue-500 transition-all cursor-pointer shadow-lg hover:shadow-blue-900/10 overflow-hidden">
+                          <div className="flex flex-col gap-4 relative z-10">
+                            <div className="flex justify-between items-start">
+                              <div className="w-10 h-10 bg-blue-600/10 rounded-lg flex items-center justify-center">
+                                <Share2 className="w-5 h-5 text-blue-500" />
+                              </div>
+                              <button onClick={(e) => { e.stopPropagation(); setConfirmDialog({ message: t.confirmDeleteProject, onConfirm: () => setProjects(prev => prev.filter(pr => pr.id !== p.id)) }); }} className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-red-500 rounded-lg transition-colors">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <h3 className="text-base font-bold text-white group-hover:text-blue-400 transition-colors truncate pr-8">{p.title}</h3>
+                            <div className="flex items-center justify-between mt-1">
+                              <p className="text-[10px] text-slate-500 flex items-center gap-1 uppercase font-bold tracking-widest">
+                                <Clock className="w-3 h-3" /> {new Date(p.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                              <span className="text-[9px] px-2 py-0.5 bg-slate-800 rounded text-slate-400 font-bold uppercase tracking-tight">
+                                {p.canvasConfig.ratio}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </div>
     );

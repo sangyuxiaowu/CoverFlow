@@ -4,6 +4,15 @@ export const translations = {
     title: "封面大咖",
     landingHeader: "开始创作你的封面",
     recentProjects: "最近项目",
+    searchProjects: "搜索项目名称...",
+    dateGroups: {
+      today: "今天",
+      yesterday: "昨天",
+      thisWeek: "本周早些时候",
+      lastWeek: "上周",
+      lastMonth: "上个月",
+      older: "更早以前"
+    },
     createNew: "新建项目",
     selectRatio: "选择画布比例",
     import: "导入项目",
@@ -81,6 +90,15 @@ export const translations = {
     title: "CoverFlow",
     landingHeader: "Start Your Design",
     recentProjects: "Recent Projects",
+    searchProjects: "Search project name...",
+    dateGroups: {
+      today: "Today",
+      yesterday: "Yesterday",
+      thisWeek: "Earlier this week",
+      lastWeek: "Last week",
+      lastMonth: "Last month",
+      older: "Long time ago"
+    },
     createNew: "Create New Project",
     selectRatio: "Select Canvas Ratio",
     import: "Import",

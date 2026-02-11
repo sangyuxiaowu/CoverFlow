@@ -4,6 +4,11 @@ import { Layer, ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
 import { RotateCw } from 'lucide-react';
 
+interface Guideline {
+  type: 'h' | 'v';
+  pos: number;
+}
+
 interface CanvasProps {
   lang: Language;
   project: ProjectState;
@@ -12,9 +17,12 @@ interface CanvasProps {
   onCommit: () => void;
 }
 
+const SNAP_THRESHOLD = 8;
+
 const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLayer, onCommit }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(0.8);
+  const [guidelines, setGuidelines] = useState<Guideline[]>([]);
   const t = translations[lang];
 
   const [interaction, setInteraction] = useState<{
@@ -73,7 +81,65 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
     const dy = (e.clientY - startY) / zoom;
 
     if (type === 'move') {
-      updateLayer(interaction.layerId, { x: initialData.x + dx, y: initialData.y + dy }, false);
+      let nextX = initialData.x + dx;
+      let nextY = initialData.y + dy;
+      
+      const activeGuidelines: Guideline[] = [];
+      const movingLayer = project.layers.find(l => l.id === interaction.layerId);
+      if (!movingLayer) return;
+
+      const halfW = movingLayer.width / 2;
+      const halfH = movingLayer.height / 2;
+
+      // Snapping Targets: Canvas edges and center
+      const targetsX = [0, project.canvasConfig.width / 2, project.canvasConfig.width];
+      const targetsY = [0, project.canvasConfig.height / 2, project.canvasConfig.height];
+
+      // Snapping Targets: Other layers
+      project.layers.forEach(l => {
+        if (l.id === movingLayer.id || !l.visible) return;
+        targetsX.push(l.x, l.x + l.width / 2, l.x + l.width);
+        targetsY.push(l.y, l.y + l.height / 2, l.y + l.height);
+      });
+
+      // Horizontal snapping
+      let snappedX = false;
+      for (const tx of targetsX) {
+        // Source points: left, center, right
+        const sources = [nextX, nextX + halfW, nextX + movingLayer.width];
+        for (let i = 0; i < sources.length; i++) {
+          if (Math.abs(sources[i] - tx) < SNAP_THRESHOLD) {
+            if (i === 0) nextX = tx;
+            if (i === 1) nextX = tx - halfW;
+            if (i === 2) nextX = tx - movingLayer.width;
+            activeGuidelines.push({ type: 'v', pos: tx });
+            snappedX = true;
+            break;
+          }
+        }
+        if (snappedX) break;
+      }
+
+      // Vertical snapping
+      let snappedY = false;
+      for (const ty of targetsY) {
+        // Source points: top, center, bottom
+        const sources = [nextY, nextY + halfH, nextY + movingLayer.height];
+        for (let i = 0; i < sources.length; i++) {
+          if (Math.abs(sources[i] - ty) < SNAP_THRESHOLD) {
+            if (i === 0) nextY = ty;
+            if (i === 1) nextY = ty - halfH;
+            if (i === 2) nextY = ty - movingLayer.height;
+            activeGuidelines.push({ type: 'h', pos: ty });
+            snappedY = true;
+            break;
+          }
+        }
+        if (snappedY) break;
+      }
+
+      setGuidelines(activeGuidelines);
+      updateLayer(interaction.layerId, { x: nextX, y: nextY }, false);
       return;
     }
 
@@ -125,12 +191,13 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
 
       updateLayer(interaction.layerId, { x: newCenterX - newW / 2, y: newCenterY - newH / 2, width: newW, height: newH }, false);
     }
-  }, [interaction, zoom, project.layers, updateLayer]);
+  }, [interaction, zoom, project.layers, project.canvasConfig, updateLayer]);
 
   const handleGlobalMouseUp = useCallback(() => {
     if (interaction) {
       onCommit();
       setInteraction(null);
+      setGuidelines([]);
     }
   }, [interaction, onCommit]);
 
@@ -311,6 +378,23 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                   </div>
                 );
               })}
+            
+            {/* Alignment Guidelines Overlay */}
+            {guidelines.map((g, i) => (
+              <div
+                key={i}
+                className="absolute pointer-events-none z-[100]"
+                style={{
+                  left: g.type === 'v' ? g.pos : 0,
+                  top: g.type === 'h' ? g.pos : 0,
+                  width: g.type === 'v' ? '1px' : '100%',
+                  height: g.type === 'h' ? '1px' : '100%',
+                  backgroundColor: '#a855f7',
+                  boxShadow: '0 0 2px rgba(168, 85, 247, 0.5)',
+                  opacity: 0.8
+                }}
+              />
+            ))}
           </div>
         </div>
       </div>

@@ -364,7 +364,7 @@ const App: React.FC = () => {
   const createNewProject = (preset: typeof PRESET_RATIOS[0]) => {
     const newProject: ProjectState = {
       id: generateId(), title: t.untitled, updatedAt: Date.now(),
-      layers: [{ id: generateId(), name: lang === 'zh' ? '标题' : 'Headline', type: 'text', content: lang === 'zh' ? '点击此处编辑' : 'Tap to Edit', x: 50, y: preset.height / 2 - 50, width: preset.width - 100, height: 100, fontSize: 64, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, color: '#ffffff', ratioLocked: true }],
+      layers: [{ id: generateId(), name: lang === 'zh' ? '标题' : 'Headline', type: 'text', content: lang === 'zh' ? '双击编辑文本' : 'Double click to edit', x: 50, y: preset.height / 2 - 50, width: preset.width - 100, height: 100, fontSize: 64, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, color: '#ffffff', ratioLocked: true }],
       background: { 
         type: 'color', 
         value: '#1e293b', 
@@ -703,7 +703,13 @@ const App: React.FC = () => {
       <main className="flex-1 flex overflow-hidden min-h-0 relative">
         <Sidebar lang={lang} activeTab={activeTab} setActiveTab={setActiveTab} background={project.background} onAddLayer={(l) => modifyProject(p => ({ ...p, layers: [...p.layers, { id: generateId(), name: l.name || 'Layer', type: l.type || 'svg', x: p.canvasConfig.width/2-50, y: p.canvasConfig.height/2-50, width: l.width || 100, height: l.height || 100, rotation: 0, zIndex: p.layers.length+1, visible: true, locked: false, opacity: 1, color: l.color || '#3b82f6', ratioLocked: true, content: l.content || '' }] }))} onUpdateBackground={(bg) => modifyProject(p => ({ ...p, background: { ...p.background, ...bg } }))} />
         <div className="flex-1 flex flex-col min-h-0 relative">
-          <Canvas lang={lang} project={project} onSelectLayer={(id) => modifyProject(p => ({ ...p, selectedLayerId: id }), false)} updateLayer={updateLayer} onCommit={saveHistorySnapshot} />
+          <Canvas
+            lang={lang}
+            project={project}
+            onSelectLayer={(id) => modifyProject(p => ({ ...p, selectedLayerId: id }), false)}
+            updateLayer={updateLayer}
+            onCommit={saveHistorySnapshot}
+          />
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-slate-900/95 backdrop-blur-xl border border-slate-800 rounded-2xl p-2 shadow-2xl z-40">
             <button onClick={handleAddText} className="flex items-center gap-2 px-4 py-2 hover:bg-blue-600/10 hover:text-blue-400 rounded-xl transition-all text-xs font-bold group">
               <div className="p-1.5 bg-slate-800 rounded-lg group-hover:bg-blue-600/20"><TextIcon className="w-4 h-4" /></div>
@@ -716,7 +722,15 @@ const App: React.FC = () => {
             </button>
           </div>
         </div>
-        <LayersPanel lang={lang} project={project} onUpdateLayer={updateLayer} onDeleteLayer={(id) => setConfirmDialog({ message: t.confirmDelete, onConfirm: () => modifyProject(p => ({ ...p, layers: p.layers.filter(l => l.id !== id), selectedLayerId: p.selectedLayerId === id ? null : p.selectedLayerId })) })} onSelectLayer={(id) => modifyProject(p => ({ ...p, selectedLayerId: id }), false)} onReorderLayers={(newLayers) => modifyProject(p => ({ ...p, layers: newLayers.map((l, i) => ({ ...l, zIndex: i + 1 })) }))} onCommit={saveHistorySnapshot} />
+        <LayersPanel
+          lang={lang}
+          project={project}
+          onUpdateLayer={updateLayer}
+          onDeleteLayer={(id) => setConfirmDialog({ message: t.confirmDelete, onConfirm: () => modifyProject(p => ({ ...p, layers: p.layers.filter(l => l.id !== id), selectedLayerId: p.selectedLayerId === id ? null : p.selectedLayerId })) })}
+          onSelectLayer={(id) => modifyProject(p => ({ ...p, selectedLayerId: id }), false)}
+          onReorderLayers={(newLayers) => modifyProject(p => ({ ...p, layers: newLayers.map((l, i) => ({ ...l, zIndex: i + 1 })) }))}
+          onCommit={saveHistorySnapshot}
+        />
       </main>
     </div>
   );

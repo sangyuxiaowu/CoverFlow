@@ -37,6 +37,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
     onUpdateLayerRef.current = onUpdateLayer;
   }, [selectedLayer, onUpdateLayer]);
 
+
   const handleScrubMove = useCallback((e: MouseEvent) => {
     if (!scrubbingRef.current || !latestSelectedLayerRef.current) return;
     const delta = (e.clientX - scrubbingRef.current.startX);

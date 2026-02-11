@@ -23,6 +23,10 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(0.8);
   const [guidelines, setGuidelines] = useState<Guideline[]>([]);
+  const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState('');
+  const textEditRef = useRef<HTMLTextAreaElement | null>(null);
+  const lastEditIdRef = useRef<string | null>(null);
   const t = translations[lang];
 
   const [interaction, setInteraction] = useState<{
@@ -46,9 +50,34 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
     return () => ref?.removeEventListener('wheel', handleWheel);
   }, []);
 
+  useEffect(() => {
+    if (!editingLayerId) return;
+    if (lastEditIdRef.current === editingLayerId) return;
+    const layer = project.layers.find(l => l.id === editingLayerId);
+    if (!layer || layer.type !== 'text') return;
+    lastEditIdRef.current = editingLayerId;
+    setEditingValue(layer.content);
+    requestAnimationFrame(() => {
+      textEditRef.current?.focus();
+      textEditRef.current?.select();
+    });
+  }, [editingLayerId, project.layers]);
+
+  useEffect(() => {
+    if (!editingLayerId) return;
+    if (project.selectedLayerId !== editingLayerId) setEditingLayerId(null);
+  }, [editingLayerId, project.selectedLayerId]);
+
+  useEffect(() => {
+    if (editingLayerId) return;
+    lastEditIdRef.current = null;
+  }, [editingLayerId]);
+
   const handleLayerMouseDown = (e: React.MouseEvent, layer: Layer) => {
     if (layer.locked) return;
     e.stopPropagation();
+    if (editingLayerId === layer.id) return;
+    if (editingLayerId && editingLayerId !== layer.id) setEditingLayerId(null);
     onSelectLayer(layer.id);
     
     setInteraction({
@@ -58,6 +87,14 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
       startY: e.clientY,
       initialData: { x: layer.x, y: layer.y, w: layer.width, h: layer.height, rotation: layer.rotation }
     });
+  };
+
+  const handleLayerDoubleClick = (e: React.MouseEvent, layer: Layer) => {
+    if (layer.locked || layer.type !== 'text') return;
+    e.stopPropagation();
+    onSelectLayer(layer.id);
+    setEditingLayerId(layer.id);
+    setEditingValue(layer.content);
   };
 
   const handleControlMouseDown = (e: React.MouseEvent, layer: Layer, type: 'resize' | 'rotate', handle?: string) => {
@@ -214,6 +251,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
 
   const handleBackgroundClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
+      setEditingLayerId(null);
       onSelectLayer(null);
     }
   };
@@ -339,6 +377,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                   <div
                     key={layer.id}
                     onMouseDown={(e) => handleLayerMouseDown(e, layer)}
+                    onDoubleClick={(e) => handleLayerDoubleClick(e, layer)}
                     className={`absolute select-none group ${project.selectedLayerId === layer.id ? 'z-50' : ''}`}
                     style={{
                       left: layer.x,
@@ -357,9 +396,41 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                         {layer.content.toLowerCase().includes('<svg') ? <div className="w-full h-full" dangerouslySetInnerHTML={{ __html: layer.content }} /> : <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" dangerouslySetInnerHTML={{ __html: layer.content }} />}
                       </div>
                     ) : layer.type === 'text' ? (
-                      <div style={textStyle}>
-                        {layer.content}
-                      </div>
+                      editingLayerId === layer.id ? (
+                        <textarea
+                          ref={textEditRef}
+                          value={editingValue}
+                          onChange={(e) => {
+                            setEditingValue(e.target.value);
+                            updateLayer(layer.id, { content: e.target.value }, false);
+                          }}
+                          onBlur={() => {
+                            setEditingLayerId(null);
+                            onCommit();
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') {
+                              e.preventDefault();
+                              setEditingLayerId(null);
+                              onCommit();
+                            }
+                          }}
+                          className="w-full h-full bg-transparent text-center resize-none outline-none border border-blue-500/60 shadow-[0_0_0_1px_rgba(59,130,246,0.4)]"
+                          style={{
+                            ...textStyle,
+                            color: layer.color || '#ffffff',
+                            backgroundImage: 'none',
+                            WebkitTextFillColor: 'currentColor',
+                            pointerEvents: 'auto',
+                            display: 'block'
+                          }}
+                          onMouseDown={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <div style={textStyle}>
+                          {layer.content}
+                        </div>
+                      )
                     ) : (
                       <img src={layer.content} className="w-full h-full object-contain pointer-events-none" style={{ opacity: layer.opacity }} draggable={false} alt="layer" />
                     )}

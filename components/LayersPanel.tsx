@@ -6,7 +6,8 @@ import { TEXT_GRADIENT_PRESETS } from '../constants.ts';
 import { 
   Eye, EyeOff, Lock, Unlock, Trash2, Hash, RotateCw, Maximize2, 
   Type as TextIcon, Image as ImageIcon, GripVertical, Link as LinkIcon, Link2Off, MoveHorizontal, MoveVertical,
-  Palette, Sliders, AlignLeft, AlignCenter, AlignRight, Type, Search, ChevronDown, Check, Folder
+  Palette, Sliders, AlignLeft, AlignCenter, AlignRight, Type, Search, ChevronDown, Check, Folder,
+  Copy, Trash, ArrowUpToLine, ArrowDownToLine, Layers, Ungroup
 } from 'lucide-react';
 
 interface LayersPanelProps {
@@ -88,6 +89,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   const [isFontPickerOpen, setIsFontPickerOpen] = useState(false);
   const fontPickerRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; layerId: string } | null>(null);
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const [collapsedGroupIds, setCollapsedGroupIds] = useState<string[]>([]);
 
@@ -163,6 +165,26 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
       window.removeEventListener('scroll', handleScroll, true);
     };
   }, [contextMenu]);
+
+  useEffect(() => {
+    if (!contextMenu || !contextMenuRef.current) return;
+    const menu = contextMenuRef.current;
+    const rect = menu.getBoundingClientRect();
+    const padding = 8;
+    let nextX = contextMenu.x;
+    let nextY = contextMenu.y;
+
+    if (nextX + rect.width > window.innerWidth - padding) {
+      nextX = Math.max(padding, window.innerWidth - rect.width - padding);
+    }
+    if (nextY + rect.height > window.innerHeight - padding) {
+      nextY = Math.max(padding, window.innerHeight - rect.height - padding);
+    }
+
+    if (!contextMenuPos || nextX !== contextMenuPos.x || nextY !== contextMenuPos.y) {
+      setContextMenuPos({ x: nextX, y: nextY });
+    }
+  }, [contextMenu, contextMenuPos]);
 
   const handleScrubMove = useCallback((e: MouseEvent) => {
     if (!scrubbingRef.current || !latestSelectedLayerRef.current) return;
@@ -269,6 +291,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
     if (!selectedLayerIds.includes(layerId)) {
       onSelectLayer(layerId, 'replace');
     }
+    setContextMenuPos(null);
     setContextMenu({ x: e.clientX, y: e.clientY, layerId });
   };
 
@@ -732,49 +755,55 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="fixed z-[200] min-w-[160px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden text-[11px]"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          className="fixed z-[200] min-w-[170px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden text-[11px]"
+          style={{ left: (contextMenuPos || contextMenu).x, top: (contextMenuPos || contextMenu).y }}
         >
           <button
-            className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors"
+            className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors flex items-center gap-2"
             onClick={() => { onCloneLayers(menuSelection); setContextMenu(null); }}
           >
+            <Copy className="w-3.5 h-3.5" />
             {t.cloneLayer}
           </button>
           <button
-            className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors"
-            onClick={() => { onDeleteLayers(menuSelection); setContextMenu(null); }}
-          >
-            {t.deleteLayer}
-          </button>
-          <button
-            className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors"
+            className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors flex items-center gap-2"
             onClick={() => { onMoveLayersTop(menuSelection); setContextMenu(null); }}
           >
+            <ArrowUpToLine className="w-3.5 h-3.5" />
             {t.bringToFront}
           </button>
           <button
-            className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors"
+            className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors flex items-center gap-2"
             onClick={() => { onMoveLayersBottom(menuSelection); setContextMenu(null); }}
           >
+            <ArrowDownToLine className="w-3.5 h-3.5" />
             {t.sendToBack}
           </button>
           {canGroup && (
             <button
-              className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors"
+              className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors flex items-center gap-2"
               onClick={() => { onGroupLayers(menuSelection); setContextMenu(null); }}
             >
+              <Layers className="w-3.5 h-3.5" />
               {t.groupLayers}
             </button>
           )}
           {canUngroup && (
             <button
-              className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors"
+              className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors flex items-center gap-2"
               onClick={() => { onUngroupLayer(menuSelection[0]); setContextMenu(null); }}
             >
+              <Ungroup className="w-3.5 h-3.5" />
               {t.ungroupLayers}
             </button>
           )}
+          <button
+            className="w-full text-left px-3 py-2 hover:bg-red-600/15 text-red-400 transition-colors flex items-center gap-2"
+            onClick={() => { onDeleteLayers(menuSelection); setContextMenu(null); }}
+          >
+            <Trash className="w-3.5 h-3.5" />
+            {t.deleteLayer}
+          </button>
         </div>
       )}
     </div>

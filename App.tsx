@@ -101,7 +101,7 @@ const App: React.FC = () => {
     setHistoryIndex(0);
   };
 
-  const handleUndo = () => {
+  const handleUndo = useCallback(() => {
     if (historyIndex > 0) {
       isUndoRedoAction.current = true;
       const prevIndex = historyIndex - 1;
@@ -109,9 +109,9 @@ const App: React.FC = () => {
       setProject(prevState);
       setHistoryIndex(prevIndex);
     }
-  };
+  }, [historyIndex, history]);
 
-  const handleRedo = () => {
+  const handleRedo = useCallback(() => {
     if (historyIndex < history.length - 1) {
       isUndoRedoAction.current = true;
       const nextIndex = historyIndex + 1;
@@ -119,7 +119,7 @@ const App: React.FC = () => {
       setProject(nextState);
       setHistoryIndex(nextIndex);
     }
-  };
+  }, [historyIndex, history]);
 
   const saveHistorySnapshot = () => {
     if (!project) return;
@@ -159,7 +159,7 @@ const App: React.FC = () => {
     setProject(prev => prev ? modifier(prev) : null);
   };
 
-  const updateLayer = (id: string, updates: Partial<Layer>, record: boolean = true) => {
+  const updateLayer = useCallback((id: string, updates: Partial<Layer>, record: boolean = true) => {
     modifyProject(p => ({
       ...p,
       layers: p.layers.map(l => {
@@ -172,7 +172,7 @@ const App: React.FC = () => {
         return newL;
       })
     }), record);
-  };
+  }, []);
 
   const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -237,7 +237,7 @@ const App: React.FC = () => {
         selectedLayerId: newId
       };
     });
-    showToast(lang === 'zh' ? "已粘贴文字图层" : "Text layer pasted");
+    showToast(lang === 'zh' ? "已添加文字图层" : "Text layer added");
   };
 
   const addSvgLayerWithContent = (svgText: string) => {
@@ -275,7 +275,7 @@ const App: React.FC = () => {
         selectedLayerId: newId
       };
     });
-    showToast(lang === 'zh' ? "已粘贴 SVG 图层" : "SVG layer pasted");
+    showToast(lang === 'zh' ? "已添加 SVG 图层" : "SVG layer added");
   };
 
   const addImageLayerWithContent = (dataUrl: string) => {
@@ -304,13 +304,12 @@ const App: React.FC = () => {
         selectedLayerId: newId
       };
     });
-    showToast(lang === 'zh' ? "已粘贴图片图层" : "Image layer pasted");
+    showToast(lang === 'zh' ? "已添加图片图层" : "Image layer added");
   };
 
   const applyProjectFromJson = (data: Partial<ProjectState>) => {
     if (!project) return;
     modifyProject(p => {
-      // Regenerate layer IDs to ensure total independence
       const newLayers = (data.layers || []).map(l => ({
         ...l,
         id: generateId()
@@ -325,7 +324,7 @@ const App: React.FC = () => {
         updatedAt: Date.now()
       };
     });
-    showToast(lang === 'zh' ? "已应用 JSON 项目内容" : "Project JSON content applied");
+    showToast(lang === 'zh' ? "已应用项目内容" : "Project content applied");
   };
 
   const handleAddText = () => addTextLayerWithContent(lang === 'zh' ? '新文字' : 'New Text');
@@ -366,19 +365,112 @@ const App: React.FC = () => {
     setIsExporting(false);
   };
 
+  // Keyboard Shortcuts Handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
+
+      // Undo/Redo
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
         if (e.shiftKey) handleRedo();
         else handleUndo();
+        return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault();
         handleRedo();
+        return;
+      }
+
+      if (!project || !project.selectedLayerId) return;
+
+      const layer = project.layers.find(l => l.id === project.selectedLayerId);
+      if (!layer || layer.locked) return;
+
+      // DELETE
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        modifyProject(p => ({
+          ...p,
+          layers: p.layers.filter(l => l.id !== project.selectedLayerId),
+          selectedLayerId: null
+        }));
+        return;
+      }
+
+      // COMBINATION KEYS (Ctrl + Arrow) - Priority Check
+      if (e.ctrlKey || e.metaKey) {
+        // Hierarchy Adjustment (Ctrl+Up/Down)
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          modifyProject(p => {
+            const index = p.layers.findIndex(l => l.id === project.selectedLayerId);
+            const newLayers = [...p.layers];
+            if (e.key === 'ArrowUp' && index < newLayers.length - 1) {
+              [newLayers[index], newLayers[index + 1]] = [newLayers[index + 1], newLayers[index]];
+            } else if (e.key === 'ArrowDown' && index > 0) {
+              [newLayers[index], newLayers[index - 1]] = [newLayers[index - 1], newLayers[index]];
+            }
+            return {
+              ...p,
+              layers: newLayers.map((l, i) => ({ ...l, zIndex: i + 1 }))
+            };
+          });
+          return;
+        }
+
+        // Rotation Adjustment (Ctrl+Left/Right)
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          const dr = e.key === 'ArrowLeft' ? -15 : 15;
+          const newRotation = (layer.rotation + dr) % 360;
+          updateLayer(project.selectedLayerId, { rotation: newRotation });
+          return;
+        }
+
+        // Clone (Ctrl+J)
+        if (e.key.toLowerCase() === 'j') {
+          e.preventDefault();
+          const newId = generateId();
+          const clone: Layer = {
+            ...JSON.parse(JSON.stringify(layer)),
+            id: newId,
+            x: layer.x + 20,
+            y: layer.y + 20,
+            zIndex: project.layers.length + 1
+          };
+          modifyProject(p => ({
+            ...p,
+            layers: [...p.layers, clone],
+            selectedLayerId: newId
+          }));
+          showToast(lang === 'zh' ? "图层已复制" : "Layer cloned");
+          return;
+        }
+      }
+
+      // SIMPLE MOVEMENT (Arrow keys without Ctrl/Meta)
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        let dx = 0, dy = 0;
+        if (e.key === 'ArrowUp') dy = -step;
+        if (e.key === 'ArrowDown') dy = step;
+        if (e.key === 'ArrowLeft') dx = -step;
+        if (e.key === 'ArrowRight') dx = step;
+
+        updateLayer(project.selectedLayerId, { x: layer.x + dx, y: layer.y + dy });
+        return;
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [historyIndex, history]);
+  }, [project, handleUndo, handleRedo, updateLayer, lang]);
 
   useEffect(() => {
     if (view !== 'editor' || !project) return;

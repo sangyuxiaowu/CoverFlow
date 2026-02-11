@@ -633,10 +633,11 @@ const App: React.FC = () => {
 
   const handleGroupLayers = (ids: string[]) => {
     if (!project) return;
-    const candidates = ids
+    const selectedLayers = ids
       .map(id => project.layers.find(l => l.id === id))
-      .filter((l): l is Layer => Boolean(l))
-      .filter(l => l.type !== 'group');
+      .filter((l): l is Layer => Boolean(l));
+    if (selectedLayers.some(l => l.type === 'group' || l.parentId)) return;
+    const candidates = selectedLayers.filter(l => l.type !== 'group');
     if (candidates.length < 2) return;
 
     const candidateIds = new Set(candidates.map(l => l.id));

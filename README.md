@@ -70,6 +70,7 @@ CoverFlow - 专业 SVG 文章封面设计器
 - Arrow Keys：1px 移动
 - Shift + Arrow：10px 移动
 - Ctrl + J：克隆选中图层
+- Ctrl + G：组合图层
 - Ctrl + 上下：调整图层层级
 - Ctrl + 左右：调整旋转角度
 - Enter：编辑文本图层，也可以使用双击

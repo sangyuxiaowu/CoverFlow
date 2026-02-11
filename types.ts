@@ -61,3 +61,25 @@ export interface PresetRatio {
   width: number;
   height: number;
 }
+
+export interface FAIconMetadata {
+  label: string;
+  search: { terms: string[] };
+  styles: string[];
+  svgs: {
+    [family: string]: {
+      [style: string]: {
+        raw: string;
+        viewBox: number[];
+        path: string;
+        width?: number;
+        height?: number;
+      };
+    };
+  };
+}
+
+export interface FACategory {
+  label: string;
+  icons: string[];
+}

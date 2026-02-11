@@ -6,7 +6,7 @@ import { TEXT_GRADIENT_PRESETS } from '../constants.ts';
 import { 
   Eye, EyeOff, Lock, Unlock, Trash2, Hash, RotateCw, Maximize2, 
   Type as TextIcon, Image as ImageIcon, GripVertical, Link as LinkIcon, Link2Off, MoveHorizontal, MoveVertical,
-  Palette, Sliders
+  Palette, Sliders, AlignLeft, AlignCenter, AlignRight, Type
 } from 'lucide-react';
 
 interface LayersPanelProps {
@@ -18,6 +18,29 @@ interface LayersPanelProps {
   onReorderLayers: (newLayers: Layer[]) => void;
   onCommit: () => void;
 }
+
+const COMMON_FONTS = [
+  { name: 'Inter', value: 'Inter, sans-serif' },
+  { name: 'System UI', value: 'system-ui, sans-serif' },
+  { name: 'PingFang SC', value: '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif' },
+  { name: 'Microsoft YaHei', value: '"Microsoft YaHei", sans-serif' },
+  { name: 'Noto Sans SC', value: '"Noto Sans SC", sans-serif' },
+  { name: 'Serif', value: 'serif' },
+  { name: 'Monospace', value: 'monospace' },
+  { name: 'Arial', value: 'Arial, sans-serif' },
+  { name: 'Georgia', value: 'Georgia, serif' },
+  { name: 'Impact', value: 'Impact, sans-serif' }
+];
+
+const FONT_WEIGHTS = [
+  { label: 'Thin', value: 100 },
+  { label: 'Light', value: 300 },
+  { label: 'Regular', value: 400 },
+  { label: 'Medium', value: 500 },
+  { label: 'SemiBold', value: 600 },
+  { label: 'Bold', value: 700 },
+  { label: 'Black', value: 900 }
+];
 
 const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer, onDeleteLayer, onSelectLayer, onReorderLayers, onCommit }) => {
   const selectedLayer = project.layers.find(l => l.id === project.selectedLayerId);
@@ -128,7 +151,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
         <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide">
           {selectedLayer ? (
             <div className="space-y-6">
-              {/* Row 1: X & Y (Inline Label and Input) */}
+              {/* Row 1: X & Y */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex items-center gap-2">
                   <label onMouseDown={(e) => handleScrubMouseDown(e, 'x', selectedLayer.x)} className="flex items-center gap-1 w-7 flex-shrink-0 text-[10px] text-slate-500 font-bold cursor-ew-resize hover:text-blue-400 select-none">
@@ -144,7 +167,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                 </div>
               </div>
 
-              {/* Row 2: W & H with U-bridge and Toggle icon */}
+              {/* Row 2: W & H */}
               <div className="relative pb-4">
                 <div className="grid grid-cols-2 gap-3 relative z-10">
                    <div className="flex items-center gap-2">
@@ -160,8 +183,6 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                     <input type="number" id="input-height" value={Math.round(selectedLayer.height)} onChange={(e) => onUpdateLayer(selectedLayer.id, { height: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1.5 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                   </div>
                 </div>
-
-                {/* The visual U-bridge line with the link icon toggle */}
                 <div className="absolute left-[38px] right-[10px] top-[26px] bottom-[-2px] pointer-events-none border-l border-r border-b border-slate-700/60 rounded-b-lg">
                   <div className="absolute left-1/2 bottom-[-8px] -translate-x-1/2 pointer-events-auto">
                     <button 
@@ -175,7 +196,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                 </div>
               </div>
 
-              {/* Row 3: Rotation, Size, and Opacity (Labels ABOVE inputs) */}
+              {/* Row 3: Rotation, Size, and Opacity */}
               <div className={`grid ${selectedLayer.type === 'text' ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
                 <div className="space-y-1.5">
                   <label onMouseDown={(e) => handleScrubMouseDown(e, 'rotation', selectedLayer.rotation)} className="flex items-center gap-1 text-[9px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
@@ -186,7 +207,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                 {selectedLayer.type === 'text' && (
                   <div className="space-y-1.5">
                     <label onMouseDown={(e) => handleScrubMouseDown(e, 'fontSize', selectedLayer.fontSize || 48)} className="flex items-center gap-1 text-[9px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
-                      <TextIcon className="w-2.5 h-2.5"/> {lang === 'zh' ? '字号' : 'Size'}
+                      <Type className="w-2.5 h-2.5"/> {lang === 'zh' ? '字号' : 'Size'}
                     </label>
                     <input type="number" value={selectedLayer.fontSize || 48} onChange={(e) => onUpdateLayer(selectedLayer.id, { fontSize: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1.5 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                   </div>
@@ -199,9 +220,53 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                 </div>
               </div>
 
-              {/* Text Layer Grouping */}
+              {/* Text Specific Property Group */}
               {selectedLayer.type === 'text' && (
-                <div className="space-y-4 pt-3 border-t border-slate-800/80">
+                <div className="space-y-5 pt-4 border-t border-slate-800/80">
+                  {/* Font Family & Weight Row */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.fontFamily}</label>
+                      <select 
+                        value={selectedLayer.fontFamily || 'Inter, sans-serif'} 
+                        onChange={(e) => onUpdateLayer(selectedLayer.id, { fontFamily: e.target.value })}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-[11px] text-slate-200 focus:border-blue-500 outline-none transition-colors"
+                      >
+                        {COMMON_FONTS.map(f => <option key={f.value} value={f.value}>{f.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.fontWeight}</label>
+                      <select 
+                        value={selectedLayer.fontWeight || 700} 
+                        onChange={(e) => onUpdateLayer(selectedLayer.id, { fontWeight: e.target.value })}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-[11px] text-slate-200 focus:border-blue-500 outline-none transition-colors"
+                      >
+                        {FONT_WEIGHTS.map(w => <option key={w.value} value={w.value}>{w.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Text Direction Row */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.textDirection}</label>
+                    <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700 gap-1">
+                      <button 
+                        onClick={() => onUpdateLayer(selectedLayer.id, { writingMode: 'horizontal' })}
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded text-[10px] font-bold transition-all ${selectedLayer.writingMode !== 'vertical' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                      >
+                        <MoveHorizontal className="w-3 h-3" /> {t.horizontal}
+                      </button>
+                      <button 
+                        onClick={() => onUpdateLayer(selectedLayer.id, { writingMode: 'vertical' })}
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded text-[10px] font-bold transition-all ${selectedLayer.writingMode === 'vertical' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                      >
+                        <MoveVertical className="w-3 h-3" /> {t.vertical}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Text Content */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.textContent}</label>
                     <textarea 
@@ -211,7 +276,8 @@ const LayersPanel: React.FC<LayersPanelProps> = ({ lang, project, onUpdateLayer,
                     />
                   </div>
 
-                  <div className="space-y-3">
+                  {/* Gradient Settings */}
+                  <div className="space-y-3 pt-2">
                     <div className="flex items-center justify-between">
                       <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><Palette className="w-3 h-3" /> {t.textGradient}</h4>
                       <label className="relative inline-flex items-center cursor-pointer">

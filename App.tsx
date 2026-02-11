@@ -119,6 +119,8 @@ const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObjec
           .map(layer => {
             const textStyle: React.CSSProperties = {
               fontSize: `${layer.fontSize || Math.max(12, layer.height * 0.7)}px`,
+              fontFamily: layer.fontFamily || 'Inter, sans-serif',
+              fontWeight: layer.fontWeight || 'bold',
               wordBreak: 'break-word',
               opacity: layer.opacity,
               width: '100%',
@@ -127,11 +129,17 @@ const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObjec
               alignItems: 'center',
               justifyContent: 'center',
               textAlign: 'center',
-              fontWeight: 'bold',
               lineHeight: 1.1,
               pointerEvents: 'none',
               padding: '0 0.5rem'
             };
+
+            if (layer.type === 'text' && layer.writingMode === 'vertical') {
+              textStyle.writingMode = 'vertical-rl';
+              textStyle.textOrientation = 'upright';
+              textStyle.padding = '0.5rem 0';
+            }
+
             if (layer.type === 'text' && layer.textGradient?.enabled) {
               textStyle.backgroundImage = `linear-gradient(${layer.textGradient.angle}deg, ${layer.textGradient.from}, ${layer.textGradient.to})`;
               textStyle.WebkitBackgroundClip = 'text';
@@ -364,7 +372,7 @@ const App: React.FC = () => {
   const createNewProject = (preset: typeof PRESET_RATIOS[0]) => {
     const newProject: ProjectState = {
       id: generateId(), title: t.untitled, updatedAt: Date.now(),
-      layers: [{ id: generateId(), name: lang === 'zh' ? '标题' : 'Headline', type: 'text', content: lang === 'zh' ? '双击编辑文本' : 'Double click to edit', x: 50, y: preset.height / 2 - 50, width: preset.width - 100, height: 100, fontSize: 64, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, color: '#ffffff', ratioLocked: true }],
+      layers: [{ id: generateId(), name: lang === 'zh' ? '标题' : 'Headline', type: 'text', content: lang === 'zh' ? '双击编辑文本' : 'Double click to edit', x: 50, y: preset.height / 2 - 50, width: preset.width - 100, height: 100, fontSize: 64, fontFamily: 'Inter, sans-serif', fontWeight: 700, writingMode: 'horizontal', rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, color: '#ffffff', ratioLocked: true }],
       background: { 
         type: 'color', 
         value: '#1e293b', 
@@ -484,6 +492,9 @@ const App: React.FC = () => {
           width,
           height,
           fontSize: 32,
+          fontFamily: 'Inter, sans-serif',
+          fontWeight: 700,
+          writingMode: 'horizontal',
           rotation: 0,
           zIndex: p.layers.length + 1,
           visible: true,
@@ -668,6 +679,9 @@ const App: React.FC = () => {
       width: 300,
       height: 50,
       fontSize: 48,
+      fontFamily: 'Inter, sans-serif',
+      fontWeight: 700,
+      writingMode: 'horizontal',
       rotation: 0,
       zIndex: project.layers.length + 1,
       visible: true,

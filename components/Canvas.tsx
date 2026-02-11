@@ -274,11 +274,9 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
     let patternImage = '';
     let patternSize = '';
     if (bg.overlayType !== 'none') {
-      const rgba = bg.overlayType === 'dots' || bg.overlayType === 'grid' || bg.overlayType === 'stripes'
-        ? (bg.overlayColor.startsWith('#') 
-          ? `${bg.overlayColor}${Math.round(bg.overlayOpacity * 255).toString(16).padStart(2, '0')}` 
-          : bg.overlayColor)
-        : '';
+      const rgba = bg.overlayColor.startsWith('#') 
+        ? `${bg.overlayColor}${Math.round(bg.overlayOpacity * 255).toString(16).padStart(2, '0')}` 
+        : bg.overlayColor;
       const scale = bg.overlayScale || 20;
 
       if (bg.overlayType === 'dots') {
@@ -349,6 +347,8 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
               .map(layer => {
                 const textStyle: React.CSSProperties = {
                   fontSize: `${layer.fontSize || Math.max(12, layer.height * 0.7)}px`,
+                  fontFamily: layer.fontFamily || 'Inter, sans-serif',
+                  fontWeight: layer.fontWeight || 'bold',
                   wordBreak: 'break-word',
                   opacity: layer.opacity,
                   width: '100%',
@@ -357,11 +357,16 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                   alignItems: 'center',
                   justifyContent: 'center',
                   textAlign: 'center',
-                  fontWeight: 'bold',
                   padding: '0 1rem',
                   lineHeight: 1.1,
                   pointerEvents: 'none',
                 };
+
+                if (layer.type === 'text' && layer.writingMode === 'vertical') {
+                  textStyle.writingMode = 'vertical-rl';
+                  textStyle.textOrientation = 'upright';
+                  textStyle.padding = '1rem 0';
+                }
 
                 if (layer.type === 'text' && layer.textGradient?.enabled) {
                   textStyle.backgroundImage = `linear-gradient(${layer.textGradient.angle}deg, ${layer.textGradient.from}, ${layer.textGradient.to})`;

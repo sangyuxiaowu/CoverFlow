@@ -84,7 +84,12 @@ export const translations = {
     grid: "网格",
     stripes: "条纹",
     textGradient: "文字渐变",
-    gradientEnabled: "开启渐变"
+    gradientEnabled: "开启渐变",
+    fontFamily: "字体",
+    fontWeight: "字重",
+    textDirection: "文字方向",
+    horizontal: "横向",
+    vertical: "纵向"
   },
   en: {
     title: "CoverFlow",
@@ -170,7 +175,12 @@ export const translations = {
     grid: "Grid",
     stripes: "Stripes",
     textGradient: "Text Gradient",
-    gradientEnabled: "Enable Gradient"
+    gradientEnabled: "Enable Gradient",
+    fontFamily: "Font",
+    fontWeight: "Weight",
+    textDirection: "Direction",
+    horizontal: "Horizontal",
+    vertical: "Vertical"
   }
 };
 

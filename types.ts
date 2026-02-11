@@ -24,6 +24,9 @@ export interface Layer {
   opacity: number;
   color?: string;
   fontSize?: number;
+  fontFamily?: string;
+  fontWeight?: string | number;
+  writingMode?: 'horizontal' | 'vertical';
   ratioLocked?: boolean;
   textGradient?: TextGradient;
   children?: string[]; // Layer IDs if type is 'group'

@@ -58,19 +58,16 @@ const App: React.FC = () => {
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ message: string, onConfirm: () => void } | null>(null);
   
-  // Undo/Redo states
   const [history, setHistory] = useState<ProjectState[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
   const isUndoRedoAction = useRef(false);
   const ignoreHistoryChange = useRef(false);
 
-  // Persistence: Save projects list to localStorage
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(projects)); } catch (e) {}
   }, [projects]);
 
-  // Sync current active project back to projects list for persistence
   useEffect(() => {
     if (project && view === 'editor') {
       setProjects(prev => prev.map(p => p.id === project.id ? { ...project, updatedAt: Date.now() } : p));
@@ -84,11 +81,9 @@ const App: React.FC = () => {
     setTimeout(() => setToast(null), 3000);
   };
 
-  // History tracking logic
   useEffect(() => {
     if (project && !isUndoRedoAction.current && !ignoreHistoryChange.current) {
       const lastState = history[historyIndex];
-      // Simple stringify check to avoid adding history for non-visual changes if needed
       if (JSON.stringify(lastState) !== JSON.stringify(project)) {
          const newHistory = history.slice(0, historyIndex + 1);
          newHistory.push(JSON.parse(JSON.stringify(project)));
@@ -127,8 +122,6 @@ const App: React.FC = () => {
   };
 
   const saveHistorySnapshot = () => {
-    // This is called on mouseUp or explicit commit actions to finalize a history state
-    // The visual updates during dragging don't trigger history (see ignoreHistoryChange)
     if (!project) return;
     ignoreHistoryChange.current = false;
     const lastState = history[historyIndex];
@@ -189,28 +182,15 @@ const App: React.FC = () => {
       try {
         const imported: ProjectState = JSON.parse(event.target?.result as string);
         if (imported.id && imported.layers) {
-          // 1. Check if Project ID is duplicated
           const existingProjectIds = new Set(projects.map(p => p.id));
           if (existingProjectIds.has(imported.id)) {
-            // Generate new ID for the project
             imported.id = generateId();
             imported.updatedAt = Date.now();
-            // Append suffix to title to distinguish from original
             if (lang === 'zh') imported.title += ' (导入副本)';
             else imported.title += ' (Imported Copy)';
           }
-
-          // 2. Always regenerate layer IDs on import to be absolutely safe
-          // This ensures that even if internal layer IDs were somehow duplicated elsewhere, 
-          // the new instance is completely fresh.
-          imported.layers = imported.layers.map(layer => ({
-            ...layer,
-            id: generateId()
-          }));
-          
-          // Clear selection since IDs changed
+          imported.layers = imported.layers.map(layer => ({ ...layer, id: generateId() }));
           imported.selectedLayerId = null;
-
           setProjects(prev => [imported, ...prev]);
           showToast(lang === 'zh' ? "导入成功" : "Imported Successfully");
         }
@@ -226,31 +206,6 @@ const App: React.FC = () => {
     if (!project) return;
     const json = JSON.stringify(project, null, 2);
     downloadFile(json, `${project.title}.json`, 'application/json');
-  };
-
-  const handleAddText = () => {
-    if (!project) return;
-    modifyProject(p => ({
-      ...p,
-      layers: [...p.layers, {
-        id: generateId(),
-        name: lang === 'zh' ? '文字图层' : 'Text Layer',
-        type: 'text',
-        content: lang === 'zh' ? '新文字' : 'New Text',
-        x: p.canvasConfig.width / 2 - 100,
-        y: p.canvasConfig.height / 2 - 25,
-        width: 200,
-        height: 50,
-        fontSize: 32,
-        rotation: 0,
-        zIndex: p.layers.length + 1,
-        visible: true,
-        locked: false,
-        opacity: 1,
-        color: '#ffffff',
-        ratioLocked: true
-      }]
-    }));
   };
 
   const addTextLayerWithContent = (text: string) => {
@@ -282,6 +237,7 @@ const App: React.FC = () => {
         selectedLayerId: newId
       };
     });
+    showToast(lang === 'zh' ? "已粘贴文字图层" : "Text layer pasted");
   };
 
   const addSvgLayerWithContent = (svgText: string) => {
@@ -319,6 +275,7 @@ const App: React.FC = () => {
         selectedLayerId: newId
       };
     });
+    showToast(lang === 'zh' ? "已粘贴 SVG 图层" : "SVG layer pasted");
   };
 
   const addImageLayerWithContent = (dataUrl: string) => {
@@ -347,19 +304,31 @@ const App: React.FC = () => {
         selectedLayerId: newId
       };
     });
+    showToast(lang === 'zh' ? "已粘贴图片图层" : "Image layer pasted");
   };
 
-  const applyProjectFromJson = (data: ProjectState) => {
+  const applyProjectFromJson = (data: Partial<ProjectState>) => {
     if (!project) return;
-    modifyProject(p => ({
-      ...p,
-      layers: data.layers || p.layers,
-      background: data.background || p.background,
-      canvasConfig: data.canvasConfig || p.canvasConfig,
-      selectedLayerId: null,
-      updatedAt: Date.now()
-    }));
+    modifyProject(p => {
+      // Regenerate layer IDs to ensure total independence
+      const newLayers = (data.layers || []).map(l => ({
+        ...l,
+        id: generateId()
+      }));
+
+      return {
+        ...p,
+        layers: newLayers.length > 0 ? newLayers : p.layers,
+        background: data.background || p.background,
+        canvasConfig: data.canvasConfig || p.canvasConfig,
+        selectedLayerId: null,
+        updatedAt: Date.now()
+      };
+    });
+    showToast(lang === 'zh' ? "已应用 JSON 项目内容" : "Project JSON content applied");
   };
+
+  const handleAddText = () => addTextLayerWithContent(lang === 'zh' ? '新文字' : 'New Text');
 
   const handleAddImage = () => {
     const input = document.createElement('input');
@@ -369,28 +338,7 @@ const App: React.FC = () => {
       const file = e.target.files?.[0];
       if (file) {
         const reader = new FileReader();
-        reader.onload = (ev) => {
-          if (!project) return;
-          modifyProject(p => ({
-            ...p,
-            layers: [...p.layers, {
-              id: generateId(),
-              name: lang === 'zh' ? '图片图层' : 'Image Layer',
-              type: 'image',
-              content: ev.target?.result as string,
-              x: p.canvasConfig.width / 2 - 100,
-              y: p.canvasConfig.height / 2 - 100,
-              width: 200,
-              height: 200,
-              rotation: 0,
-              zIndex: p.layers.length + 1,
-              visible: true,
-              locked: false,
-              opacity: 1,
-              ratioLocked: true
-            }]
-          }));
-        };
+        reader.onload = (ev) => addImageLayerWithContent(ev.target?.result as string);
         reader.readAsDataURL(file);
       }
     };
@@ -400,13 +348,8 @@ const App: React.FC = () => {
   const handleExportImage = async () => {
     if (!project) return;
     setIsExporting(true);
-    
-    // 1. Deselect layer to hide handles
     modifyProject(p => ({ ...p, selectedLayerId: null }), false);
-    
-    // 2. Wait for DOM to update
     await new Promise(resolve => setTimeout(resolve, 100));
-
     const node = document.getElementById('export-target');
     if (node) { 
       try { 
@@ -423,7 +366,6 @@ const App: React.FC = () => {
     setIsExporting(false);
   };
 
-  // Listen for keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
@@ -493,14 +435,12 @@ const App: React.FC = () => {
       if (trimmed.startsWith('{')) {
         try {
           const parsed = JSON.parse(trimmed);
-          if (parsed && parsed.layers && parsed.background && parsed.canvasConfig) {
+          if (parsed && (parsed.layers || parsed.background || parsed.canvasConfig)) {
             e.preventDefault();
             applyProjectFromJson(parsed as ProjectState);
             return;
           }
-        } catch (err) {
-          // Ignore JSON parse errors and fall back to text
-        }
+        } catch (err) {}
       }
 
       e.preventDefault();
@@ -583,8 +523,6 @@ const App: React.FC = () => {
         <Sidebar lang={lang} activeTab={activeTab} setActiveTab={setActiveTab} background={project.background} onAddLayer={(l) => modifyProject(p => ({ ...p, layers: [...p.layers, { id: generateId(), name: l.name || 'Layer', type: l.type || 'svg', x: p.canvasConfig.width/2-50, y: p.canvasConfig.height/2-50, width: l.width || 100, height: l.height || 100, rotation: 0, zIndex: p.layers.length+1, visible: true, locked: false, opacity: 1, color: l.color || '#3b82f6', ratioLocked: true, content: l.content || '' }] }))} onUpdateBackground={(bg) => modifyProject(p => ({ ...p, background: { ...p.background, ...bg } }))} />
         <div className="flex-1 flex flex-col min-h-0 relative">
           <Canvas lang={lang} project={project} onSelectLayer={(id) => modifyProject(p => ({ ...p, selectedLayerId: id }), false)} updateLayer={updateLayer} onCommit={saveHistorySnapshot} />
-          
-          {/* Toolbar below canvas */}
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-slate-900/95 backdrop-blur-xl border border-slate-800 rounded-2xl p-2 shadow-2xl z-40">
             <button onClick={handleAddText} className="flex items-center gap-2 px-4 py-2 hover:bg-blue-600/10 hover:text-blue-400 rounded-xl transition-all text-xs font-bold group">
               <div className="p-1.5 bg-slate-800 rounded-lg group-hover:bg-blue-600/20"><TextIcon className="w-4 h-4" /></div>

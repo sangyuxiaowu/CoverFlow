@@ -726,6 +726,109 @@ const App: React.FC = () => {
     input.click();
   };
 
+  
+    // Keyboard Shortcuts Handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
+
+      // Undo/Redo
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) handleRedo();
+        else handleUndo();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      if (!project || !project.selectedLayerId) return;
+
+      const layer = project.layers.find(l => l.id === project.selectedLayerId);
+      if (!layer || layer.locked) return;
+
+      // Enter - Activate text input box
+      if (e.key === 'Enter') {
+        if (layer.type === 'text') {
+          e.preventDefault();
+          const textarea = document.querySelector('textarea');
+          if (textarea) textarea.focus();
+          return;
+        }
+      }
+
+      // Delete/Backspace
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        modifyProject(p => ({
+          ...p,
+          layers: p.layers.filter(l => l.id !== project.selectedLayerId),
+          selectedLayerId: null
+        }));
+        return;
+      }
+
+      // COMBINATION KEYS (Ctrl + Arrow)
+      if (e.ctrlKey || e.metaKey) {
+        // Hierarchy Adjustment
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          modifyProject(p => {
+            const index = p.layers.findIndex(l => l.id === project.selectedLayerId);
+            const newLayers = [...p.layers];
+            if (e.key === 'ArrowUp' && index < newLayers.length - 1) {
+              [newLayers[index], newLayers[index + 1]] = [newLayers[index + 1], newLayers[index]];
+            } else if (e.key === 'ArrowDown' && index > 0) {
+              [newLayers[index], newLayers[index - 1]] = [newLayers[index - 1], newLayers[index]];
+            }
+            return { ...p, layers: newLayers.map((l, i) => ({ ...l, zIndex: i + 1 })) };
+          });
+          return;
+        }
+
+        // Rotation Adjustment
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          const dr = e.key === 'ArrowLeft' ? -15 : 15;
+          updateLayer(project.selectedLayerId, { rotation: (layer.rotation + dr) % 360 });
+          return;
+        }
+
+        // Clone (Ctrl+J)
+        if (e.key.toLowerCase() === 'j') {
+          e.preventDefault();
+          const newId = generateId();
+          const clone = { ...JSON.parse(JSON.stringify(layer)), id: newId, x: layer.x + 20, y: layer.y + 20, zIndex: project.layers.length + 1 };
+          modifyProject(p => ({ ...p, layers: [...p.layers, clone], selectedLayerId: newId }));
+          showToast(lang === 'zh' ? "图层已复制" : "Layer cloned");
+          return;
+        }
+      }
+
+      // SIMPLE MOVEMENT
+      if (!e.ctrlKey && !e.metaKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        let dx = 0, dy = 0;
+        if (e.key === 'ArrowUp') dy = -step;
+        if (e.key === 'ArrowDown') dy = step;
+        if (e.key === 'ArrowLeft') dx = -step;
+        if (e.key === 'ArrowRight') dx = step;
+        updateLayer(project.selectedLayerId, { x: layer.x + dx, y: layer.y + dy });
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [project, handleUndo, handleRedo, updateLayer, lang]);
+
   const groupedProjects = useMemo(() => {
     const filtered = projects.filter(p => p.title.toLowerCase().includes(projectSearchTerm.toLowerCase()));
     const now = new Date();

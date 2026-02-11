@@ -391,7 +391,17 @@ const App: React.FC = () => {
       const layer = project.layers.find(l => l.id === project.selectedLayerId);
       if (!layer || layer.locked) return;
 
-      // DELETE
+      // Enter - Activate text input box
+      if (e.key === 'Enter') {
+        if (layer.type === 'text') {
+          e.preventDefault();
+          const textarea = document.querySelector('textarea');
+          if (textarea) textarea.focus();
+          return;
+        }
+      }
+
+      // Delete/Backspace
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         modifyProject(p => ({
@@ -402,9 +412,9 @@ const App: React.FC = () => {
         return;
       }
 
-      // COMBINATION KEYS (Ctrl + Arrow) - Priority Check
+      // COMBINATION KEYS (Ctrl + Arrow)
       if (e.ctrlKey || e.metaKey) {
-        // Hierarchy Adjustment (Ctrl+Up/Down)
+        // Hierarchy Adjustment
         if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
           e.preventDefault();
           modifyProject(p => {
@@ -415,20 +425,16 @@ const App: React.FC = () => {
             } else if (e.key === 'ArrowDown' && index > 0) {
               [newLayers[index], newLayers[index - 1]] = [newLayers[index - 1], newLayers[index]];
             }
-            return {
-              ...p,
-              layers: newLayers.map((l, i) => ({ ...l, zIndex: i + 1 }))
-            };
+            return { ...p, layers: newLayers.map((l, i) => ({ ...l, zIndex: i + 1 })) };
           });
           return;
         }
 
-        // Rotation Adjustment (Ctrl+Left/Right)
+        // Rotation Adjustment
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
           e.preventDefault();
           const dr = e.key === 'ArrowLeft' ? -15 : 15;
-          const newRotation = (layer.rotation + dr) % 360;
-          updateLayer(project.selectedLayerId, { rotation: newRotation });
+          updateLayer(project.selectedLayerId, { rotation: (layer.rotation + dr) % 360 });
           return;
         }
 
@@ -436,25 +442,15 @@ const App: React.FC = () => {
         if (e.key.toLowerCase() === 'j') {
           e.preventDefault();
           const newId = generateId();
-          const clone: Layer = {
-            ...JSON.parse(JSON.stringify(layer)),
-            id: newId,
-            x: layer.x + 20,
-            y: layer.y + 20,
-            zIndex: project.layers.length + 1
-          };
-          modifyProject(p => ({
-            ...p,
-            layers: [...p.layers, clone],
-            selectedLayerId: newId
-          }));
+          const clone = { ...JSON.parse(JSON.stringify(layer)), id: newId, x: layer.x + 20, y: layer.y + 20, zIndex: project.layers.length + 1 };
+          modifyProject(p => ({ ...p, layers: [...p.layers, clone], selectedLayerId: newId }));
           showToast(lang === 'zh' ? "图层已复制" : "Layer cloned");
           return;
         }
       }
 
-      // SIMPLE MOVEMENT (Arrow keys without Ctrl/Meta)
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      // SIMPLE MOVEMENT
+      if (!e.ctrlKey && !e.metaKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
         e.preventDefault();
         const step = e.shiftKey ? 10 : 1;
         let dx = 0, dy = 0;
@@ -462,7 +458,6 @@ const App: React.FC = () => {
         if (e.key === 'ArrowDown') dy = step;
         if (e.key === 'ArrowLeft') dx = -step;
         if (e.key === 'ArrowRight') dx = step;
-
         updateLayer(project.selectedLayerId, { x: layer.x + dx, y: layer.y + dy });
         return;
       }

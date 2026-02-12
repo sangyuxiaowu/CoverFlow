@@ -2,7 +2,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Layer, ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
-import { TEXT_GRADIENT_PRESETS } from '../constants.ts';
+import { PRESET_COLORS, TEXT_GRADIENT_PRESETS } from '../constants.ts';
 import { 
   Eye, EyeOff, Lock, Unlock, Trash2, Hash, RotateCw, Maximize2, 
   Type as TextIcon, Image as ImageIcon, GripVertical, Link as LinkIcon, Link2Off, MoveHorizontal, MoveVertical,
@@ -652,6 +652,17 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                           <input type="color" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="h-7 w-7 bg-slate-900 border border-slate-700 cursor-pointer rounded-md p-1" />
                           <input type="text" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="flex-1 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 font-mono focus:border-blue-500 outline-none" />
                         </div>
+                        <div className="grid grid-cols-8 gap-x-1 gap-y-3 pt-2">
+                          {PRESET_COLORS.map(c => (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => onUpdateLayer(selectedLayer.id, { color: c })}
+                              className={`w-6 h-6 rounded-md border-2 transition-all hover:scale-110 ${selectedLayer.color === c ? 'border-blue-500 shadow-md' : 'border-transparent'}`}
+                              style={{ backgroundColor: c }}
+                            />
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -665,6 +676,17 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                   <div className="flex gap-2">
                     <input type="color" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="h-7 w-7 bg-slate-900 border border-slate-700 cursor-pointer rounded-md p-1" />
                     <input type="text" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="flex-1 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 font-mono focus:border-blue-500 outline-none" />
+                  </div>
+                  <div className="grid grid-cols-8 gap-x-1 gap-y-3 pt-2">
+                    {PRESET_COLORS.map(c => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => onUpdateLayer(selectedLayer.id, { color: c })}
+                        className={`w-6 h-6 rounded-md border-2 transition-all hover:scale-110 ${selectedLayer.color === c ? 'border-blue-500 shadow-md' : 'border-transparent'}`}
+                        style={{ backgroundColor: c }}
+                      />
+                    ))}
                   </div>
                 </div>
               )}

@@ -114,20 +114,36 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
           
           // 去重并分组
           // 通常展示唯一全名供选择，但 CSS 使用 family 以便与字重/样式属性配合
-          const seenFullNames = new Set<string>();
+          const seenFamilies = new Set<string>();
           const processed: LocalFont[] = [];
 
-          for (const f of fonts) {
-            if (!seenFullNames.has(f.fullName)) {
-              seenFullNames.add(f.fullName);
-              const isChinese = isChineseText(f.fullName) || isChineseText(f.family);
-              processed.push({
-                fullName: f.fullName,
-                family: f.family,
-                isChinese,
-                value: `"${f.family}", sans-serif`
-              });
+          const normalizeFullName = (fullName: string) => {
+            if (!fullName.includes(' ')) return fullName;
+            const weightTokens = new Set([
+              'bold', 'heavy', 'light', 'regular', 'medium', 'black', 'thin', 'semibold',
+              'demibold', 'extrabold', 'extralight', 'ultralight', 'book', 'italic', 'oblique'
+            ]);
+            const tokens = fullName
+              .split(' ')
+              .filter(token => token && !/^\d+$/.test(token));
+            while (tokens.length > 0 && weightTokens.has(tokens[tokens.length - 1].toLowerCase())) {
+              tokens.pop();
             }
+            const next = tokens.join(' ').trim();
+            return next || fullName;
+          };
+
+          for (const f of fonts) {
+            if (seenFamilies.has(f.family)) continue;
+            seenFamilies.add(f.family);
+            const normalizedFullName = normalizeFullName(f.fullName);
+            const isChinese = isChineseText(normalizedFullName) || isChineseText(f.family);
+            processed.push({
+              fullName: normalizedFullName,
+              family: f.family,
+              isChinese,
+              value: `"${f.family}", sans-serif`
+            });
           }
           setLocalFonts(processed);
         } catch (e) {

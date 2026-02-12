@@ -1,10 +1,11 @@
 // 模块：侧边栏资源与背景设置
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { CATEGORIZED_ASSETS, PRESET_COLORS, PRESET_GRADIENTS } from '../constants.ts';
 import { BackgroundConfig, Layer, FAIconMetadata, FACategory } from '../types.ts';
 import { translations, Language } from '../translations.ts';
-import { Box, Palette, Search, Plus, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink } from 'lucide-react';
+import { Box, Palette, Search, Plus, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash } from 'lucide-react';
 import * as yaml from 'js-yaml';
+import { normalizeSVG } from '../utils/helpers.ts';
 
 interface SidebarProps {
   lang: Language;
@@ -15,8 +16,78 @@ interface SidebarProps {
   setActiveTab: (tab: string) => void;
 }
 
+interface ExternalAssetItem {
+  key: string;
+  name: string;
+  fileHandle: FileSystemFileHandle;
+}
+
+interface AssetGroup {
+  category: string;
+  categoryZh: string;
+  items: Array<
+    | { key: string; name: string; content: string; isExternal?: false }
+    | { key: string; name: string; fileHandle: FileSystemFileHandle; isExternal: true }
+  >;
+}
+
 const FA_STORAGE_KEY_ICONS = 'coverflow_fa_icons_v2';
 const FA_STORAGE_KEY_CATS = 'coverflow_fa_cats_v2';
+const ASSET_PAGE_SIZE = 120;
+const FS_DB_NAME = 'coverflow_fs_handles_v1';
+const FS_STORE_NAME = 'handles';
+const FS_ASSET_KEY = 'assetsFolder';
+
+const openFsHandleDb = () => new Promise<IDBDatabase>((resolve, reject) => {
+  const request = indexedDB.open(FS_DB_NAME, 1);
+  request.onupgradeneeded = () => {
+    if (!request.result.objectStoreNames.contains(FS_STORE_NAME)) {
+      request.result.createObjectStore(FS_STORE_NAME);
+    }
+  };
+  request.onsuccess = () => resolve(request.result);
+  request.onerror = () => reject(request.error);
+});
+
+const getStoredDirectoryHandle = async () => {
+  const db = await openFsHandleDb();
+  return new Promise<FileSystemDirectoryHandle | null>((resolve, reject) => {
+    const tx = db.transaction(FS_STORE_NAME, 'readonly');
+    const store = tx.objectStore(FS_STORE_NAME);
+    const req = store.get(FS_ASSET_KEY);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+};
+
+const setStoredDirectoryHandle = async (handle: FileSystemDirectoryHandle) => {
+  const db = await openFsHandleDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(FS_STORE_NAME, 'readwrite');
+    const store = tx.objectStore(FS_STORE_NAME);
+    const req = store.put(handle, FS_ASSET_KEY);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+};
+
+const clearStoredDirectoryHandle = async () => {
+  const db = await openFsHandleDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(FS_STORE_NAME, 'readwrite');
+    const store = tx.objectStore(FS_STORE_NAME);
+    const req = store.delete(FS_ASSET_KEY);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+};
+
+const parseGroupName = (folderName: string) => {
+  const parts = folderName.split('-');
+  const en = (parts[0] || folderName).trim() || folderName;
+  const zh = parts.length > 1 ? parts.slice(1).join('-').trim() || en : en;
+  return { en, zh };
+};
 
 const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground, background, activeTab, setActiveTab }) => {
   const FA_PAGE_SIZE = 180;
@@ -26,6 +97,18 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
   const [deletingIndex, setDeletingIndex] = useState<number | null>(null);
   const faListRef = useRef<HTMLDivElement | null>(null);
   const t = translations[lang];
+  const fsSupported = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+
+  const [assetVisibleCount, setAssetVisibleCount] = useState(ASSET_PAGE_SIZE);
+  const [externalFolderHandle, setExternalFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
+  const [externalFolderName, setExternalFolderName] = useState('');
+  const [externalGroups, setExternalGroups] = useState<AssetGroup[]>([]);
+  const [externalLoading, setExternalLoading] = useState(false);
+  const [externalError, setExternalError] = useState<string | null>(null);
+  const [externalCacheVersion, setExternalCacheVersion] = useState(0);
+  const [isAssetSettingsOpen, setIsAssetSettingsOpen] = useState(false);
+  const externalSvgCacheRef = useRef<Map<string, string>>(new Map());
+  const externalSvgLoadingRef = useRef<Set<string>>(new Set());
 
   // Font Awesome 数据状态
   const [faIcons, setFaIcons] = useState<Record<string, FAIconMetadata>>(() => {
@@ -51,6 +134,143 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
   useEffect(() => {
     localStorage.setItem('coverflow_bg_presets_v3', JSON.stringify(savedPresets));
   }, [savedPresets]);
+
+  const verifyFolderPermission = useCallback(async (handle: FileSystemDirectoryHandle, request: boolean) => {
+    const options = { mode: 'read' as const };
+    if ((await handle.queryPermission(options)) === 'granted') return true;
+    if (!request) return false;
+    return (await handle.requestPermission(options)) === 'granted';
+  }, []);
+
+  const scanExternalFolder = useCallback(async (handle: FileSystemDirectoryHandle) => {
+    setExternalLoading(true);
+    setExternalError(null);
+    externalSvgCacheRef.current.clear();
+    externalSvgLoadingRef.current.clear();
+    setExternalCacheVersion(prev => prev + 1);
+
+    const groupsMap = new Map<string, AssetGroup>();
+    try {
+      for await (const [folderName, entry] of handle.entries()) {
+        if (entry.kind !== 'directory') continue;
+        const { en, zh } = parseGroupName(folderName);
+        const groupKey = folderName;
+        const group: AssetGroup = groupsMap.get(groupKey) || {
+          category: en,
+          categoryZh: zh,
+          items: []
+        };
+
+        for await (const [fileName, fileEntry] of entry.entries()) {
+          if (fileEntry.kind !== 'file') continue;
+          if (!fileName.toLowerCase().endsWith('.svg')) continue;
+          const name = fileName.replace(/\.svg$/i, '');
+          group.items.push({
+            key: `${groupKey}/${fileName}`,
+            name,
+            fileHandle: fileEntry,
+            isExternal: true
+          });
+        }
+
+        if (group.items.length > 0) {
+          group.items.sort((a, b) => a.name.localeCompare(b.name, 'en'));
+          groupsMap.set(groupKey, group);
+        }
+      }
+      const groups = Array.from(groupsMap.values());
+      groups.sort((a, b) => a.category.localeCompare(b.category, 'en'));
+      setExternalGroups(groups);
+      setAssetVisibleCount(ASSET_PAGE_SIZE);
+    } catch (err) {
+      setExternalError(t.assetFolderReadFailed);
+    } finally {
+      setExternalLoading(false);
+    }
+  }, [t.assetFolderReadFailed]);
+
+  const loadExternalSvg = useCallback(async (item: ExternalAssetItem) => {
+    if (externalSvgCacheRef.current.has(item.key)) return;
+    if (externalSvgLoadingRef.current.has(item.key)) return;
+    externalSvgLoadingRef.current.add(item.key);
+    try {
+      const file = await item.fileHandle.getFile();
+      const text = await file.text();
+      const normalized = normalizeSVG(text);
+      externalSvgCacheRef.current.set(item.key, normalized);
+      setExternalCacheVersion(prev => prev + 1);
+    } catch (err) {
+      // ignore single file read errors
+    } finally {
+      externalSvgLoadingRef.current.delete(item.key);
+    }
+  }, []);
+
+  const handleChooseAssetFolder = useCallback(async () => {
+    if (!fsSupported) {
+      setExternalError(t.assetFolderUnsupported);
+      return;
+    }
+    try {
+      const handle = await (window as any).showDirectoryPicker();
+      const granted = await verifyFolderPermission(handle, true);
+      if (!granted) {
+        setExternalError(t.assetFolderPermissionDenied);
+        return;
+      }
+      await setStoredDirectoryHandle(handle);
+      setExternalFolderHandle(handle);
+      setExternalFolderName(handle.name);
+      await scanExternalFolder(handle);
+    } catch (err) {
+      setExternalError(t.assetFolderPickFailed);
+    }
+  }, [fsSupported, scanExternalFolder, t.assetFolderPermissionDenied, t.assetFolderPickFailed, t.assetFolderUnsupported, verifyFolderPermission]);
+
+  const handleRefreshAssetFolder = useCallback(async () => {
+    if (!externalFolderHandle) return;
+    const granted = await verifyFolderPermission(externalFolderHandle, true);
+    if (!granted) {
+      setExternalError(t.assetFolderPermissionDenied);
+      return;
+    }
+    await scanExternalFolder(externalFolderHandle);
+  }, [externalFolderHandle, scanExternalFolder, t.assetFolderPermissionDenied, verifyFolderPermission]);
+
+  const handleClearAssetFolder = useCallback(async () => {
+    await clearStoredDirectoryHandle();
+    setExternalFolderHandle(null);
+    setExternalFolderName('');
+    setExternalGroups([]);
+    externalSvgCacheRef.current.clear();
+    externalSvgLoadingRef.current.clear();
+    setExternalCacheVersion(prev => prev + 1);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const restoreHandle = async () => {
+      try {
+        const handle = await getStoredDirectoryHandle();
+        if (!handle || !active) return;
+        const granted = await verifyFolderPermission(handle, false);
+        setExternalFolderHandle(handle);
+        setExternalFolderName(handle.name);
+        if (granted) {
+          await scanExternalFolder(handle);
+        }
+      } catch (err) {
+        // ignore restore errors
+      }
+    };
+    restoreHandle();
+    return () => { active = false; };
+  }, [scanExternalFolder, verifyFolderPermission]);
+
+  useEffect(() => {
+    if (activeTab !== 'assets') return;
+    setAssetVisibleCount(ASSET_PAGE_SIZE);
+  }, [activeTab, searchTerm, externalGroups]);
 
   const saveCurrentPreset = () => {
     setSavedPresets(prev => [JSON.parse(JSON.stringify(background)), ...prev]);
@@ -125,6 +345,82 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
     return styles;
   };
 
+  const combinedAssetGroups = useMemo<AssetGroup[]>(() => {
+    const baseGroups: AssetGroup[] = CATEGORIZED_ASSETS.map(group => ({
+      category: group.category,
+      categoryZh: group.categoryZh || group.category,
+      items: group.items.map(item => ({
+        key: `base:${group.category}:${item.name}`,
+        name: item.name,
+        content: item.content,
+        isExternal: false
+      }))
+    }));
+    return [...baseGroups, ...externalGroups];
+  }, [externalGroups]);
+
+  const assetRenderData = useMemo(() => {
+    const search = searchTerm.trim().toLowerCase();
+    let remaining = assetVisibleCount;
+    let hasMore = false;
+    const groups: { label: string; items: Array<{ key: string; name: string; content: string; isExternal?: boolean; fileHandle?: FileSystemFileHandle }> }[] = [];
+    const pendingExternal: ExternalAssetItem[] = [];
+
+    for (const group of combinedAssetGroups) {
+      if (remaining <= 0) {
+        hasMore = true;
+        break;
+      }
+      const label = lang === 'zh' ? group.categoryZh : group.category;
+      const items: Array<{ key: string; name: string; content: string; isExternal?: boolean; fileHandle?: FileSystemFileHandle }> = [];
+
+      for (const item of group.items) {
+        if (remaining <= 0) {
+          hasMore = true;
+          break;
+        }
+        if (search && !item.name.toLowerCase().includes(search)) continue;
+
+        if (item.isExternal) {
+          const cached = externalSvgCacheRef.current.get(item.key) || '';
+          items.push({
+            key: item.key,
+            name: item.name,
+            content: cached,
+            isExternal: true,
+            fileHandle: item.fileHandle
+          });
+          if (!cached) {
+            pendingExternal.push({
+              key: item.key,
+              name: item.name,
+              fileHandle: item.fileHandle
+            });
+          }
+        } else {
+          items.push({
+            key: item.key,
+            name: item.name,
+            content: item.content,
+            isExternal: false
+          });
+        }
+        remaining -= 1;
+      }
+
+      if (items.length > 0) {
+        groups.push({ label, items });
+      }
+    }
+
+    return { groups, hasMore, pendingExternal };
+  }, [assetVisibleCount, combinedAssetGroups, externalCacheVersion, lang, searchTerm]);
+
+  useEffect(() => {
+    if (assetRenderData.pendingExternal.length === 0) return;
+    assetRenderData.pendingExternal.forEach(item => loadExternalSvg(item));
+  }, [assetRenderData.pendingExternal, loadExternalSvg]);
+
   const renderResources = () => (
     <div className="space-y-6">
       <div className="relative">
@@ -137,26 +433,35 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
           onChange={(e) => setSearchTerm(e.target.value)}
         />
       </div>
+
       <div className="grid grid-cols-1 gap-6">
-        {CATEGORIZED_ASSETS.map((cat) => (
-          <div key={cat.category}>
+        {assetRenderData.groups.map((cat) => (
+          <div key={cat.label}>
             <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
-              {lang === 'zh' ? (cat.categoryZh || cat.category) : cat.category}
+              {cat.label}
             </h3>
             <div className="grid grid-cols-3 gap-2">
-              {cat.items.filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase())).map((item) => (
+              {cat.items.map((item) => (
                 <button
-                  key={item.name}
-                  onClick={() => onAddLayer({
-                    name: item.name,
-                    type: 'svg',
-                    content: item.content,
-                    color: '#3b82f6'
-                  })}
+                  key={item.key}
+                  onClick={async () => {
+                    if (item.isExternal && item.fileHandle) {
+                      await loadExternalSvg({ key: item.key, name: item.name, fileHandle: item.fileHandle });
+                      const svg = externalSvgCacheRef.current.get(item.key);
+                      if (!svg) return;
+                      onAddLayer({ name: item.name, type: 'svg', content: svg, color: '#3b82f6' });
+                      return;
+                    }
+                    onAddLayer({ name: item.name, type: 'svg', content: item.content, color: '#3b82f6' });
+                  }}
                   className="bg-slate-800 border border-slate-700 p-2 rounded hover:border-blue-500 transition-colors group flex flex-col items-center"
                 >
                   <div className="w-full h-12 flex items-center justify-center mb-1">
-                    <svg viewBox="0 0 100 100" className="w-full h-full text-slate-400 group-hover:text-blue-400 transition-colors" dangerouslySetInnerHTML={{ __html: item.content }} />
+                    {item.content ? (
+                      <svg viewBox="0 0 100 100" className="w-full h-full text-slate-400 group-hover:text-blue-400 transition-colors" dangerouslySetInnerHTML={{ __html: item.content }} />
+                    ) : (
+                      <div className="w-6 h-6 rounded-full border border-slate-700 border-t-slate-500 animate-spin opacity-40" />
+                    )}
                   </div>
                   <span className="text-[10px] text-slate-400 truncate w-full text-center">{item.name}</span>
                 </button>
@@ -165,8 +470,79 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
           </div>
         ))}
       </div>
+      {assetRenderData.hasMore && (
+        <button
+          type="button"
+          onClick={() => setAssetVisibleCount(prev => prev + ASSET_PAGE_SIZE)}
+          className="w-full py-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-200 border border-slate-800 rounded-xl hover:border-slate-600 transition-all"
+        >
+          {t.loadingMore}
+        </button>
+      )}
     </div>
   );
+
+  const renderAssetSettingsModal = () => {
+    if (!isAssetSettingsOpen) return null;
+    return (
+      <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm" onClick={() => setIsAssetSettingsOpen(false)}>
+        <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-black uppercase tracking-widest text-slate-500">{t.assetFolderSettings}</div>
+            <button type="button" onClick={() => setIsAssetSettingsOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.assetFolder}</div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleChooseAssetFolder}
+                  disabled={!fsSupported}
+                  className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-blue-600 transition-all disabled:opacity-40 disabled:pointer-events-none"
+                  title={externalFolderHandle ? t.assetFolderChange : t.assetFolderChoose}
+                >
+                  <Folder className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRefreshAssetFolder}
+                  disabled={!externalFolderHandle || externalLoading}
+                  className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-blue-600 transition-all disabled:opacity-40 disabled:pointer-events-none"
+                  title={t.assetFolderRefresh}
+                >
+                  <RotateCw className={`w-4 h-4 ${externalLoading ? 'animate-spin' : ''}`} />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearAssetFolder}
+                  disabled={!externalFolderHandle}
+                  className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-red-500 transition-all disabled:opacity-40 disabled:pointer-events-none"
+                  title={t.assetFolderClear}
+                >
+                  <Trash className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="text-xs text-slate-400 truncate">
+              {externalFolderName || t.assetFolderEmpty}
+            </div>
+            {!fsSupported && (
+              <div className="text-[10px] text-amber-400 font-bold uppercase">{t.assetFolderUnsupported}</div>
+            )}
+            {externalError && (
+              <div className="text-[10px] text-red-400 font-bold uppercase">{externalError}</div>
+            )}
+          </div>
+          <p className="text-[10px] text-slate-500 leading-relaxed">
+            {t.assetFolderHint}
+          </p>
+        </div>
+      </div>
+    );
+  };
 
   const renderBackgroundSettings = () => (
     <div className="space-y-8 pb-6">
@@ -549,6 +925,15 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
           <h2 className="text-lg font-bold flex items-center gap-2 text-slate-100 uppercase tracking-tighter">
             {activeTab === 'assets' ? t.assets : activeTab === 'fa' ? t.fontAwesome : t.layout}
           </h2>
+          {activeTab === 'assets' && (
+            <button
+              onClick={() => setIsAssetSettingsOpen(true)}
+              className="p-1.5 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all"
+              title={t.assetFolderSettings}
+            >
+              <Sliders className="w-4 h-4" />
+            </button>
+          )}
           {activeTab === 'fa' && (faIcons || faCategories) && (
             <button 
               onClick={clearFAData} 
@@ -607,6 +992,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
           </div>
         )}
       </div>
+      {renderAssetSettingsModal()}
     </div>
   );
 };

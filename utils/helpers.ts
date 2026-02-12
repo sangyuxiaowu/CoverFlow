@@ -60,6 +60,36 @@ export const normalizeSVG = (svgContent: string): string => {
     const parserError = doc.querySelector('parsererror');
 
     if (svg && !parserError) {
+      const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+      const idPrefix = `cf-${Math.random().toString(36).slice(2, 8)}`;
+      const idMap = new Map<string, string>();
+
+      Array.from(svg.querySelectorAll('[id]')).forEach(el => {
+        const oldId = el.getAttribute('id');
+        if (!oldId) return;
+        const nextId = `${idPrefix}-${oldId}`;
+        idMap.set(oldId, nextId);
+        el.setAttribute('id', nextId);
+      });
+
+      if (idMap.size > 0) {
+        const allNodes = [svg, ...Array.from(svg.querySelectorAll('*'))];
+        allNodes.forEach(node => {
+          Array.from(node.attributes).forEach(attr => {
+            let value = attr.value;
+            if (!value || !value.includes('#')) return;
+            idMap.forEach((nextId, oldId) => {
+              const re = new RegExp(`#${escapeRegExp(oldId)}(?![\w-])`, 'g');
+              value = value.replace(re, `#${nextId}`);
+            });
+            if (value !== attr.value) {
+              node.setAttribute(attr.name, value);
+            }
+          });
+        });
+      }
+
       // 1. 计算合理的 viewBox
       let viewBox = svg.getAttribute('viewBox');
       if (!viewBox) {

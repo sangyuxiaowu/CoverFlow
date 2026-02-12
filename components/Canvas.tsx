@@ -451,9 +451,28 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                           <div className="w-5 h-5 bg-white border border-blue-600 rounded-full flex items-center justify-center text-blue-600"><RotateCw className="w-3 h-3" /></div>
                           <div className="w-px h-3 bg-blue-600" />
                         </div>
-                        {['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'].map(h => (
-                          <div key={h} className={`absolute w-2.5 h-2.5 bg-white border border-blue-600 rounded-full z-50 pointer-events-auto cursor-${h}-resize ${h.includes('n') ? 'top-0' : h.includes('s') ? 'bottom-0' : 'top-1/2'} ${h.includes('w') ? 'left-0' : h.includes('e') ? 'right-0' : 'left-1/2'} -translate-x-1/2 -translate-y-1/2`} onMouseDown={(e) => handleControlMouseDown(e, layer, 'resize', h)} style={{ backfaceVisibility: 'hidden' }} />
-                        ))}
+                        {['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'].map(h => {
+                          const isN = h.includes('n');
+                          const isS = h.includes('s');
+                          const isW = h.includes('w');
+                          const isE = h.includes('e');
+                          const translateX = isW ? '-50%' : isE ? '50%' : '-50%';
+                          const translateY = isN ? '-50%' : isS ? '50%' : '-50%';
+                          return (
+                            <div
+                              key={h}
+                              className="absolute w-2.5 h-2.5 bg-white border border-blue-600 rounded-full z-50 pointer-events-auto"
+                              onMouseDown={(e) => handleControlMouseDown(e, layer, 'resize', h)}
+                              style={{
+                                top: isN ? 0 : isS ? '100%' : '50%',
+                                left: isW ? 0 : isE ? '100%' : '50%',
+                                transform: `translate(${translateX}, ${translateY})`,
+                                cursor: `${h}-resize`,
+                                backfaceVisibility: 'hidden'
+                              }}
+                            />
+                          );
+                        })}
                       </>
                     )}
                   </div>
@@ -482,9 +501,27 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                     <div className="w-5 h-5 bg-white border border-blue-600 rounded-full flex items-center justify-center text-blue-600"><RotateCw className="w-3 h-3" /></div>
                     <div className="w-px h-3 bg-blue-600" />
                   </div>
-                  {['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'].map(h => (
-                    <div key={h} className={`absolute w-2.5 h-2.5 bg-white border border-blue-600 rounded-full z-50 pointer-events-auto cursor-${h}-resize ${h.includes('n') ? 'top-0' : h.includes('s') ? 'bottom-0' : 'top-1/2'} ${h.includes('w') ? 'left-0' : h.includes('e') ? 'right-0' : 'left-1/2'} -translate-x-1/2 -translate-y-1/2`} onMouseDown={(e) => handleControlMouseDown(e, selectedGroup, 'resize', h)} />
-                  ))}
+                  {['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'].map(h => {
+                    const isN = h.includes('n');
+                    const isS = h.includes('s');
+                    const isW = h.includes('w');
+                    const isE = h.includes('e');
+                    const translateX = isW ? '-50%' : isE ? '50%' : '-50%';
+                    const translateY = isN ? '-50%' : isS ? '50%' : '-50%';
+                    return (
+                      <div
+                        key={h}
+                        className="absolute w-2.5 h-2.5 bg-white border border-blue-600 rounded-full z-50 pointer-events-auto"
+                        onMouseDown={(e) => handleControlMouseDown(e, selectedGroup, 'resize', h)}
+                        style={{
+                          top: isN ? 0 : isS ? '100%' : '50%',
+                          left: isW ? 0 : isE ? '100%' : '50%',
+                          transform: `translate(${translateX}, ${translateY})`,
+                          cursor: `${h}-resize`
+                        }}
+                      />
+                    );
+                  })}
                 </div>
               );
             })()}

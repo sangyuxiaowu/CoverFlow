@@ -14,6 +14,7 @@ import {
   FileJson, ImageIcon as ImageIconLucide, Copy
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
+import logoSvg from './doc/logo.svg?raw';
 
 const STORAGE_KEY = 'coverflow_projects_v2';
 
@@ -1219,7 +1220,7 @@ const App: React.FC = () => {
         {toast && <Toast message={toast.msg} type={toast.type} />}
         {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
         <div className="flex justify-between items-center flex-shrink-0">
-          <div className="flex items-center gap-4"><div className="bg-blue-600 p-2.5 rounded-2xl shadow-xl shadow-blue-900/20"><Share2 className="w-8 h-8 text-white" /></div><div><h1 className="text-3xl font-black tracking-tight text-white">{t.title}</h1><p className="text-slate-500 text-sm font-medium">{t.landingHeader}</p></div></div>
+          <div className="flex items-center gap-4"><div className="bg-blue-600 p-2.5 rounded-2xl shadow-xl shadow-blue-900/20 text-white"><span className="w-8 h-8 block" dangerouslySetInnerHTML={{ __html: logoSvg }} /></div><div><h1 className="text-3xl font-black tracking-tight text-white">{t.title}</h1><p className="text-slate-500 text-sm font-medium">{t.landingHeader}</p></div></div>
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-2 px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 cursor-pointer transition-all">
               <Upload className="w-4 h-4 text-blue-500" />

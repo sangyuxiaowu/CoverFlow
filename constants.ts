@@ -1,5 +1,6 @@
 // 模块：常量与预设数据
 import { PresetRatio } from './types.ts';
+import logoSvg from './doc/logo.svg?raw';
 
 export const PRESET_RATIOS: (PresetRatio & { nameZh?: string })[] = [
   { name: 'WeChat 2.35:1', nameZh: '微信封面 2.35:1', ratio: '2.35:1', width: 900, height: 383 },
@@ -30,6 +31,7 @@ export const CATEGORIZED_ASSETS = [
       { name: 'Wave', content: '<path d="M0 50 Q 25 25 50 50 T 100 50 L 100 100 L 0 100 Z" fill="currentColor" />' },
       { name: 'Blob', content: '<path d="M45,-60.1C58.7,-53.4,70.6,-40.8,76.5,-26.1C82.4,-11.3,82.3,5.6,76,20.1C69.7,34.5,57.1,46.5,43.4,55.8C29.6,65,14.8,71.4,-0.6,72.2C-15.9,73,-31.9,68.2,-45.3,58.8C-58.8,49.5,-69.7,35.6,-75.8,19.9C-81.8,4.2,-83.1,-13.4,-77,-28.9C-70.9,-44.4,-57.4,-57.9,-42.2,-64C-26.9,-70.2,-10.1,-69,4.4,-75.1C18.8,-81.1,31.4,-66.8,45,-60.1Z" transform="translate(100 100)" fill="currentColor" />' },
       { name: 'Arrow', content: '<svg viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M576.00000001 512l-128.00000002 0L448 970.68799999A53.312 53.312 0 0 0 501.312 1024l21.376 0A53.312 53.312 0 0 0 576 970.68799999L576.00000001 512z"></path><path fill="currentColor" d="M781.824 430.72l-220.8-358.08a53.312 53.312 0 0 0-90.432-0.576l-226.752 358.08A53.312 53.312 0 0 0 288.896 512L736.44799999 512a53.312 53.312 0 0 0 45.44000002-81.28z"></path></svg>' }
+      ,{ name: 'Logo', content: logoSvg }
     ]
   }
 ];

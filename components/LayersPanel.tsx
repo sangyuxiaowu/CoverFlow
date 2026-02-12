@@ -373,60 +373,60 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   return (
     <div className="w-72 bg-slate-900 border-l border-slate-800 flex flex-col flex-shrink-0 shadow-2xl relative z-20 h-full">
       {/* 属性检查器区域 */}
-      <div className="h-[65%] flex flex-col border-b border-slate-800">
-        <div className="flex items-center justify-between px-6 py-3.5 border-b border-slate-800/50 bg-slate-900 flex-shrink-0">
+      <div className="h-[62%] flex flex-col border-b border-slate-800">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800/50 bg-slate-900 flex-shrink-0">
           <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t.inspector}</h3>
           {selectedLayer && (
             <button 
               type="button"
               onClick={(e) => handleDelete(e, selectedLayer.id)} 
-              className="p-1.5 text-slate-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+              className="p-1 text-slate-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
             >
               <Trash2 className="w-4 h-4" />
             </button>
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide">
+        <div className="flex-1 overflow-y-auto p-3 space-y-4 scrollbar-hide">
           {selectedLayer ? (
-            <div className="space-y-6">
+            <div className="space-y-4">
               {/* 第 1 行：X 与 Y */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 <div className="flex items-center gap-2">
-                  <label onMouseDown={(e) => handleScrubMouseDown(e, 'x', selectedLayer.x)} className="flex items-center gap-1 w-7 flex-shrink-0 text-[10px] text-slate-500 font-bold cursor-ew-resize hover:text-blue-400 select-none">
+                  <label onMouseDown={(e) => handleScrubMouseDown(e, 'x', selectedLayer.x)} className="flex items-center gap-1 w-7 flex-shrink-0 text-[9px] text-slate-500 font-bold cursor-ew-resize hover:text-blue-400 select-none">
                     <MoveHorizontal className="w-3 h-3"/> X
                   </label>
-                  <input type="number" value={Math.round(selectedLayer.x)} onChange={(e) => onUpdateLayer(selectedLayer.id, { x: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1.5 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                  <input type="number" value={Math.round(selectedLayer.x)} onChange={(e) => onUpdateLayer(selectedLayer.id, { x: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                 </div>
                 <div className="flex items-center gap-2">
-                  <label onMouseDown={(e) => handleScrubMouseDown(e, 'y', selectedLayer.y)} className="flex items-center gap-1 w-7 flex-shrink-0 text-[10px] text-slate-500 font-bold cursor-ew-resize hover:text-blue-400 select-none">
+                  <label onMouseDown={(e) => handleScrubMouseDown(e, 'y', selectedLayer.y)} className="flex items-center gap-1 w-7 flex-shrink-0 text-[9px] text-slate-500 font-bold cursor-ew-resize hover:text-blue-400 select-none">
                     <MoveVertical className="w-3 h-3"/> Y
                   </label>
-                  <input type="number" value={Math.round(selectedLayer.y)} onChange={(e) => onUpdateLayer(selectedLayer.id, { y: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1.5 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                  <input type="number" value={Math.round(selectedLayer.y)} onChange={(e) => onUpdateLayer(selectedLayer.id, { y: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                 </div>
               </div>
 
               {/* 第 2 行：宽与高 */}
-              <div className="relative pb-4">
-                <div className="grid grid-cols-2 gap-3 relative z-10">
+              <div className="relative pb-3">
+                <div className="grid grid-cols-2 gap-2 relative z-10">
                    <div className="flex items-center gap-2">
-                    <label onMouseDown={(e) => handleScrubMouseDown(e, 'width', selectedLayer.width)} className="flex items-center gap-1 w-7 flex-shrink-0 text-[10px] text-slate-500 font-bold cursor-ew-resize hover:text-blue-400 select-none">
+                    <label onMouseDown={(e) => handleScrubMouseDown(e, 'width', selectedLayer.width)} className="flex items-center gap-1 w-7 flex-shrink-0 text-[9px] text-slate-500 font-bold cursor-ew-resize hover:text-blue-400 select-none">
                       <Maximize2 className="w-3 h-3"/> W
                     </label>
-                    <input type="number" id="input-width" value={Math.round(selectedLayer.width)} onChange={(e) => onUpdateLayer(selectedLayer.id, { width: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1.5 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                    <input type="number" id="input-width" value={Math.round(selectedLayer.width)} onChange={(e) => onUpdateLayer(selectedLayer.id, { width: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                   </div>
                   <div className="flex items-center gap-2">
-                    <label onMouseDown={(e) => handleScrubMouseDown(e, 'height', selectedLayer.height)} className="flex items-center gap-1 w-7 flex-shrink-0 text-[10px] text-slate-500 font-bold cursor-ew-resize hover:text-blue-400 select-none">
+                    <label onMouseDown={(e) => handleScrubMouseDown(e, 'height', selectedLayer.height)} className="flex items-center gap-1 w-7 flex-shrink-0 text-[9px] text-slate-500 font-bold cursor-ew-resize hover:text-blue-400 select-none">
                       <Maximize2 className="w-3 h-3"/> H
                     </label>
-                    <input type="number" id="input-height" value={Math.round(selectedLayer.height)} onChange={(e) => onUpdateLayer(selectedLayer.id, { height: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1.5 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                    <input type="number" id="input-height" value={Math.round(selectedLayer.height)} onChange={(e) => onUpdateLayer(selectedLayer.id, { height: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                   </div>
                 </div>
-                <div className="absolute left-[38px] right-[10px] top-[26px] bottom-[-2px] pointer-events-none border-l border-r border-b border-slate-700/60 rounded-b-lg">
-                  <div className="absolute left-1/2 bottom-[-8px] -translate-x-1/2 pointer-events-auto">
+                <div className="absolute left-[38px] right-[10px] top-[22px] bottom-[-2px] pointer-events-none border-l border-r border-b border-slate-700/60 rounded-b-lg">
+                  <div className="absolute left-1/2 bottom-[-7px] -translate-x-1/2 pointer-events-auto">
                     <button 
                       onClick={() => onUpdateLayer(selectedLayer.id, { ratioLocked: !selectedLayer.ratioLocked }, true)}
-                      className={`p-1 rounded bg-slate-900 border transition-all hover:scale-110 active:scale-95 ${selectedLayer.ratioLocked ? 'border-blue-500 text-blue-500' : 'border-slate-700 text-slate-600'}`}
+                      className={`p-0.5 rounded bg-slate-900 border transition-all hover:scale-110 active:scale-95 ${selectedLayer.ratioLocked ? 'border-blue-500 text-blue-500' : 'border-slate-700 text-slate-600'}`}
                       title="Proportional Scaling"
                     >
                        {selectedLayer.ratioLocked ? <LinkIcon className="w-2.5 h-2.5" /> : <Link2Off className="w-2.5 h-2.5" />}
@@ -436,40 +436,40 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
               </div>
 
               {/* 第 3 行：旋转、字号、透明度 */}
-              <div className={`grid ${selectedLayer.type === 'text' ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
-                <div className="space-y-1.5">
-                  <label onMouseDown={(e) => handleScrubMouseDown(e, 'rotation', selectedLayer.rotation)} className="flex items-center gap-1 text-[9px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
+              <div className={`grid ${selectedLayer.type === 'text' ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
+                <div className="space-y-1">
+                  <label onMouseDown={(e) => handleScrubMouseDown(e, 'rotation', selectedLayer.rotation)} className="flex items-center gap-1 text-[8px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
                     <RotateCw className="w-2.5 h-2.5"/> {t.rotationShort}
                   </label>
-                  <input type="number" value={selectedLayer.rotation} onChange={(e) => onUpdateLayer(selectedLayer.id, { rotation: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1.5 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                  <input type="number" value={selectedLayer.rotation} onChange={(e) => onUpdateLayer(selectedLayer.id, { rotation: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                 </div>
                 {selectedLayer.type === 'text' && (
-                  <div className="space-y-1.5">
-                    <label onMouseDown={(e) => handleScrubMouseDown(e, 'fontSize', selectedLayer.fontSize || 48)} className="flex items-center gap-1 text-[9px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
+                  <div className="space-y-1">
+                    <label onMouseDown={(e) => handleScrubMouseDown(e, 'fontSize', selectedLayer.fontSize || 48)} className="flex items-center gap-1 text-[8px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
                       <Type className="w-2.5 h-2.5"/> {t.fontSizeShort}
                     </label>
-                    <input type="number" value={selectedLayer.fontSize || 48} onChange={(e) => onUpdateLayer(selectedLayer.id, { fontSize: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1.5 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                    <input type="number" value={selectedLayer.fontSize || 48} onChange={(e) => onUpdateLayer(selectedLayer.id, { fontSize: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                   </div>
                 )}
-                <div className="space-y-1.5">
-                  <label onMouseDown={(e) => handleScrubMouseDown(e, 'opacity', selectedLayer.opacity)} className="flex items-center gap-1 text-[9px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
+                <div className="space-y-1">
+                  <label onMouseDown={(e) => handleScrubMouseDown(e, 'opacity', selectedLayer.opacity)} className="flex items-center gap-1 text-[8px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
                     <Sliders className="w-2.5 h-2.5"/> {t.opacityShort}
                   </label>
-                  <input type="number" value={Math.round(selectedLayer.opacity * 100)} onChange={(e) => onUpdateLayer(selectedLayer.id, { opacity: Math.min(Math.max(0, parseInt(e.target.value)||0), 100) / 100 })} className="bg-slate-800/50 rounded-md px-2 py-1.5 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                  <input type="number" value={Math.round(selectedLayer.opacity * 100)} onChange={(e) => onUpdateLayer(selectedLayer.id, { opacity: Math.min(Math.max(0, parseInt(e.target.value)||0), 100) / 100 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                 </div>
               </div>
 
               {/* 文本专属属性区 */}
               {selectedLayer.type === 'text' && (
-                <div className="space-y-5 pt-4 border-t border-slate-800/80">
+                <div className="space-y-2 pt-2 border-t border-slate-800/80">
                   {/* 字体与字重（可搜索下拉） */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.fontFamily}</label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.fontFamily}</label>
                       <div className="relative" ref={fontPickerRef}>
                         <button 
                           onClick={() => setIsFontPickerOpen(!isFontPickerOpen)}
-                          className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-[11px] text-slate-200 focus:border-blue-500 outline-none transition-colors text-left flex items-center justify-between"
+                          className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 focus:border-blue-500 outline-none transition-colors text-left flex items-center justify-between"
                         >
                           <span className="truncate">{currentFontDisplayName}</span>
                           <ChevronDown className="w-3 h-3 opacity-50" />
@@ -512,12 +512,12 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                         )}
                       </div>
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.fontWeight}</label>
+                    <div className="space-y-1">
+                      <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.fontWeight}</label>
                       <select 
                         value={selectedLayer.fontWeight || 700} 
                         onChange={(e) => onUpdateLayer(selectedLayer.id, { fontWeight: parseInt(e.target.value) || e.target.value })}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-[11px] text-slate-200 focus:border-blue-500 outline-none transition-colors"
+                        className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 focus:border-blue-500 outline-none transition-colors"
                       >
                         {FONT_WEIGHTS.map(w => <option key={w.value} value={w.value}>{w.label}</option>)}
                       </select>
@@ -525,18 +525,18 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                   </div>
 
                   {/* 文字方向 */}
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.textDirection}</label>
-                    <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700 gap-1">
+                  <div className="flex items-center gap-3">
+                    <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider min-w-[48px]">{t.textDirection}</label>
+                    <div className="flex flex-1 bg-slate-800 p-1 rounded-lg border border-slate-700 gap-1">
                       <button 
                         onClick={() => onUpdateLayer(selectedLayer.id, { writingMode: 'horizontal' })}
-                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded text-[10px] font-bold transition-all ${selectedLayer.writingMode !== 'vertical' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-1 px-2 rounded text-[10px] font-bold transition-all ${selectedLayer.writingMode !== 'vertical' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
                       >
                         <MoveHorizontal className="w-3 h-3" /> {t.horizontal}
                       </button>
                       <button 
                         onClick={() => onUpdateLayer(selectedLayer.id, { writingMode: 'vertical' })}
-                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded text-[10px] font-bold transition-all ${selectedLayer.writingMode === 'vertical' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-1 px-2 rounded text-[10px] font-bold transition-all ${selectedLayer.writingMode === 'vertical' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
                       >
                         <MoveVertical className="w-3 h-3" /> {t.vertical}
                       </button>
@@ -544,17 +544,17 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                   </div>
 
                   {/* 文字内容 */}
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.textContent}</label>
+                  <div className="space-y-0.5">
+                    <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.textContent}</label>
                     <textarea 
                       value={selectedLayer.content} 
                       onChange={(e) => onUpdateLayer(selectedLayer.id, { content: e.target.value })} 
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-xs min-h-[60px] text-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none resize-none transition-all shadow-inner"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg p-1.5 text-xs min-h-[44px] text-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none resize-none transition-all shadow-inner"
                     />
                   </div>
 
                   {/* 渐变设置 */}
-                  <div className="space-y-3 pt-2">
+                  <div className="space-y-1 pt-1">
                     <div className="flex items-center justify-between">
                       <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><Palette className="w-3 h-3" /> {t.textGradient}</h4>
                       <label className="relative inline-flex items-center cursor-pointer">
@@ -564,32 +564,32 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                     </div>
 
                     {selectedLayer.textGradient?.enabled ? (
-                      <div className="space-y-3 animate-in fade-in duration-200">
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="space-y-1.5">
+                      <div className="space-y-2 animate-in fade-in duration-200">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
                             <label className="text-[8px] text-slate-500 uppercase font-bold">{t.startColor}</label>
-                            <input type="color" value={selectedLayer.textGradient.from} onChange={(e) => handleUpdateTextGradient({ from: e.target.value })} className="w-full h-8 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer p-0.5" />
+                            <input type="color" value={selectedLayer.textGradient.from} onChange={(e) => handleUpdateTextGradient({ from: e.target.value })} className="w-full h-7 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer p-0.5" />
                           </div>
-                          <div className="space-y-1.5">
+                          <div className="space-y-1">
                             <label className="text-[8px] text-slate-500 uppercase font-bold">{t.endColor}</label>
-                            <input type="color" value={selectedLayer.textGradient.to} onChange={(e) => handleUpdateTextGradient({ to: e.target.value })} className="w-full h-8 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer p-0.5" />
+                            <input type="color" value={selectedLayer.textGradient.to} onChange={(e) => handleUpdateTextGradient({ to: e.target.value })} className="w-full h-7 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer p-0.5" />
                           </div>
                         </div>
                         <div className="space-y-1">
                           <div className="flex justify-between text-[8px] text-slate-500 uppercase font-bold"><span>{t.angle}</span><span>{selectedLayer.textGradient.angle}°</span></div>
                           <input type="range" min="0" max="360" value={selectedLayer.textGradient.angle} onChange={(e) => handleUpdateTextGradient({ angle: parseInt(e.target.value) })} onMouseUp={onCommit} className="w-full accent-blue-600 h-3" />
                         </div>
-                        <div className="grid grid-cols-5 gap-1 pt-1">
+                        <div className="grid grid-cols-5 gap-1 pt-0.5">
                           {TEXT_GRADIENT_PRESETS.slice(0, 10).map((p, idx) => (
                             <button key={idx} onClick={() => handleUpdateTextGradient({ from: p.from, to: p.to, angle: p.angle })} className="h-5 rounded-sm border border-slate-700 hover:border-blue-500 transition-transform hover:scale-110" style={{ background: `linear-gradient(${p.angle}deg, ${p.from}, ${p.to})` }} />
                           ))}
                         </div>
                       </div>
                     ) : (
-                      <div className="space-y-1.5 animate-in fade-in duration-200">
-                        <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.primaryColor}</label>
+                      <div className="space-y-1 animate-in fade-in duration-200">
+                        <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.primaryColor}</label>
                         <div className="flex gap-2">
-                          <input type="color" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="h-8 w-8 bg-slate-900 border border-slate-700 cursor-pointer rounded-md p-1" />
+                          <input type="color" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="h-7 w-7 bg-slate-900 border border-slate-700 cursor-pointer rounded-md p-1" />
                           <input type="text" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="flex-1 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 font-mono focus:border-blue-500 outline-none" />
                         </div>
                       </div>
@@ -600,10 +600,10 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
 
               {/* SVG 专用主色选择器 */}
               {selectedLayer.type === 'svg' && (
-                <div className="space-y-2 pt-3 border-t border-slate-800">
-                  <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.primaryColor}</label>
+                <div className="space-y-1.5 pt-2 border-t border-slate-800">
+                  <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.primaryColor}</label>
                   <div className="flex gap-2">
-                    <input type="color" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="h-8 w-8 bg-slate-900 border border-slate-700 cursor-pointer rounded-md p-1" />
+                    <input type="color" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="h-7 w-7 bg-slate-900 border border-slate-700 cursor-pointer rounded-md p-1" />
                     <input type="text" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="flex-1 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 font-mono focus:border-blue-500 outline-none" />
                   </div>
                 </div>

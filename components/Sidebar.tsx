@@ -1,5 +1,5 @@
 // 模块：侧边栏资源与背景设置
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { CATEGORIZED_ASSETS, PRESET_COLORS, PRESET_GRADIENTS } from '../constants.ts';
 import { BackgroundConfig, Layer, FAIconMetadata, FACategory } from '../types.ts';
 import { translations, Language } from '../translations.ts';
@@ -19,9 +19,12 @@ const FA_STORAGE_KEY_ICONS = 'coverflow_fa_icons_v2';
 const FA_STORAGE_KEY_CATS = 'coverflow_fa_cats_v2';
 
 const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground, background, activeTab, setActiveTab }) => {
+  const FA_PAGE_SIZE = 180;
   const [searchTerm, setSearchTerm] = useState('');
   const [faSearchTerm, setFaSearchTerm] = useState('');
+  const [faVisibleCount, setFaVisibleCount] = useState(FA_PAGE_SIZE);
   const [deletingIndex, setDeletingIndex] = useState<number | null>(null);
+  const faListRef = useRef<HTMLDivElement | null>(null);
   const t = translations[lang];
 
   // Font Awesome 数据状态
@@ -324,32 +327,93 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
     localStorage.removeItem(FA_STORAGE_KEY_CATS);
   };
 
-  // 根据搜索词过滤并分组 Font Awesome 图标
-  const filteredFAIcons = useMemo(() => {
-    if (!faIcons || !faCategories) return [];
-    
-    // 按分类过滤并组织图标
-    const groups: { label: string, icons: { id: string, metadata: FAIconMetadata }[] }[] = [];
-    
-    Object.entries(faCategories).forEach(([id, cat]) => {
-      const matchedIcons = cat.icons
-        .map(iconId => ({ id: iconId, metadata: faIcons[iconId] }))
-        .filter(item => {
-          if (!item.metadata) return false;
-          if (!faSearchTerm) return true;
-          const searchVal = faSearchTerm.toLowerCase();
-          return item.id.toLowerCase().includes(searchVal) || 
-                 item.metadata.label.toLowerCase().includes(searchVal) || 
-                 item.metadata.search?.terms?.some(term => term.toLowerCase().includes(searchVal));
-        });
-        
-      if (matchedIcons.length > 0) {
-        groups.push({ label: cat.label, icons: matchedIcons });
-      }
-    });
+  // 根据搜索词过滤并按需渲染，避免一次性渲染过多图标
+  const faRenderData = useMemo(() => {
+    if (!faIcons || !faCategories || activeTab !== 'fa') return { groups: [], hasMore: false };
 
-    return groups;
-  }, [faIcons, faCategories, faSearchTerm]);
+    let remaining = faVisibleCount;
+    let hasMore = false;
+    const groups: { label: string; items: {
+      key: string;
+      label: string;
+      style: string;
+      raw: string;
+      innerHtml: string;
+      viewBox: string;
+      width: number;
+      height: number;
+    }[] }[] = [];
+
+    const searchVal = faSearchTerm.trim().toLowerCase();
+    let stop = false;
+
+    for (const [, cat] of Object.entries(faCategories)) {
+      if (remaining <= 0) { hasMore = true; break; }
+      const items: { key: string; label: string; style: string; raw: string; innerHtml: string; viewBox: string; width: number; height: number }[] = [];
+
+      for (const iconId of cat.icons) {
+        if (remaining <= 0) { hasMore = true; stop = true; break; }
+        const metadata = faIcons[iconId];
+        if (!metadata || !metadata.svgs) continue;
+        if (searchVal) {
+          const matched = iconId.toLowerCase().includes(searchVal) ||
+            metadata.label.toLowerCase().includes(searchVal) ||
+            metadata.search?.terms?.some(term => term.toLowerCase().includes(searchVal));
+          if (!matched) continue;
+        }
+
+        // 扁平化该图标在不同家族下的可用样式
+        for (const [family, styles] of Object.entries(metadata.svgs)) {
+          for (const [style, data] of Object.entries(styles as Record<string, any>)) {
+            if (remaining <= 0) { hasMore = true; stop = true; break; }
+            const svgData = data as { raw: string; viewBox?: number[] };
+            const vb = svgData.viewBox || [0, 0, 512, 512];
+            const widthVal = vb[2] || 512;
+            const heightVal = vb[3] || 512;
+            const maxInitialSize = 120;
+            const scale = Math.min(maxInitialSize / widthVal, maxInitialSize / heightVal);
+            items.push({
+              key: `${iconId}-${family}-${style}`,
+              label: metadata.label,
+              style,
+              raw: svgData.raw,
+              innerHtml: svgData.raw.replace(/<svg[^>]*>/i, '').replace(/<\/svg>/i, ''),
+              viewBox: `0 0 ${vb[2]} ${vb[3]}`,
+              width: Math.round(widthVal * scale),
+              height: Math.round(heightVal * scale)
+            });
+            remaining -= 1;
+          }
+          if (stop) break;
+        }
+        if (stop) break;
+      }
+
+      if (items.length > 0) {
+        groups.push({ label: cat.label, items });
+      }
+      if (stop) break;
+    }
+
+    return { groups, hasMore };
+  }, [faIcons, faCategories, faSearchTerm, faVisibleCount, activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'fa') return;
+    setFaVisibleCount(FA_PAGE_SIZE);
+    if (faListRef.current) {
+      faListRef.current.scrollTop = 0;
+    }
+  }, [activeTab, faSearchTerm, faIcons, faCategories]);
+
+  const handleFaScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (!faRenderData.hasMore) return;
+    const target = e.currentTarget;
+    const nearBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - 200;
+    if (nearBottom) {
+      setFaVisibleCount(prev => prev + FA_PAGE_SIZE);
+    }
+  };
 
   const renderFontAwesome = () => {
     if (!faIcons || !faCategories) {
@@ -402,66 +466,51 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
           </div>
         </div>
 
-        <div className="space-y-8 max-h-[calc(100vh-280px)] overflow-y-auto pr-2 custom-scrollbar">
-          {filteredFAIcons.map(group => (
+        <div
+          ref={faListRef}
+          onScroll={handleFaScroll}
+          className="space-y-8 max-h-[calc(100vh-280px)] overflow-y-auto pr-2 custom-scrollbar"
+        >
+          {faRenderData.groups.map(group => (
             <div key={group.label}>
               <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3 border-b border-slate-800 pb-1">{group.label}</h3>
               <div className="grid grid-cols-3 gap-3">
-                {group.icons.map(icon => {
-                  if (!icon.metadata.svgs) return null;
-                  
-                  // 扁平化该图标在不同家族下的可用样式
-                  const allStyles: {family: string, style: string, data: any}[] = [];
-                  Object.entries(icon.metadata.svgs).forEach(([family, styles]) => {
-                    Object.entries(styles).forEach(([style, data]) => {
-                      allStyles.push({ family, style, data });
-                    });
-                  });
-
-                  return allStyles.map((styleItem) => {
-                    const svgData = styleItem.data;
-                    const vb = svgData.viewBox || [0, 0, 512, 512];
-                    const viewBox = `0 0 ${vb[2]} ${vb[3]}`;
-                    
-                    // 初次添加时的宽高比
-                    const widthVal = vb[2] || 512;
-                    const heightVal = vb[3] || 512;
-                    const maxInitialSize = 120;
-                    const scale = Math.min(maxInitialSize / widthVal, maxInitialSize / heightVal);
-
-                    return (
-                      <button
-                        key={`${icon.id}-${styleItem.family}-${styleItem.style}`}
-                        onClick={() => onAddLayer({
-                          name: `${icon.metadata.label} (${styleItem.style})`,
-                          type: 'svg',
-                          content: svgData.raw,
-                          color: '#3b82f6',
-                          width: Math.round(widthVal * scale),
-                          height: Math.round(heightVal * scale)
-                        })}
-                        title={`${icon.metadata.label} - ${styleItem.style}`}
-                        className="aspect-square bg-slate-800 border border-slate-700 p-2.5 rounded-xl hover:border-blue-500 transition-all group flex items-center justify-center hover:bg-slate-750 overflow-hidden relative shadow-sm"
-                      >
-                        <div className="w-full h-full text-slate-400 group-hover:text-blue-400 transition-colors flex items-center justify-center p-1">
-                          <svg 
-                            viewBox={viewBox} 
-                            className="w-full h-full max-h-full max-w-full pointer-events-none drop-shadow-sm" 
-                            preserveAspectRatio="xMidYMid meet"
-                            dangerouslySetInnerHTML={{ __html: svgData.raw.replace(/<svg[^>]*>/i, '').replace(/<\/svg>/i, '') }}
-                          />
-                        </div>
-                      </button>
-                    );
-                  });
-                })}
+                {group.items.map(item => (
+                  <button
+                    key={item.key}
+                    onClick={() => onAddLayer({
+                      name: `${item.label} (${item.style})`,
+                      type: 'svg',
+                      content: item.raw,
+                      color: '#3b82f6',
+                      width: item.width,
+                      height: item.height
+                    })}
+                    title={`${item.label} - ${item.style}`}
+                    className="aspect-square bg-slate-800 border border-slate-700 p-2.5 rounded-xl hover:border-blue-500 transition-all group flex items-center justify-center hover:bg-slate-750 overflow-hidden relative shadow-sm"
+                  >
+                    <div className="w-full h-full text-slate-400 group-hover:text-blue-400 transition-colors flex items-center justify-center p-1">
+                      <svg
+                        viewBox={item.viewBox}
+                        className="w-full h-full max-h-full max-w-full pointer-events-none drop-shadow-sm"
+                        preserveAspectRatio="xMidYMid meet"
+                        dangerouslySetInnerHTML={{ __html: item.innerHtml }}
+                      />
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
           ))}
-          {filteredFAIcons.length === 0 && (
+          {faRenderData.groups.length === 0 && (
             <div className="py-12 flex flex-col items-center opacity-30">
                <AlertCircle className="w-8 h-8 mb-2" />
                <span className="text-xs font-bold uppercase">{t.faNoMatches}</span>
+            </div>
+          )}
+          {faRenderData.hasMore && (
+            <div className="text-[10px] text-slate-600 font-bold uppercase tracking-widest text-center py-2">
+              {t.loadingMore}
             </div>
           )}
         </div>

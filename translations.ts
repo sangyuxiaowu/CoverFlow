@@ -128,6 +128,7 @@ export const translations = {
     expandGroup: "展开分组",
     collapseGroup: "折叠分组",
     faNoMatches: "未找到结果",
+    loadingMore: "继续加载...",
     confirmDeleteShort: "确定删除？",
     faMetadataParseError: "解析 icon-families.json 失败",
     faCategoriesParseError: "解析 categories.yml 失败"
@@ -260,6 +261,7 @@ export const translations = {
     expandGroup: "Expand Group",
     collapseGroup: "Collapse Group",
     faNoMatches: "No matches",
+    loadingMore: "Loading more...",
     confirmDeleteShort: "CONFIRM?",
     faMetadataParseError: "Error parsing icon-families.json",
     faCategoriesParseError: "Error parsing categories.yml"

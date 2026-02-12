@@ -87,7 +87,9 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   const [localFonts, setLocalFonts] = useState<LocalFont[]>([]);
   const [fontSearch, setFontSearch] = useState("");
   const [isFontPickerOpen, setIsFontPickerOpen] = useState(false);
+  const [isWeightPickerOpen, setIsWeightPickerOpen] = useState(false);
   const fontPickerRef = useRef<HTMLDivElement>(null);
+  const weightPickerRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; layerId: string } | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -159,6 +161,17 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
     const handleClickOutside = (event: MouseEvent) => {
       if (fontPickerRef.current && !fontPickerRef.current.contains(event.target as Node)) {
         setIsFontPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // 点击外部关闭字重选择器
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (weightPickerRef.current && !weightPickerRef.current.contains(event.target as Node)) {
+        setIsWeightPickerOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -387,9 +400,9 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3 space-y-4 scrollbar-hide">
+        <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-hide">
           {selectedLayer ? (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {/* 第 1 行：X 与 Y */}
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex items-center gap-2">
@@ -461,9 +474,9 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
 
               {/* 文本专属属性区 */}
               {selectedLayer.type === 'text' && (
-                <div className="space-y-2 pt-2 border-t border-slate-800/80">
+                <div className="space-y-3 pt-2 border-t border-slate-800/80">
                   {/* 字体与字重（可搜索下拉） */}
-                  <div className="grid grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.fontFamily}</label>
                       <div className="relative" ref={fontPickerRef}>
@@ -514,18 +527,42 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                     </div>
                     <div className="space-y-1">
                       <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.fontWeight}</label>
-                      <select 
-                        value={selectedLayer.fontWeight || 700} 
-                        onChange={(e) => onUpdateLayer(selectedLayer.id, { fontWeight: parseInt(e.target.value) || e.target.value })}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 focus:border-blue-500 outline-none transition-colors"
-                      >
-                        {FONT_WEIGHTS.map(w => <option key={w.value} value={w.value}>{w.label}</option>)}
-                      </select>
+                      <div className="relative" ref={weightPickerRef}>
+                        <button
+                          onClick={() => setIsWeightPickerOpen(!isWeightPickerOpen)}
+                          className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 focus:border-blue-500 outline-none transition-colors text-left flex items-center justify-between"
+                        >
+                          <span className="truncate">
+                            {FONT_WEIGHTS.find(w => w.value === (selectedLayer.fontWeight || 700))?.label || t.fontWeight}
+                          </span>
+                          <ChevronDown className="w-3 h-3 opacity-50" />
+                        </button>
+
+                        {isWeightPickerOpen && (
+                          <div className="absolute top-full left-0 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-1 duration-200">
+                            <div className="max-h-56 overflow-y-auto custom-scrollbar p-1">
+                              {FONT_WEIGHTS.map(w => (
+                                <button
+                                  key={w.value}
+                                  onClick={() => {
+                                    onUpdateLayer(selectedLayer.id, { fontWeight: w.value });
+                                    setIsWeightPickerOpen(false);
+                                  }}
+                                  className={`w-full text-left px-3 py-2 rounded-md flex items-center justify-between text-[11px] hover:bg-slate-800 transition-colors ${selectedLayer.fontWeight === w.value ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400'}`}
+                                >
+                                  <span>{w.label}</span>
+                                  {selectedLayer.fontWeight === w.value && <Check className="w-3 h-3" />}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 
                   {/* 文字方向 */}
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider min-w-[48px]">{t.textDirection}</label>
                     <div className="flex flex-1 bg-slate-800 p-1 rounded-lg border border-slate-700 gap-1">
                       <button 
@@ -544,7 +581,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                   </div>
 
                   {/* 文字内容 */}
-                  <div className="space-y-0.5">
+                  <div className="space-y-1 !mt-0">
                     <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.textContent}</label>
                     <textarea 
                       value={selectedLayer.content} 
@@ -554,7 +591,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                   </div>
 
                   {/* 渐变设置 */}
-                  <div className="space-y-1 pt-1">
+                  <div className="space-y-2 pt-2 !mt-0">
                     <div className="flex items-center justify-between">
                       <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><Palette className="w-3 h-3" /> {t.textGradient}</h4>
                       <label className="relative inline-flex items-center cursor-pointer">
@@ -564,19 +601,19 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                     </div>
 
                     {selectedLayer.textGradient?.enabled ? (
-                      <div className="space-y-2 animate-in fade-in duration-200">
+                      <div className="space-y-2 !mt-0 animate-in fade-in duration-200">
                         <div className="grid grid-cols-2 gap-2">
                           <div className="space-y-1">
-                            <label className="text-[8px] text-slate-500 uppercase font-bold">{t.startColor}</label>
+                            <label className="text-[9px] text-slate-500 uppercase font-bold">{t.startColor}</label>
                             <input type="color" value={selectedLayer.textGradient.from} onChange={(e) => handleUpdateTextGradient({ from: e.target.value })} className="w-full h-7 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer p-0.5" />
                           </div>
                           <div className="space-y-1">
-                            <label className="text-[8px] text-slate-500 uppercase font-bold">{t.endColor}</label>
+                            <label className="text-[9px] text-slate-500 uppercase font-bold">{t.endColor}</label>
                             <input type="color" value={selectedLayer.textGradient.to} onChange={(e) => handleUpdateTextGradient({ to: e.target.value })} className="w-full h-7 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer p-0.5" />
                           </div>
                         </div>
                         <div className="space-y-1">
-                          <div className="flex justify-between text-[8px] text-slate-500 uppercase font-bold"><span>{t.angle}</span><span>{selectedLayer.textGradient.angle}°</span></div>
+                          <div className="flex justify-between text-[9px] text-slate-500 uppercase font-bold"><span>{t.angle}</span><span>{selectedLayer.textGradient.angle}°</span></div>
                           <input type="range" min="0" max="360" value={selectedLayer.textGradient.angle} onChange={(e) => handleUpdateTextGradient({ angle: parseInt(e.target.value) })} onMouseUp={onCommit} className="w-full accent-blue-600 h-3" />
                         </div>
                         <div className="grid grid-cols-5 gap-1 pt-0.5">
@@ -586,7 +623,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                         </div>
                       </div>
                     ) : (
-                      <div className="space-y-1 animate-in fade-in duration-200">
+                      <div className="space-y-1 !mt-0 animate-in fade-in duration-200">
                         <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.primaryColor}</label>
                         <div className="flex gap-2">
                           <input type="color" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="h-7 w-7 bg-slate-900 border border-slate-700 cursor-pointer rounded-md p-1" />

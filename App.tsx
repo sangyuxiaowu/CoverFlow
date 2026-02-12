@@ -803,6 +803,27 @@ const App: React.FC = () => {
     }
   };
 
+  const handleExportImageWithDeselect = async (previewNode: HTMLDivElement | null, targetProject: ProjectState) => {
+    if (!project) return;
+    const prevSelectedId = project.selectedLayerId;
+    const prevSelectedIds = [...selectedLayerIds];
+
+    if (prevSelectedId || prevSelectedIds.length > 0) {
+      setSelectedLayerIds([]);
+      modifyProject(p => ({ ...p, selectedLayerId: null }), false);
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    }
+
+    try {
+      await handleExportImage(previewNode, targetProject);
+    } finally {
+      if (prevSelectedId || prevSelectedIds.length > 0) {
+        setSelectedLayerIds(prevSelectedIds);
+        modifyProject(p => ({ ...p, selectedLayerId: prevSelectedId }), false);
+      }
+    }
+  };
+
   const addTextLayerWithContent = (text: string) => {
     if (!project) return;
     const newId = generateId();
@@ -1345,7 +1366,7 @@ const App: React.FC = () => {
             <FileOutput className="w-4 h-4" />
             {t.exportJson}
           </button>
-          <button onClick={() => handleExportImage(document.getElementById('export-target') as HTMLDivElement, project)} disabled={isExporting} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white shadow-lg shadow-blue-900/20 disabled:opacity-50">
+          <button onClick={() => handleExportImageWithDeselect(document.getElementById('export-target') as HTMLDivElement, project)} disabled={isExporting} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white shadow-lg shadow-blue-900/20 disabled:opacity-50">
             {isExporting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
             {t.export}
           </button>

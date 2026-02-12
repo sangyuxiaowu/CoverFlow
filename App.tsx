@@ -861,43 +861,104 @@ const App: React.FC = () => {
     showToast(t.textLayerPasted);
   };
 
+  // 提取公共的 SVG 处理函数
+const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: number, layerName: string) => {
+    try {
+      // 解析 SVG 获取 viewBox 信息
+      const svgElement = new DOMParser().parseFromString(svgContent, 'image/svg+xml').documentElement;
+      let viewBox = svgElement.getAttribute('viewBox');
+      let svgWidth: number, svgHeight: number;
+      
+      if (viewBox) {
+        const vbParts = viewBox.split(/[ ,]+/).map(Number);
+        if (vbParts.length === 4) {
+          svgWidth = vbParts[2];
+          svgHeight = vbParts[3];
+        } else {
+          svgWidth = parseFloat(svgElement.getAttribute('width') || '200');
+          svgHeight = parseFloat(svgElement.getAttribute('height') || '200');
+        }
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width') || '200');
+        svgHeight = parseFloat(svgElement.getAttribute('height') || '200');
+      }
+      
+      svgWidth = Math.max(svgWidth, 1);
+      svgHeight = Math.max(svgHeight, 1);
+      
+      // 计算初始大小：最大不超过画布的70%，并保持原始宽高比
+      const maxSize = Math.min(canvasWidth * 0.7, canvasHeight * 0.7);
+      const svgRatio = svgWidth / svgHeight;
+      
+      let width, height;
+      if (svgRatio > 1) {
+        width = maxSize;
+        height = maxSize / svgRatio;
+      } else {
+        height = maxSize;
+        width = maxSize * svgRatio;
+      }
+      
+      width = Math.max(40, width);
+      height = Math.max(40, height);
+      
+      return {
+        id: generateId(),
+        name: layerName,
+        type: 'svg' as const,
+        content: svgContent,
+        x: canvasWidth / 2 - width / 2,
+        y: canvasHeight / 2 - height / 2,
+        width,
+        height,
+        rotation: 0,
+        zIndex: 0, // 调用时再设置
+        visible: true,
+        locked: false,
+        opacity: 1,
+        color: '#3b82f6',
+        ratioLocked: true
+      };
+    } catch (e) {
+      // 解析失败时使用默认大小
+      const defaultSize = Math.min(200, canvasWidth * 0.5, canvasHeight * 0.5);
+      return {
+        id: generateId(),
+        name: layerName,
+        type: 'svg' as const,
+        content: svgContent,
+        x: canvasWidth / 2 - defaultSize / 2,
+        y: canvasHeight / 2 - defaultSize / 2,
+        width: defaultSize,
+        height: defaultSize,
+        rotation: 0,
+        zIndex: 0,
+        visible: true,
+        locked: false,
+        opacity: 1,
+        color: '#3b82f6',
+        ratioLocked: true
+      };
+    }
+  };
+
   const addSvgLayerWithContent = (svgText: string) => {
     if (!project) return;
-    const newId = generateId();
     const normalized = normalizeSVG(svgText);
-    const dims = getSVGDimensions(normalized);
-    modifyProject(p => {
-      const maxW = p.canvasConfig.width * 0.7;
-      const maxH = p.canvasConfig.height * 0.7;
-      const rawW = dims.width || 200;
-      const rawH = dims.height || 200;
-      const scale = Math.min(1, maxW / rawW, maxH / rawH);
-      const width = Math.max(40, rawW * scale);
-      const height = Math.max(40, rawH * scale);
-      const newId = generateId();
-      return {
-        ...p,
-        layers: [...p.layers, {
-          id: newId,
-          name: t.svgLayerName,
-          type: 'svg',
-          content: normalized,
-          x: p.canvasConfig.width / 2 - width / 2,
-          y: p.canvasConfig.height / 2 - height / 2,
-          width,
-          height,
-          rotation: 0,
-          zIndex: p.layers.length + 1,
-          visible: true,
-          locked: false,
-          opacity: 1,
-          color: '#3b82f6',
-          ratioLocked: true
-        }],
-        selectedLayerId: newId
-      };
-    });
-    setSelectedLayerIds([newId]);
+    const newLayer = createSvgLayer(
+      normalized,
+      project.canvasConfig.width,
+      project.canvasConfig.height,
+      t.svgLayerName
+    );
+    newLayer.zIndex = project.layers.length + 1;
+    
+    modifyProject(p => ({
+      ...p,
+      layers: [...p.layers, newLayer],
+      selectedLayerId: newLayer.id
+    }));
+    setSelectedLayerIds([newLayer.id]);
     showToast(t.svgLayerPasted);
   };
 
@@ -1373,7 +1434,54 @@ const App: React.FC = () => {
         </div>
       </header>
       <main className="flex-1 flex overflow-hidden min-h-0 relative">
-        <Sidebar lang={lang} activeTab={activeTab} setActiveTab={setActiveTab} background={project.background} onAddLayer={(l) => modifyProject(p => ({ ...p, layers: [...p.layers, { id: generateId(), name: l.name || t.defaultLayerName, type: l.type || 'svg', x: p.canvasConfig.width/2-50, y: p.canvasConfig.height/2-50, width: l.width || 100, height: l.height || 100, rotation: 0, zIndex: p.layers.length+1, visible: true, locked: false, opacity: 1, color: l.color || '#3b82f6', ratioLocked: true, content: l.content || '' }] }))} onUpdateBackground={(bg) => modifyProject(p => ({ ...p, background: { ...p.background, ...bg } }))} />
+        <Sidebar 
+          lang={lang} 
+          activeTab={activeTab} 
+          setActiveTab={setActiveTab} 
+          background={project.background} 
+          onAddLayer={(l) => {
+            // 处理 SVG 图层的特殊逻辑
+            if (l.type === 'svg' && l.content) {
+              const newLayer = createSvgLayer(
+                l.content,
+                project.canvasConfig.width,
+                project.canvasConfig.height,
+                l.name || t.defaultLayerName
+              );
+              newLayer.zIndex = project.layers.length + 1;
+              newLayer.color = l.color || '#3b82f6';
+              
+              modifyProject(p => ({
+                ...p,
+                layers: [...p.layers, newLayer]
+              }));
+              return;
+            }
+            
+            // 非 SVG 图层保持原有逻辑
+            modifyProject(p => ({
+              ...p,
+              layers: [...p.layers, {
+                id: generateId(),
+                name: l.name || t.defaultLayerName,
+                type: l.type || 'svg',
+                content: l.content || '',
+                x: p.canvasConfig.width / 2 - (l.width || 100) / 2,
+                y: p.canvasConfig.height / 2 - (l.height || 100) / 2,
+                width: l.width || 100,
+                height: l.height || 100,
+                rotation: 0,
+                zIndex: p.layers.length + 1,
+                visible: true,
+                locked: false,
+                opacity: 1,
+                color: l.color || '#3b82f6',
+                ratioLocked: true
+              }]
+            }));
+          }}
+          onUpdateBackground={(bg) => modifyProject(p => ({ ...p, background: { ...p.background, ...bg } }))} 
+        />
         <div className="flex-1 flex flex-col min-h-0 relative">
           <Canvas
             lang={lang}

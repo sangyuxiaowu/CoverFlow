@@ -11,7 +11,7 @@ import {
   Download, Trash2, Plus, Share2, ArrowLeft, Clock, 
   Layout as LayoutIcon, ChevronRight, LayoutGrid, CheckCircle2, AlertCircle,
   Upload, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, Search, X,
-  FileJson, ImageIcon as ImageIconLucide
+  FileJson, ImageIcon as ImageIconLucide, Copy
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 
@@ -191,14 +191,16 @@ const ProjectCard = ({
   onClick, 
   onDelete, 
   onDownloadJson, 
-  onDownloadImage 
+  onDownloadImage,
+  onDuplicate
 }: { 
   project: ProjectState, 
   lang: Language, 
   onClick: () => void, 
   onDelete: (e: React.MouseEvent) => void,
   onDownloadJson: (e: React.MouseEvent) => void,
-  onDownloadImage: (previewNode: HTMLDivElement | null, e: React.MouseEvent) => void
+  onDownloadImage: (previewNode: HTMLDivElement | null, e: React.MouseEvent) => void,
+  onDuplicate: (e: React.MouseEvent) => void
 }) => {
   const t = translations[lang];
   const [isVisible, setIsVisible] = useState(false);
@@ -222,7 +224,7 @@ const ProjectCard = ({
     <div 
       ref={cardRef}
       onClick={onClick} 
-      className="group bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden hover:border-blue-500/50 transition-all cursor-pointer shadow-xl hover:shadow-blue-900/10 flex flex-col h-[300px]"
+      className="group bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden hover:border-blue-500/50 transition-all cursor-pointer shadow-xl hover:shadow-blue-900/10 flex flex-col h-[260px]"
     >
       <div className="flex-1 bg-[#0c0c0e] relative overflow-hidden flex items-center justify-center">
         {isVisible ? (
@@ -250,31 +252,38 @@ const ProjectCard = ({
         </div>
       </div>
 
-      <div className="px-5 py-4 flex items-center justify-between border-t border-slate-800/50 bg-slate-900/60 backdrop-blur-sm">
-        <div className="flex flex-col gap-1 min-w-0">
-          <h3 className="text-sm font-bold text-slate-100 group-hover:text-blue-400 transition-colors truncate">
-            {project.title}
-          </h3>
+      <div className="px-5 py-4 flex flex-col gap-2 border-t border-slate-800/50 bg-slate-900/60 backdrop-blur-sm">
+        <h3 className="text-sm font-bold text-slate-100 group-hover:text-blue-400 transition-colors truncate">
+          {project.title}
+        </h3>
+        
+        <div className="flex items-center justify-between gap-3">
           <p className="text-[10px] flex items-center gap-1.5 uppercase font-bold tracking-widest text-slate-600">
             <Clock className="w-3 h-3" /> {new Date(project.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </p>
-        </div>
-        
-        <div className="flex items-center gap-1">
-          <button 
-            onClick={(e) => onDownloadJson(e)} 
-            className="p-2.5 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
-            title={t.exportJson}
-          >
-            <FileJson className="w-4 h-4" />
-          </button>
-          <button 
-            onClick={(e) => onDownloadImage(previewNodeRef.current, e)} 
-            className="p-2.5 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
-            title={t.export}
-          >
-            <ImageIconLucide className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button 
+              onClick={(e) => onDuplicate(e)}
+              className="p-2 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
+              title={t.duplicateProject || t.importedCopySuffix}
+            >
+              <Copy className="w-3 h-3" />
+            </button>
+            <button 
+              onClick={(e) => onDownloadJson(e)} 
+              className="p-2 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
+              title={t.exportJson}
+            >
+              <FileJson className="w-3 h-3" />
+            </button>
+            <button 
+              onClick={(e) => onDownloadImage(previewNodeRef.current, e)} 
+              className="p-2 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
+              title={t.export}
+            >
+              <ImageIconLucide className="w-3 h-3" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -727,6 +736,35 @@ const App: React.FC = () => {
   const handleExportJson = (targetProject: ProjectState) => {
     const json = JSON.stringify(targetProject, null, 2);
     downloadFile(json, `${targetProject.title}.json`, 'application/json');
+  };
+
+  const handleDuplicateProject = (targetProject: ProjectState) => {
+    const idMap = new Map<string, string>();
+    targetProject.layers.forEach(layer => idMap.set(layer.id, generateId()));
+
+    const clonedLayers = targetProject.layers.map(layer => {
+      const nextId = idMap.get(layer.id) as string;
+      const nextParentId = layer.parentId ? idMap.get(layer.parentId) : undefined;
+      const nextChildren = layer.children ? layer.children.map(cid => idMap.get(cid) as string).filter(Boolean) : undefined;
+      return {
+        ...JSON.parse(JSON.stringify(layer)),
+        id: nextId,
+        parentId: nextParentId,
+        children: nextChildren
+      };
+    });
+
+    const duplicated: ProjectState = {
+      ...JSON.parse(JSON.stringify(targetProject)),
+      id: generateId(),
+      title: `${targetProject.title}${t.importedCopySuffix}`,
+      updatedAt: Date.now(),
+      layers: clonedLayers,
+      selectedLayerId: null
+    };
+
+    setProjects(prev => [duplicated, ...prev]);
+    showToast(t.importSuccess);
   };
 
   // 基于预览节点导出 PNG
@@ -1249,6 +1287,7 @@ const App: React.FC = () => {
                               onConfirm: () => setProjects(prev => prev.filter(pr => pr.id !== p.id)) 
                             }); 
                           }} 
+                          onDuplicate={(e) => { e.stopPropagation(); handleDuplicateProject(p); }}
                           onDownloadJson={(e) => { e.stopPropagation(); handleExportJson(p); }}
                           onDownloadImage={(node, e) => { e.stopPropagation(); handleExportImage(node, p); }}
                         />

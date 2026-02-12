@@ -297,7 +297,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
         const data = JSON.parse(ev.target?.result as string);
         setFaIcons(data);
         localStorage.setItem(FA_STORAGE_KEY_ICONS, JSON.stringify(data));
-      } catch (err) { alert('Error parsing icon-families.json'); }
+      } catch (err) { alert(t.faMetadataParseError); }
     };
     reader.readAsText(file);
   };
@@ -311,7 +311,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
         const data = yaml.load(ev.target?.result as string);
         setFaCategories(data as Record<string, FACategory>);
         localStorage.setItem(FA_STORAGE_KEY_CATS, JSON.stringify(data));
-      } catch (err) { alert('Error parsing categories.yml'); }
+      } catch (err) { alert(t.faCategoriesParseError); }
     };
     reader.readAsText(file);
   };
@@ -459,7 +459,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
           {filteredFAIcons.length === 0 && (
             <div className="py-12 flex flex-col items-center opacity-30">
                <AlertCircle className="w-8 h-8 mb-2" />
-               <span className="text-xs font-bold uppercase">{lang === 'zh' ? '未找到结果' : 'No matches'}</span>
+               <span className="text-xs font-bold uppercase">{t.faNoMatches}</span>
             </div>
           )}
         </div>
@@ -540,7 +540,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
                       </button>
                       {deletingIndex === idx && (
                         <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center animate-in fade-in duration-200 z-10">
-                          <span className="text-[8px] font-black text-white uppercase mb-1 tracking-tighter">{lang === 'zh' ? '确定删除？' : 'CONFIRM?'}</span>
+                          <span className="text-[8px] font-black text-white uppercase mb-1 tracking-tighter">{t.confirmDeleteShort}</span>
                           <div className="flex gap-1.5">
                             <button onClick={(e) => executeDeletePreset(e, idx)} className="p-1 bg-red-600 text-white rounded-md hover:bg-red-500 shadow-lg"><Check className="w-3.5 h-3.5" /></button>
                             <button onClick={(e) => { e.stopPropagation(); setDeletingIndex(null); }} className="p-1 bg-slate-700 text-white rounded-md hover:bg-slate-600"><X className="w-3.5 h-3.5" /></button>

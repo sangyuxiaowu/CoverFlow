@@ -28,14 +28,15 @@ const Toast = ({ message, type }: { message: string, type: 'success' | 'error' }
 
 const ConfirmModal = ({ isOpen, message, onConfirm, onCancel, lang }: { isOpen: boolean, message: string, onConfirm: () => void, onCancel: () => void, lang: Language }) => {
   if (!isOpen) return null;
+  const t = translations[lang];
   return (
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-6 scale-100 animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-3 text-amber-500"><AlertCircle className="w-6 h-6" /><h3 className="text-lg font-bold text-slate-100">{lang === 'zh' ? '提示' : 'Confirmation'}</h3></div>
+        <div className="flex items-center gap-3 text-amber-500"><AlertCircle className="w-6 h-6" /><h3 className="text-lg font-bold text-slate-100">{t.confirmTitle}</h3></div>
         <p className="text-slate-300 text-sm leading-relaxed font-medium">{message}</p>
         <div className="flex items-center justify-end gap-3">
-          <button onClick={onCancel} className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors">{lang === 'zh' ? '取消' : 'Cancel'}</button>
-          <button onClick={onConfirm} className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-900/20 transition-all active:scale-95">{lang === 'zh' ? '确认删除' : 'Delete'}</button>
+          <button onClick={onCancel} className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors">{t.cancel}</button>
+          <button onClick={onConfirm} className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-900/20 transition-all active:scale-95">{t.confirmDeleteAction}</button>
         </div>
       </div>
     </div>
@@ -197,6 +198,7 @@ const ProjectCard = ({
   onDownloadJson: (e: React.MouseEvent) => void,
   onDownloadImage: (previewNode: HTMLDivElement | null, e: React.MouseEvent) => void
 }) => {
+  const t = translations[lang];
   const [isVisible, setIsVisible] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const previewNodeRef = useRef<HTMLDivElement>(null);
@@ -232,7 +234,7 @@ const ProjectCard = ({
         <button 
           onClick={onDelete} 
           className="absolute top-3 right-3 z-20 p-2 text-white bg-red-600/80 hover:bg-red-500 rounded-xl transition-all shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95"
-          title="Delete Project"
+          title={t.deleteProject}
         >
           <Trash2 className="w-4 h-4" />
         </button>
@@ -259,14 +261,14 @@ const ProjectCard = ({
           <button 
             onClick={(e) => onDownloadJson(e)} 
             className="p-2.5 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
-            title="Export JSON"
+            title={t.exportJson}
           >
             <FileJson className="w-4 h-4" />
           </button>
           <button 
             onClick={(e) => onDownloadImage(previewNodeRef.current, e)} 
             className="p-2.5 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
-            title="Export Image"
+            title={t.export}
           >
             <ImageIconLucide className="w-4 h-4" />
           </button>
@@ -389,7 +391,7 @@ const App: React.FC = () => {
   const createNewProject = (preset: typeof PRESET_RATIOS[0]) => {
     const newProject: ProjectState = {
       id: generateId(), title: t.untitled, updatedAt: Date.now(),
-      layers: [{ id: generateId(), name: lang === 'zh' ? '标题' : 'Headline', type: 'text', content: lang === 'zh' ? '双击编辑文本' : 'Double click to edit', x: 50, y: preset.height / 2 - 50, width: preset.width - 100, height: 100, fontSize: 64, fontFamily: 'Inter, sans-serif', fontWeight: 700, writingMode: 'horizontal', rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, color: '#ffffff', ratioLocked: true }],
+      layers: [{ id: generateId(), name: t.defaultHeadlineName, type: 'text', content: t.doubleClickToEdit, x: 50, y: preset.height / 2 - 50, width: preset.width - 100, height: 100, fontSize: 64, fontFamily: 'Inter, sans-serif', fontWeight: 700, writingMode: 'horizontal', rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, color: '#ffffff', ratioLocked: true }],
       background: { 
         type: 'color', 
         value: '#1e293b', 
@@ -616,7 +618,7 @@ const App: React.FC = () => {
 
       return { ...p, layers: [...p.layers, ...clones], selectedLayerId: nextActiveId };
     });
-    showToast(lang === 'zh' ? "图层已复制" : "Layer cloned");
+    showToast(t.layerCloned);
   };
 
   const handleMoveLayers = (ids: string[], toFront: boolean) => {
@@ -646,7 +648,7 @@ const App: React.FC = () => {
     const bounds = getGroupBounds(project.layers, candidates.map(l => l.id));
     const groupLayer: Layer = {
       id: groupId,
-      name: lang === 'zh' ? '分组' : 'Group',
+      name: t.groupName,
       type: 'group',
       content: '',
       x: bounds.x,
@@ -703,16 +705,15 @@ const App: React.FC = () => {
           if (existingProjectIds.has(imported.id)) {
             imported.id = generateId();
             imported.updatedAt = Date.now();
-            if (lang === 'zh') imported.title += ' (导入副本)';
-            else imported.title += ' (Imported Copy)';
+            imported.title += t.importedCopySuffix;
           }
           imported.layers = imported.layers.map(layer => ({ ...layer, id: generateId() }));
           imported.selectedLayerId = null;
           setProjects(prev => [imported, ...prev]);
-          showToast(lang === 'zh' ? "导入成功" : "Imported Successfully");
+          showToast(t.importSuccess);
         }
       } catch (err) {
-        showToast(lang === 'zh' ? "解析失败" : "Parse Failed", "error");
+        showToast(t.parseFailed, "error");
       }
     };
     reader.readAsText(file);
@@ -726,7 +727,7 @@ const App: React.FC = () => {
 
   const handleExportImage = async (previewNode: HTMLDivElement | null, targetProject: ProjectState) => {
     if (!previewNode) {
-      showToast(lang === 'zh' ? "导出失败：预览未加载" : "Export failed: Preview not loaded", "error");
+      showToast(t.exportPreviewMissing, "error");
       return;
     }
     setIsExporting(true);
@@ -747,9 +748,9 @@ const App: React.FC = () => {
       link.download = `${targetProject.title}.png`; 
       link.href = dataUrl; 
       link.click(); 
-      showToast(lang === 'zh' ? "导出成功" : "Exported successfully");
+      showToast(t.exportSuccess);
     } catch (e) { 
-      showToast(lang === 'zh' ? "导出失败" : "Export Failed", "error"); 
+      showToast(t.exportFailed, "error"); 
     } finally {
       setIsExporting(false);
     }
@@ -765,7 +766,7 @@ const App: React.FC = () => {
         ...p,
         layers: [...p.layers, {
           id: newId,
-          name: lang === 'zh' ? '文字图层' : 'Text Layer',
+          name: t.textLayerName,
           type: 'text',
           content: text,
           x: p.canvasConfig.width / 2 - width / 2,
@@ -788,7 +789,7 @@ const App: React.FC = () => {
       };
     });
     setSelectedLayerIds([newId]);
-    showToast(lang === 'zh' ? "已粘贴文字图层" : "Text layer pasted");
+    showToast(t.textLayerPasted);
   };
 
   const addSvgLayerWithContent = (svgText: string) => {
@@ -809,7 +810,7 @@ const App: React.FC = () => {
         ...p,
         layers: [...p.layers, {
           id: newId,
-          name: lang === 'zh' ? 'SVG 图层' : 'SVG Layer',
+          name: t.svgLayerName,
           type: 'svg',
           content: normalized,
           x: p.canvasConfig.width / 2 - width / 2,
@@ -828,7 +829,7 @@ const App: React.FC = () => {
       };
     });
     setSelectedLayerIds([newId]);
-    showToast(lang === 'zh' ? "已粘贴 SVG 图层" : "SVG layer pasted");
+    showToast(t.svgLayerPasted);
   };
 
   const addImageLayerWithContent = (dataUrl: string) => {
@@ -840,7 +841,7 @@ const App: React.FC = () => {
         ...p,
         layers: [...p.layers, {
           id: newId,
-          name: lang === 'zh' ? '图片图层' : 'Image Layer',
+          name: t.imageLayerName,
           type: 'image',
           content: dataUrl,
           x: p.canvasConfig.width / 2 - size / 2,
@@ -858,7 +859,7 @@ const App: React.FC = () => {
       };
     });
     setSelectedLayerIds([newId]);
-    showToast(lang === 'zh' ? "已粘贴图片图层" : "Image layer pasted");
+    showToast(t.imageLayerPasted);
   };
 
   const applyProjectFromJson = (data: Partial<ProjectState>) => {
@@ -879,7 +880,7 @@ const App: React.FC = () => {
       };
     });
     setSelectedLayerIds([]);
-    showToast(lang === 'zh' ? "已应用 JSON 项目内容" : "Project JSON content applied");
+    showToast(t.projectJsonApplied);
   };
 
   useEffect(() => {
@@ -957,9 +958,9 @@ const App: React.FC = () => {
     if (!project) return;
     const newLayer: Layer = {
       id: generateId(),
-      name: lang === 'zh' ? '新文本' : 'New Text',
+      name: t.newTextLayerName,
       type: 'text',
-      content: lang === 'zh' ? '双击编辑文本' : 'Double click to edit',
+      content: t.doubleClickToEdit,
       x: project.canvasConfig.width / 2 - 150,
       y: project.canvasConfig.height / 2 - 25,
       width: 300,
@@ -1003,7 +1004,7 @@ const App: React.FC = () => {
 
             const newLayer: Layer = {
               id: generateId(),
-              name: lang === 'zh' ? '新图片' : 'New Image',
+              name: t.newImageLayerName,
               type: 'image',
               content: content,
               x: (project.canvasConfig.width - w) / 2,
@@ -1216,7 +1217,7 @@ const App: React.FC = () => {
                 <div className="bg-slate-900/50 border-2 border-dashed border-slate-800 rounded-3xl h-80 flex flex-col items-center justify-center text-slate-600 gap-4"><LayoutGrid className="w-12 h-12 opacity-20" /><p className="text-sm font-medium">{t.noProjects}</p></div>
               ) : groupedProjects.length === 0 ? (
                 <div className="h-64 flex flex-col items-center justify-center text-slate-600 opacity-50 italic">
-                  <p className="text-sm">{lang === 'zh' ? '未找到匹配的项目' : 'No matching projects found'}</p>
+                  <p className="text-sm">{t.noMatchingProjects}</p>
                 </div>
               ) : (
                 groupedProjects.map(group => (
@@ -1299,7 +1300,7 @@ const App: React.FC = () => {
         </div>
       </header>
       <main className="flex-1 flex overflow-hidden min-h-0 relative">
-        <Sidebar lang={lang} activeTab={activeTab} setActiveTab={setActiveTab} background={project.background} onAddLayer={(l) => modifyProject(p => ({ ...p, layers: [...p.layers, { id: generateId(), name: l.name || 'Layer', type: l.type || 'svg', x: p.canvasConfig.width/2-50, y: p.canvasConfig.height/2-50, width: l.width || 100, height: l.height || 100, rotation: 0, zIndex: p.layers.length+1, visible: true, locked: false, opacity: 1, color: l.color || '#3b82f6', ratioLocked: true, content: l.content || '' }] }))} onUpdateBackground={(bg) => modifyProject(p => ({ ...p, background: { ...p.background, ...bg } }))} />
+        <Sidebar lang={lang} activeTab={activeTab} setActiveTab={setActiveTab} background={project.background} onAddLayer={(l) => modifyProject(p => ({ ...p, layers: [...p.layers, { id: generateId(), name: l.name || t.defaultLayerName, type: l.type || 'svg', x: p.canvasConfig.width/2-50, y: p.canvasConfig.height/2-50, width: l.width || 100, height: l.height || 100, rotation: 0, zIndex: p.layers.length+1, visible: true, locked: false, opacity: 1, color: l.color || '#3b82f6', ratioLocked: true, content: l.content || '' }] }))} onUpdateBackground={(bg) => modifyProject(p => ({ ...p, background: { ...p.background, ...bg } }))} />
         <div className="flex-1 flex flex-col min-h-0 relative">
           <Canvas
             lang={lang}

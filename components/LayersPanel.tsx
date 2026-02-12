@@ -421,21 +421,21 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
               <div className={`grid ${selectedLayer.type === 'text' ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
                 <div className="space-y-1.5">
                   <label onMouseDown={(e) => handleScrubMouseDown(e, 'rotation', selectedLayer.rotation)} className="flex items-center gap-1 text-[9px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
-                    <RotateCw className="w-2.5 h-2.5"/> {lang === 'zh' ? '旋转' : 'Rot'}
+                    <RotateCw className="w-2.5 h-2.5"/> {t.rotationShort}
                   </label>
                   <input type="number" value={selectedLayer.rotation} onChange={(e) => onUpdateLayer(selectedLayer.id, { rotation: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1.5 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                 </div>
                 {selectedLayer.type === 'text' && (
                   <div className="space-y-1.5">
                     <label onMouseDown={(e) => handleScrubMouseDown(e, 'fontSize', selectedLayer.fontSize || 48)} className="flex items-center gap-1 text-[9px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
-                      <Type className="w-2.5 h-2.5"/> {lang === 'zh' ? '字号' : 'Size'}
+                      <Type className="w-2.5 h-2.5"/> {t.fontSizeShort}
                     </label>
                     <input type="number" value={selectedLayer.fontSize || 48} onChange={(e) => onUpdateLayer(selectedLayer.id, { fontSize: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1.5 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                   </div>
                 )}
                 <div className="space-y-1.5">
                   <label onMouseDown={(e) => handleScrubMouseDown(e, 'opacity', selectedLayer.opacity)} className="flex items-center gap-1 text-[9px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
-                    <Sliders className="w-2.5 h-2.5"/> {lang === 'zh' ? '透明' : 'Opac'}
+                    <Sliders className="w-2.5 h-2.5"/> {t.opacityShort}
                   </label>
                   <input type="number" value={Math.round(selectedLayer.opacity * 100)} onChange={(e) => onUpdateLayer(selectedLayer.id, { opacity: Math.min(Math.max(0, parseInt(e.target.value)||0), 100) / 100 })} className="bg-slate-800/50 rounded-md px-2 py-1.5 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                 </div>
@@ -464,7 +464,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                               <input 
                                 autoFocus
                                 type="text"
-                                placeholder={lang === 'zh' ? "搜索字体..." : "Search fonts..."}
+                                placeholder={t.searchFontsPlaceholder}
                                 value={fontSearch}
                                 onChange={(e) => setFontSearch(e.target.value)}
                                 className="bg-transparent border-none outline-none text-[11px] w-full text-slate-200 placeholder-slate-600"
@@ -487,7 +487,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                                   </button>
                                 ))
                               ) : (
-                                <div className="p-4 text-center text-[10px] text-slate-600 uppercase font-bold italic">{lang === 'zh' ? '未找到字体' : 'No fonts found'}</div>
+                                <div className="p-4 text-center text-[10px] text-slate-600 uppercase font-bold italic">{t.noFontsFound}</div>
                               )}
                             </div>
                           </div>
@@ -706,7 +706,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                     setCollapsedGroupIds(prev => prev.includes(layer.id) ? prev.filter(id => id !== layer.id) : [...prev, layer.id]);
                   }}
                   className="p-0.5 text-slate-400 hover:text-slate-200 transition-colors"
-                  title={isCollapsed ? (lang === 'zh' ? '展开分组' : 'Expand Group') : (lang === 'zh' ? '折叠分组' : 'Collapse Group')}
+                  title={isCollapsed ? t.expandGroup : t.collapseGroup}
                 >
                   <ChevronDown className={`w-3 h-3 transition-transform ${isCollapsed ? '-rotate-90' : 'rotate-0'}`} />
                 </button>

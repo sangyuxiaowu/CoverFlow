@@ -561,28 +561,51 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                     </div>
                   </div>
 
-                  {/* 文字方向 */}
+                  {/* 文字方向与对齐方式 */}
                   <div className="flex items-center gap-2">
-                    <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider min-w-[48px]">{t.textDirection}</label>
                     <div className="flex flex-1 bg-slate-800 p-1 rounded-lg border border-slate-700 gap-1">
                       <button 
                         onClick={() => onUpdateLayer(selectedLayer.id, { writingMode: 'horizontal' })}
-                        className={`flex-1 flex items-center justify-center gap-1.5 py-1 px-2 rounded text-[10px] font-bold transition-all ${selectedLayer.writingMode !== 'vertical' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                        title={t.horizontal}
+                        className={`flex-1 flex items-center justify-center py-1 rounded text-[10px] font-bold transition-all ${selectedLayer.writingMode !== 'vertical' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
                       >
-                        <MoveHorizontal className="w-3 h-3" /> {t.horizontal}
+                        <MoveHorizontal className="w-3 h-3" />
                       </button>
                       <button 
                         onClick={() => onUpdateLayer(selectedLayer.id, { writingMode: 'vertical' })}
-                        className={`flex-1 flex items-center justify-center gap-1.5 py-1 px-2 rounded text-[10px] font-bold transition-all ${selectedLayer.writingMode === 'vertical' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                        title={t.vertical}
+                        className={`flex-1 flex items-center justify-center py-1 rounded text-[10px] font-bold transition-all ${selectedLayer.writingMode === 'vertical' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
                       >
-                        <MoveVertical className="w-3 h-3" /> {t.vertical}
+                        <MoveVertical className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <div className="flex flex-1 bg-slate-800 p-1 rounded-lg border border-slate-700 gap-1">
+                      <button
+                        onClick={() => onUpdateLayer(selectedLayer.id, { textAlign: 'left' })}
+                        title="Align Left"
+                        className={`flex-1 flex items-center justify-center py-1 rounded text-[10px] font-bold transition-all ${(selectedLayer.textAlign || 'center') === 'left' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                      >
+                        <AlignLeft className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => onUpdateLayer(selectedLayer.id, { textAlign: 'center' })}
+                        title="Align Center"
+                        className={`flex-1 flex items-center justify-center py-1 rounded text-[10px] font-bold transition-all ${(selectedLayer.textAlign || 'center') === 'center' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                      >
+                        <AlignCenter className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => onUpdateLayer(selectedLayer.id, { textAlign: 'right' })}
+                        title="Align Right"
+                        className={`flex-1 flex items-center justify-center py-1 rounded text-[10px] font-bold transition-all ${(selectedLayer.textAlign || 'center') === 'right' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                      >
+                        <AlignRight className="w-3 h-3" />
                       </button>
                     </div>
                   </div>
 
                   {/* 文字内容 */}
-                  <div className="space-y-1 !mt-0">
-                    <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.textContent}</label>
+                  <div className="space-y-1">
                     <textarea 
                       value={selectedLayer.content} 
                       onChange={(e) => onUpdateLayer(selectedLayer.id, { content: e.target.value })} 

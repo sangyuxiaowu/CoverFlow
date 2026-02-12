@@ -26,6 +26,7 @@ export interface Layer {
   fontSize?: number;
   fontFamily?: string;
   fontWeight?: string | number;
+  textAlign?: 'left' | 'center' | 'right';
   writingMode?: 'horizontal' | 'vertical';
   ratioLocked?: boolean;
   textGradient?: TextGradient;

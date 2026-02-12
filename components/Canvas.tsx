@@ -349,6 +349,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
               .filter(l => l.visible && l.type !== 'group')
               .sort((a, b) => a.zIndex - b.zIndex)
               .map(layer => {
+                const align = layer.textAlign || 'center';
                 const textStyle: React.CSSProperties = {
                   fontSize: `${layer.fontSize || Math.max(12, layer.height * 0.7)}px`,
                   fontFamily: layer.fontFamily || 'Inter, sans-serif',
@@ -359,8 +360,8 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                   height: '100%',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  textAlign: 'center',
+                  justifyContent: align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center',
+                  textAlign: align,
                   padding: '0 1rem',
                   lineHeight: 1.1,
                   pointerEvents: 'none',

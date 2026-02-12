@@ -119,6 +119,7 @@ const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObjec
           .filter(l => l.visible && l.type !== 'group')
           .sort((a, b) => a.zIndex - b.zIndex)
           .map(layer => {
+            const align = layer.textAlign || 'center';
             const textStyle: React.CSSProperties = {
               fontSize: `${layer.fontSize || Math.max(12, layer.height * 0.7)}px`,
               fontFamily: layer.fontFamily || 'Inter, sans-serif',
@@ -129,8 +130,8 @@ const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObjec
               height: '100%',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              textAlign: 'center',
+              justifyContent: align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center',
+              textAlign: align,
               lineHeight: 1.1,
               pointerEvents: 'none',
               padding: '0 0.5rem'
@@ -394,7 +395,7 @@ const App: React.FC = () => {
   const createNewProject = (preset: typeof PRESET_RATIOS[0]) => {
     const newProject: ProjectState = {
       id: generateId(), title: t.untitled, updatedAt: Date.now(),
-      layers: [{ id: generateId(), name: t.defaultHeadlineName, type: 'text', content: t.doubleClickToEdit, x: 50, y: preset.height / 2 - 50, width: preset.width - 100, height: 100, fontSize: 64, fontFamily: 'Inter, sans-serif', fontWeight: 700, writingMode: 'horizontal', rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, color: '#ffffff', ratioLocked: true }],
+      layers: [{ id: generateId(), name: t.defaultHeadlineName, type: 'text', content: t.doubleClickToEdit, x: 50, y: preset.height / 2 - 50, width: preset.width - 100, height: 100, fontSize: 64, fontFamily: 'Inter, sans-serif', fontWeight: 700, textAlign: 'center', writingMode: 'horizontal', rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, color: '#ffffff', ratioLocked: true }],
       background: { 
         type: 'color', 
         value: '#1e293b', 
@@ -780,6 +781,7 @@ const App: React.FC = () => {
           fontSize: 32,
           fontFamily: 'Inter, sans-serif',
           fontWeight: 700,
+          textAlign: 'center',
           writingMode: 'horizontal',
           rotation: 0,
           zIndex: p.layers.length + 1,
@@ -973,6 +975,7 @@ const App: React.FC = () => {
       fontSize: 48,
       fontFamily: 'Inter, sans-serif',
       fontWeight: 700,
+      textAlign: 'center',
       writingMode: 'horizontal',
       rotation: 0,
       zIndex: project.layers.length + 1,

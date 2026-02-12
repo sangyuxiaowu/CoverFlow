@@ -1,4 +1,4 @@
-
+// 模块：侧边栏资源与背景设置
 import React, { useState, useEffect, useMemo } from 'react';
 import { CATEGORIZED_ASSETS, PRESET_COLORS, PRESET_GRADIENTS } from '../constants.ts';
 import { BackgroundConfig, Layer, FAIconMetadata, FACategory } from '../types.ts';
@@ -24,7 +24,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
   const [deletingIndex, setDeletingIndex] = useState<number | null>(null);
   const t = translations[lang];
 
-  // Font Awesome Data State
+  // Font Awesome 数据状态
   const [faIcons, setFaIcons] = useState<Record<string, FAIconMetadata>>(() => {
     try {
       const saved = localStorage.getItem(FA_STORAGE_KEY_ICONS);
@@ -85,6 +85,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
     onUpdateBackground({ type: newType, value: newValue });
   };
 
+  // 生成背景预览样式（含叠加纹理）
   const getPreviewStyles = (bg: BackgroundConfig): React.CSSProperties => {
     const styles: React.CSSProperties = {};
     let baseBackground = '';
@@ -287,7 +288,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
     </div>
   );
 
-  // Font Awesome Data Handlers
+  // Font Awesome 数据处理
   const handleUploadMetadata = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -323,10 +324,11 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
     localStorage.removeItem(FA_STORAGE_KEY_CATS);
   };
 
+  // 根据搜索词过滤并分组 Font Awesome 图标
   const filteredFAIcons = useMemo(() => {
     if (!faIcons || !faCategories) return [];
     
-    // Create categories with filtered icons
+    // 按分类过滤并组织图标
     const groups: { label: string, icons: { id: string, metadata: FAIconMetadata }[] }[] = [];
     
     Object.entries(faCategories).forEach(([id, cat]) => {
@@ -408,7 +410,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
                 {group.icons.map(icon => {
                   if (!icon.metadata.svgs) return null;
                   
-                  // Flatten all available styles for this icon from all available families
+                  // 扁平化该图标在不同家族下的可用样式
                   const allStyles: {family: string, style: string, data: any}[] = [];
                   Object.entries(icon.metadata.svgs).forEach(([family, styles]) => {
                     Object.entries(styles).forEach(([style, data]) => {
@@ -421,7 +423,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
                     const vb = svgData.viewBox || [0, 0, 512, 512];
                     const viewBox = `0 0 ${vb[2]} ${vb[3]}`;
                     
-                    // Aspect ratio for initial adding
+                    // 初次添加时的宽高比
                     const widthVal = vb[2] || 512;
                     const heightVal = vb[3] || 512;
                     const maxInitialSize = 120;

@@ -7,12 +7,12 @@ export interface TextGradient {
   to: string;
   angle: number;
 }
-
+// 模块：类型定义
 export interface Layer {
   id: string;
   name: string;
   type: LayerType;
-  content: string; // SVG code, Text content, or Image URL
+  content: string; // SVG 代码、文字内容或图片 URL
   x: number;
   y: number;
   width: number;
@@ -29,8 +29,8 @@ export interface Layer {
   writingMode?: 'horizontal' | 'vertical';
   ratioLocked?: boolean;
   textGradient?: TextGradient;
-  children?: string[]; // Layer IDs if type is 'group'
-  parentId?: string; // Group layer ID if part of a group
+  children?: string[]; // 当类型为 group 时的子图层 ID
+  parentId?: string; // 所属分组的图层 ID
 }
 
 export interface CanvasConfig {
@@ -41,7 +41,7 @@ export interface CanvasConfig {
 
 export interface BackgroundConfig {
   type: 'color' | 'gradient' | 'image';
-  value: string; // Hex, CSS gradient, or URL
+  value: string; // 颜色值、CSS 渐变或 URL
   overlayType: 'none' | 'dots' | 'grid' | 'stripes';
   overlayColor: string;
   overlayOpacity: number;

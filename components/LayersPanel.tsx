@@ -1,4 +1,4 @@
-
+// 模块：图层面板与属性检查器
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Layer, ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
@@ -83,7 +83,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   
-  // Font related states
+  // 字体相关状态
   const [localFonts, setLocalFonts] = useState<LocalFont[]>([]);
   const [fontSearch, setFontSearch] = useState("");
   const [isFontPickerOpen, setIsFontPickerOpen] = useState(false);
@@ -104,7 +104,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
     onUpdateLayerRef.current = onUpdateLayer;
   }, [selectedLayer, onUpdateLayer]);
 
-  // Load Local Fonts
+  // 加载本地字体
   useEffect(() => {
     const fetchLocalFonts = async () => {
       if ('queryLocalFonts' in window) {
@@ -112,9 +112,8 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
           // @ts-ignore
           const fonts: any[] = await (window as any).queryLocalFonts();
           
-          // Deduplicate and group
-          // Usually we want to show unique full names for selection, 
-          // but apply the family name for CSS to handle weights/styles separately via other props
+          // 去重并分组
+          // 通常展示唯一全名供选择，但 CSS 使用 family 以便与字重/样式属性配合
           const seenFullNames = new Set<string>();
           const processed: LocalFont[] = [];
 
@@ -139,7 +138,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
     fetchLocalFonts();
   }, []);
 
-  // Close font picker on outside click
+  // 点击外部关闭字体选择器
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (fontPickerRef.current && !fontPickerRef.current.contains(event.target as Node)) {
@@ -186,6 +185,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
     }
   }, [contextMenu, contextMenuPos]);
 
+  // 数值拖拽：根据鼠标位移连续调整参数
   const handleScrubMove = useCallback((e: MouseEvent) => {
     if (!scrubbingRef.current || !latestSelectedLayerRef.current) return;
     const delta = (e.clientX - scrubbingRef.current.startX);
@@ -202,6 +202,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
     }
   }, []);
 
+  // 结束拖拽后提交历史快照
   const handleScrubMouseUp = useCallback(() => {
     scrubbingRef.current = null;
     document.body.style.cursor = '';
@@ -240,6 +241,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
 
   const sortedLayers = [...project.layers].sort((a, b) => b.zIndex - a.zIndex);
 
+  // 计算最终展示序列（含分组折叠逻辑）
   const displayLayers = useMemo(() => {
     const added = new Set<string>();
     const items: { layer: Layer; isChild: boolean }[] = [];
@@ -333,28 +335,28 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
     const chinese = filtered.filter(f => f.isChinese).sort((a, b) => a.fullName.localeCompare(b.fullName, 'zh'));
     const western = filtered.filter(f => !f.isChinese).sort((a, b) => a.fullName.localeCompare(b.fullName, 'en'));
 
-    // Adjust display priority based on current language
+    // 根据当前语言调整显示优先级
     return lang === 'zh' ? [...chinese, ...western] : [...western, ...chinese];
   }, [localFonts, fontSearch, lang]);
 
   const currentFontDisplayName = useMemo(() => {
     if (!selectedLayer || selectedLayer.type !== 'text') return '';
     const val = selectedLayer.fontFamily || 'Inter, sans-serif';
-    // Try to find in local fonts by value (family name wrapper)
+    // 通过 value（family 包装）匹配本地字体
     const foundLocal = localFonts.find(f => f.value === val);
     if (foundLocal) return foundLocal.fullName;
     
-    // Try to find in common fonts
+    // 在常用字体中匹配
     const foundCommon = COMMON_FONTS.find(f => f.value === val);
     if (foundCommon) return foundCommon.name;
 
-    // Fallback: clean the string
+    // 兜底：清理显示名称
     return val.replace(/"/g, '').split(',')[0];
   }, [selectedLayer, localFonts]);
 
   return (
     <div className="w-72 bg-slate-900 border-l border-slate-800 flex flex-col flex-shrink-0 shadow-2xl relative z-20 h-full">
-      {/* Property Inspector Section */}
+      {/* 属性检查器区域 */}
       <div className="h-[65%] flex flex-col border-b border-slate-800">
         <div className="flex items-center justify-between px-6 py-3.5 border-b border-slate-800/50 bg-slate-900 flex-shrink-0">
           <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t.inspector}</h3>
@@ -372,7 +374,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
         <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide">
           {selectedLayer ? (
             <div className="space-y-6">
-              {/* Row 1: X & Y */}
+              {/* 第 1 行：X 与 Y */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex items-center gap-2">
                   <label onMouseDown={(e) => handleScrubMouseDown(e, 'x', selectedLayer.x)} className="flex items-center gap-1 w-7 flex-shrink-0 text-[10px] text-slate-500 font-bold cursor-ew-resize hover:text-blue-400 select-none">
@@ -388,7 +390,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                 </div>
               </div>
 
-              {/* Row 2: W & H */}
+              {/* 第 2 行：宽与高 */}
               <div className="relative pb-4">
                 <div className="grid grid-cols-2 gap-3 relative z-10">
                    <div className="flex items-center gap-2">
@@ -417,7 +419,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                 </div>
               </div>
 
-              {/* Row 3: Rotation, Size, and Opacity */}
+              {/* 第 3 行：旋转、字号、透明度 */}
               <div className={`grid ${selectedLayer.type === 'text' ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
                 <div className="space-y-1.5">
                   <label onMouseDown={(e) => handleScrubMouseDown(e, 'rotation', selectedLayer.rotation)} className="flex items-center gap-1 text-[9px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
@@ -441,10 +443,10 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                 </div>
               </div>
 
-              {/* Text Specific Property Group */}
+              {/* 文本专属属性区 */}
               {selectedLayer.type === 'text' && (
                 <div className="space-y-5 pt-4 border-t border-slate-800/80">
-                  {/* Font Family (Searchable Dropdown) & Weight Row */}
+                  {/* 字体与字重（可搜索下拉） */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.fontFamily}</label>
@@ -506,7 +508,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                     </div>
                   </div>
 
-                  {/* Text Direction Row */}
+                  {/* 文字方向 */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.textDirection}</label>
                     <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700 gap-1">
@@ -525,7 +527,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                     </div>
                   </div>
 
-                  {/* Text Content */}
+                  {/* 文字内容 */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.textContent}</label>
                     <textarea 
@@ -535,7 +537,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                     />
                   </div>
 
-                  {/* Gradient Settings */}
+                  {/* 渐变设置 */}
                   <div className="space-y-3 pt-2">
                     <div className="flex items-center justify-between">
                       <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><Palette className="w-3 h-3" /> {t.textGradient}</h4>
@@ -580,7 +582,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                 </div>
               )}
 
-              {/* Shared Primary Color Picker for SVG only */}
+              {/* SVG 专用主色选择器 */}
               {selectedLayer.type === 'svg' && (
                 <div className="space-y-2 pt-3 border-t border-slate-800">
                   <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{t.primaryColor}</label>
@@ -600,7 +602,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
         </div>
       </div>
 
-      {/* Layers Section */}
+      {/* 图层列表区域 */}
       <div className="flex-1 flex flex-col min-h-0 bg-slate-900/50">
         <div className="flex items-center justify-between px-6 py-3.5 border-b border-slate-800/50 bg-slate-900 flex-shrink-0">
           <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t.layers}</h3>

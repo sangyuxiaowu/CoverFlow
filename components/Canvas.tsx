@@ -1,4 +1,4 @@
-
+// 模块：画布渲染与交互（拖拽、缩放、对齐）
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Layer, ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
@@ -29,6 +29,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
   const lastEditIdRef = useRef<string | null>(null);
   const t = translations[lang];
 
+  // 鼠标交互状态：用于拖拽、缩放、旋转
   const [interaction, setInteraction] = useState<{
     type: 'move' | 'resize' | 'rotate';
     layerId: string;
@@ -128,21 +129,21 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
       const halfW = movingLayer.width / 2;
       const halfH = movingLayer.height / 2;
 
-      // Snapping Targets: Canvas edges and center
+      // 吸附目标：画布边缘与中心
       const targetsX = [0, project.canvasConfig.width / 2, project.canvasConfig.width];
       const targetsY = [0, project.canvasConfig.height / 2, project.canvasConfig.height];
 
-      // Snapping Targets: Other layers
+      // 吸附目标：其他图层
       project.layers.forEach(l => {
         if (l.id === movingLayer.id || !l.visible || l.type === 'group') return;
         targetsX.push(l.x, l.x + l.width / 2, l.x + l.width);
         targetsY.push(l.y, l.y + l.height / 2, l.y + l.height);
       });
 
-      // Horizontal snapping
+      // 水平吸附
       let snappedX = false;
       for (const tx of targetsX) {
-        // Source points: left, center, right
+        // 源点：左、中、右
         const sources = [nextX, nextX + halfW, nextX + movingLayer.width];
         for (let i = 0; i < sources.length; i++) {
           if (Math.abs(sources[i] - tx) < SNAP_THRESHOLD) {
@@ -157,10 +158,10 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
         if (snappedX) break;
       }
 
-      // Vertical snapping
+      // 垂直吸附
       let snappedY = false;
       for (const ty of targetsY) {
-        // Source points: top, center, bottom
+        // 源点：上、中、下
         const sources = [nextY, nextY + halfH, nextY + movingLayer.height];
         for (let i = 0; i < sources.length; i++) {
           if (Math.abs(sources[i] - ty) < SNAP_THRESHOLD) {
@@ -180,6 +181,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
       return;
     }
 
+    // 旋转：以图层中心为圆心计算角度
     if (type === 'rotate') {
       const canvasRect = document.getElementById('export-target')?.getBoundingClientRect();
       if (!canvasRect) return;
@@ -194,6 +196,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
       return;
     }
 
+    // 缩放：转换到图层本地坐标系
     if (type === 'resize' && handle) {
       const rad = initialData.rotation * (Math.PI / 180);
       const cos = Math.cos(-rad);
@@ -219,6 +222,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
       let newW = Math.max(10, initialData.w + dW);
       let newH = Math.max(10, initialData.h + dH);
 
+      // 旋转后中心点位移回推到画布坐标
       const unrotatedCenterXChange = dX + dW / 2;
       const unrotatedCenterYChange = dY + dH / 2;
       const rotatedCenterXChange = unrotatedCenterXChange * Math.cos(rad) - unrotatedCenterYChange * Math.sin(rad);
@@ -484,7 +488,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
               );
             })()}
             
-            {/* Alignment Guidelines Overlay */}
+            {/* 对齐参考线覆盖层 */}
             {guidelines.map((g, i) => (
               <div
                 key={i}

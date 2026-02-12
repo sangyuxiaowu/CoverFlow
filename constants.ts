@@ -1,4 +1,4 @@
-
+// 模块：常量与预设数据
 import { PresetRatio } from './types.ts';
 
 export const PRESET_RATIOS: (PresetRatio & { nameZh?: string })[] = [

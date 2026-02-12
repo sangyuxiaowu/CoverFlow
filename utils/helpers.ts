@@ -1,4 +1,4 @@
-
+// 模块：通用工具（导出、SVG 处理）
 export const generateId = () => Math.random().toString(36).substr(2, 9);
 
 export const downloadFile = (content: string, fileName: string, contentType: string) => {
@@ -10,7 +10,7 @@ export const downloadFile = (content: string, fileName: string, contentType: str
 };
 
 const getSVGContent = (svgString: string): string => {
-  // Find the first occurrence of <svg (case insensitive)
+  // 查找第一个 <svg>（忽略大小写）
   const idx = svgString.toLowerCase().indexOf('<svg');
   if (idx >= 0) {
     return svgString.substring(idx);
@@ -30,11 +30,11 @@ export const getSVGDimensions = (svgString: string): { width: number; height: nu
     let width = parseFloat(svg.getAttribute('width') || '0');
     let height = parseFloat(svg.getAttribute('height') || '0');
     
-    // Check style
+    // 检查 style 中的尺寸
     if (width === 0 && svg.style.width) width = parseFloat(svg.style.width) || 0;
     if (height === 0 && svg.style.height) height = parseFloat(svg.style.height) || 0;
 
-    // Check viewBox
+    // 检查 viewBox
     const viewBox = svg.getAttribute('viewBox');
     if (viewBox && (width === 0 || height === 0)) {
       const parts = viewBox.split(/[\s,]+/).filter(v => v !== '').map(parseFloat);
@@ -60,7 +60,7 @@ export const normalizeSVG = (svgContent: string): string => {
     const parserError = doc.querySelector('parsererror');
 
     if (svg && !parserError) {
-      // 1. Determine correct viewBox
+      // 1. 计算合理的 viewBox
       let viewBox = svg.getAttribute('viewBox');
       if (!viewBox) {
         const w = parseFloat(svg.getAttribute('width') || '0') || parseFloat(svg.style.width) || 0;
@@ -72,7 +72,7 @@ export const normalizeSVG = (svgContent: string): string => {
         }
       }
 
-      // 2. Build new attributes list
+      // 2. 构建新的属性列表
       const newAttrs: string[] = [];
       newAttrs.push(`viewBox="${viewBox}"`);
       newAttrs.push('width="100%"');
@@ -81,7 +81,7 @@ export const normalizeSVG = (svgContent: string): string => {
       const par = svg.getAttribute('preserveAspectRatio');
       newAttrs.push(`preserveAspectRatio="${par || 'none'}"`);
 
-      // Attributes to explicitly exclude
+      // 显式排除的属性
       const blacklist = ['width', 'height', 'x', 'y', 'id', 'enable-background', 'viewbox', 'preserveaspectratio', 'style'];
       
       Array.from(svg.attributes).forEach(attr => {
@@ -91,47 +91,47 @@ export const normalizeSVG = (svgContent: string): string => {
         }
       });
 
-      // Handle Style: strip existing width/height and force 100% + block display
+      // 处理 style：移除现有宽高并强制 100% 与 block
       let style = svg.getAttribute('style') || '';
-      // Remove existing width/height definitions from style string
+      // 移除 style 中的 width/height
       style = style.replace(/(?:^|;)\s*(?:width|height)\s*:[^;]+/gi, '');
-      // Enforce full size and block display via inline style (highest priority)
+      // 通过内联 style 强制全尺寸与 block（最高优先级）
       newAttrs.push(`style="width: 100%; height: 100%; display: block; ${style}"`);
       
-      // Ensure XML namespace exists
+      // 确保存在 XML 命名空间
       if (!newAttrs.some(a => a.toLowerCase().startsWith('xmlns='))) {
         newAttrs.push('xmlns="http://www.w3.org/2000/svg"');
       }
 
-      // 3. Reconstruct SVG tag with clean attributes and original inner content
+      // 3. 用净化后的属性重建 SVG 标签
       const result = `<svg ${newAttrs.join(' ')}>${svg.innerHTML}</svg>`;
       
       return result;
     }
   } catch (e) {
-    // silent fail
+    // 静默失败
   }
 
-  // Robust Fallback: Regex replacement if DOMParser failed
+  // 兜底：DOMParser 失败时使用正则替换
   let fixed = content;
   
   if (!fixed.match(/viewBox/i)) {
      fixed = `<svg width="100%" height="100%" style="width: 100%; height: 100%; display: block;" viewBox="0 0 100 100" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">${content.replace(/<\/?svg[^>]*>/g, '')}</svg>`;
   } else {
-    // Replace attributes in the opening tag using Regex
+    // 使用正则替换开标签属性
     fixed = fixed.replace(/<svg([^>]*)>/i, (match, attrs) => {
         let newAttrs = attrs;
-        // Remove width, height, x, y, id, enable-background
+        // 移除 width、height、x、y、id、enable-background
         const regex = /\s+(width|height|x|y|id|enable-background)\s*=\s*(["'])(?:(?!(?:\\|\2)).|\\.)*\2/gi;
         newAttrs = newAttrs.replace(regex, '');
         const regexUnquoted = /\s+(width|height|x|y|id|enable-background)\s*=\s*[\w%\.]+/gi;
         newAttrs = newAttrs.replace(regexUnquoted, '');
 
-        // Ensure style attribute exists and enforces size
+        // 确保 style 存在并强制尺寸
         if (!newAttrs.includes('style=')) {
             newAttrs += ' style="width: 100%; height: 100%; display: block;"';
         } else {
-            // If style exists, rudimentary check to append (less robust than DOMParser but works for simple cases)
+            // 若已存在 style，则追加（不如 DOMParser 严谨，但适用于简单情况）
             newAttrs = newAttrs.replace(/style=(["'])/i, 'style=$1width: 100%; height: 100%; display: block; ');
         }
 

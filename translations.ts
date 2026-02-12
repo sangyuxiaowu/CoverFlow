@@ -1,4 +1,4 @@
-
+// 模块：多语言文案
 export const translations = {
   zh: {
     title: "封面大咖",

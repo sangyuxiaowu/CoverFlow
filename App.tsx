@@ -1,4 +1,4 @@
-
+// 模块：应用入口与主编辑流程
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Sidebar from './components/Sidebar.tsx';
 import Canvas from './components/Canvas.tsx';
@@ -43,11 +43,12 @@ const ConfirmModal = ({ isOpen, message, onConfirm, onCancel, lang }: { isOpen: 
   );
 };
 
-// PS-Style Live Preview: Renders the actual cover design using CSS scaling
+// 实时预览：通过 CSS 缩放渲染封面
 const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObject<HTMLDivElement> }> = ({ project, previewRef }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
 
+  // 自动保存项目列表到本地缓存
   useEffect(() => {
     if (!containerRef.current) return;
     const updateScale = () => {
@@ -203,6 +204,7 @@ const ProjectCard = ({
   const cardRef = useRef<HTMLDivElement>(null);
   const previewNodeRef = useRef<HTMLDivElement>(null);
 
+  // 记录操作历史，供撤销/重做
   useEffect(() => {
     const observer = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting) {
@@ -230,7 +232,7 @@ const ProjectCard = ({
           </div>
         )}
         
-        {/* Floating Delete Button (Top-Right) */}
+        {/* 右上角悬浮删除按钮 */}
         <button 
           onClick={onDelete} 
           className="absolute top-3 right-3 z-20 p-2 text-white bg-red-600/80 hover:bg-red-500 rounded-xl transition-all shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95"
@@ -239,7 +241,7 @@ const ProjectCard = ({
           <Trash2 className="w-4 h-4" />
         </button>
 
-        {/* Ratio Tag */}
+        {/* 比例标签 */}
         <div className="absolute bottom-3 right-3 z-10 opacity-60 group-hover:opacity-100 transition-opacity">
            <span className="text-[9px] px-2 py-1 bg-slate-800 text-slate-400 font-black rounded-lg border border-slate-700 uppercase tracking-tight">
               {project.canvasConfig.ratio}
@@ -376,6 +378,7 @@ const App: React.FC = () => {
     }
   }, [historyIndex, history]);
 
+  // 拖拽/连续调整结束时提交一次历史快照
   const saveHistorySnapshot = () => {
     if (!project) return;
     ignoreHistoryChange.current = false;
@@ -725,6 +728,7 @@ const App: React.FC = () => {
     downloadFile(json, `${targetProject.title}.json`, 'application/json');
   };
 
+  // 基于预览节点导出 PNG
   const handleExportImage = async (previewNode: HTMLDivElement | null, targetProject: ProjectState) => {
     if (!previewNode) {
       showToast(t.exportPreviewMissing, "error");
@@ -883,6 +887,7 @@ const App: React.FC = () => {
     showToast(t.projectJsonApplied);
   };
 
+  // 统一处理粘贴：文字/SVG/图片/JSON
   useEffect(() => {
     if (view !== 'editor' || !project) return;
 
@@ -981,6 +986,7 @@ const App: React.FC = () => {
     setSelectedLayerIds([newLayer.id]);
   };
 
+  // 选择图片并按画布尺寸约束初始大小
   const handleAddImage = () => {
     if (!project) return;
     const input = document.createElement('input');
@@ -1030,7 +1036,7 @@ const App: React.FC = () => {
   };
 
   
-    // Keyboard Shortcuts Handler
+    // 键盘快捷键处理
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -1038,7 +1044,7 @@ const App: React.FC = () => {
         return;
       }
 
-      // Undo/Redo
+      // 撤销/重做
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         e.preventDefault();
         if (e.shiftKey) handleRedo();
@@ -1064,7 +1070,7 @@ const App: React.FC = () => {
       const layer = project.layers.find(l => l.id === project.selectedLayerId);
       if (!layer || layer.locked) return;
 
-      // Enter - Activate text input box
+      // 回车：激活文字编辑
       if (e.key === 'Enter') {
         if (layer.type === 'text') {
           e.preventDefault();
@@ -1074,7 +1080,7 @@ const App: React.FC = () => {
         }
       }
 
-      // Delete/Backspace
+      // 删除/退格
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         if (selectedLayerIds.length > 1) handleDeleteLayers(selectedLayerIds);
@@ -1082,9 +1088,9 @@ const App: React.FC = () => {
         return;
       }
 
-      // COMBINATION KEYS (Ctrl + Arrow)
+      // 组合按键（Ctrl + 方向键）
       if (e.ctrlKey || e.metaKey) {
-        // Hierarchy Adjustment
+        // 层级调整
         if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
           e.preventDefault();
           modifyProject(p => {
@@ -1100,7 +1106,7 @@ const App: React.FC = () => {
           return;
         }
 
-        // Rotation Adjustment
+        // 旋转调整
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
           e.preventDefault();
           const dr = e.key === 'ArrowLeft' ? -15 : 15;
@@ -1108,7 +1114,7 @@ const App: React.FC = () => {
           return;
         }
 
-        // Clone (Ctrl+J)
+        // 克隆（Ctrl+J）
         if (e.key.toLowerCase() === 'j') {
           e.preventDefault();
           if (selectedLayerIds.length > 1) handleCloneLayers(selectedLayerIds);
@@ -1117,7 +1123,7 @@ const App: React.FC = () => {
         }
       }
 
-      // SIMPLE MOVEMENT
+      // 简单位移
       if (!e.ctrlKey && !e.metaKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
         e.preventDefault();
         const step = e.shiftKey ? 10 : 1;

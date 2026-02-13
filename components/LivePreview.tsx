@@ -1,6 +1,7 @@
 import React, { useLayoutEffect, useRef, useState } from 'react';
-import { BackgroundConfig, ProjectState } from '../types.ts';
+import { ProjectState } from '../types.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
+import { applySvgAspectRatio } from '../utils/helpers.ts';
 
 // 实时缩放预览组件。
 const LivePreview: React.FC<{
@@ -30,9 +31,6 @@ const LivePreview: React.FC<{
     return () => ro.disconnect();
   }, [project.canvasConfig]);
 
-  const getBackgroundStyles = (bg: BackgroundConfig): React.CSSProperties =>
-    buildBackgroundStyles(bg);
-
   return (
     <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-[#0c0c0e] overflow-hidden relative">
       {!isReady && (
@@ -52,7 +50,7 @@ const LivePreview: React.FC<{
           width: project.canvasConfig.width,
           height: project.canvasConfig.height,
           transform: `scale(${scale})`,
-          ...getBackgroundStyles(project.background),
+          ...buildBackgroundStyles(project.background),
           boxShadow: '0 15px 45px rgba(0,0,0,0.6)',
           flexShrink: 0,
           position: 'relative',
@@ -112,7 +110,24 @@ const LivePreview: React.FC<{
                   pointerEvents: 'none'
                 }}
               >
-                {layer.type === 'text' ? (
+                {layer.type === 'svg' ? (
+                  <div className="w-full h-full pointer-events-none overflow-hidden" style={{ color: layer.color, opacity: layer.opacity }}>
+                    {layer.content.toLowerCase().includes('<svg') ? (
+                      <div
+                        className="w-full h-full"
+                        dangerouslySetInnerHTML={{ __html: applySvgAspectRatio(layer.content, !!layer.ratioLocked) }}
+                      />
+                    ) : (
+                      <svg
+                        width="100%"
+                        height="100%"
+                        viewBox="0 0 100 100"
+                        preserveAspectRatio={layer.ratioLocked ? 'xMidYMid meet' : 'none'}
+                        dangerouslySetInnerHTML={{ __html: layer.content }}
+                      />
+                    )}
+                  </div>
+                ) : layer.type === 'text' ? (
                   <div className="w-full h-full" style={textStyle}>
                     {layer.content}
                   </div>
@@ -120,14 +135,8 @@ const LivePreview: React.FC<{
                   <img
                     src={layer.content}
                     alt="layer"
-                    className="w-full h-full object-cover"
+                    className={`w-full h-full ${layer.ratioLocked ? 'object-contain' : 'object-fill'}`}
                     style={{ opacity: layer.opacity }}
-                  />
-                ) : layer.type === 'svg' ? (
-                  <div
-                    className="w-full h-full"
-                    style={{ opacity: layer.opacity }}
-                    dangerouslySetInnerHTML={{ __html: layer.content }}
                   />
                 ) : null}
               </div>

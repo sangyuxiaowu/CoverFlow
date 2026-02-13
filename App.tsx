@@ -1132,7 +1132,7 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
 
       const trimmed = text.trim();
 
-      if (trimmed.toLowerCase().includes('<svg')) {
+      if (trimmed.toLowerCase().startsWith('<svg')) {
         e.preventDefault();
         addSvgLayerWithContent(trimmed);
         return;

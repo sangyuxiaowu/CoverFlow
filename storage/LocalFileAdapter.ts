@@ -97,7 +97,7 @@ export class LocalFileAdapter implements StorageAdapter {
 
   listProjects = async () => {
     const ready = await this.ensureReady({ prompt: false });
-    if (!ready || !this.rootHandle) return [];
+    if (!ready || !this.rootHandle) return { items: [], total: 0 };
 
     const config = await this.readConfig(this.rootHandle);
     const dataHandle = await this.rootHandle.getDirectoryHandle(DATA_DIR, { create: true });
@@ -113,7 +113,7 @@ export class LocalFileAdapter implements StorageAdapter {
       }
     }
 
-    return projects;
+    return { items: projects, total: projects.length };
   };
 
   saveProjects = async (projects: ProjectState[]) => {

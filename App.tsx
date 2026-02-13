@@ -11,6 +11,7 @@ import { ProjectState, Layer } from './types.ts';
 import {
   createIndexedDBAdapter,
   createLocalFileAdapter,
+  createCloudAdapter,
   getStoredLanguage,
   getStoredStorageType,
   setStoredLanguage,
@@ -19,14 +20,14 @@ import {
 } from './storage/storage.ts';
 import { translations, Language } from './translations.ts';
 import { PRESET_RATIOS } from './constants.ts';
-import { generateId, downloadFile, normalizeSVG, applySvgAspectRatio } from './utils/helpers.ts';
+import { generateId, downloadFile, normalizeSVG } from './utils/helpers.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
 import { type Area } from 'react-easy-crop';
 import { 
-  Download, Trash2, Plus, Share2, ArrowLeft, Clock, 
+  Download, Trash2, Plus, ArrowLeft, Clock, 
   Layout as LayoutIcon, ChevronRight, LayoutGrid,
   Upload, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, Search, X,
-  FileJson, ImageIcon as ImageIconLucide, Copy, ArrowLeftRight, ArrowUpDown, Settings
+  FileJson, ImageIcon as ImageIconLucide, Copy, Settings, Save
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import logoSvg from './doc/logo.svg?raw';
@@ -34,6 +35,8 @@ import packageInfo from './package.json';
 
 const APP_VERSION = packageInfo.version;
 const GITHUB_REPO_URL = 'https://github.com/sangyuxiaowu/CoverFlow';
+const isCloudMode = import.meta.env.VITE_APP_MODE === 'cloud';
+const CLOUD_PAGE_SIZE = 9;
 
 // 项目卡片组件
 const ProjectCard = ({
@@ -148,13 +151,14 @@ const App: React.FC = () => {
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const indexedDbAdapter = useMemo(() => createIndexedDBAdapter(), []);
   const localFileAdapter = useMemo(() => createLocalFileAdapter(), []);
+  const cloudAdapter = useMemo(() => createCloudAdapter(), []);
   const [storageType, setStorageType] = useState<StorageAdapterType>(() => (
     getStoredStorageType('indexeddb')
   ));
-  const storageAdapter = useMemo(
-    () => (storageType === 'localfile' ? localFileAdapter : indexedDbAdapter),
-    [storageType, localFileAdapter, indexedDbAdapter]
-  );
+  const storageAdapter = useMemo(() => {
+    if (isCloudMode) return cloudAdapter;
+    return storageType === 'localfile' ? localFileAdapter : indexedDbAdapter;
+  }, [storageType, localFileAdapter, indexedDbAdapter, cloudAdapter]);
   const [storageFolderName, setStorageFolderName] = useState('');
   const storageReadyRef = useRef(false);
   const lastSavedAtRef = useRef(0);
@@ -172,6 +176,9 @@ const App: React.FC = () => {
   const [confirmDialog, setConfirmDialog] = useState<{ message: string, onConfirm: () => void } | null>(null);
   const [isStorageSettingsOpen, setIsStorageSettingsOpen] = useState(false);
   const [projectSearchTerm, setProjectSearchTerm] = useState('');
+  const [cloudPage, setCloudPage] = useState(1);
+  const [cloudHasMore, setCloudHasMore] = useState(true);
+  const [cloudLoading, setCloudLoading] = useState(false);
   
   const [history, setHistory] = useState<ProjectState[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -187,10 +194,11 @@ const App: React.FC = () => {
   const isUndoRedoAction = useRef(false);
   const ignoreHistoryChange = useRef(false);
 
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+  const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
-  };
+  }, []);
+
 
   const handlePickStorageFolder = useCallback(async () => {
     if (!localFileAdapter.isAvailable()) {
@@ -228,8 +236,31 @@ const App: React.FC = () => {
   }, [localFileAdapter, showToast, storageType, t.storageFolderPickFailed, t.storageFolderUnsupported]);
 
   useEffect(() => {
+    if (isCloudMode) return;
     setStoredStorageType(storageType);
   }, [storageType]);
+
+  const loadCloudProjects = useCallback(async (page: number, query: string, replace: boolean) => {
+    setCloudLoading(true);
+    try {
+      const result = await storageAdapter.listProjects({
+        page,
+        pageSize: CLOUD_PAGE_SIZE,
+        query
+      });
+      setProjects(prev => {
+        const next = replace ? result.items : [...prev, ...result.items];
+        lastSavedSnapshotRef.current = JSON.stringify(next);
+        return next;
+      });
+      setCloudPage(page);
+      setCloudHasMore(page * CLOUD_PAGE_SIZE < result.total);
+    } catch (err) {
+      showToast(t.storageLoadFailed, 'error');
+    } finally {
+      setCloudLoading(false);
+    }
+  }, [storageAdapter, showToast, t.storageLoadFailed]);
 
   useEffect(() => {
     let active = true;
@@ -246,11 +277,17 @@ const App: React.FC = () => {
           setProjects([]);
           return;
         }
+
+        if (isCloudMode) {
+          // Cloud 模式的数据加载由单独的分页/搜索逻辑处理
+          return;
+        }
+
         const list = await storageAdapter.listProjects();
         if (!active) return;
-        setProjects(list);
+        setProjects(list.items);
         // 记录已加载的快照，避免启动后立刻触发无意义的保存
-        lastSavedSnapshotRef.current = JSON.stringify(list);
+        lastSavedSnapshotRef.current = JSON.stringify(list.items);
         if (storageType === 'localfile') {
           setStorageFolderName(localFileAdapter.getFolderName());
         }
@@ -265,13 +302,13 @@ const App: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [storageAdapter, storageType, localFileAdapter, t.storageLoadFailed]);
+  }, [storageAdapter, storageType, localFileAdapter, t.storageLoadFailed, isCloudMode, showToast]);
 
   useEffect(() => {
     latestProjectsRef.current = projects;
   }, [projects]);
 
-  const performAutoSave = useCallback((reason: 'auto' | 'leave') => {
+  const performAutoSave = useCallback((reason: 'auto' | 'leave' | 'manual') => {
     if (!storageReadyRef.current) return;
 
     const snapshot = JSON.stringify(latestProjectsRef.current);
@@ -294,6 +331,9 @@ const App: React.FC = () => {
     storageAdapter.saveProjects(latestProjectsRef.current).then(() => {
       lastSavedAtRef.current = Date.now();
       lastSavedSnapshotRef.current = snapshot;
+      if (reason === 'manual') {
+        showToast(t.save || 'Saved');
+      }
     }).catch(() => {
       showToast(t.storageSaveFailed, 'error');
     });
@@ -307,6 +347,7 @@ const App: React.FC = () => {
   }, [storageAdapter]);
 
   useEffect(() => {
+    if (isCloudMode) return;
     performAutoSave('auto');
   }, [projects, performAutoSave]);
 
@@ -1091,7 +1132,7 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
 
       const trimmed = text.trim();
 
-      if (trimmed.toLowerCase().includes('<svg')) {
+      if (trimmed.toLowerCase().startsWith('<svg')) {
         e.preventDefault();
         addSvgLayerWithContent(trimmed);
         return;
@@ -1202,6 +1243,13 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
         return;
       }
 
+      // 保存（Ctrl+S / Cmd+S）
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        performAutoSave('manual');
+        return;
+      }
+
       // 撤销/重做
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         e.preventDefault();
@@ -1297,10 +1345,12 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [project, handleUndo, handleRedo, updateLayer, lang, selectedLayerIds, handleDeleteLayers, handleCloneLayers, handleGroupLayers]);
+  }, [project, handleUndo, handleRedo, updateLayer, lang, selectedLayerIds, handleDeleteLayers, handleCloneLayers, handleGroupLayers, performAutoSave]);
 
   const groupedProjects = useMemo(() => {
-    const filtered = projects.filter(p => p.title.toLowerCase().includes(projectSearchTerm.toLowerCase()));
+    const filtered = isCloudMode
+      ? projects
+      : projects.filter(p => p.title.toLowerCase().includes(projectSearchTerm.toLowerCase()));
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const startOfYesterday = startOfToday - 86400000;
@@ -1392,12 +1442,28 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
     );
   };
 
+  const handleProjectsScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (!isCloudMode || cloudLoading || !cloudHasMore) return;
+    const target = e.currentTarget;
+    const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+    if (remaining > 120) return;
+    loadCloudProjects(cloudPage + 1, projectSearchTerm.trim(), false);
+  };
+
+  useEffect(() => {
+    if (!isCloudMode) return;
+    const handle = window.setTimeout(() => {
+      loadCloudProjects(1, projectSearchTerm.trim(), true);
+    }, 300);
+    return () => window.clearTimeout(handle);
+  }, [projectSearchTerm, isCloudMode, loadCloudProjects]);
+
   if (view === 'landing') {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-200 p-8 md:p-16 flex flex-col gap-12 max-w-7xl mx-auto h-screen overflow-hidden">
         {toast && <Toast message={toast.msg} type={toast.type} />}
         {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
-        {renderStorageSettingsModal()}
+        {!isCloudMode && renderStorageSettingsModal()}
         <div className="flex justify-between items-center flex-shrink-0">
           <div className="flex items-center gap-4"><div className="bg-blue-600 p-2.5 rounded-2xl shadow-xl shadow-blue-900/20 text-white"><span className="w-8 h-8 block" dangerouslySetInnerHTML={{ __html: logoSvg }} /></div><div className="relative"><h1 className="text-3xl font-black tracking-tight text-white">{t.title}</h1><p className="text-slate-500 text-sm font-medium">{t.landingHeader}</p>
           <a href={GITHUB_REPO_URL}
@@ -1412,14 +1478,16 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
               <span className="text-xs font-bold">{t.import}</span>
               <input type="file" accept=".json" onChange={handleImportJson} className="hidden" />
             </label>
-            <button
-              type="button"
-              onClick={() => setIsStorageSettingsOpen(true)}
-              className="flex items-center gap-2 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 transition-all"
-            >
-              <Settings className="w-4 h-4 text-blue-500" />
-              <span className="text-xs font-bold">{t.storageSettings}</span>
-            </button>
+            {!isCloudMode && (
+              <button
+                type="button"
+                onClick={() => setIsStorageSettingsOpen(true)}
+                className="flex items-center gap-2 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 transition-all"
+              >
+                <Settings className="w-4 h-4 text-blue-500" />
+                <span className="text-xs font-bold">{t.storageSettings}</span>
+              </button>
+            )}
             <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800"><button onClick={() => setLang('zh')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'zh' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>中</button><button onClick={() => setLang('en')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'en' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>EN</button></div>
           </div>
         </div>
@@ -1453,7 +1521,7 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
               </div>
             </div>
             
-            <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar space-y-10 pb-16">
+            <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar space-y-10 pb-16" onScroll={handleProjectsScroll}>
               {projects.length === 0 ? (
                 <div className="bg-slate-900/50 border-2 border-dashed border-slate-800 rounded-3xl h-80 flex flex-col items-center justify-center text-slate-600 gap-4"><LayoutGrid className="w-12 h-12 opacity-20" /><p className="text-sm font-medium">{t.noProjects}</p></div>
               ) : groupedProjects.length === 0 ? (
@@ -1473,12 +1541,16 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
                           key={p.id} 
                           project={p} 
                           lang={lang} 
-                          onClick={() => { setProject(JSON.parse(JSON.stringify(p))); setView('editor'); initProjectHistory(p); }} 
+                          onClick={() => { 
+                            setProject(JSON.parse(JSON.stringify(p))); 
+                            setView('editor'); 
+                            initProjectHistory(p); 
+                          }} 
                           onDelete={(e) => { 
                             e.stopPropagation(); 
                             setConfirmDialog({ 
                               message: t.confirmDeleteProject, 
-                              onConfirm: () => setProjects(prev => prev.filter(pr => pr.id !== p.id)) 
+                              onConfirm: () => setProjects(prev => prev.filter(pr => pr.id !== p.id))
                             }); 
                           }} 
                           onDuplicate={(e) => { e.stopPropagation(); handleDuplicateProject(p); }}
@@ -1489,6 +1561,9 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
                     </div>
                   </div>
                 ))
+              )}
+              {isCloudMode && cloudLoading && (
+                <div className="flex items-center justify-center py-6 text-xs text-slate-500">{t.loading || 'Loading...'}</div>
               )}
             </div>
           </div>
@@ -1563,6 +1638,15 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
               <Redo2 className="w-4 h-4" />
             </button>
           </div>
+          {isCloudMode && (
+            <button
+              onClick={() => performAutoSave('manual')}
+              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300 border border-slate-700 transition-colors"
+            >
+              <Save className="w-4 h-4" />
+              {t.save || 'Save'}
+            </button>
+          )}
           <button onClick={() => handleExportJson(project)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300 border border-slate-700 transition-colors">
             <FileOutput className="w-4 h-4" />
             {t.exportJson}
@@ -1580,7 +1664,7 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
           setActiveTab={setActiveTab} 
           background={project.background} 
           onOpenBackgroundCrop={handleOpenBackgroundCrop}
-          storageType={storageType}
+          storageType={isCloudMode ? 'indexeddb' : storageType}
           localFileAdapter={localFileAdapter}
           onAddLayer={(l) => {
             // 处理 SVG 图层的特殊逻辑

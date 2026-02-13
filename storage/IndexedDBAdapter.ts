@@ -48,8 +48,9 @@ export class IndexedDBAdapter implements StorageAdapter {
   ensureReady = async () => this.isAvailable();
 
   listProjects = async () => {
-    if (!this.isAvailable()) return [];
-    return readAllProjects();
+    if (!this.isAvailable()) return { items: [], total: 0 };
+    const items = await readAllProjects();
+    return { items, total: items.length };
   };
 
   saveProjects = async (projects: ProjectState[]) => {

@@ -1,7 +1,10 @@
 import { ProjectState } from '../types.ts';
 import { ListProjectsOptions, StorageAdapter, StorageAdapterType } from './StorageAdapter.ts';
 
-// Cloud 项目数据 Mock 存储 key（后续替换为真实 API）。
+// 用于使用云端API管理项目时的存储适配器。
+// 目前实现为基于 localStorage 的 Mock，后续替换为真实 API 调用。
+
+// Mock 存储 key
 const CLOUD_PROJECTS_KEY = 'coverflow_cloud_projects_v1';
 
 const safeJsonParse = <T,>(value: string | null, fallback: T): T => {

@@ -6,8 +6,11 @@
   "scripts": {
     "dev": "vite",
     "dev:cloud": "vite --mode cloud",
+    "dev:tauri": "tauri dev",
     "build": "vite build",
     "build:cloud": "vite build --mode cloud",
+    "prebuild:tauri": "node scripts/sync-tauri-version.cjs ; npx tauri icon --output src-tauri/icons doc/logo.svg",
+    "build:tauri": "tauri build",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -19,6 +22,7 @@
     "react-easy-crop": "^5.4.1"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.20",

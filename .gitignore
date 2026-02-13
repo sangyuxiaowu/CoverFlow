@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# rust compiled folders
+target/
+# Tauri generated
+src-tauri/icons/
+src-tauri/gen/

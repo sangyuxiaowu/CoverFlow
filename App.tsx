@@ -617,8 +617,7 @@ const App: React.FC = () => {
     }
   }, [localFileAdapter, showToast, storageType, t.storageFolderPickFailed, t.storageFolderUnsupported]);
 
-  const handleStorageTypeChange = useCallback(async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const nextType = e.target.value as StorageAdapterType;
+  const handleStorageTypeChange = useCallback(async (nextType: StorageAdapterType) => {
     if (nextType === storageType) return;
     if (nextType === 'localfile') {
       if (!localFileAdapter.isAvailable()) {
@@ -1686,6 +1685,9 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
 
   const renderStorageSettingsModal = () => {
     if (!isStorageSettingsOpen) return null;
+    const storageHint = storageType === 'localfile'
+      ? t.storageLocalFolder
+      : t.storageIndexedDb;
     return (
       <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm" onClick={() => setIsStorageSettingsOpen(false)}>
         <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
@@ -1698,26 +1700,42 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
           <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
             <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.storageMode}</div>
             <div className="flex items-center gap-2">
-              <select
-                value={storageType}
-                onChange={handleStorageTypeChange}
-                className="flex-1 bg-slate-950 text-xs font-bold text-slate-200 border border-slate-800 rounded-lg px-2 py-2 outline-none focus:border-blue-500"
+              <button
+                type="button"
+                onClick={() => handleStorageTypeChange('indexeddb')}
+                title={t.storageIndexedDb}
+                className={`flex-1 px-3 py-2 text-[10px] font-bold uppercase rounded-lg border transition-all ${storageType === 'indexeddb'
+                  ? 'bg-blue-600 text-white border-blue-400 shadow-lg'
+                  : 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-600'}`}
               >
-                <option value="indexeddb">{t.storageIndexedDb}</option>
-                <option value="localfile">{t.storageLocalFolder}</option>
-              </select>
+                DB
+              </button>
+              <button
+                type="button"
+                onClick={() => handleStorageTypeChange('localfile')}
+                title={t.storageLocalFolder}
+                className={`flex-1 px-3 py-2 text-[10px] font-bold uppercase rounded-lg border transition-all ${storageType === 'localfile'
+                  ? 'bg-blue-600 text-white border-blue-400 shadow-lg'
+                  : 'bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-600'}`}
+              >
+                Folder
+              </button>
               {storageType === 'localfile' && (
                 <button
                   type="button"
                   onClick={handlePickStorageFolder}
-                  className="px-2 py-2 text-[10px] font-bold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
+                  title={t.storageFolderPick}
+                  className="px-3 py-2 text-[10px] font-bold uppercase rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
                 >
                   {t.storageFolderPick}
                 </button>
               )}
             </div>
+            <div className="text-[10px] text-slate-500 truncate" title={storageHint}>
+              {storageHint}
+            </div>
             {storageType === 'localfile' && (
-              <div className="text-xs text-slate-400 truncate">
+              <div className="text-[10px] text-slate-400 truncate" title={storageFolderName || t.storageFolderUnset}>
                 {storageFolderName || t.storageFolderUnset}
               </div>
             )}

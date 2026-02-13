@@ -9,7 +9,9 @@ import { normalizeSVG } from '../utils/helpers.ts';
 import {
   clearFaCache,
   clearStoredAssetFolderHandle,
+  LocalFileAdapter,
   scanAssetFolder,
+  StorageAdapterType,
   getFaCategoriesCache,
   getFaIconsCache,
   getStoredAssetFolderHandle,
@@ -31,6 +33,8 @@ interface SidebarProps {
   background: BackgroundConfig;
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  storageType: StorageAdapterType;
+  localFileAdapter: LocalFileAdapter;
 }
 
 interface ExternalAssetItem {
@@ -50,7 +54,17 @@ interface AssetGroup {
 
 const ASSET_PAGE_SIZE = 120;
 
-const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground, onOpenBackgroundCrop, background, activeTab, setActiveTab }) => {
+const Sidebar: React.FC<SidebarProps> = ({
+  lang,
+  onAddLayer,
+  onUpdateBackground,
+  onOpenBackgroundCrop,
+  background,
+  activeTab,
+  setActiveTab,
+  storageType,
+  localFileAdapter
+}) => {
   const FA_PAGE_SIZE = 180;
   const [searchTerm, setSearchTerm] = useState('');
   const [faSearchTerm, setFaSearchTerm] = useState('');
@@ -59,6 +73,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
   const faListRef = useRef<HTMLDivElement | null>(null);
   const t = translations[lang];
   const fsSupported = isAssetFolderSupported();
+  const isLocalFileStorage = storageType === 'localfile';
 
   const [assetVisibleCount, setAssetVisibleCount] = useState(ASSET_PAGE_SIZE);
   const [externalFolderHandle, setExternalFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
@@ -79,6 +94,40 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
 
   useEffect(() => {
     let active = true;
+
+    const loadFaFromLocalFolder = async () => {
+      const ready = await localFileAdapter.ensureReady({ prompt: false });
+      if (!ready) return;
+      const rootHandle = localFileAdapter.getRootHandle();
+      if (!rootHandle) return;
+
+      const fontDir = await rootHandle.getDirectoryHandle('font', { create: true });
+      let icons: Record<string, FAIconMetadata> | null = null;
+      let cats: Record<string, FACategory> | null = null;
+
+      try {
+        const iconsHandle = await fontDir.getFileHandle('icon-families.json');
+        const iconsFile = await iconsHandle.getFile();
+        const text = await iconsFile.text();
+        icons = JSON.parse(text) as Record<string, FAIconMetadata>;
+      } catch (err) {
+        icons = null;
+      }
+
+      try {
+        const catsHandle = await fontDir.getFileHandle('categories.yml');
+        const catsFile = await catsHandle.getFile();
+        const text = await catsFile.text();
+        cats = yaml.load(text) as Record<string, FACategory>;
+      } catch (err) {
+        cats = null;
+      }
+
+      if (!active) return;
+      setFaIcons(icons);
+      setFaCategories(cats);
+    };
+
     const loadFaCache = async () => {
       try {
         const [icons, cats] = await Promise.all([
@@ -92,15 +141,29 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
         // ignore cache read errors
       }
     };
-    loadFaCache();
+
+    if (storageType === 'localfile') {
+      setFaIcons(null);
+      setFaCategories(null);
+      loadFaFromLocalFolder();
+    } else {
+      loadFaCache();
+    }
+
     return () => {
       active = false;
     };
-  }, []);
+  }, [localFileAdapter, storageType]);
 
   useEffect(() => {
     setStoredBackgroundPresets(savedPresets);
   }, [savedPresets]);
+
+  useEffect(() => {
+    if (isLocalFileStorage && isAssetSettingsOpen) {
+      setIsAssetSettingsOpen(false);
+    }
+  }, [isLocalFileStorage, isAssetSettingsOpen]);
 
   const scanExternalFolder = useCallback(async (handle: FileSystemDirectoryHandle) => {
     setExternalLoading(true);
@@ -196,6 +259,21 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
     let active = true;
     const restoreHandle = async () => {
       try {
+        if (storageType === 'localfile') {
+          const ready = await localFileAdapter.ensureReady({ prompt: false });
+          if (!ready || !active) return;
+          const rootHandle = localFileAdapter.getRootHandle();
+          if (!rootHandle || !active) return;
+          const libHandle = await rootHandle.getDirectoryHandle('lib', { create: true });
+          const granted = await verifyAssetFolderPermission(libHandle, false, 'read');
+          setExternalFolderHandle(libHandle);
+          setExternalFolderName(`${localFileAdapter.getFolderName()}/lib`);
+          if (granted) {
+            await scanExternalFolder(libHandle);
+          }
+          return;
+        }
+
         const handle = await getStoredAssetFolderHandle();
         if (!handle || !active) return;
         const granted = await verifyAssetFolderPermission(handle, false, 'read');
@@ -210,7 +288,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
     };
     restoreHandle();
     return () => { active = false; };
-  }, [scanExternalFolder]);
+  }, [scanExternalFolder, storageType, localFileAdapter]);
 
   useEffect(() => {
     if (activeTab !== 'assets') return;
@@ -428,7 +506,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
   );
 
   const renderAssetSettingsModal = () => {
-    if (!isAssetSettingsOpen) return null;
+    if (!isAssetSettingsOpen || isLocalFileStorage) return null;
     return (
       <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm" onClick={() => setIsAssetSettingsOpen(false)}>
         <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
@@ -618,32 +696,53 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
   );
 
   // Font Awesome 数据处理
-  const handleUploadMetadata = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const writeFontFile = useCallback(async (fileName: string, text: string) => {
+    const ready = await localFileAdapter.ensureReady({ prompt: true });
+    if (!ready) return false;
+    const rootHandle = localFileAdapter.getRootHandle();
+    if (!rootHandle) return false;
+    const fontDir = await rootHandle.getDirectoryHandle('font', { create: true });
+    const fileHandle = await fontDir.getFileHandle(fileName, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(text);
+    await writable.close();
+    return true;
+  }, [localFileAdapter]);
+
+  const handleUploadMetadata = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const data = JSON.parse(ev.target?.result as string);
-        setFaIcons(data);
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text) as Record<string, FAIconMetadata>;
+      setFaIcons(data);
+      if (isLocalFileStorage) {
+        await writeFontFile('icon-families.json', text);
+      } else {
         setFaIconsCache(data).catch(() => undefined);
-      } catch (err) { alert(t.faMetadataParseError); }
-    };
-    reader.readAsText(file);
+      }
+    } catch (err) {
+      alert(t.faMetadataParseError);
+    }
+    e.target.value = '';
   };
 
-  const handleUploadCategories = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadCategories = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const data = yaml.load(ev.target?.result as string);
-        setFaCategories(data as Record<string, FACategory>);
+    try {
+      const text = await file.text();
+      const data = yaml.load(text) as Record<string, FACategory>;
+      setFaCategories(data);
+      if (isLocalFileStorage) {
+        await writeFontFile('categories.yml', text);
+      } else {
         setFaCategoriesCache(data as Record<string, FACategory>).catch(() => undefined);
-      } catch (err) { alert(t.faCategoriesParseError); }
-    };
-    reader.readAsText(file);
+      }
+    } catch (err) {
+      alert(t.faCategoriesParseError);
+    }
+    e.target.value = '';
   };
 
   const clearFAData = () => {
@@ -874,7 +973,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
           <h2 className="text-lg font-bold flex items-center gap-2 text-slate-100 uppercase tracking-tighter">
             {activeTab === 'assets' ? t.assets : activeTab === 'fa' ? t.fontAwesome : t.layout}
           </h2>
-          {activeTab === 'assets' && (
+          {activeTab === 'assets' && !isLocalFileStorage && (
             <button
               onClick={() => setIsAssetSettingsOpen(true)}
               className="p-1.5 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all"
@@ -883,7 +982,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
               <Sliders className="w-4 h-4" />
             </button>
           )}
-          {activeTab === 'fa' && (faIcons || faCategories) && (
+          {activeTab === 'fa' && !isLocalFileStorage && (faIcons || faCategories) && (
             <button 
               onClick={clearFAData} 
               className="p-1.5 text-slate-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"

@@ -67,6 +67,8 @@ export class LocalFileAdapter implements StorageAdapter {
 
   getFolderName = () => this.rootHandle?.name || '';
 
+  getRootHandle = () => this.rootHandle;
+
   ensureReady = async (options?: { prompt?: boolean }) => {
     if (!this.isAvailable()) return false;
 

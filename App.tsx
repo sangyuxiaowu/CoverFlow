@@ -21,7 +21,7 @@ import {
   Download, Trash2, Plus, Share2, ArrowLeft, Clock, 
   Layout as LayoutIcon, ChevronRight, LayoutGrid, CheckCircle2, AlertCircle,
   Upload, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, Search, X,
-  FileJson, ImageIcon as ImageIconLucide, Copy, ArrowLeftRight, ArrowUpDown
+  FileJson, ImageIcon as ImageIconLucide, Copy, ArrowLeftRight, ArrowUpDown, Settings
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import logoSvg from './doc/logo.svg?raw';
@@ -578,6 +578,7 @@ const App: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ message: string, onConfirm: () => void } | null>(null);
+  const [isStorageSettingsOpen, setIsStorageSettingsOpen] = useState(false);
   const [projectSearchTerm, setProjectSearchTerm] = useState('');
   
   const [history, setHistory] = useState<ProjectState[]>([]);
@@ -1683,25 +1684,24 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
     return groups.filter(g => g.items.length > 0);
   }, [projects, projectSearchTerm, t.dateGroups]);
 
-  if (view === 'landing') {
+  const renderStorageSettingsModal = () => {
+    if (!isStorageSettingsOpen) return null;
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-200 p-8 md:p-16 flex flex-col gap-12 max-w-7xl mx-auto h-screen overflow-hidden">
-        {toast && <Toast message={toast.msg} type={toast.type} />}
-        {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
-        <div className="flex justify-between items-center flex-shrink-0">
-          <div className="flex items-center gap-4"><div className="bg-blue-600 p-2.5 rounded-2xl shadow-xl shadow-blue-900/20 text-white"><span className="w-8 h-8 block" dangerouslySetInnerHTML={{ __html: logoSvg }} /></div><div className="relative"><h1 className="text-3xl font-black tracking-tight text-white">{t.title}</h1><p className="text-slate-500 text-sm font-medium">{t.landingHeader}</p><span className="absolute top-0 left-full ml-2 px-1.5 py-0.5 rounded-full bg-slate-900 text-[9px] font-black tracking-tight text-white border border-slate-700">v{APP_VERSION}</span></div></div>
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 cursor-pointer transition-all">
-              <Upload className="w-4 h-4 text-blue-500" />
-              <span className="text-xs font-bold">{t.import}</span>
-              <input type="file" accept=".json" onChange={handleImportJson} className="hidden" />
-            </label>
-            <div className="flex items-center gap-2 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl">
-              <span className="text-[10px] font-bold text-slate-500 uppercase">{t.storageMode}</span>
+      <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm" onClick={() => setIsStorageSettingsOpen(false)}>
+        <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-black uppercase tracking-widest text-slate-500">{t.storageSettings}</div>
+            <button type="button" onClick={() => setIsStorageSettingsOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+            <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.storageMode}</div>
+            <div className="flex items-center gap-2">
               <select
                 value={storageType}
                 onChange={handleStorageTypeChange}
-                className="bg-slate-950 text-xs font-bold text-slate-200 border border-slate-800 rounded-lg px-2 py-1 outline-none focus:border-blue-500"
+                className="flex-1 bg-slate-950 text-xs font-bold text-slate-200 border border-slate-800 rounded-lg px-2 py-2 outline-none focus:border-blue-500"
               >
                 <option value="indexeddb">{t.storageIndexedDb}</option>
                 <option value="localfile">{t.storageLocalFolder}</option>
@@ -1710,20 +1710,45 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
                 <button
                   type="button"
                   onClick={handlePickStorageFolder}
-                  className="px-2 py-1 text-[10px] font-bold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
+                  className="px-2 py-2 text-[10px] font-bold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
                 >
                   {t.storageFolderPick}
                 </button>
               )}
-              {storageType === 'localfile' && (
-                <span
-                  className="text-[10px] text-slate-500 max-w-[120px] truncate"
-                  title={storageFolderName || t.storageFolderUnset}
-                >
-                  {storageFolderName || t.storageFolderUnset}
-                </span>
-              )}
             </div>
+            {storageType === 'localfile' && (
+              <div className="text-xs text-slate-400 truncate">
+                {storageFolderName || t.storageFolderUnset}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  if (view === 'landing') {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-200 p-8 md:p-16 flex flex-col gap-12 max-w-7xl mx-auto h-screen overflow-hidden">
+        {toast && <Toast message={toast.msg} type={toast.type} />}
+        {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
+        {renderStorageSettingsModal()}
+        <div className="flex justify-between items-center flex-shrink-0">
+          <div className="flex items-center gap-4"><div className="bg-blue-600 p-2.5 rounded-2xl shadow-xl shadow-blue-900/20 text-white"><span className="w-8 h-8 block" dangerouslySetInnerHTML={{ __html: logoSvg }} /></div><div className="relative"><h1 className="text-3xl font-black tracking-tight text-white">{t.title}</h1><p className="text-slate-500 text-sm font-medium">{t.landingHeader}</p><span className="absolute top-0 left-full ml-2 px-1.5 py-0.5 rounded-full bg-slate-900 text-[9px] font-black tracking-tight text-white border border-slate-700">v{APP_VERSION}</span></div></div>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 cursor-pointer transition-all">
+              <Upload className="w-4 h-4 text-blue-500" />
+              <span className="text-xs font-bold">{t.import}</span>
+              <input type="file" accept=".json" onChange={handleImportJson} className="hidden" />
+            </label>
+            <button
+              type="button"
+              onClick={() => setIsStorageSettingsOpen(true)}
+              className="flex items-center gap-2 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 transition-all"
+            >
+              <Settings className="w-4 h-4 text-blue-500" />
+              <span className="text-xs font-bold">{t.storageSettings}</span>
+            </button>
             <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800"><button onClick={() => setLang('zh')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'zh' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>中</button><button onClick={() => setLang('en')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'en' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>EN</button></div>
           </div>
         </div>
@@ -1884,6 +1909,8 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
           setActiveTab={setActiveTab} 
           background={project.background} 
           onOpenBackgroundCrop={handleOpenBackgroundCrop}
+          storageType={storageType}
+          localFileAdapter={localFileAdapter}
           onAddLayer={(l) => {
             // 处理 SVG 图层的特殊逻辑
             if (l.type === 'svg' && l.content) {

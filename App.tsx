@@ -19,14 +19,14 @@ import {
 } from './storage/storage.ts';
 import { translations, Language } from './translations.ts';
 import { PRESET_RATIOS } from './constants.ts';
-import { generateId, downloadFile, normalizeSVG, applySvgAspectRatio } from './utils/helpers.ts';
+import { generateId, downloadFile, normalizeSVG } from './utils/helpers.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
 import { type Area } from 'react-easy-crop';
 import { 
-  Download, Trash2, Plus, Share2, ArrowLeft, Clock, 
+  Download, Trash2, Plus, ArrowLeft, Clock, 
   Layout as LayoutIcon, ChevronRight, LayoutGrid,
   Upload, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, Search, X,
-  FileJson, ImageIcon as ImageIconLucide, Copy, ArrowLeftRight, ArrowUpDown, Settings
+  FileJson, ImageIcon as ImageIconLucide, Copy, Settings
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import logoSvg from './doc/logo.svg?raw';

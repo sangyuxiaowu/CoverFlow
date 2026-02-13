@@ -7,11 +7,12 @@ import { ProjectState, Layer, BackgroundConfig } from './types.ts';
 import { translations, Language } from './translations.ts';
 import { PRESET_RATIOS } from './constants.ts';
 import { generateId, downloadFile, normalizeSVG, getSVGDimensions, applySvgAspectRatio } from './utils/helpers.ts';
+import Cropper, { type Area } from 'react-easy-crop';
 import { 
   Download, Trash2, Plus, Share2, ArrowLeft, Clock, 
   Layout as LayoutIcon, ChevronRight, LayoutGrid, CheckCircle2, AlertCircle,
   Upload, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, Search, X,
-  FileJson, ImageIcon as ImageIconLucide, Copy
+  FileJson, ImageIcon as ImageIconLucide, Copy, ArrowLeftRight, ArrowUpDown
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import logoSvg from './doc/logo.svg?raw';
@@ -41,6 +42,223 @@ const ConfirmModal = ({ isOpen, message, onConfirm, onCancel, lang }: { isOpen: 
         <div className="flex items-center justify-end gap-3">
           <button onClick={onCancel} className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors">{t.cancel}</button>
           <button onClick={onConfirm} className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-900/20 transition-all active:scale-95">{t.confirmDeleteAction}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const createImage = (url: string): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
+    const image = new Image();
+    image.addEventListener('load', () => resolve(image));
+    image.addEventListener('error', (err) => reject(err));
+    image.setAttribute('crossOrigin', 'anonymous');
+    image.src = url;
+  });
+
+const getRadianAngle = (degreeValue: number) => (degreeValue * Math.PI) / 180;
+
+const rotateSize = (width: number, height: number, rotation: number) => {
+  const rotRad = getRadianAngle(rotation);
+  return {
+    width: Math.abs(Math.cos(rotRad) * width) + Math.abs(Math.sin(rotRad) * height),
+    height: Math.abs(Math.sin(rotRad) * width) + Math.abs(Math.cos(rotRad) * height)
+  };
+};
+
+const getCroppedImage = async (
+  imageSrc: string,
+  pixelCrop: Area,
+  rotation: number,
+  flip: { horizontal: boolean; vertical: boolean },
+  outputSize: { width: number; height: number }
+) => {
+  const image = await createImage(imageSrc);
+  const rotRad = getRadianAngle(rotation);
+  const { width: bboxWidth, height: bboxHeight } = rotateSize(image.width, image.height, rotation);
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas context not available');
+
+  canvas.width = bboxWidth;
+  canvas.height = bboxHeight;
+
+  ctx.translate(bboxWidth / 2, bboxHeight / 2);
+  ctx.rotate(rotRad);
+  ctx.scale(flip.horizontal ? -1 : 1, flip.vertical ? -1 : 1);
+  ctx.translate(-image.width / 2, -image.height / 2);
+  ctx.drawImage(image, 0, 0);
+
+  const croppedCanvas = document.createElement('canvas');
+  const croppedCtx = croppedCanvas.getContext('2d');
+  if (!croppedCtx) throw new Error('Canvas context not available');
+
+  croppedCanvas.width = outputSize.width;
+  croppedCanvas.height = outputSize.height;
+
+  croppedCtx.drawImage(
+    canvas,
+    pixelCrop.x,
+    pixelCrop.y,
+    pixelCrop.width,
+    pixelCrop.height,
+    0,
+    0,
+    outputSize.width,
+    outputSize.height
+  );
+
+  return croppedCanvas.toDataURL('image/png');
+};
+
+const BackgroundCropModal = ({
+  isOpen,
+  imageSrc,
+  aspect,
+  cropSize,
+  crop,
+  zoom,
+  rotation,
+  flip,
+  onCropChange,
+  onZoomChange,
+  onRotationChange,
+  onCropAreaChange,
+  onFlipChange,
+  onCancel,
+  onConfirm,
+  isSaving,
+  lang
+}: {
+  isOpen: boolean;
+  imageSrc: string | null;
+  aspect: number;
+  cropSize: { width: number; height: number };
+  crop: { x: number; y: number };
+  zoom: number;
+  rotation: number;
+  flip: { horizontal: boolean; vertical: boolean };
+  onCropChange: (next: { x: number; y: number }) => void;
+  onZoomChange: (next: number) => void;
+  onRotationChange: (next: number) => void;
+  onCropAreaChange: (pixels: Area) => void;
+  onFlipChange: (updates: Partial<{ horizontal: boolean; vertical: boolean }>) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+  isSaving: boolean;
+  lang: Language;
+}) => {
+  if (!isOpen || !imageSrc) return null;
+  const t = translations[lang];
+  const transform = `translate(${crop.x}px, ${crop.y}px) rotate(${rotation}deg) scale(${zoom}) scaleX(${flip.horizontal ? -1 : 1}) scaleY(${flip.vertical ? -1 : 1})`;
+
+  return (
+    <div className="fixed inset-0 z-[160] flex items-center justify-center p-6 bg-slate-950/70 backdrop-blur-sm">
+      <div className="w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-100">{t.cropTitle}</h3>
+          <button type="button" onClick={onCancel} title={t.cancel} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex flex-col lg:flex-row gap-6">
+          <div className="flex-1 flex items-center justify-center">
+            <div
+              className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950"
+              style={{ width: cropSize.width, height: cropSize.height }}
+            >
+              <Cropper
+                image={imageSrc}
+                crop={crop}
+                zoom={zoom}
+                rotation={rotation}
+                aspect={aspect}
+                cropSize={cropSize}
+                onCropChange={onCropChange}
+                onZoomChange={onZoomChange}
+                onRotationChange={onRotationChange}
+                onCropAreaChange={(_, pixels) => onCropAreaChange(pixels)}
+                showGrid={true}
+                objectFit="cover"
+                zoomWithScroll={false}
+                transform={transform}
+                style={{
+                  containerStyle: { width: '100%', height: '100%' },
+                  cropAreaStyle: { border: '2px solid rgba(96,165,250,0.9)', boxShadow: '0 0 0 9999px rgba(2,6,23,0.55)' }
+                }}
+              />
+            </div>
+          </div>
+          <div className="w-full lg:w-64 space-y-5">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
+                <span>{t.cropZoom}</span>
+                <span>{zoom.toFixed(2)}x</span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={3}
+                step={0.01}
+                value={zoom}
+                onChange={(e) => onZoomChange(parseFloat(e.target.value))}
+                title={t.cropZoom}
+                className="w-full accent-blue-600"
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
+                <span>{t.cropRotate}</span>
+                <span>{Math.round(rotation)}°</span>
+              </div>
+              <input
+                type="range"
+                min={-180}
+                max={180}
+                step={1}
+                value={rotation}
+                onChange={(e) => onRotationChange(parseFloat(e.target.value))}
+                title={t.cropRotate}
+                className="w-full accent-blue-600"
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="text-[10px] font-bold text-slate-500 uppercase">{t.cropMirror}</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => onFlipChange({ horizontal: !flip.horizontal })}
+                  className={`flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all ${flip.horizontal ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                >
+                  <ArrowLeftRight className="w-4 h-4" />
+                  {t.cropFlipHorizontal}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onFlipChange({ vertical: !flip.vertical })}
+                  className={`flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all ${flip.vertical ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                >
+                  <ArrowUpDown className="w-4 h-4" />
+                  {t.cropFlipVertical}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-3">
+          <button type="button" onClick={onCancel} className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors">
+            {t.cancel}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isSaving}
+            className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-900/20 transition-all disabled:opacity-50"
+          >
+            {isSaving ? t.cropProcessing : t.cropConfirm}
+          </button>
         </div>
       </div>
     </div>
@@ -351,6 +569,14 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<ProjectState[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
+  const [bgCropModal, setBgCropModal] = useState<{ src: string } | null>(null);
+  const [bgCropPosition, setBgCropPosition] = useState({ x: 0, y: 0 });
+  const [bgCropZoom, setBgCropZoom] = useState(1);
+  const [bgCropRotation, setBgCropRotation] = useState(0);
+  const [bgCropFlip, setBgCropFlip] = useState({ horizontal: false, vertical: false });
+  const [bgCropAreaPixels, setBgCropAreaPixels] = useState<Area | null>(null);
+  const [bgCropSaving, setBgCropSaving] = useState(false);
+
   const isUndoRedoAction = useRef(false);
   const ignoreHistoryChange = useRef(false);
 
@@ -386,6 +612,43 @@ const App: React.FC = () => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   };
+
+  const modifyProject = (modifier: (p: ProjectState) => ProjectState, saveToHistory: boolean = true) => {
+    if (!saveToHistory) ignoreHistoryChange.current = true;
+    setProject(prev => prev ? modifier(prev) : null);
+  };
+
+  const handleOpenBackgroundCrop = useCallback((src: string) => {
+    setBgCropModal({ src });
+    setBgCropPosition({ x: 0, y: 0 });
+    setBgCropZoom(1);
+    setBgCropRotation(0);
+    setBgCropFlip({ horizontal: false, vertical: false });
+    setBgCropAreaPixels(null);
+  }, []);
+
+  const handleConfirmBackgroundCrop = useCallback(async () => {
+    if (!project || !bgCropModal || !bgCropAreaPixels) return;
+    setBgCropSaving(true);
+    try {
+      const nextValue = await getCroppedImage(
+        bgCropModal.src,
+        bgCropAreaPixels,
+        bgCropRotation,
+        bgCropFlip,
+        { width: project.canvasConfig.width, height: project.canvasConfig.height }
+      );
+      modifyProject(p => ({
+        ...p,
+        background: { ...p.background, type: 'image', value: nextValue }
+      }));
+      setBgCropModal(null);
+    } catch (err) {
+      showToast(t.cropFailed, 'error');
+    } finally {
+      setBgCropSaving(false);
+    }
+  }, [project, bgCropModal, bgCropAreaPixels, bgCropRotation, bgCropFlip, modifyProject, showToast, t.cropFailed]);
 
   useEffect(() => {
     if (project && !isUndoRedoAction.current && !ignoreHistoryChange.current) {
@@ -459,11 +722,6 @@ const App: React.FC = () => {
     setProjects(prev => [newProject, ...prev]);
     setView('editor');
     initProjectHistory(newProject);
-  };
-
-  const modifyProject = (modifier: (p: ProjectState) => ProjectState, saveToHistory: boolean = true) => {
-    if (!saveToHistory) ignoreHistoryChange.current = true;
-    setProject(prev => prev ? modifier(prev) : null);
   };
 
   const getGroupBounds = (layers: Layer[], childIds: string[]) => {
@@ -1426,10 +1684,42 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
 
   if (!project) return null;
 
+  const cropAspect = project.canvasConfig.width / project.canvasConfig.height;
+  const cropSize = (() => {
+    const maxWidth = 720;
+    const maxHeight = 420;
+    let width = maxWidth;
+    let height = width / cropAspect;
+    if (height > maxHeight) {
+      height = maxHeight;
+      width = height * cropAspect;
+    }
+    return { width: Math.round(width), height: Math.round(height) };
+  })();
+
   return (
     <div className="flex flex-col h-screen bg-slate-950 text-slate-200 overflow-hidden">
       {toast && <Toast message={toast.msg} type={toast.type} />}
       {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
+      <BackgroundCropModal
+        isOpen={Boolean(bgCropModal)}
+        imageSrc={bgCropModal?.src || null}
+        aspect={cropAspect}
+        cropSize={cropSize}
+        crop={bgCropPosition}
+        zoom={bgCropZoom}
+        rotation={bgCropRotation}
+        flip={bgCropFlip}
+        onCropChange={setBgCropPosition}
+        onZoomChange={setBgCropZoom}
+        onRotationChange={setBgCropRotation}
+        onCropAreaChange={setBgCropAreaPixels}
+        onFlipChange={(updates) => setBgCropFlip(prev => ({ ...prev, ...updates }))}
+        onCancel={() => setBgCropModal(null)}
+        onConfirm={handleConfirmBackgroundCrop}
+        isSaving={bgCropSaving}
+        lang={lang}
+      />
       <header className="h-14 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between px-6 z-50">
         <div className="flex items-center gap-4">
           <button onClick={() => { setProject(null); setView('landing'); }} className="p-2 hover:bg-slate-800 rounded-lg">
@@ -1474,6 +1764,7 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
           activeTab={activeTab} 
           setActiveTab={setActiveTab} 
           background={project.background} 
+          onOpenBackgroundCrop={handleOpenBackgroundCrop}
           onAddLayer={(l) => {
             // 处理 SVG 图层的特殊逻辑
             if (l.type === 'svg' && l.content) {

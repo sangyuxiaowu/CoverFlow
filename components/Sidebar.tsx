@@ -11,6 +11,7 @@ interface SidebarProps {
   lang: Language;
   onAddLayer: (layer: Partial<Layer>) => void;
   onUpdateBackground: (bg: Partial<BackgroundConfig>) => void;
+  onOpenBackgroundCrop?: (dataUrl: string) => void;
   background: BackgroundConfig;
   activeTab: string;
   setActiveTab: (tab: string) => void;
@@ -89,7 +90,7 @@ const parseGroupName = (folderName: string) => {
   return { en, zh };
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground, background, activeTab, setActiveTab }) => {
+const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground, onOpenBackgroundCrop, background, activeTab, setActiveTab }) => {
   const FA_PAGE_SIZE = 180;
   const [searchTerm, setSearchTerm] = useState('');
   const [faSearchTerm, setFaSearchTerm] = useState('');
@@ -622,11 +623,16 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
                 <span className="text-[10px] text-slate-500 font-bold uppercase">{t.uploadImage}</span>
                 <input type="file" className="hidden" accept="image/*" onChange={(e) => {
                   const file = e.target.files?.[0];
-                  if (file) {
-                    const reader = new FileReader();
-                    reader.onload = (ev) => onUpdateBackground({ value: ev.target?.result as string });
-                    reader.readAsDataURL(file);
-                  }
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = (ev) => {
+                    const result = ev.target?.result as string;
+                    if (!result) return;
+                    if (onOpenBackgroundCrop) onOpenBackgroundCrop(result);
+                    else onUpdateBackground({ value: result });
+                  };
+                  reader.readAsDataURL(file);
+                  e.currentTarget.value = '';
                 }} />
               </label>
               <input type="text" value={background.value.startsWith('http') || background.value.startsWith('data:') ? background.value : ''} onChange={(e) => onUpdateBackground({ value: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="https://..." />

@@ -27,7 +27,7 @@ import {
   Download, Trash2, Plus, ArrowLeft, Clock, 
   Layout as LayoutIcon, ChevronRight, LayoutGrid,
   Upload, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, Search, X,
-  FileJson, ImageIcon as ImageIconLucide, Copy, Settings
+  FileJson, ImageIcon as ImageIconLucide, Copy, Settings, Save
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import logoSvg from './doc/logo.svg?raw';
@@ -308,7 +308,7 @@ const App: React.FC = () => {
     latestProjectsRef.current = projects;
   }, [projects]);
 
-  const performAutoSave = useCallback((reason: 'auto' | 'leave') => {
+  const performAutoSave = useCallback((reason: 'auto' | 'leave' | 'manual') => {
     if (!storageReadyRef.current) return;
 
     const snapshot = JSON.stringify(latestProjectsRef.current);
@@ -331,6 +331,9 @@ const App: React.FC = () => {
     storageAdapter.saveProjects(latestProjectsRef.current).then(() => {
       lastSavedAtRef.current = Date.now();
       lastSavedSnapshotRef.current = snapshot;
+      if (reason === 'manual') {
+        showToast(t.save || 'Saved');
+      }
     }).catch(() => {
       showToast(t.storageSaveFailed, 'error');
     });
@@ -344,6 +347,7 @@ const App: React.FC = () => {
   }, [storageAdapter]);
 
   useEffect(() => {
+    if (isCloudMode) return;
     performAutoSave('auto');
   }, [projects, performAutoSave]);
 
@@ -1239,6 +1243,13 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
         return;
       }
 
+      // 保存（Ctrl+S / Cmd+S）
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        performAutoSave('manual');
+        return;
+      }
+
       // 撤销/重做
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         e.preventDefault();
@@ -1334,7 +1345,7 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [project, handleUndo, handleRedo, updateLayer, lang, selectedLayerIds, handleDeleteLayers, handleCloneLayers, handleGroupLayers]);
+  }, [project, handleUndo, handleRedo, updateLayer, lang, selectedLayerIds, handleDeleteLayers, handleCloneLayers, handleGroupLayers, performAutoSave]);
 
   const groupedProjects = useMemo(() => {
     const filtered = isCloudMode
@@ -1627,6 +1638,15 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
               <Redo2 className="w-4 h-4" />
             </button>
           </div>
+          {isCloudMode && (
+            <button
+              onClick={() => performAutoSave('manual')}
+              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300 border border-slate-700 transition-colors"
+            >
+              <Save className="w-4 h-4" />
+              {t.save || 'Save'}
+            </button>
+          )}
           <button onClick={() => handleExportJson(project)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300 border border-slate-700 transition-colors">
             <FileOutput className="w-4 h-4" />
             {t.exportJson}

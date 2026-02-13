@@ -6,6 +6,22 @@ import { translations, Language } from '../translations.ts';
 import { Box, Palette, Search, Plus, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash } from 'lucide-react';
 import * as yaml from 'js-yaml';
 import { normalizeSVG } from '../utils/helpers.ts';
+import {
+  clearFaCache,
+  clearStoredAssetFolderHandle,
+  scanAssetFolder,
+  getFaCategoriesCache,
+  getFaIconsCache,
+  getStoredAssetFolderHandle,
+  getStoredBackgroundPresets,
+  isAssetFolderSupported,
+  pickAssetFolderHandle,
+  setStoredAssetFolderHandle,
+  verifyAssetFolderPermission,
+  setFaCategoriesCache,
+  setFaIconsCache,
+  setStoredBackgroundPresets
+} from '../storage/storage.ts';
 
 interface SidebarProps {
   lang: Language;
@@ -32,63 +48,7 @@ interface AssetGroup {
   >;
 }
 
-const FA_STORAGE_KEY_ICONS = 'coverflow_fa_icons_v2';
-const FA_STORAGE_KEY_CATS = 'coverflow_fa_cats_v2';
 const ASSET_PAGE_SIZE = 120;
-const FS_DB_NAME = 'coverflow_fs_handles_v1';
-const FS_STORE_NAME = 'handles';
-const FS_ASSET_KEY = 'assetsFolder';
-
-const openFsHandleDb = () => new Promise<IDBDatabase>((resolve, reject) => {
-  const request = indexedDB.open(FS_DB_NAME, 1);
-  request.onupgradeneeded = () => {
-    if (!request.result.objectStoreNames.contains(FS_STORE_NAME)) {
-      request.result.createObjectStore(FS_STORE_NAME);
-    }
-  };
-  request.onsuccess = () => resolve(request.result);
-  request.onerror = () => reject(request.error);
-});
-
-const getStoredDirectoryHandle = async () => {
-  const db = await openFsHandleDb();
-  return new Promise<FileSystemDirectoryHandle | null>((resolve, reject) => {
-    const tx = db.transaction(FS_STORE_NAME, 'readonly');
-    const store = tx.objectStore(FS_STORE_NAME);
-    const req = store.get(FS_ASSET_KEY);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => reject(req.error);
-  });
-};
-
-const setStoredDirectoryHandle = async (handle: FileSystemDirectoryHandle) => {
-  const db = await openFsHandleDb();
-  return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(FS_STORE_NAME, 'readwrite');
-    const store = tx.objectStore(FS_STORE_NAME);
-    const req = store.put(handle, FS_ASSET_KEY);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
-};
-
-const clearStoredDirectoryHandle = async () => {
-  const db = await openFsHandleDb();
-  return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(FS_STORE_NAME, 'readwrite');
-    const store = tx.objectStore(FS_STORE_NAME);
-    const req = store.delete(FS_ASSET_KEY);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
-};
-
-const parseGroupName = (folderName: string) => {
-  const parts = folderName.split('-');
-  const en = (parts[0] || folderName).trim() || folderName;
-  const zh = parts.length > 1 ? parts.slice(1).join('-').trim() || en : en;
-  return { en, zh };
-};
 
 const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground, onOpenBackgroundCrop, background, activeTab, setActiveTab }) => {
   const FA_PAGE_SIZE = 180;
@@ -98,7 +58,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
   const [deletingIndex, setDeletingIndex] = useState<number | null>(null);
   const faListRef = useRef<HTMLDivElement | null>(null);
   const t = translations[lang];
-  const fsSupported = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+  const fsSupported = isAssetFolderSupported();
 
   const [assetVisibleCount, setAssetVisibleCount] = useState(ASSET_PAGE_SIZE);
   const [externalFolderHandle, setExternalFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
@@ -112,36 +72,35 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
   const externalSvgLoadingRef = useRef<Set<string>>(new Set());
 
   // Font Awesome 数据状态
-  const [faIcons, setFaIcons] = useState<Record<string, FAIconMetadata>>(() => {
-    try {
-      const saved = localStorage.getItem(FA_STORAGE_KEY_ICONS);
-      return saved ? JSON.parse(saved) : null;
-    } catch (e) { return null; }
-  });
-  const [faCategories, setFaCategories] = useState<Record<string, FACategory>>(() => {
-    try {
-      const saved = localStorage.getItem(FA_STORAGE_KEY_CATS);
-      return saved ? JSON.parse(saved) : null;
-    } catch (e) { return null; }
-  });
+  const [faIcons, setFaIcons] = useState<Record<string, FAIconMetadata> | null>(null);
+  const [faCategories, setFaCategories] = useState<Record<string, FACategory> | null>(null);
 
-  const [savedPresets, setSavedPresets] = useState<BackgroundConfig[]>(() => {
-    try {
-      const saved = localStorage.getItem('coverflow_bg_presets_v3');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) { return []; }
-  });
+  const [savedPresets, setSavedPresets] = useState<BackgroundConfig[]>(() => getStoredBackgroundPresets());
 
   useEffect(() => {
-    localStorage.setItem('coverflow_bg_presets_v3', JSON.stringify(savedPresets));
-  }, [savedPresets]);
-
-  const verifyFolderPermission = useCallback(async (handle: FileSystemDirectoryHandle, request: boolean) => {
-    const options = { mode: 'read' as const };
-    if ((await handle.queryPermission(options)) === 'granted') return true;
-    if (!request) return false;
-    return (await handle.requestPermission(options)) === 'granted';
+    let active = true;
+    const loadFaCache = async () => {
+      try {
+        const [icons, cats] = await Promise.all([
+          getFaIconsCache(),
+          getFaCategoriesCache()
+        ]);
+        if (!active) return;
+        setFaIcons(icons);
+        setFaCategories(cats);
+      } catch (err) {
+        // ignore cache read errors
+      }
+    };
+    loadFaCache();
+    return () => {
+      active = false;
+    };
   }, []);
+
+  useEffect(() => {
+    setStoredBackgroundPresets(savedPresets);
+  }, [savedPresets]);
 
   const scanExternalFolder = useCallback(async (handle: FileSystemDirectoryHandle) => {
     setExternalLoading(true);
@@ -150,37 +109,18 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
     externalSvgLoadingRef.current.clear();
     setExternalCacheVersion(prev => prev + 1);
 
-    const groupsMap = new Map<string, AssetGroup>();
     try {
-      for await (const [folderName, entry] of handle.entries()) {
-        if (entry.kind !== 'directory') continue;
-        const { en, zh } = parseGroupName(folderName);
-        const groupKey = folderName;
-        const group: AssetGroup = groupsMap.get(groupKey) || {
-          category: en,
-          categoryZh: zh,
-          items: []
-        };
-
-        for await (const [fileName, fileEntry] of entry.entries()) {
-          if (fileEntry.kind !== 'file') continue;
-          if (!fileName.toLowerCase().endsWith('.svg')) continue;
-          const name = fileName.replace(/\.svg$/i, '');
-          group.items.push({
-            key: `${groupKey}/${fileName}`,
-            name,
-            fileHandle: fileEntry,
-            isExternal: true
-          });
-        }
-
-        if (group.items.length > 0) {
-          group.items.sort((a, b) => a.name.localeCompare(b.name, 'en'));
-          groupsMap.set(groupKey, group);
-        }
-      }
-      const groups = Array.from(groupsMap.values());
-      groups.sort((a, b) => a.category.localeCompare(b.category, 'en'));
+      const scanned = await scanAssetFolder(handle);
+      const groups: AssetGroup[] = scanned.map(group => ({
+        category: group.category,
+        categoryZh: group.categoryZh,
+        items: group.items.map(item => ({
+          key: item.key,
+          name: item.name,
+          fileHandle: item.fileHandle,
+          isExternal: true
+        }))
+      }));
       setExternalGroups(groups);
       setAssetVisibleCount(ASSET_PAGE_SIZE);
     } catch (err) {
@@ -213,33 +153,37 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
       return;
     }
     try {
-      const handle = await (window as any).showDirectoryPicker();
-      const granted = await verifyFolderPermission(handle, true);
+      const handle = await pickAssetFolderHandle();
+      if (!handle) {
+        setExternalError(t.assetFolderPickFailed);
+        return;
+      }
+      const granted = await verifyAssetFolderPermission(handle, true, 'read');
       if (!granted) {
         setExternalError(t.assetFolderPermissionDenied);
         return;
       }
-      await setStoredDirectoryHandle(handle);
+      await setStoredAssetFolderHandle(handle);
       setExternalFolderHandle(handle);
       setExternalFolderName(handle.name);
       await scanExternalFolder(handle);
     } catch (err) {
       setExternalError(t.assetFolderPickFailed);
     }
-  }, [fsSupported, scanExternalFolder, t.assetFolderPermissionDenied, t.assetFolderPickFailed, t.assetFolderUnsupported, verifyFolderPermission]);
+  }, [fsSupported, scanExternalFolder, t.assetFolderPermissionDenied, t.assetFolderPickFailed, t.assetFolderUnsupported]);
 
   const handleRefreshAssetFolder = useCallback(async () => {
     if (!externalFolderHandle) return;
-    const granted = await verifyFolderPermission(externalFolderHandle, true);
+    const granted = await verifyAssetFolderPermission(externalFolderHandle, true, 'read');
     if (!granted) {
       setExternalError(t.assetFolderPermissionDenied);
       return;
     }
     await scanExternalFolder(externalFolderHandle);
-  }, [externalFolderHandle, scanExternalFolder, t.assetFolderPermissionDenied, verifyFolderPermission]);
+  }, [externalFolderHandle, scanExternalFolder, t.assetFolderPermissionDenied]);
 
   const handleClearAssetFolder = useCallback(async () => {
-    await clearStoredDirectoryHandle();
+    await clearStoredAssetFolderHandle();
     setExternalFolderHandle(null);
     setExternalFolderName('');
     setExternalGroups([]);
@@ -252,9 +196,9 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
     let active = true;
     const restoreHandle = async () => {
       try {
-        const handle = await getStoredDirectoryHandle();
+        const handle = await getStoredAssetFolderHandle();
         if (!handle || !active) return;
-        const granted = await verifyFolderPermission(handle, false);
+        const granted = await verifyAssetFolderPermission(handle, false, 'read');
         setExternalFolderHandle(handle);
         setExternalFolderName(handle.name);
         if (granted) {
@@ -266,7 +210,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
     };
     restoreHandle();
     return () => { active = false; };
-  }, [scanExternalFolder, verifyFolderPermission]);
+  }, [scanExternalFolder]);
 
   useEffect(() => {
     if (activeTab !== 'assets') return;
@@ -682,7 +626,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
       try {
         const data = JSON.parse(ev.target?.result as string);
         setFaIcons(data);
-        localStorage.setItem(FA_STORAGE_KEY_ICONS, JSON.stringify(data));
+        setFaIconsCache(data).catch(() => undefined);
       } catch (err) { alert(t.faMetadataParseError); }
     };
     reader.readAsText(file);
@@ -696,7 +640,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
       try {
         const data = yaml.load(ev.target?.result as string);
         setFaCategories(data as Record<string, FACategory>);
-        localStorage.setItem(FA_STORAGE_KEY_CATS, JSON.stringify(data));
+        setFaCategoriesCache(data as Record<string, FACategory>).catch(() => undefined);
       } catch (err) { alert(t.faCategoriesParseError); }
     };
     reader.readAsText(file);
@@ -705,8 +649,7 @@ const Sidebar: React.FC<SidebarProps> = ({ lang, onAddLayer, onUpdateBackground,
   const clearFAData = () => {
     setFaIcons(null);
     setFaCategories(null);
-    localStorage.removeItem(FA_STORAGE_KEY_ICONS);
-    localStorage.removeItem(FA_STORAGE_KEY_CATS);
+    clearFaCache().catch(() => undefined);
   };
 
   // 根据搜索词过滤并按需渲染，避免一次性渲染过多图标

@@ -4,6 +4,15 @@ import Sidebar from './components/Sidebar.tsx';
 import Canvas from './components/Canvas.tsx';
 import LayersPanel from './components/LayersPanel.tsx';
 import { ProjectState, Layer, BackgroundConfig } from './types.ts';
+import {
+  createIndexedDBAdapter,
+  createLocalFileAdapter,
+  getStoredLanguage,
+  getStoredStorageType,
+  setStoredLanguage,
+  setStoredStorageType,
+  StorageAdapterType
+} from './storage/storage.ts';
 import { translations, Language } from './translations.ts';
 import { PRESET_RATIOS } from './constants.ts';
 import { generateId, downloadFile, normalizeSVG, getSVGDimensions, applySvgAspectRatio } from './utils/helpers.ts';
@@ -18,7 +27,6 @@ import * as htmlToImage from 'html-to-image';
 import logoSvg from './doc/logo.svg?raw';
 import packageInfo from './package.json';
 
-const STORAGE_KEY = 'coverflow_projects_v2';
 const APP_VERSION = packageInfo.version;
 const GITHUB_REPO_URL = 'https://github.com/sangyuxiaowu/CoverFlow';
 
@@ -548,14 +556,20 @@ const ProjectCard = ({
 };
 
 const App: React.FC = () => {
-  const [lang, setLang] = useState<Language>(() => (localStorage.getItem('coverflow_lang') as Language) || 'zh');
+  const [lang, setLang] = useState<Language>(() => getStoredLanguage('zh'));
   const t = translations[lang];
-  const [projects, setProjects] = useState<ProjectState[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) { return []; }
-  });
+  const [projects, setProjects] = useState<ProjectState[]>([]);
+  const indexedDbAdapter = useMemo(() => createIndexedDBAdapter(), []);
+  const localFileAdapter = useMemo(() => createLocalFileAdapter(), []);
+  const [storageType, setStorageType] = useState<StorageAdapterType>(() => (
+    getStoredStorageType('indexeddb')
+  ));
+  const storageAdapter = useMemo(
+    () => (storageType === 'localfile' ? localFileAdapter : indexedDbAdapter),
+    [storageType, localFileAdapter, indexedDbAdapter]
+  );
+  const [storageFolderName, setStorageFolderName] = useState('');
+  const storageReadyRef = useRef(false);
   
   const [view, setView] = useState<'landing' | 'editor'>('landing');
   const [project, setProject] = useState<ProjectState | null>(null);
@@ -580,9 +594,91 @@ const App: React.FC = () => {
   const isUndoRedoAction = useRef(false);
   const ignoreHistoryChange = useRef(false);
 
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handlePickStorageFolder = useCallback(async () => {
+    if (!localFileAdapter.isAvailable()) {
+      showToast(t.storageFolderUnsupported, 'error');
+      return;
+    }
+    const ready = await localFileAdapter.ensureReady({ prompt: true });
+    if (!ready) {
+      showToast(t.storageFolderPickFailed, 'error');
+      return;
+    }
+    setStorageFolderName(localFileAdapter.getFolderName());
+    if (storageType !== 'localfile') {
+      storageReadyRef.current = false;
+      setStorageType('localfile');
+    }
+  }, [localFileAdapter, showToast, storageType, t.storageFolderPickFailed, t.storageFolderUnsupported]);
+
+  const handleStorageTypeChange = useCallback(async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const nextType = e.target.value as StorageAdapterType;
+    if (nextType === storageType) return;
+    if (nextType === 'localfile') {
+      if (!localFileAdapter.isAvailable()) {
+        showToast(t.storageFolderUnsupported, 'error');
+        return;
+      }
+      const ready = await localFileAdapter.ensureReady({ prompt: true });
+      if (!ready) {
+        showToast(t.storageFolderPickFailed, 'error');
+        return;
+      }
+      setStorageFolderName(localFileAdapter.getFolderName());
+    }
+    storageReadyRef.current = false;
+    setStorageType(nextType);
+  }, [localFileAdapter, showToast, storageType, t.storageFolderPickFailed, t.storageFolderUnsupported]);
+
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(projects)); } catch (e) {}
-  }, [projects]);
+    setStoredStorageType(storageType);
+  }, [storageType]);
+
+  useEffect(() => {
+    let active = true;
+    storageReadyRef.current = false;
+
+    const loadProjects = async () => {
+      try {
+        const ready = await storageAdapter.ensureReady({ prompt: false });
+        if (!active) return;
+        if (!ready) {
+          if (storageAdapter.type === 'localfile') {
+            setStorageFolderName('');
+          }
+          setProjects([]);
+          return;
+        }
+        const list = await storageAdapter.listProjects();
+        if (!active) return;
+        setProjects(list);
+        if (storageType === 'localfile') {
+          setStorageFolderName(localFileAdapter.getFolderName());
+        }
+      } catch (err) {
+        if (active) showToast(t.storageLoadFailed, 'error');
+      } finally {
+        if (active) storageReadyRef.current = true;
+      }
+    };
+
+    loadProjects();
+    return () => {
+      active = false;
+    };
+  }, [storageAdapter, storageType, localFileAdapter, t.storageLoadFailed]);
+
+  useEffect(() => {
+    if (!storageReadyRef.current) return;
+    storageAdapter.saveProjects(projects).catch(() => {
+      showToast(t.storageSaveFailed, 'error');
+    });
+  }, [projects, storageAdapter, t.storageSaveFailed]);
 
   useEffect(() => {
     if (project && view === 'editor') {
@@ -590,7 +686,7 @@ const App: React.FC = () => {
     }
   }, [project, view]);
 
-  useEffect(() => { localStorage.setItem('coverflow_lang', lang); }, [lang]);
+  useEffect(() => { setStoredLanguage(lang); }, [lang]);
 
   useEffect(() => {
     if (!project) {
@@ -607,11 +703,6 @@ const App: React.FC = () => {
       return [project.selectedLayerId];
     });
   }, [project?.id, project?.selectedLayerId]);
-
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
-  };
 
   const modifyProject = (modifier: (p: ProjectState) => ProjectState, saveToHistory: boolean = true) => {
     if (!saveToHistory) ignoreHistoryChange.current = true;
@@ -1605,6 +1696,34 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
               <span className="text-xs font-bold">{t.import}</span>
               <input type="file" accept=".json" onChange={handleImportJson} className="hidden" />
             </label>
+            <div className="flex items-center gap-2 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl">
+              <span className="text-[10px] font-bold text-slate-500 uppercase">{t.storageMode}</span>
+              <select
+                value={storageType}
+                onChange={handleStorageTypeChange}
+                className="bg-slate-950 text-xs font-bold text-slate-200 border border-slate-800 rounded-lg px-2 py-1 outline-none focus:border-blue-500"
+              >
+                <option value="indexeddb">{t.storageIndexedDb}</option>
+                <option value="localfile">{t.storageLocalFolder}</option>
+              </select>
+              {storageType === 'localfile' && (
+                <button
+                  type="button"
+                  onClick={handlePickStorageFolder}
+                  className="px-2 py-1 text-[10px] font-bold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
+                >
+                  {t.storageFolderPick}
+                </button>
+              )}
+              {storageType === 'localfile' && (
+                <span
+                  className="text-[10px] text-slate-500 max-w-[120px] truncate"
+                  title={storageFolderName || t.storageFolderUnset}
+                >
+                  {storageFolderName || t.storageFolderUnset}
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800"><button onClick={() => setLang('zh')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'zh' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>中</button><button onClick={() => setLang('en')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'en' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>EN</button></div>
           </div>
         </div>

@@ -1,5 +1,5 @@
 // 模块：应用入口与主编辑流程
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
 import Sidebar from './components/Sidebar.tsx';
 import Canvas from './components/Canvas.tsx';
 import LayersPanel from './components/LayersPanel.tsx';
@@ -50,18 +50,22 @@ const ConfirmModal = ({ isOpen, message, onConfirm, onCancel, lang }: { isOpen: 
 // 实时预览：通过 CSS 缩放渲染封面
 const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObject<HTMLDivElement> }> = ({ project, previewRef }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
+  const [scale, setScale] = useState(0);
+  const [isReady, setIsReady] = useState(false);
 
   // 自动保存项目列表到本地缓存
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!containerRef.current) return;
     const updateScale = () => {
       if (!containerRef.current) return;
       const { width: cw, height: ch } = containerRef.current.getBoundingClientRect();
       const sw = (cw - 40) / project.canvasConfig.width;
       const sh = (ch - 40) / project.canvasConfig.height;
-      setScale(Math.min(sw, sh));
+      const nextScale = Math.min(sw, sh);
+      setScale(prev => (Math.abs(prev - nextScale) < 0.0001 ? prev : nextScale));
+      setIsReady(true);
     };
+    setIsReady(false);
     updateScale();
     const ro = new ResizeObserver(updateScale);
     ro.observe(containerRef.current);
@@ -105,7 +109,18 @@ const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObjec
   };
 
   return (
-    <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-[#0c0c0e] overflow-hidden">
+    <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-[#0c0c0e] overflow-hidden relative">
+      {!isReady && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div
+            className="preview-skeleton"
+            style={{
+              width: '70%',
+              aspectRatio: `${project.canvasConfig.width} / ${project.canvasConfig.height}`
+            }}
+          />
+        </div>
+      )}
       <div 
         ref={previewRef}
         style={{
@@ -116,7 +131,9 @@ const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObjec
           boxShadow: '0 15px 45px rgba(0,0,0,0.6)',
           flexShrink: 0,
           position: 'relative',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          opacity: isReady ? 1 : 0,
+          transition: 'opacity 120ms ease-out'
         }}
       >
         {project.layers

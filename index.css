@@ -45,3 +45,16 @@ input::-webkit-inner-spin-button {
 input[type=number] {
   -moz-appearance: textfield;
 }
+
+.preview-skeleton {
+  border-radius: 12px;
+  background: linear-gradient(90deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  background-size: 200% 100%;
+  animation: preview-shimmer 1.2s ease-in-out infinite;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+@keyframes preview-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

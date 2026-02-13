@@ -1,12 +1,12 @@
 // 模块：应用入口与主编辑流程
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
 import Sidebar from './components/Sidebar.tsx';
 import Canvas from './components/Canvas.tsx';
 import LayersPanel from './components/LayersPanel.tsx';
 import { ProjectState, Layer, BackgroundConfig } from './types.ts';
 import { translations, Language } from './translations.ts';
 import { PRESET_RATIOS } from './constants.ts';
-import { generateId, downloadFile, normalizeSVG, getSVGDimensions } from './utils/helpers.ts';
+import { generateId, downloadFile, normalizeSVG, getSVGDimensions, applySvgAspectRatio } from './utils/helpers.ts';
 import { 
   Download, Trash2, Plus, Share2, ArrowLeft, Clock, 
   Layout as LayoutIcon, ChevronRight, LayoutGrid, CheckCircle2, AlertCircle,
@@ -50,18 +50,22 @@ const ConfirmModal = ({ isOpen, message, onConfirm, onCancel, lang }: { isOpen: 
 // 实时预览：通过 CSS 缩放渲染封面
 const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObject<HTMLDivElement> }> = ({ project, previewRef }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
+  const [scale, setScale] = useState(0);
+  const [isReady, setIsReady] = useState(false);
 
   // 自动保存项目列表到本地缓存
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!containerRef.current) return;
     const updateScale = () => {
       if (!containerRef.current) return;
       const { width: cw, height: ch } = containerRef.current.getBoundingClientRect();
       const sw = (cw - 40) / project.canvasConfig.width;
       const sh = (ch - 40) / project.canvasConfig.height;
-      setScale(Math.min(sw, sh));
+      const nextScale = Math.min(sw, sh);
+      setScale(prev => (Math.abs(prev - nextScale) < 0.0001 ? prev : nextScale));
+      setIsReady(true);
     };
+    setIsReady(false);
     updateScale();
     const ro = new ResizeObserver(updateScale);
     ro.observe(containerRef.current);
@@ -105,7 +109,18 @@ const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObjec
   };
 
   return (
-    <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-[#0c0c0e] overflow-hidden">
+    <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-[#0c0c0e] overflow-hidden relative">
+      {!isReady && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div
+            className="preview-skeleton"
+            style={{
+              width: '70%',
+              aspectRatio: `${project.canvasConfig.width} / ${project.canvasConfig.height}`
+            }}
+          />
+        </div>
+      )}
       <div 
         ref={previewRef}
         style={{
@@ -116,7 +131,9 @@ const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObjec
           boxShadow: '0 15px 45px rgba(0,0,0,0.6)',
           flexShrink: 0,
           position: 'relative',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          opacity: isReady ? 1 : 0,
+          transition: 'opacity 120ms ease-out'
         }}
       >
         {project.layers
@@ -172,14 +189,32 @@ const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObjec
                 {layer.type === 'svg' ? (
                   <div className="w-full h-full pointer-events-none overflow-hidden" style={{ color: layer.color }}>
                     {layer.content.toLowerCase().includes('<svg')
-                      ? <div className="w-full h-full" dangerouslySetInnerHTML={{ __html: layer.content }} />
-                      : <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" dangerouslySetInnerHTML={{ __html: layer.content }} />
+                      ? (
+                        <div
+                          className="w-full h-full"
+                          dangerouslySetInnerHTML={{ __html: applySvgAspectRatio(layer.content, !!layer.ratioLocked) }}
+                        />
+                      )
+                      : (
+                        <svg
+                          width="100%"
+                          height="100%"
+                          viewBox="0 0 100 100"
+                          preserveAspectRatio={layer.ratioLocked ? 'xMidYMid meet' : 'none'}
+                          dangerouslySetInnerHTML={{ __html: layer.content }}
+                        />
+                      )
                     }
                   </div>
                 ) : layer.type === 'text' ? (
                   <div style={textStyle}>{layer.content}</div>
                 ) : (
-                  <img src={layer.content} className="w-full h-full object-contain" style={{ opacity: layer.opacity }} alt="" />
+                  <img
+                    src={layer.content}
+                    className={`w-full h-full ${layer.ratioLocked ? 'object-contain' : 'object-fill'}`}
+                    style={{ opacity: layer.opacity }}
+                    alt=""
+                  />
                 )}
               </div>
             );
@@ -803,6 +838,27 @@ const App: React.FC = () => {
     }
   };
 
+  const handleExportImageWithDeselect = async (previewNode: HTMLDivElement | null, targetProject: ProjectState) => {
+    if (!project) return;
+    const prevSelectedId = project.selectedLayerId;
+    const prevSelectedIds = [...selectedLayerIds];
+
+    if (prevSelectedId || prevSelectedIds.length > 0) {
+      setSelectedLayerIds([]);
+      modifyProject(p => ({ ...p, selectedLayerId: null }), false);
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    }
+
+    try {
+      await handleExportImage(previewNode, targetProject);
+    } finally {
+      if (prevSelectedId || prevSelectedIds.length > 0) {
+        setSelectedLayerIds(prevSelectedIds);
+        modifyProject(p => ({ ...p, selectedLayerId: prevSelectedId }), false);
+      }
+    }
+  };
+
   const addTextLayerWithContent = (text: string) => {
     if (!project) return;
     const newId = generateId();
@@ -840,43 +896,104 @@ const App: React.FC = () => {
     showToast(t.textLayerPasted);
   };
 
+  // 提取公共的 SVG 处理函数
+const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: number, layerName: string) => {
+    try {
+      // 解析 SVG 获取 viewBox 信息
+      const svgElement = new DOMParser().parseFromString(svgContent, 'image/svg+xml').documentElement;
+      let viewBox = svgElement.getAttribute('viewBox');
+      let svgWidth: number, svgHeight: number;
+      
+      if (viewBox) {
+        const vbParts = viewBox.split(/[ ,]+/).map(Number);
+        if (vbParts.length === 4) {
+          svgWidth = vbParts[2];
+          svgHeight = vbParts[3];
+        } else {
+          svgWidth = parseFloat(svgElement.getAttribute('width') || '200');
+          svgHeight = parseFloat(svgElement.getAttribute('height') || '200');
+        }
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width') || '200');
+        svgHeight = parseFloat(svgElement.getAttribute('height') || '200');
+      }
+      
+      svgWidth = Math.max(svgWidth, 1);
+      svgHeight = Math.max(svgHeight, 1);
+      
+      // 计算初始大小：最大不超过画布的70%，并保持原始宽高比
+      const maxSize = Math.min(canvasWidth * 0.7, canvasHeight * 0.7);
+      const svgRatio = svgWidth / svgHeight;
+      
+      let width, height;
+      if (svgRatio > 1) {
+        width = maxSize;
+        height = maxSize / svgRatio;
+      } else {
+        height = maxSize;
+        width = maxSize * svgRatio;
+      }
+      
+      width = Math.max(40, width);
+      height = Math.max(40, height);
+      
+      return {
+        id: generateId(),
+        name: layerName,
+        type: 'svg' as const,
+        content: svgContent,
+        x: canvasWidth / 2 - width / 2,
+        y: canvasHeight / 2 - height / 2,
+        width,
+        height,
+        rotation: 0,
+        zIndex: 0, // 调用时再设置
+        visible: true,
+        locked: false,
+        opacity: 1,
+        color: '#3b82f6',
+        ratioLocked: true
+      };
+    } catch (e) {
+      // 解析失败时使用默认大小
+      const defaultSize = Math.min(200, canvasWidth * 0.5, canvasHeight * 0.5);
+      return {
+        id: generateId(),
+        name: layerName,
+        type: 'svg' as const,
+        content: svgContent,
+        x: canvasWidth / 2 - defaultSize / 2,
+        y: canvasHeight / 2 - defaultSize / 2,
+        width: defaultSize,
+        height: defaultSize,
+        rotation: 0,
+        zIndex: 0,
+        visible: true,
+        locked: false,
+        opacity: 1,
+        color: '#3b82f6',
+        ratioLocked: true
+      };
+    }
+  };
+
   const addSvgLayerWithContent = (svgText: string) => {
     if (!project) return;
-    const newId = generateId();
     const normalized = normalizeSVG(svgText);
-    const dims = getSVGDimensions(normalized);
-    modifyProject(p => {
-      const maxW = p.canvasConfig.width * 0.7;
-      const maxH = p.canvasConfig.height * 0.7;
-      const rawW = dims.width || 200;
-      const rawH = dims.height || 200;
-      const scale = Math.min(1, maxW / rawW, maxH / rawH);
-      const width = Math.max(40, rawW * scale);
-      const height = Math.max(40, rawH * scale);
-      const newId = generateId();
-      return {
-        ...p,
-        layers: [...p.layers, {
-          id: newId,
-          name: t.svgLayerName,
-          type: 'svg',
-          content: normalized,
-          x: p.canvasConfig.width / 2 - width / 2,
-          y: p.canvasConfig.height / 2 - height / 2,
-          width,
-          height,
-          rotation: 0,
-          zIndex: p.layers.length + 1,
-          visible: true,
-          locked: false,
-          opacity: 1,
-          color: '#3b82f6',
-          ratioLocked: true
-        }],
-        selectedLayerId: newId
-      };
-    });
-    setSelectedLayerIds([newId]);
+    const newLayer = createSvgLayer(
+      normalized,
+      project.canvasConfig.width,
+      project.canvasConfig.height,
+      t.svgLayerName
+    );
+    newLayer.zIndex = project.layers.length + 1;
+    
+    modifyProject(p => ({
+      ...p,
+      layers: [...p.layers, newLayer],
+      selectedLayerId: newLayer.id
+    }));
+    setSelectedLayerIds([newLayer.id]);
     showToast(t.svgLayerPasted);
   };
 
@@ -1345,14 +1462,61 @@ const App: React.FC = () => {
             <FileOutput className="w-4 h-4" />
             {t.exportJson}
           </button>
-          <button onClick={() => handleExportImage(document.getElementById('export-target') as HTMLDivElement, project)} disabled={isExporting} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white shadow-lg shadow-blue-900/20 disabled:opacity-50">
+          <button onClick={() => handleExportImageWithDeselect(document.getElementById('export-target') as HTMLDivElement, project)} disabled={isExporting} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white shadow-lg shadow-blue-900/20 disabled:opacity-50">
             {isExporting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
             {t.export}
           </button>
         </div>
       </header>
       <main className="flex-1 flex overflow-hidden min-h-0 relative">
-        <Sidebar lang={lang} activeTab={activeTab} setActiveTab={setActiveTab} background={project.background} onAddLayer={(l) => modifyProject(p => ({ ...p, layers: [...p.layers, { id: generateId(), name: l.name || t.defaultLayerName, type: l.type || 'svg', x: p.canvasConfig.width/2-50, y: p.canvasConfig.height/2-50, width: l.width || 100, height: l.height || 100, rotation: 0, zIndex: p.layers.length+1, visible: true, locked: false, opacity: 1, color: l.color || '#3b82f6', ratioLocked: true, content: l.content || '' }] }))} onUpdateBackground={(bg) => modifyProject(p => ({ ...p, background: { ...p.background, ...bg } }))} />
+        <Sidebar 
+          lang={lang} 
+          activeTab={activeTab} 
+          setActiveTab={setActiveTab} 
+          background={project.background} 
+          onAddLayer={(l) => {
+            // 处理 SVG 图层的特殊逻辑
+            if (l.type === 'svg' && l.content) {
+              const newLayer = createSvgLayer(
+                l.content,
+                project.canvasConfig.width,
+                project.canvasConfig.height,
+                l.name || t.defaultLayerName
+              );
+              newLayer.zIndex = project.layers.length + 1;
+              newLayer.color = l.color || '#3b82f6';
+              
+              modifyProject(p => ({
+                ...p,
+                layers: [...p.layers, newLayer]
+              }));
+              return;
+            }
+            
+            // 非 SVG 图层保持原有逻辑
+            modifyProject(p => ({
+              ...p,
+              layers: [...p.layers, {
+                id: generateId(),
+                name: l.name || t.defaultLayerName,
+                type: l.type || 'svg',
+                content: l.content || '',
+                x: p.canvasConfig.width / 2 - (l.width || 100) / 2,
+                y: p.canvasConfig.height / 2 - (l.height || 100) / 2,
+                width: l.width || 100,
+                height: l.height || 100,
+                rotation: 0,
+                zIndex: p.layers.length + 1,
+                visible: true,
+                locked: false,
+                opacity: 1,
+                color: l.color || '#3b82f6',
+                ratioLocked: true
+              }]
+            }));
+          }}
+          onUpdateBackground={(bg) => modifyProject(p => ({ ...p, background: { ...p.background, ...bg } }))} 
+        />
         <div className="flex-1 flex flex-col min-h-0 relative">
           <Canvas
             lang={lang}

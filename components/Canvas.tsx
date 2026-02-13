@@ -1,6 +1,7 @@
 // 模块：画布渲染与交互（拖拽、缩放、对齐）
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Layer, ProjectState } from '../types.ts';
+import { applySvgAspectRatio } from '../utils/helpers.ts';
 import { translations, Language } from '../translations.ts';
 import { RotateCw } from 'lucide-react';
 
@@ -403,7 +404,20 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                   >
                     {layer.type === 'svg' ? (
                       <div className="w-full h-full pointer-events-none overflow-hidden" style={{ color: layer.color }}>
-                        {layer.content.toLowerCase().includes('<svg') ? <div className="w-full h-full" dangerouslySetInnerHTML={{ __html: layer.content }} /> : <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" dangerouslySetInnerHTML={{ __html: layer.content }} />}
+                        {layer.content.toLowerCase().includes('<svg') ? (
+                          <div
+                            className="w-full h-full"
+                            dangerouslySetInnerHTML={{ __html: applySvgAspectRatio(layer.content, !!layer.ratioLocked) }}
+                          />
+                        ) : (
+                          <svg
+                            width="100%"
+                            height="100%"
+                            viewBox="0 0 100 100"
+                            preserveAspectRatio={layer.ratioLocked ? 'xMidYMid meet' : 'none'}
+                            dangerouslySetInnerHTML={{ __html: layer.content }}
+                          />
+                        )}
                       </div>
                     ) : layer.type === 'text' ? (
                       editingLayerId === layer.id ? (
@@ -442,7 +456,13 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                         </div>
                       )
                     ) : (
-                      <img src={layer.content} className="w-full h-full object-contain pointer-events-none" style={{ opacity: layer.opacity }} draggable={false} alt="layer" />
+                      <img
+                        src={layer.content}
+                        className={`w-full h-full ${layer.ratioLocked ? 'object-contain' : 'object-fill'} pointer-events-none`}
+                        style={{ opacity: layer.opacity }}
+                        draggable={false}
+                        alt="layer"
+                      />
                     )}
                     {project.selectedLayerId === layer.id && !layer.locked && (
                       <>

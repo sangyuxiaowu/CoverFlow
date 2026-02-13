@@ -570,6 +570,11 @@ const App: React.FC = () => {
   );
   const [storageFolderName, setStorageFolderName] = useState('');
   const storageReadyRef = useRef(false);
+  const lastSavedAtRef = useRef(0);
+  const lastSavedSnapshotRef = useRef('');
+  const saveTimerRef = useRef<number | null>(null);
+  const latestProjectsRef = useRef<ProjectState[]>([]);
+  const prevViewRef = useRef<'landing' | 'editor'>('landing');
   
   const [view, setView] = useState<'landing' | 'editor'>('landing');
   const [project, setProject] = useState<ProjectState | null>(null);
@@ -657,6 +662,8 @@ const App: React.FC = () => {
         const list = await storageAdapter.listProjects();
         if (!active) return;
         setProjects(list);
+        // 记录已加载的快照，避免启动后立刻触发无意义的保存
+        lastSavedSnapshotRef.current = JSON.stringify(list);
         if (storageType === 'localfile') {
           setStorageFolderName(localFileAdapter.getFolderName());
         }
@@ -674,11 +681,64 @@ const App: React.FC = () => {
   }, [storageAdapter, storageType, localFileAdapter, t.storageLoadFailed]);
 
   useEffect(() => {
+    latestProjectsRef.current = projects;
+  }, [projects]);
+
+  const performAutoSave = useCallback((reason: 'auto' | 'leave') => {
     if (!storageReadyRef.current) return;
-    storageAdapter.saveProjects(projects).catch(() => {
+
+    const snapshot = JSON.stringify(latestProjectsRef.current);
+    // 文件内容未变化时不保存
+    if (snapshot === lastSavedSnapshotRef.current) return;
+
+    const now = Date.now();
+    if (reason === 'auto' && now - lastSavedAtRef.current < 5000) {
+      const delay = 5000 - (now - lastSavedAtRef.current);
+      if (saveTimerRef.current === null) {
+        // 延迟到 5s 后再保存最新内容
+        saveTimerRef.current = window.setTimeout(() => {
+          saveTimerRef.current = null;
+          performAutoSave('auto');
+        }, delay);
+      }
+      return;
+    }
+
+    storageAdapter.saveProjects(latestProjectsRef.current).then(() => {
+      lastSavedAtRef.current = Date.now();
+      lastSavedSnapshotRef.current = snapshot;
+    }).catch(() => {
       showToast(t.storageSaveFailed, 'error');
     });
-  }, [projects, storageAdapter, t.storageSaveFailed]);
+  }, [storageAdapter, showToast, t.storageSaveFailed]);
+
+  useEffect(() => {
+    if (saveTimerRef.current !== null) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+  }, [storageAdapter]);
+
+  useEffect(() => {
+    performAutoSave('auto');
+  }, [projects, performAutoSave]);
+
+  useEffect(() => {
+    if (prevViewRef.current === 'editor' && view !== 'editor') {
+      // 离开编辑页时强制尝试保存（跳过 5s 限制）
+      performAutoSave('leave');
+    }
+    prevViewRef.current = view;
+  }, [view, performAutoSave]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // 关闭浏览器时尝试保存最新内容
+      performAutoSave('leave');
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [performAutoSave]);
 
   useEffect(() => {
     if (project && view === 'editor') {

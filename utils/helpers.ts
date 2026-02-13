@@ -1,6 +1,8 @@
 // 模块：通用工具（导出、SVG 处理）
+// 生成短随机 ID。
 export const generateId = () => Math.random().toString(36).substr(2, 9);
 
+// 触发浏览器下载。
 export const downloadFile = (content: string, fileName: string, contentType: string) => {
   const a = document.createElement("a");
   const file = new Blob([content], { type: contentType });
@@ -18,6 +20,7 @@ const getSVGContent = (svgString: string): string => {
   return `<svg>${svgString}</svg>`;
 };
 
+// 标准化 SVG 以便在画布中一致渲染。
 export const normalizeSVG = (svgContent: string): string => {
   const content = getSVGContent(svgContent);
 
@@ -179,6 +182,7 @@ export const normalizeSVG = (svgContent: string): string => {
   return fixed;
 };
 
+// 根据锁定比例控制 SVG 的 preserveAspectRatio。
 export const applySvgAspectRatio = (svgContent: string, ratioLocked: boolean): string => {
   if (ratioLocked) return svgContent;
   if (!svgContent.toLowerCase().includes('<svg')) return svgContent;

@@ -58,6 +58,7 @@ const writeFileText = async (handle: FileSystemFileHandle, text: string) => {
   await writable.close();
 };
 
+// 本地文件系统存储适配器。
 export class LocalFileAdapter implements StorageAdapter {
   type: StorageAdapterType = 'localfile';
   private rootHandle: FileSystemDirectoryHandle | null = null;
@@ -195,4 +196,5 @@ export class LocalFileAdapter implements StorageAdapter {
   };
 }
 
+// 创建本地文件适配器实例。
 export const createLocalFileAdapter = () => new LocalFileAdapter();

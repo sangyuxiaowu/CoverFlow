@@ -196,7 +196,12 @@ const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObjec
                 ) : layer.type === 'text' ? (
                   <div style={textStyle}>{layer.content}</div>
                 ) : (
-                  <img src={layer.content} className="w-full h-full object-contain" style={{ opacity: layer.opacity }} alt="" />
+                  <img
+                    src={layer.content}
+                    className={`w-full h-full ${layer.ratioLocked ? 'object-contain' : 'object-fill'}`}
+                    style={{ opacity: layer.opacity }}
+                    alt=""
+                  />
                 )}
               </div>
             );

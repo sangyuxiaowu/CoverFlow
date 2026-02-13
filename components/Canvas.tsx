@@ -442,7 +442,13 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                         </div>
                       )
                     ) : (
-                      <img src={layer.content} className="w-full h-full object-contain pointer-events-none" style={{ opacity: layer.opacity }} draggable={false} alt="layer" />
+                      <img
+                        src={layer.content}
+                        className={`w-full h-full ${layer.ratioLocked ? 'object-contain' : 'object-fill'} pointer-events-none`}
+                        style={{ opacity: layer.opacity }}
+                        draggable={false}
+                        alt="layer"
+                      />
                     )}
                     {project.selectedLayerId === layer.id && !layer.locked && (
                       <>

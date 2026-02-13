@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { CATEGORIZED_ASSETS, PRESET_COLORS, PRESET_GRADIENTS } from '../constants.ts';
 import { BackgroundConfig, Layer, FAIconMetadata, FACategory } from '../types.ts';
 import { translations, Language } from '../translations.ts';
-import { Box, Palette, Search, Plus, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash } from 'lucide-react';
+import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash } from 'lucide-react';
 import * as yaml from 'js-yaml';
 import { normalizeSVG } from '../utils/helpers.ts';
 import {

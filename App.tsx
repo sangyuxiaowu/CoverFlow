@@ -15,7 +15,7 @@ import {
 } from './storage/storage.ts';
 import { translations, Language } from './translations.ts';
 import { PRESET_RATIOS } from './constants.ts';
-import { generateId, downloadFile, normalizeSVG, getSVGDimensions, applySvgAspectRatio } from './utils/helpers.ts';
+import { generateId, downloadFile, normalizeSVG, applySvgAspectRatio } from './utils/helpers.ts';
 import Cropper, { type Area } from 'react-easy-crop';
 import { 
   Download, Trash2, Plus, Share2, ArrowLeft, Clock, 

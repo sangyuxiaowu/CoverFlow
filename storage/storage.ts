@@ -5,6 +5,7 @@ import { StorageAdapterType } from './StorageAdapter.ts';
 export * from './StorageAdapter.ts';
 export * from './IndexedDBAdapter.ts';
 export * from './LocalFileAdapter.ts';
+export * from './CloudAdapter.ts';
 
 const LANG_KEY = 'coverflow_lang';
 const STORAGE_TYPE_KEY = 'coverflow_storage_adapter';

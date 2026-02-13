@@ -6,7 +6,7 @@ import LayersPanel from './components/LayersPanel.tsx';
 import { ProjectState, Layer, BackgroundConfig } from './types.ts';
 import { translations, Language } from './translations.ts';
 import { PRESET_RATIOS } from './constants.ts';
-import { generateId, downloadFile, normalizeSVG, getSVGDimensions } from './utils/helpers.ts';
+import { generateId, downloadFile, normalizeSVG, getSVGDimensions, applySvgAspectRatio } from './utils/helpers.ts';
 import { 
   Download, Trash2, Plus, Share2, ArrowLeft, Clock, 
   Layout as LayoutIcon, ChevronRight, LayoutGrid, CheckCircle2, AlertCircle,
@@ -189,8 +189,21 @@ const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObjec
                 {layer.type === 'svg' ? (
                   <div className="w-full h-full pointer-events-none overflow-hidden" style={{ color: layer.color }}>
                     {layer.content.toLowerCase().includes('<svg')
-                      ? <div className="w-full h-full" dangerouslySetInnerHTML={{ __html: layer.content }} />
-                      : <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" dangerouslySetInnerHTML={{ __html: layer.content }} />
+                      ? (
+                        <div
+                          className="w-full h-full"
+                          dangerouslySetInnerHTML={{ __html: applySvgAspectRatio(layer.content, !!layer.ratioLocked) }}
+                        />
+                      )
+                      : (
+                        <svg
+                          width="100%"
+                          height="100%"
+                          viewBox="0 0 100 100"
+                          preserveAspectRatio={layer.ratioLocked ? 'xMidYMid meet' : 'none'}
+                          dangerouslySetInnerHTML={{ __html: layer.content }}
+                        />
+                      )
                     }
                   </div>
                 ) : layer.type === 'text' ? (

@@ -211,6 +211,20 @@ export const normalizeSVG = (svgContent: string): string => {
   return fixed;
 };
 
+export const applySvgAspectRatio = (svgContent: string, ratioLocked: boolean): string => {
+  if (ratioLocked) return svgContent;
+  if (!svgContent.toLowerCase().includes('<svg')) return svgContent;
+
+  return svgContent.replace(/<svg\b([^>]*)>/i, (_match, attrs) => {
+    let nextAttrs = attrs;
+    const quotedAttr = /\s+(preserveAspectRatio|width|height)\s*=\s*(["'])(?:(?!(?:\\|\2)).|\\.)*\2/gi;
+    const unquotedAttr = /\s+(preserveAspectRatio|width|height)\s*=\s*[^\s>]+/gi;
+    nextAttrs = nextAttrs.replace(quotedAttr, '');
+    nextAttrs = nextAttrs.replace(unquotedAttr, '');
+    return `<svg${nextAttrs} width="100%" height="100%" preserveAspectRatio="none">`;
+  });
+};
+
 export const parseSVG = (svgString: string): { width: number; height: number; paths: string[] } => {
   const dims = getSVGDimensions(svgString);
   const parser = new DOMParser();

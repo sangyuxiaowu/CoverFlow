@@ -1,6 +1,8 @@
 // 模块：通用工具（导出、SVG 处理）
+// 生成短随机 ID。
 export const generateId = () => Math.random().toString(36).substr(2, 9);
 
+// 触发浏览器下载。
 export const downloadFile = (content: string, fileName: string, contentType: string) => {
   const a = document.createElement("a");
   const file = new Blob([content], { type: contentType });
@@ -18,38 +20,7 @@ const getSVGContent = (svgString: string): string => {
   return `<svg>${svgString}</svg>`;
 };
 
-export const getSVGDimensions = (svgString: string): { width: number; height: number } => {
-  try {
-    const parser = new DOMParser();
-    const content = getSVGContent(svgString);
-      
-    const doc = parser.parseFromString(content, 'image/svg+xml');
-    const svg = doc.querySelector('svg');
-    if (!svg) return { width: 100, height: 100 };
-
-    let width = parseFloat(svg.getAttribute('width') || '0');
-    let height = parseFloat(svg.getAttribute('height') || '0');
-    
-    // 检查 style 中的尺寸
-    if (width === 0 && svg.style.width) width = parseFloat(svg.style.width) || 0;
-    if (height === 0 && svg.style.height) height = parseFloat(svg.style.height) || 0;
-
-    // 检查 viewBox
-    const viewBox = svg.getAttribute('viewBox');
-    if (viewBox && (width === 0 || height === 0)) {
-      const parts = viewBox.split(/[\s,]+/).filter(v => v !== '').map(parseFloat);
-      if (parts.length === 4) {
-        if (width === 0) width = parts[2];
-        if (height === 0) height = parts[3];
-      }
-    }
-    
-    return { width: width || 100, height: height || 100 };
-  } catch (e) {
-    return { width: 100, height: 100 };
-  }
-};
-
+// 标准化 SVG 以便在画布中一致渲染。
 export const normalizeSVG = (svgContent: string): string => {
   const content = getSVGContent(svgContent);
 
@@ -211,6 +182,7 @@ export const normalizeSVG = (svgContent: string): string => {
   return fixed;
 };
 
+// 根据锁定比例控制 SVG 的 preserveAspectRatio。
 export const applySvgAspectRatio = (svgContent: string, ratioLocked: boolean): string => {
   if (ratioLocked) return svgContent;
   if (!svgContent.toLowerCase().includes('<svg')) return svgContent;
@@ -223,14 +195,4 @@ export const applySvgAspectRatio = (svgContent: string, ratioLocked: boolean): s
     nextAttrs = nextAttrs.replace(unquotedAttr, '');
     return `<svg${nextAttrs} width="100%" height="100%" preserveAspectRatio="none">`;
   });
-};
-
-export const parseSVG = (svgString: string): { width: number; height: number; paths: string[] } => {
-  const dims = getSVGDimensions(svgString);
-  const parser = new DOMParser();
-  const content = getSVGContent(svgString);
-  const doc = parser.parseFromString(content, 'image/svg+xml');
-  const svg = doc.querySelector('svg');
-  const paths = svg ? Array.from(svg.children).map(child => child.outerHTML) : [svgString];
-  return { ...dims, paths };
 };

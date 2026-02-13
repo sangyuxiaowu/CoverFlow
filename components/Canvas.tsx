@@ -2,6 +2,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Layer, ProjectState } from '../types.ts';
 import { applySvgAspectRatio } from '../utils/helpers.ts';
+import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
 import { translations, Language } from '../translations.ts';
 import { RotateCw } from 'lucide-react';
 
@@ -20,6 +21,7 @@ interface CanvasProps {
 
 const SNAP_THRESHOLD = 8;
 
+// 画布交互与渲染组件。
 const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLayer, onCommit }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(0.8);
@@ -261,60 +263,6 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
     }
   };
 
-  const getBackgroundStyles = (): React.CSSProperties => {
-    const bg = project.background;
-    const styles: React.CSSProperties = {};
-    
-    let baseBackground = '';
-    if (bg.type === 'color') {
-      styles.backgroundColor = bg.value;
-    } else if (bg.type === 'gradient') {
-      baseBackground = bg.value;
-    } else if (bg.type === 'image') {
-      baseBackground = `url(${bg.value})`;
-      styles.backgroundSize = 'cover';
-      styles.backgroundPosition = 'center';
-    }
-
-    let patternImage = '';
-    let patternSize = '';
-    if (bg.overlayType !== 'none') {
-      const rgba = bg.overlayColor.startsWith('#') 
-        ? `${bg.overlayColor}${Math.round(bg.overlayOpacity * 255).toString(16).padStart(2, '0')}` 
-        : bg.overlayColor;
-      const scale = bg.overlayScale || 20;
-
-      if (bg.overlayType === 'dots') {
-        patternImage = `radial-gradient(${rgba} 2px, transparent 2px)`;
-      } else if (bg.overlayType === 'grid') {
-        patternImage = `linear-gradient(${rgba} 1px, transparent 1px), linear-gradient(90deg, ${rgba} 1px, transparent 1px)`;
-      } else if (bg.overlayType === 'stripes') {
-        patternImage = `repeating-linear-gradient(45deg, ${rgba}, ${rgba} 2px, transparent 2px, transparent ${scale/2}px)`;
-      }
-      patternSize = `${scale}px ${scale}px`;
-    }
-
-    const backgroundImages: string[] = [];
-    const backgroundSizes: string[] = [];
-    
-    if (patternImage) {
-      backgroundImages.push(patternImage);
-      backgroundSizes.push(patternSize);
-    }
-    
-    if (baseBackground) {
-      backgroundImages.push(baseBackground);
-      backgroundSizes.push(bg.type === 'image' ? 'cover' : '100% 100%');
-    }
-
-    if (backgroundImages.length > 0) {
-      styles.backgroundImage = backgroundImages.join(', ');
-      styles.backgroundSize = backgroundSizes.join(', ');
-    }
-
-    return styles;
-  };
-
   return (
     <div 
       ref={scrollContainerRef}
@@ -342,7 +290,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
               height: project.canvasConfig.height,
               transform: `scale(${zoom})`,
               transformOrigin: 'top left',
-              ...getBackgroundStyles(),
+              ...buildBackgroundStyles(project.background),
               backfaceVisibility: 'hidden'
             }}
           >

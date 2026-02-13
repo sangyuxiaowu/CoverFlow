@@ -1,9 +1,13 @@
 // 模块：应用入口与主编辑流程
-import React, { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Sidebar from './components/Sidebar.tsx';
 import Canvas from './components/Canvas.tsx';
 import LayersPanel from './components/LayersPanel.tsx';
-import { ProjectState, Layer, BackgroundConfig } from './types.ts';
+import Toast from './components/Toast.tsx';
+import ConfirmModal from './components/ConfirmModal.tsx';
+import BackgroundCropModal from './components/BackgroundCropModal.tsx';
+import LivePreview from './components/LivePreview.tsx';
+import { ProjectState, Layer } from './types.ts';
 import {
   createIndexedDBAdapter,
   createLocalFileAdapter,
@@ -15,11 +19,12 @@ import {
 } from './storage/storage.ts';
 import { translations, Language } from './translations.ts';
 import { PRESET_RATIOS } from './constants.ts';
-import { generateId, downloadFile, normalizeSVG, getSVGDimensions, applySvgAspectRatio } from './utils/helpers.ts';
-import Cropper, { type Area } from 'react-easy-crop';
+import { generateId, downloadFile, normalizeSVG, applySvgAspectRatio } from './utils/helpers.ts';
+import { getCroppedImage } from './utils/imageCrop.ts';
+import { type Area } from 'react-easy-crop';
 import { 
   Download, Trash2, Plus, Share2, ArrowLeft, Clock, 
-  Layout as LayoutIcon, ChevronRight, LayoutGrid, CheckCircle2, AlertCircle,
+  Layout as LayoutIcon, ChevronRight, LayoutGrid,
   Upload, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, Search, X,
   FileJson, ImageIcon as ImageIconLucide, Copy, ArrowLeftRight, ArrowUpDown, Settings
 } from 'lucide-react';
@@ -30,442 +35,23 @@ import packageInfo from './package.json';
 const APP_VERSION = packageInfo.version;
 const GITHUB_REPO_URL = 'https://github.com/sangyuxiaowu/CoverFlow';
 
-const Toast = ({ message, type }: { message: string, type: 'success' | 'error' }) => (
-  <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 px-4 py-3 rounded-xl shadow-2xl animate-in slide-in-from-top-4 fade-in duration-300 ${
-    type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
-  }`}>
-    {type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
-    <span className="font-bold text-sm">{message}</span>
-  </div>
-);
-
-const ConfirmModal = ({ isOpen, message, onConfirm, onCancel, lang }: { isOpen: boolean, message: string, onConfirm: () => void, onCancel: () => void, lang: Language }) => {
-  if (!isOpen) return null;
-  const t = translations[lang];
-  return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-6 scale-100 animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-3 text-amber-500"><AlertCircle className="w-6 h-6" /><h3 className="text-lg font-bold text-slate-100">{t.confirmTitle}</h3></div>
-        <p className="text-slate-300 text-sm leading-relaxed font-medium">{message}</p>
-        <div className="flex items-center justify-end gap-3">
-          <button onClick={onCancel} className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors">{t.cancel}</button>
-          <button onClick={onConfirm} className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-900/20 transition-all active:scale-95">{t.confirmDeleteAction}</button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const createImage = (url: string): Promise<HTMLImageElement> =>
-  new Promise((resolve, reject) => {
-    const image = new Image();
-    image.addEventListener('load', () => resolve(image));
-    image.addEventListener('error', (err) => reject(err));
-    image.setAttribute('crossOrigin', 'anonymous');
-    image.src = url;
-  });
-
-const getRadianAngle = (degreeValue: number) => (degreeValue * Math.PI) / 180;
-
-const rotateSize = (width: number, height: number, rotation: number) => {
-  const rotRad = getRadianAngle(rotation);
-  return {
-    width: Math.abs(Math.cos(rotRad) * width) + Math.abs(Math.sin(rotRad) * height),
-    height: Math.abs(Math.sin(rotRad) * width) + Math.abs(Math.cos(rotRad) * height)
-  };
-};
-
-const getCroppedImage = async (
-  imageSrc: string,
-  pixelCrop: Area,
-  rotation: number,
-  flip: { horizontal: boolean; vertical: boolean },
-  outputSize: { width: number; height: number }
-) => {
-  const image = await createImage(imageSrc);
-  const rotRad = getRadianAngle(rotation);
-  const { width: bboxWidth, height: bboxHeight } = rotateSize(image.width, image.height, rotation);
-
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Canvas context not available');
-
-  canvas.width = bboxWidth;
-  canvas.height = bboxHeight;
-
-  ctx.translate(bboxWidth / 2, bboxHeight / 2);
-  ctx.rotate(rotRad);
-  ctx.scale(flip.horizontal ? -1 : 1, flip.vertical ? -1 : 1);
-  ctx.translate(-image.width / 2, -image.height / 2);
-  ctx.drawImage(image, 0, 0);
-
-  const croppedCanvas = document.createElement('canvas');
-  const croppedCtx = croppedCanvas.getContext('2d');
-  if (!croppedCtx) throw new Error('Canvas context not available');
-
-  croppedCanvas.width = outputSize.width;
-  croppedCanvas.height = outputSize.height;
-
-  croppedCtx.drawImage(
-    canvas,
-    pixelCrop.x,
-    pixelCrop.y,
-    pixelCrop.width,
-    pixelCrop.height,
-    0,
-    0,
-    outputSize.width,
-    outputSize.height
-  );
-
-  return croppedCanvas.toDataURL('image/png');
-};
-
-const BackgroundCropModal = ({
-  isOpen,
-  imageSrc,
-  aspect,
-  cropSize,
-  crop,
-  zoom,
-  rotation,
-  flip,
-  onCropChange,
-  onZoomChange,
-  onRotationChange,
-  onCropAreaChange,
-  onFlipChange,
-  onCancel,
-  onConfirm,
-  isSaving,
-  lang
-}: {
-  isOpen: boolean;
-  imageSrc: string | null;
-  aspect: number;
-  cropSize: { width: number; height: number };
-  crop: { x: number; y: number };
-  zoom: number;
-  rotation: number;
-  flip: { horizontal: boolean; vertical: boolean };
-  onCropChange: (next: { x: number; y: number }) => void;
-  onZoomChange: (next: number) => void;
-  onRotationChange: (next: number) => void;
-  onCropAreaChange: (pixels: Area) => void;
-  onFlipChange: (updates: Partial<{ horizontal: boolean; vertical: boolean }>) => void;
-  onCancel: () => void;
-  onConfirm: () => void;
-  isSaving: boolean;
-  lang: Language;
-}) => {
-  if (!isOpen || !imageSrc) return null;
-  const t = translations[lang];
-  const transform = `translate(${crop.x}px, ${crop.y}px) rotate(${rotation}deg) scale(${zoom}) scaleX(${flip.horizontal ? -1 : 1}) scaleY(${flip.vertical ? -1 : 1})`;
-
-  return (
-    <div className="fixed inset-0 z-[160] flex items-center justify-center p-6 bg-slate-950/70 backdrop-blur-sm">
-      <div className="w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-5" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-100">{t.cropTitle}</h3>
-          <button type="button" onClick={onCancel} title={t.cancel} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        <div className="flex flex-col lg:flex-row gap-6">
-          <div className="flex-1 flex items-center justify-center">
-            <div
-              className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950"
-              style={{ width: cropSize.width, height: cropSize.height }}
-            >
-              <Cropper
-                image={imageSrc}
-                crop={crop}
-                zoom={zoom}
-                rotation={rotation}
-                aspect={aspect}
-                cropSize={cropSize}
-                onCropChange={onCropChange}
-                onZoomChange={onZoomChange}
-                onRotationChange={onRotationChange}
-                onCropAreaChange={(_, pixels) => onCropAreaChange(pixels)}
-                showGrid={true}
-                objectFit="cover"
-                zoomWithScroll={false}
-                transform={transform}
-                style={{
-                  containerStyle: { width: '100%', height: '100%' },
-                  cropAreaStyle: { border: '2px solid rgba(96,165,250,0.9)', boxShadow: '0 0 0 9999px rgba(2,6,23,0.55)' }
-                }}
-              />
-            </div>
-          </div>
-          <div className="w-full lg:w-64 space-y-5">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
-                <span>{t.cropZoom}</span>
-                <span>{zoom.toFixed(2)}x</span>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={3}
-                step={0.01}
-                value={zoom}
-                onChange={(e) => onZoomChange(parseFloat(e.target.value))}
-                title={t.cropZoom}
-                className="w-full accent-blue-600"
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
-                <span>{t.cropRotate}</span>
-                <span>{Math.round(rotation)}°</span>
-              </div>
-              <input
-                type="range"
-                min={-180}
-                max={180}
-                step={1}
-                value={rotation}
-                onChange={(e) => onRotationChange(parseFloat(e.target.value))}
-                title={t.cropRotate}
-                className="w-full accent-blue-600"
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="text-[10px] font-bold text-slate-500 uppercase">{t.cropMirror}</div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => onFlipChange({ horizontal: !flip.horizontal })}
-                  className={`flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all ${flip.horizontal ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
-                >
-                  <ArrowLeftRight className="w-4 h-4" />
-                  {t.cropFlipHorizontal}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onFlipChange({ vertical: !flip.vertical })}
-                  className={`flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all ${flip.vertical ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
-                >
-                  <ArrowUpDown className="w-4 h-4" />
-                  {t.cropFlipVertical}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center justify-end gap-3">
-          <button type="button" onClick={onCancel} className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors">
-            {t.cancel}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={isSaving}
-            className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-900/20 transition-all disabled:opacity-50"
-          >
-            {isSaving ? t.cropProcessing : t.cropConfirm}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// 实时预览：通过 CSS 缩放渲染封面
-const LivePreview: React.FC<{ project: ProjectState, previewRef?: React.RefObject<HTMLDivElement> }> = ({ project, previewRef }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(0);
-  const [isReady, setIsReady] = useState(false);
-
-  // 自动保存项目列表到本地缓存
-  useLayoutEffect(() => {
-    if (!containerRef.current) return;
-    const updateScale = () => {
-      if (!containerRef.current) return;
-      const { width: cw, height: ch } = containerRef.current.getBoundingClientRect();
-      const sw = (cw - 40) / project.canvasConfig.width;
-      const sh = (ch - 40) / project.canvasConfig.height;
-      const nextScale = Math.min(sw, sh);
-      setScale(prev => (Math.abs(prev - nextScale) < 0.0001 ? prev : nextScale));
-      setIsReady(true);
-    };
-    setIsReady(false);
-    updateScale();
-    const ro = new ResizeObserver(updateScale);
-    ro.observe(containerRef.current);
-    return () => ro.disconnect();
-  }, [project.canvasConfig]);
-
-  const getBackgroundStyles = (bg: BackgroundConfig): React.CSSProperties => {
-    const styles: React.CSSProperties = {};
-    let baseBackground = '';
-    if (bg.type === 'color') styles.backgroundColor = bg.value;
-    else if (bg.type === 'gradient') baseBackground = bg.value;
-    else if (bg.type === 'image') {
-      baseBackground = `url(${bg.value})`;
-      styles.backgroundSize = 'cover';
-      styles.backgroundPosition = 'center';
-    }
-
-    let patternImage = '';
-    let patternSize = '';
-    if (bg.overlayType !== 'none') {
-      const rgba = bg.overlayColor.startsWith('#') 
-        ? `${bg.overlayColor}${Math.round(bg.overlayOpacity * 255).toString(16).padStart(2, '0')}` 
-        : bg.overlayColor;
-      const s = bg.overlayScale || 20;
-      if (bg.overlayType === 'dots') patternImage = `radial-gradient(${rgba} 2px, transparent 2px)`;
-      else if (bg.overlayType === 'grid') patternImage = `linear-gradient(${rgba} 1px, transparent 1px), linear-gradient(90deg, ${rgba} 1px, transparent 1px)`;
-      else if (bg.overlayType === 'stripes') patternImage = `repeating-linear-gradient(45deg, ${rgba}, ${rgba} 2px, transparent 2px, transparent ${s/2}px)`;
-      patternSize = `${s}px ${s}px`;
-    }
-
-    const bgs: string[] = [];
-    const sizes: string[] = [];
-    if (patternImage) { bgs.push(patternImage); sizes.push(patternSize); }
-    if (baseBackground) { bgs.push(baseBackground); sizes.push(bg.type === 'image' ? 'cover' : '100% 100%'); }
-
-    if (bgs.length > 0) {
-      styles.backgroundImage = bgs.join(', ');
-      styles.backgroundSize = sizes.join(', ');
-    }
-    return styles;
-  };
-
-  return (
-    <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-[#0c0c0e] overflow-hidden relative">
-      {!isReady && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div
-            className="preview-skeleton"
-            style={{
-              width: '70%',
-              aspectRatio: `${project.canvasConfig.width} / ${project.canvasConfig.height}`
-            }}
-          />
-        </div>
-      )}
-      <div 
-        ref={previewRef}
-        style={{
-          width: project.canvasConfig.width,
-          height: project.canvasConfig.height,
-          transform: `scale(${scale})`,
-          ...getBackgroundStyles(project.background),
-          boxShadow: '0 15px 45px rgba(0,0,0,0.6)',
-          flexShrink: 0,
-          position: 'relative',
-          overflow: 'hidden',
-          opacity: isReady ? 1 : 0,
-          transition: 'opacity 120ms ease-out'
-        }}
-      >
-        {project.layers
-          .filter(l => l.visible && l.type !== 'group')
-          .sort((a, b) => a.zIndex - b.zIndex)
-          .map(layer => {
-            const align = layer.textAlign || 'center';
-            const textStyle: React.CSSProperties = {
-              fontSize: `${layer.fontSize || Math.max(12, layer.height * 0.7)}px`,
-              fontFamily: layer.fontFamily || 'Inter, sans-serif',
-              fontWeight: layer.fontWeight || 'bold',
-              wordBreak: 'break-word',
-              opacity: layer.opacity,
-              width: '100%',
-              height: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center',
-              textAlign: align,
-              lineHeight: 1.1,
-              pointerEvents: 'none',
-              padding: '0 0.5rem'
-            };
-
-            if (layer.type === 'text' && layer.writingMode === 'vertical') {
-              textStyle.writingMode = 'vertical-rl';
-              textStyle.textOrientation = 'upright';
-              textStyle.padding = '0.5rem 0';
-            }
-
-            if (layer.type === 'text' && layer.textGradient?.enabled) {
-              textStyle.backgroundImage = `linear-gradient(${layer.textGradient.angle}deg, ${layer.textGradient.from}, ${layer.textGradient.to})`;
-              textStyle.WebkitBackgroundClip = 'text';
-              textStyle.WebkitTextFillColor = 'transparent';
-              textStyle.color = 'transparent';
-            } else {
-              textStyle.color = layer.color || '#ffffff';
-            }
-
-            return (
-              <div
-                key={layer.id}
-                className="absolute"
-                style={{
-                  left: layer.x,
-                  top: layer.y,
-                  width: layer.width,
-                  height: layer.height,
-                  transform: `rotate(${layer.rotation}deg)`,
-                  zIndex: layer.zIndex,
-                }}
-              >
-                {layer.type === 'svg' ? (
-                  <div className="w-full h-full pointer-events-none overflow-hidden" style={{ color: layer.color }}>
-                    {layer.content.toLowerCase().includes('<svg')
-                      ? (
-                        <div
-                          className="w-full h-full"
-                          dangerouslySetInnerHTML={{ __html: applySvgAspectRatio(layer.content, !!layer.ratioLocked) }}
-                        />
-                      )
-                      : (
-                        <svg
-                          width="100%"
-                          height="100%"
-                          viewBox="0 0 100 100"
-                          preserveAspectRatio={layer.ratioLocked ? 'xMidYMid meet' : 'none'}
-                          dangerouslySetInnerHTML={{ __html: layer.content }}
-                        />
-                      )
-                    }
-                  </div>
-                ) : layer.type === 'text' ? (
-                  <div style={textStyle}>{layer.content}</div>
-                ) : (
-                  <img
-                    src={layer.content}
-                    className={`w-full h-full ${layer.ratioLocked ? 'object-contain' : 'object-fill'}`}
-                    style={{ opacity: layer.opacity }}
-                    alt=""
-                  />
-                )}
-              </div>
-            );
-          })}
-      </div>
-    </div>
-  );
-};
-
-const ProjectCard = ({ 
-  project, 
-  lang, 
-  onClick, 
-  onDelete, 
-  onDownloadJson, 
+// 项目卡片组件
+const ProjectCard = ({
+  project,
+  lang,
+  onClick,
+  onDelete,
+  onDownloadJson,
   onDownloadImage,
   onDuplicate
-}: { 
-  project: ProjectState, 
-  lang: Language, 
-  onClick: () => void, 
-  onDelete: (e: React.MouseEvent) => void,
-  onDownloadJson: (e: React.MouseEvent) => void,
-  onDownloadImage: (previewNode: HTMLDivElement | null, e: React.MouseEvent) => void,
-  onDuplicate: (e: React.MouseEvent) => void
+}: {
+  project: ProjectState;
+  lang: Language;
+  onClick: () => void;
+  onDelete: (e: React.MouseEvent) => void;
+  onDownloadJson: (e: React.MouseEvent) => void;
+  onDownloadImage: (previewNode: HTMLDivElement | null, e: React.MouseEvent) => void;
+  onDuplicate: (e: React.MouseEvent) => void;
 }) => {
   const t = translations[lang];
   const [isVisible, setIsVisible] = useState(false);
@@ -555,6 +141,7 @@ const ProjectCard = ({
   );
 };
 
+// 应用主组件
 const App: React.FC = () => {
   const [lang, setLang] = useState<Language>(() => getStoredLanguage('zh'));
   const t = translations[lang];
@@ -570,6 +157,11 @@ const App: React.FC = () => {
   );
   const [storageFolderName, setStorageFolderName] = useState('');
   const storageReadyRef = useRef(false);
+  const lastSavedAtRef = useRef(0);
+  const lastSavedSnapshotRef = useRef('');
+  const saveTimerRef = useRef<number | null>(null);
+  const latestProjectsRef = useRef<ProjectState[]>([]);
+  const prevViewRef = useRef<'landing' | 'editor'>('landing');
   
   const [view, setView] = useState<'landing' | 'editor'>('landing');
   const [project, setProject] = useState<ProjectState | null>(null);
@@ -657,6 +249,8 @@ const App: React.FC = () => {
         const list = await storageAdapter.listProjects();
         if (!active) return;
         setProjects(list);
+        // 记录已加载的快照，避免启动后立刻触发无意义的保存
+        lastSavedSnapshotRef.current = JSON.stringify(list);
         if (storageType === 'localfile') {
           setStorageFolderName(localFileAdapter.getFolderName());
         }
@@ -674,11 +268,64 @@ const App: React.FC = () => {
   }, [storageAdapter, storageType, localFileAdapter, t.storageLoadFailed]);
 
   useEffect(() => {
+    latestProjectsRef.current = projects;
+  }, [projects]);
+
+  const performAutoSave = useCallback((reason: 'auto' | 'leave') => {
     if (!storageReadyRef.current) return;
-    storageAdapter.saveProjects(projects).catch(() => {
+
+    const snapshot = JSON.stringify(latestProjectsRef.current);
+    // 文件内容未变化时不保存
+    if (snapshot === lastSavedSnapshotRef.current) return;
+
+    const now = Date.now();
+    if (reason === 'auto' && now - lastSavedAtRef.current < 5000) {
+      const delay = 5000 - (now - lastSavedAtRef.current);
+      if (saveTimerRef.current === null) {
+        // 延迟到 5s 后再保存最新内容
+        saveTimerRef.current = window.setTimeout(() => {
+          saveTimerRef.current = null;
+          performAutoSave('auto');
+        }, delay);
+      }
+      return;
+    }
+
+    storageAdapter.saveProjects(latestProjectsRef.current).then(() => {
+      lastSavedAtRef.current = Date.now();
+      lastSavedSnapshotRef.current = snapshot;
+    }).catch(() => {
       showToast(t.storageSaveFailed, 'error');
     });
-  }, [projects, storageAdapter, t.storageSaveFailed]);
+  }, [storageAdapter, showToast, t.storageSaveFailed]);
+
+  useEffect(() => {
+    if (saveTimerRef.current !== null) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+  }, [storageAdapter]);
+
+  useEffect(() => {
+    performAutoSave('auto');
+  }, [projects, performAutoSave]);
+
+  useEffect(() => {
+    if (prevViewRef.current === 'editor' && view !== 'editor') {
+      // 离开编辑页时强制尝试保存（跳过 5s 限制）
+      performAutoSave('leave');
+    }
+    prevViewRef.current = view;
+  }, [view, performAutoSave]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // 关闭浏览器时尝试保存最新内容
+      performAutoSave('leave');
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [performAutoSave]);
 
   useEffect(() => {
     if (project && view === 'editor') {

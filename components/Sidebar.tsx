@@ -3,9 +3,10 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { CATEGORIZED_ASSETS, PRESET_COLORS, PRESET_GRADIENTS } from '../constants.ts';
 import { BackgroundConfig, Layer, FAIconMetadata, FACategory } from '../types.ts';
 import { translations, Language } from '../translations.ts';
-import { Box, Palette, Search, Plus, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash } from 'lucide-react';
+import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash } from 'lucide-react';
 import * as yaml from 'js-yaml';
 import { normalizeSVG } from '../utils/helpers.ts';
+import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
 import {
   clearFaCache,
   clearStoredAssetFolderHandle,
@@ -54,6 +55,7 @@ interface AssetGroup {
 
 const ASSET_PAGE_SIZE = 120;
 
+// 侧边栏：资源库与背景配置。
 const Sidebar: React.FC<SidebarProps> = ({
   lang,
   onAddLayer,
@@ -331,42 +333,9 @@ const Sidebar: React.FC<SidebarProps> = ({
     onUpdateBackground({ type: newType, value: newValue });
   };
 
-  // 生成背景预览样式（含叠加纹理）
-  const getPreviewStyles = (bg: BackgroundConfig): React.CSSProperties => {
-    const styles: React.CSSProperties = {};
-    let baseBackground = '';
-    if (bg.type === 'color') styles.backgroundColor = bg.value;
-    else if (bg.type === 'gradient') baseBackground = bg.value;
-    else if (bg.type === 'image') {
-      baseBackground = `url(${bg.value})`;
-      styles.backgroundSize = 'cover';
-      styles.backgroundPosition = 'center';
-    }
-
-    let patternImage = '';
-    let patternSize = '';
-    if (bg.overlayType !== 'none') {
-      const rgba = bg.overlayColor.startsWith('#')
-        ? `${bg.overlayColor}${Math.round(bg.overlayOpacity * 255).toString(16).padStart(2, '0')}`
-        : bg.overlayColor;
-      const scale = bg.overlayScale || 20;
-      if (bg.overlayType === 'dots') patternImage = `radial-gradient(${rgba} 2px, transparent 2px)`;
-      else if (bg.overlayType === 'grid') patternImage = `linear-gradient(${rgba} 1px, transparent 1px), linear-gradient(90deg, ${rgba} 1px, transparent 1px)`;
-      else if (bg.overlayType === 'stripes') patternImage = `repeating-linear-gradient(45deg, ${rgba}, ${rgba} 2px, transparent 2px, transparent ${scale / 2}px)`;
-      patternSize = `${scale / 5}px ${scale / 5}px`;
-    }
-
-    const backgroundImages: string[] = [];
-    const backgroundSizes: string[] = [];
-    if (patternImage) { backgroundImages.push(patternImage); backgroundSizes.push(patternSize); }
-    if (baseBackground) { backgroundImages.push(baseBackground); backgroundSizes.push(bg.type === 'image' ? 'cover' : '100% 100%'); }
-
-    if (backgroundImages.length > 0) {
-      styles.backgroundImage = backgroundImages.join(', ');
-      styles.backgroundSize = backgroundSizes.join(', ');
-    }
-    return styles;
-  };
+  // 生成背景预览样式（缩放纹理密度）
+  const getPreviewStyles = (bg: BackgroundConfig): React.CSSProperties =>
+    buildBackgroundStyles(bg, { patternScale: 0.2 });
 
   const combinedAssetGroups = useMemo<AssetGroup[]>(() => {
     const baseGroups: AssetGroup[] = CATEGORIZED_ASSETS.map(group => ({

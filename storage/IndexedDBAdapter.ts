@@ -39,6 +39,7 @@ const replaceAllProjects = async (projects: ProjectState[]) => {
   });
 };
 
+// IndexedDB 存储适配器。
 export class IndexedDBAdapter implements StorageAdapter {
   type: StorageAdapterType = 'indexeddb';
 
@@ -57,4 +58,5 @@ export class IndexedDBAdapter implements StorageAdapter {
   };
 }
 
+// 创建 IndexedDB 适配器实例。
 export const createIndexedDBAdapter = () => new IndexedDBAdapter();

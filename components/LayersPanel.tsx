@@ -59,6 +59,7 @@ const FONT_WEIGHTS = [
 
 const isChineseText = (text: string) => /[\u4e00-\u9fa5]/.test(text);
 
+// 图层面板与属性编辑组件。
 const LayersPanel: React.FC<LayersPanelProps> = ({
   lang,
   project,

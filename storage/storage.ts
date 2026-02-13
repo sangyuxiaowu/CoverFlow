@@ -19,26 +19,32 @@ const safeJsonParse = <T,>(value: string | null, fallback: T): T => {
   }
 };
 
+// 读取本地存储的语言设置。
 export const getStoredLanguage = (fallback: Language = 'zh') => {
   return (localStorage.getItem(LANG_KEY) as Language) || fallback;
 };
 
+// 写入本地存储的语言设置。
 export const setStoredLanguage = (lang: Language) => {
   localStorage.setItem(LANG_KEY, lang);
 };
 
+// 读取本地存储的存储类型。
 export const getStoredStorageType = (fallback: StorageAdapterType = 'indexeddb') => {
   return (localStorage.getItem(STORAGE_TYPE_KEY) as StorageAdapterType) || fallback;
 };
 
+// 写入本地存储的存储类型。
 export const setStoredStorageType = (storageType: StorageAdapterType) => {
   localStorage.setItem(STORAGE_TYPE_KEY, storageType);
 };
 
+// 读取背景预设列表。
 export const getStoredBackgroundPresets = () => {
   return safeJsonParse<BackgroundConfig[]>(localStorage.getItem(BG_PRESETS_KEY), []);
 };
 
+// 保存背景预设列表。
 export const setStoredBackgroundPresets = (presets: BackgroundConfig[]) => {
   localStorage.setItem(BG_PRESETS_KEY, JSON.stringify(presets));
 };
@@ -92,10 +98,15 @@ const removeFaCacheItem = async (key: string) => {
   });
 };
 
+// 读取 Font Awesome 图标缓存。
 export const getFaIconsCache = () => getFaCacheItem<Record<string, FAIconMetadata>>(FA_KEY_ICONS);
+// 读取 Font Awesome 分类缓存。
 export const getFaCategoriesCache = () => getFaCacheItem<Record<string, FACategory>>(FA_KEY_CATS);
+// 写入 Font Awesome 图标缓存。
 export const setFaIconsCache = (data: Record<string, FAIconMetadata>) => setFaCacheItem(FA_KEY_ICONS, data);
+// 写入 Font Awesome 分类缓存。
 export const setFaCategoriesCache = (data: Record<string, FACategory>) => setFaCacheItem(FA_KEY_CATS, data);
+// 清空 Font Awesome 缓存。
 export const clearFaCache = async () => {
   await Promise.all([removeFaCacheItem(FA_KEY_ICONS), removeFaCacheItem(FA_KEY_CATS)]);
 };
@@ -115,8 +126,10 @@ const openFsHandleDb = () => new Promise<IDBDatabase>((resolve, reject) => {
   request.onerror = () => reject(request.error);
 });
 
+// 判断是否支持选择资产文件夹。
 export const isAssetFolderSupported = () => typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
+// 让用户选择资产文件夹句柄。
 export const pickAssetFolderHandle = async () => {
   if (!isAssetFolderSupported()) return null;
   const picker = (window as any).showDirectoryPicker;
@@ -124,6 +137,7 @@ export const pickAssetFolderHandle = async () => {
   return picker();
 };
 
+// 读取已保存的资产文件夹句柄。
 export const getStoredAssetFolderHandle = async () => {
   const db = await openFsHandleDb();
   return new Promise<FileSystemDirectoryHandle | null>((resolve, reject) => {
@@ -135,6 +149,7 @@ export const getStoredAssetFolderHandle = async () => {
   });
 };
 
+// 保存资产文件夹句柄。
 export const setStoredAssetFolderHandle = async (handle: FileSystemDirectoryHandle) => {
   const db = await openFsHandleDb();
   return new Promise<void>((resolve, reject) => {
@@ -146,6 +161,7 @@ export const setStoredAssetFolderHandle = async (handle: FileSystemDirectoryHand
   });
 };
 
+// 清除资产文件夹句柄。
 export const clearStoredAssetFolderHandle = async () => {
   const db = await openFsHandleDb();
   return new Promise<void>((resolve, reject) => {
@@ -176,6 +192,7 @@ const parseGroupName = (folderName: string) => {
   return { en, zh };
 };
 
+// 校验并可选请求文件夹权限。
 export const verifyAssetFolderPermission = async (
   handle: FileSystemDirectoryHandle,
   request: boolean,
@@ -187,6 +204,7 @@ export const verifyAssetFolderPermission = async (
   return (await handle.requestPermission(options)) === 'granted';
 };
 
+// 扫描资产文件夹并按分类聚合。
 export const scanAssetFolder = async (handle: FileSystemDirectoryHandle) => {
   const groupsMap = new Map<string, AssetFolderGroup>();
 

@@ -878,7 +878,7 @@ const App: React.FC = () => {
     try { 
       const { width, height } = targetProject.canvasConfig;
       const dataUrl = await htmlToImage.toPng(previewNode, {
-        pixelRatio: 2,
+        pixelRatio: 1,
         width,
         height,
         style: {

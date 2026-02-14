@@ -178,7 +178,31 @@ export const translations = {
     loadingMore: "继续加载...",
     confirmDeleteShort: "确定删除？",
     faMetadataParseError: "解析 icon-families.json 失败",
-    faCategoriesParseError: "解析 categories.yml 失败"
+    faCategoriesParseError: "解析 categories.yml 失败",
+    help: "帮助",
+    helpShortcutsTitle: "快捷键",
+    helpResourcesTitle: "资源推荐",
+    helpShortcuts: [
+      { keys: "Delete / Backspace", desc: "删除选中图层" },
+      { keys: "Arrow Keys", desc: "1px 移动" },
+      { keys: "Shift + Arrow", desc: "10px 移动" },
+      { keys: "Ctrl + J", desc: "克隆选中图层" },
+      { keys: "Ctrl + G", desc: "组合图层" },
+      { keys: "Ctrl + 上下", desc: "调整图层层级" },
+      { keys: "Ctrl + 左右", desc: "调整旋转角度" },
+      { keys: "Enter", desc: "编辑文本图层" },
+      { keys: "Ctrl + Z", desc: "撤销" },
+      { keys: "Ctrl + Y", desc: "重做" },
+      { keys: "Ctrl + S", desc: "保存项目" }
+    ],
+    helpResources: [
+      { name: "Hero Patterns", url: "https://www.heropatterns.com/", desc: "免费 SVG 背景图案" },
+      { name: "Fluent UI Emoji", url: "https://github.com/microsoft/fluentui-emoji", desc: "免费表情图标" },
+      { name: "SVG Repo", url: "https://www.svgrepo.com/", desc: "大量免费 SVG 图标与插画" },
+      { name: "Font Awesome", url: "https://fontawesome.com/", desc: "丰富的图标库" },
+      { name: "Pixabay Vectors", url: "https://pixabay.com/zh/vectors/", desc: "免费矢量图资源" },
+      { name: "Iconfont", url: "https://www.iconfont.cn/", desc: "阿里巴巴矢量图标库" }
+    ]
   },
   en: {
     title: "CoverFlow",
@@ -358,7 +382,31 @@ export const translations = {
     loadingMore: "Loading more...",
     confirmDeleteShort: "CONFIRM?",
     faMetadataParseError: "Error parsing icon-families.json",
-    faCategoriesParseError: "Error parsing categories.yml"
+    faCategoriesParseError: "Error parsing categories.yml",
+    help: "Help",
+    helpShortcutsTitle: "Shortcuts",
+    helpResourcesTitle: "Resources",
+    helpShortcuts: [
+      { keys: "Delete / Backspace", desc: "Delete selected layer" },
+      { keys: "Arrow Keys", desc: "Move by 1px" },
+      { keys: "Shift + Arrow", desc: "Move by 10px" },
+      { keys: "Ctrl + J", desc: "Duplicate selected layer" },
+      { keys: "Ctrl + G", desc: "Group layers" },
+      { keys: "Ctrl + Up/Down", desc: "Change layer order" },
+      { keys: "Ctrl + Left/Right", desc: "Rotate 15 degrees" },
+      { keys: "Enter", desc: "Edit text layer" },
+      { keys: "Ctrl + Z", desc: "Undo" },
+      { keys: "Ctrl + Y", desc: "Redo" },
+      { keys: "Ctrl + S", desc: "Save project" }
+    ],
+    helpResources: [
+      { name: "Hero Patterns", url: "https://www.heropatterns.com/", desc: "Free SVG background patterns" },
+      { name: "Fluent UI Emoji", url: "https://github.com/microsoft/fluentui-emoji", desc: "Free emoji icons" },
+      { name: "SVG Repo", url: "https://www.svgrepo.com/", desc: "Free SVG icons and illustrations" },
+      { name: "Font Awesome", url: "https://fontawesome.com/", desc: "Icon library" },
+      { name: "Pixabay Vectors", url: "https://pixabay.com/zh/vectors/", desc: "Free vector resources" },
+      { name: "Iconfont", url: "https://www.iconfont.cn/", desc: "Alibaba vector icons" }
+    ]
   }
 };
 

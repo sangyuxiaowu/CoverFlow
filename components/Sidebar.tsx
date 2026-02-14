@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { CATEGORIZED_ASSETS, PRESET_COLORS, PRESET_GRADIENTS } from '../constants.ts';
 import { BackgroundConfig, Layer, FAIconMetadata, FACategory } from '../types.ts';
 import { translations, Language } from '../translations.ts';
-import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash } from 'lucide-react';
+import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash, HelpCircle, Keyboard } from 'lucide-react';
 import * as yaml from 'js-yaml';
 import { normalizeSVG } from '../utils/helpers.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
@@ -916,6 +916,48 @@ const Sidebar: React.FC<SidebarProps> = ({
     );
   };
 
+  const renderHelp = () => (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+          <Keyboard className="w-3.5 h-3.5" /> {t.helpShortcutsTitle}
+        </h3>
+        <div className="grid grid-cols-1 gap-1.5">
+          {t.helpShortcuts.map(item => (
+            <div key={item.keys} className="flex items-center justify-between gap-3 bg-slate-900/60 border border-slate-800 rounded-md px-2 py-1.5">
+              <span className="text-[9px] text-slate-300 font-bold uppercase tracking-wider">{item.desc}</span>
+              <span className="text-[9px] text-slate-400 font-mono bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700 whitespace-nowrap">
+                {item.keys}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-1.5 pt-2">
+        <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+          <ExternalLink className="w-3.5 h-3.5" /> {t.helpResourcesTitle}
+        </h3>
+        <div className="grid grid-cols-1 gap-1.5">
+          {t.helpResources.map(item => (
+            <a
+              key={item.url}
+              href={item.url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-between gap-3 bg-slate-900/60 border border-slate-800 rounded-md px-2 py-1.5 hover:border-blue-500/60 transition-colors"
+            >
+              <div className="flex flex-col gap-0.5 min-w-0">
+                <span className="text-[9px] text-slate-200 font-bold truncate">{item.name}</span>
+                <span className="text-[8px] text-slate-500 truncate">{item.desc}</span>
+              </div>
+              <ExternalLink className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+            </a>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="w-72 flex bg-slate-900 border-r border-slate-800 flex-shrink-0 relative h-full">
       <div className="w-14 border-r border-slate-800 flex flex-col items-center py-5 gap-4 flex-shrink-0">
@@ -940,12 +982,25 @@ const Sidebar: React.FC<SidebarProps> = ({
         >
           <Palette className="w-5 h-5" />
         </button>
+        <button
+          title={t.help}
+          onClick={() => setActiveTab('help')}
+          className={`p-2.5 rounded-lg transition-all ${activeTab === 'help' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
+        >
+          <HelpCircle className="w-5 h-5" />
+        </button>
       </div>
 
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         <div className="p-5 pb-2 border-b border-slate-800/50 flex items-center justify-between">
           <h2 className="text-base font-bold flex items-center gap-2 text-slate-100 uppercase tracking-tighter">
-            {activeTab === 'assets' ? t.assets : activeTab === 'fa' ? t.fontAwesome : t.layout}
+            {activeTab === 'assets'
+              ? t.assets
+              : activeTab === 'fa'
+                ? t.fontAwesome
+                : activeTab === 'layout'
+                  ? t.layout
+                  : t.help}
           </h2>
           {activeTab === 'assets' && !isLocalFileStorage && (
             <button
@@ -967,7 +1022,13 @@ const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
         <div className="flex-1 overflow-y-auto p-5 scrollbar-hide">
-          {activeTab === 'assets' ? renderResources() : activeTab === 'fa' ? renderFontAwesome() : renderBackgroundSettings()}
+          {activeTab === 'assets'
+            ? renderResources()
+            : activeTab === 'fa'
+              ? renderFontAwesome()
+              : activeTab === 'layout'
+                ? renderBackgroundSettings()
+                : renderHelp()}
         </div>
 
         {activeTab === 'layout' && (

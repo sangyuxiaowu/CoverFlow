@@ -14,7 +14,10 @@ if (status) {
   const dirtyFiles = status
     .split("\n")
     .filter(Boolean)
-    .map((line) => line.slice(3).trim());
+    .map((line) => {
+      const match = line.match(/^..\s+(.*)$/);
+      return (match ? match[1] : line).trim();
+    });
   const allowed = new Set(["package.json"]);
   const disallowed = dirtyFiles.filter((file) => !allowed.has(file));
   if (disallowed.length > 0) {

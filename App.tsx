@@ -1930,7 +1930,7 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
         lang={lang}
       />
       <header className="h-14 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between px-6 z-50">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-1 min-w-0">
           <button
             onClick={() => {
               performAutoSave('leave');
@@ -1941,8 +1941,12 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
           >
             <ArrowLeft className="w-5 h-5 text-slate-400" />
           </button>
-          <div className="flex items-center gap-2">
-            <input value={project.title} onChange={(e) => modifyProject(p => ({ ...p, title: e.target.value }))} className="bg-transparent font-bold text-sm outline-none hover:bg-slate-800 rounded px-1" />
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <input
+              value={project.title}
+              onChange={(e) => modifyProject(p => ({ ...p, title: e.target.value }))}
+              className="bg-transparent font-bold text-sm outline-none hover:bg-slate-800 rounded px-1 w-full max-w-sm"
+            />
           </div>
         </div>
         <div className="flex items-center gap-2">

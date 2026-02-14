@@ -62,9 +62,19 @@ export class CloudAdapter implements StorageAdapter {
     };
   };
 
-  saveProjects = async (projects: ProjectState[]) => {
+  saveProject = async (project: ProjectState) => {
     if (!this.isAvailable()) return;
-    saveProjects(projects);
+    const all = loadProjects();
+    const idx = all.findIndex(item => item.id === project.id);
+    if (idx >= 0) all[idx] = project;
+    else all.unshift(project);
+    saveProjects(all);
+  };
+
+  deleteProject = async (projectId: string) => {
+    if (!this.isAvailable()) return;
+    const next = loadProjects().filter(item => item.id !== projectId);
+    saveProjects(next);
   };
 }
 

@@ -1,19 +1,13 @@
 import { ProjectState } from '../types.ts';
-import { StorageAdapter, StorageAdapterType } from './StorageAdapter.ts';
+import { ListProjectsOptions, StorageAdapter, StorageAdapterType } from './StorageAdapter.ts';
 
 const FS_DB_NAME = 'coverflow_fs_handles_v1';
 const FS_STORE_NAME = 'handles';
 const FS_PROJECT_KEY = 'projectStorageFolder';
-const CONFIG_FILE = 'config.json';
 const DATA_DIR = 'data';
 const FONT_DIR = 'font';
 const LIB_DIR = 'lib';
 const PROJECT_FILE_EXT = 'cfj';
-
-type LocalFileConfig = {
-  version: number;
-  projects: Array<{ id: string; title: string; updatedAt: number; fileName: string }>;
-};
 
 const openFsHandleDb = () => new Promise<IDBDatabase>((resolve, reject) => {
   const request = indexedDB.open(FS_DB_NAME, 1);
@@ -96,63 +90,107 @@ export class LocalFileAdapter implements StorageAdapter {
     return true;
   };
 
-  listProjects = async () => {
+  listProjects = async (options?: ListProjectsOptions) => {
     const ready = await this.ensureReady({ prompt: false });
     if (!ready || !this.rootHandle) return { items: [], total: 0 };
 
-    const config = await this.readConfig(this.rootHandle);
     const dataHandle = await this.rootHandle.getDirectoryHandle(DATA_DIR, { create: true });
-    const projects: ProjectState[] = [];
+    const entries: Array<{ handle: FileSystemFileHandle; lastModified: number }> = [];
 
-    for (const item of config.projects) {
+    for await (const entry of dataHandle.values()) {
+      if (entry.kind !== 'file') continue;
+      if (!entry.name.toLowerCase().endsWith(`.${PROJECT_FILE_EXT}`)) continue;
       try {
-        const fileHandle = await dataHandle.getFileHandle(item.fileName);
-        const text = await readFileText(fileHandle);
-        projects.push(JSON.parse(text) as ProjectState);
+        const file = await entry.getFile();
+        entries.push({ handle: entry, lastModified: file.lastModified });
       } catch (err) {
-        // Skip invalid or missing entries
+        // Skip unreadable entries
       }
     }
 
-    return { items: projects, total: projects.length };
+    const sorted = entries.sort((a, b) => b.lastModified - a.lastModified);
+    const query = options?.query?.trim().toLowerCase() || '';
+
+    if (!options && !query) {
+      const projects: ProjectState[] = [];
+      for (const item of sorted) {
+        try {
+          const text = await readFileText(item.handle);
+          projects.push(JSON.parse(text) as ProjectState);
+        } catch (err) {
+          // Skip invalid entries
+        }
+      }
+      return { items: projects, total: projects.length };
+    }
+
+    if (query) {
+      const filtered: Array<{ project: ProjectState; lastModified: number }> = [];
+      for (const item of sorted) {
+        try {
+          const text = await readFileText(item.handle);
+          const parsed = JSON.parse(text) as ProjectState;
+          if (!parsed?.title) continue;
+          if (parsed.title.toLowerCase().includes(query)) {
+            filtered.push({ project: parsed, lastModified: item.lastModified });
+          }
+        } catch (err) {
+          // Skip invalid entries
+        }
+      }
+      const page = options?.page ?? 1;
+      const pageSize = options?.pageSize ?? 20;
+      const start = (page - 1) * pageSize;
+      const end = start + pageSize;
+      return {
+        items: filtered.slice(start, end).map(item => item.project),
+        total: filtered.length
+      };
+    }
+
+    const page = options?.page ?? 1;
+    const pageSize = options?.pageSize ?? 20;
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
+    const pageEntries = sorted.slice(start, end);
+    const pageProjects: ProjectState[] = [];
+
+    for (const item of pageEntries) {
+      try {
+        const text = await readFileText(item.handle);
+        pageProjects.push(JSON.parse(text) as ProjectState);
+      } catch (err) {
+        // Skip invalid entries
+      }
+    }
+
+    return { items: pageProjects, total: sorted.length };
   };
 
-  saveProjects = async (projects: ProjectState[]) => {
+  saveProject = async (project: ProjectState) => {
     const ready = await this.ensureReady({ prompt: false });
     if (!ready || !this.rootHandle) return;
 
     this.writeQueue = this.writeQueue.then(async () => {
       const dataHandle = await this.rootHandle!.getDirectoryHandle(DATA_DIR, { create: true });
-      const nextConfig: LocalFileConfig = {
-        version: 1,
-        projects: projects.map(project => ({
-          id: project.id,
-          title: project.title,
-          updatedAt: project.updatedAt,
-          fileName: `${project.id}.${PROJECT_FILE_EXT}`
-        }))
-      };
+      const fileHandle = await dataHandle.getFileHandle(`${project.id}.${PROJECT_FILE_EXT}`, { create: true });
+      await writeFileText(fileHandle, JSON.stringify(project, null, 2));
+    });
 
-      const prevConfig = await this.readConfig(this.rootHandle!);
-      const prevFiles = new Set(prevConfig.projects.map(item => item.fileName));
-      const nextFiles = new Set(nextConfig.projects.map(item => item.fileName));
+    return this.writeQueue;
+  };
 
-      for (const project of projects) {
-        const fileHandle = await dataHandle.getFileHandle(`${project.id}.${PROJECT_FILE_EXT}`, { create: true });
-        await writeFileText(fileHandle, JSON.stringify(project, null, 2));
+  deleteProject = async (projectId: string) => {
+    const ready = await this.ensureReady({ prompt: false });
+    if (!ready || !this.rootHandle) return;
+
+    this.writeQueue = this.writeQueue.then(async () => {
+      const dataHandle = await this.rootHandle!.getDirectoryHandle(DATA_DIR, { create: true });
+      try {
+        await dataHandle.removeEntry(`${projectId}.${PROJECT_FILE_EXT}`);
+      } catch (err) {
+        // Ignore delete failures
       }
-
-      for (const fileName of prevFiles) {
-        if (!nextFiles.has(fileName)) {
-          try {
-            await dataHandle.removeEntry(fileName);
-          } catch (err) {
-            // Ignore delete failures
-          }
-        }
-      }
-
-      await this.writeConfig(this.rootHandle!, nextConfig);
     });
 
     return this.writeQueue;
@@ -169,31 +207,6 @@ export class LocalFileAdapter implements StorageAdapter {
     await handle.getDirectoryHandle(DATA_DIR, { create: true });
     await handle.getDirectoryHandle(FONT_DIR, { create: true });
     await handle.getDirectoryHandle(LIB_DIR, { create: true });
-
-    const configHandle = await handle.getFileHandle(CONFIG_FILE, { create: true });
-    const file = await configHandle.getFile();
-    if (file.size === 0) {
-      const config: LocalFileConfig = { version: 1, projects: [] };
-      await writeFileText(configHandle, JSON.stringify(config, null, 2));
-    }
-  };
-
-  private readConfig = async (handle: FileSystemDirectoryHandle): Promise<LocalFileConfig> => {
-    try {
-      const configHandle = await handle.getFileHandle(CONFIG_FILE, { create: true });
-      const text = await readFileText(configHandle);
-      if (!text.trim()) return { version: 1, projects: [] };
-      const parsed = JSON.parse(text) as LocalFileConfig;
-      if (!parsed.projects) return { version: 1, projects: [] };
-      return parsed;
-    } catch (err) {
-      return { version: 1, projects: [] };
-    }
-  };
-
-  private writeConfig = async (handle: FileSystemDirectoryHandle, config: LocalFileConfig) => {
-    const configHandle = await handle.getFileHandle(CONFIG_FILE, { create: true });
-    await writeFileText(configHandle, JSON.stringify(config, null, 2));
   };
 }
 

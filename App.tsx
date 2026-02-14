@@ -168,8 +168,9 @@ const App: React.FC = () => {
   const storageReadyRef = useRef(false);
   const lastSavedAtRef = useRef(0);
   const lastSavedSnapshotRef = useRef('');
+  const lastSavedProjectIdRef = useRef<string | null>(null);
   const saveTimerRef = useRef<number | null>(null);
-  const latestProjectsRef = useRef<ProjectState[]>([]);
+  const latestProjectRef = useRef<ProjectState | null>(null);
   const prevViewRef = useRef<'landing' | 'editor'>('landing');
   
   const [view, setView] = useState<'landing' | 'editor'>('landing');
@@ -273,7 +274,6 @@ const App: React.FC = () => {
       });
       setProjects(prev => {
         const next = replace ? result.items : [...prev, ...result.items];
-        lastSavedSnapshotRef.current = JSON.stringify(next);
         return next;
       });
       setCloudPage(page);
@@ -309,8 +309,6 @@ const App: React.FC = () => {
         const list = await storageAdapter.listProjects();
         if (!active) return;
         setProjects(list.items);
-        // 记录已加载的快照，避免启动后立刻触发无意义的保存
-        lastSavedSnapshotRef.current = JSON.stringify(list.items);
         if (storageType === 'localfile') {
           setStorageFolderName(localFileAdapter.getFolderName());
         }
@@ -328,14 +326,24 @@ const App: React.FC = () => {
   }, [storageAdapter, storageType, localFileAdapter, t.storageLoadFailed, isCloudMode, showToast]);
 
   useEffect(() => {
-    latestProjectsRef.current = projects;
-  }, [projects]);
+    latestProjectRef.current = project;
+    if (!project) {
+      lastSavedProjectIdRef.current = null;
+      lastSavedSnapshotRef.current = '';
+      return;
+    }
+    if (lastSavedProjectIdRef.current !== project.id) {
+      lastSavedProjectIdRef.current = project.id;
+      lastSavedSnapshotRef.current = JSON.stringify(project);
+    }
+  }, [project]);
 
   const performAutoSave = useCallback((reason: 'auto' | 'leave' | 'manual') => {
     if (!storageReadyRef.current) return;
+    const currentProject = latestProjectRef.current;
+    if (!currentProject) return;
 
-    const snapshot = JSON.stringify(latestProjectsRef.current);
-    // 文件内容未变化时不保存
+    const snapshot = JSON.stringify(currentProject);
     if (snapshot === lastSavedSnapshotRef.current) return;
 
     const now = Date.now();
@@ -351,8 +359,9 @@ const App: React.FC = () => {
       return;
     }
 
-    storageAdapter.saveProjects(latestProjectsRef.current).then(() => {
+    storageAdapter.saveProject(currentProject).then(() => {
       lastSavedAtRef.current = Date.now();
+      lastSavedProjectIdRef.current = currentProject.id;
       lastSavedSnapshotRef.current = snapshot;
       if (reason === 'manual') {
         showToast(t.save || 'Saved');
@@ -361,6 +370,33 @@ const App: React.FC = () => {
       showToast(t.storageSaveFailed, 'error');
     });
   }, [storageAdapter, showToast, t.storageSaveFailed]);
+
+  const persistProject = useCallback(async (nextProject: ProjectState) => {
+    try {
+      await storageAdapter.saveProject(nextProject);
+      lastSavedProjectIdRef.current = nextProject.id;
+      lastSavedSnapshotRef.current = JSON.stringify(nextProject);
+    } catch (err) {
+      showToast(t.storageSaveFailed, 'error');
+    }
+  }, [storageAdapter, showToast, t.storageSaveFailed]);
+
+  const removeStoredProject = useCallback(async (projectId: string) => {
+    try {
+      await storageAdapter.deleteProject(projectId);
+    } catch (err) {
+      showToast(t.storageSaveFailed, 'error');
+    }
+  }, [storageAdapter, showToast, t.storageSaveFailed]);
+
+  const deleteProjectById = useCallback((projectId: string) => {
+    setProjects(prev => prev.filter(pr => pr.id !== projectId));
+    if (project?.id === projectId) {
+      setProject(null);
+      setView('landing');
+    }
+    removeStoredProject(projectId);
+  }, [project?.id, removeStoredProject]);
 
   useEffect(() => {
     if (saveTimerRef.current !== null) {
@@ -371,8 +407,9 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (isCloudMode) return;
+    if (view !== 'editor' || !project) return;
     performAutoSave('auto');
-  }, [projects, performAutoSave]);
+  }, [project, view, performAutoSave, isCloudMode]);
 
   useEffect(() => {
     if (prevViewRef.current === 'editor' && view !== 'editor') {
@@ -535,6 +572,7 @@ const App: React.FC = () => {
     setProjects(prev => [newProject, ...prev]);
     setView('editor');
     initProjectHistory(newProject);
+    persistProject(newProject);
   };
 
   const openPresetModal = () => {
@@ -918,6 +956,7 @@ const App: React.FC = () => {
           imported.layers = imported.layers.map(layer => ({ ...layer, id: generateId() }));
           imported.selectedLayerId = null;
           setProjects(prev => [imported, ...prev]);
+          persistProject(imported);
           showToast(t.importSuccess);
         }
       } catch (err) {
@@ -959,6 +998,7 @@ const App: React.FC = () => {
     };
 
     setProjects(prev => [duplicated, ...prev]);
+    persistProject(duplicated);
     showToast(t.importSuccess);
   };
 
@@ -1727,7 +1767,7 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
                           e.stopPropagation(); 
                           setConfirmDialog({ 
                             message: t.confirmDeleteProject, 
-                            onConfirm: () => setProjects(prev => prev.filter(pr => pr.id !== p.id))
+                              onConfirm: () => deleteProjectById(p.id)
                           }); 
                         }} 
                         onDuplicate={(e) => { e.stopPropagation(); handleDuplicateProject(p); }}

@@ -18,5 +18,6 @@ export interface StorageAdapter {
   isAvailable: () => boolean;
   ensureReady: (options?: { prompt?: boolean }) => Promise<boolean>;
   listProjects: (options?: ListProjectsOptions) => Promise<ListProjectsResult>;
-  saveProjects: (projects: ProjectState[]) => Promise<void>;
+  saveProject: (project: ProjectState) => Promise<void>;
+  deleteProject: (projectId: string) => Promise<void>;
 }

@@ -26,12 +26,23 @@ const readAllProjects = async () => {
   });
 };
 
-const replaceAllProjects = async (projects: ProjectState[]) => {
+const upsertProject = async (project: ProjectState) => {
   const db = await openIndexedDb();
   const tx = db.transaction(STORE_NAME, 'readwrite');
   const store = tx.objectStore(STORE_NAME);
-  store.clear();
-  projects.forEach(project => store.put(project));
+  store.put(project);
+  return new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+};
+
+const deleteProject = async (projectId: string) => {
+  const db = await openIndexedDb();
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  const store = tx.objectStore(STORE_NAME);
+  store.delete(projectId);
   return new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
@@ -53,9 +64,14 @@ export class IndexedDBAdapter implements StorageAdapter {
     return { items, total: items.length };
   };
 
-  saveProjects = async (projects: ProjectState[]) => {
+  saveProject = async (project: ProjectState) => {
     if (!this.isAvailable()) return;
-    await replaceAllProjects(projects);
+    await upsertProject(project);
+  };
+
+  deleteProject = async (projectId: string) => {
+    if (!this.isAvailable()) return;
+    await deleteProject(projectId);
   };
 }
 

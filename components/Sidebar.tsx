@@ -913,27 +913,27 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <div className="w-80 flex bg-slate-900 border-r border-slate-800 flex-shrink-0 relative h-full">
-      <div className="w-14 border-r border-slate-800 flex flex-col items-center py-6 gap-6 flex-shrink-0">
+      <div className="w-14 border-r border-slate-800 flex flex-col items-center py-5 gap-4 flex-shrink-0">
         <button
           title={t.assets}
           onClick={() => setActiveTab('assets')}
-          className={`p-3 rounded-xl transition-all ${activeTab === 'assets' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
+          className={`p-2.5 rounded-lg transition-all ${activeTab === 'assets' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
         >
-          <Box className="w-6 h-6" />
+          <Box className="w-5 h-5" />
         </button>
         <button
           title={t.fontAwesome}
           onClick={() => setActiveTab('fa')}
-          className={`p-3 rounded-xl transition-all ${activeTab === 'fa' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
+          className={`p-2.5 rounded-lg transition-all ${activeTab === 'fa' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
         >
-          <Flag className="w-6 h-6" />
+          <Flag className="w-5 h-5" />
         </button>
         <button
           title={t.layout}
           onClick={() => setActiveTab('layout')}
-          className={`p-3 rounded-xl transition-all ${activeTab === 'layout' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
+          className={`p-2.5 rounded-lg transition-all ${activeTab === 'layout' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
         >
-          <Palette className="w-6 h-6" />
+          <Palette className="w-5 h-5" />
         </button>
       </div>
 

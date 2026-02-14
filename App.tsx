@@ -8,6 +8,7 @@ import ConfirmModal from './components/ConfirmModal.tsx';
 import BackgroundCropModal from './components/BackgroundCropModal.tsx';
 import LivePreview from './components/LivePreview.tsx';
 import ProjectPresetModal from './components/ProjectPresetModal.tsx';
+import ExportModal from './components/ExportModal.tsx';
 import { ProjectState, Layer } from './types.ts';
 import {
   createIndexedDBAdapter,
@@ -38,6 +39,9 @@ const APP_VERSION = packageInfo.version;
 const GITHUB_REPO_URL = 'https://github.com/sangyuxiaowu/CoverFlow';
 const isCloudMode = import.meta.env.VITE_APP_MODE === 'cloud';
 const CLOUD_PAGE_SIZE = 9;
+
+type ExportFormat = 'png' | 'jpeg' | 'webp';
+type ExportCompression = 'lossless' | 'balanced' | 'small';
 
 // 项目卡片组件
 const ProjectCard = ({
@@ -186,6 +190,18 @@ const App: React.FC = () => {
     width: PRESET_RATIOS[0].width,
     height: PRESET_RATIOS[0].height
   }));
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportSettings, setExportSettings] = useState<{
+    pixelRatio: 1 | 1.5 | 2;
+    format: ExportFormat;
+    compression: ExportCompression;
+  }>({
+    pixelRatio: 1,
+    format: 'png',
+    compression: 'lossless'
+  });
+  const [exportEstimatedSize, setExportEstimatedSize] = useState<number | null>(null);
+  const [exportEstimating, setExportEstimating] = useState(false);
   
   const [history, setHistory] = useState<ProjectState[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -526,6 +542,84 @@ const App: React.FC = () => {
     setSelectedPreset(preset);
     setCustomPresetSize({ width: preset.width, height: preset.height });
     setIsPresetModalOpen(true);
+  };
+
+  const updateExportSettings = useCallback((updates: Partial<typeof exportSettings>) => {
+    setExportSettings(prev => {
+      const next = { ...prev, ...updates };
+      if (next.format === 'png') {
+        next.compression = 'lossless';
+      }
+      return next;
+    });
+  }, []);
+
+  const getExportQuality = (settings: typeof exportSettings) => {
+    if (settings.format === 'png') return undefined;
+    if (settings.compression === 'lossless') return 0.92;
+    if (settings.compression === 'balanced') return 0.8;
+    return 0.6;
+  };
+
+  const getExportFileExt = (format: ExportFormat) => (format === 'jpeg' ? 'jpg' : format);
+
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const buildExportOptions = (targetProject: ProjectState, pixelRatio: number) => {
+    const { width, height } = targetProject.canvasConfig;
+    return {
+      pixelRatio,
+      width,
+      height,
+      style: {
+        transform: 'scale(1)',
+        transformOrigin: 'top left',
+        width: `${width}px`,
+        height: `${height}px`
+      }
+    };
+  };
+
+  const canvasToBlob = (canvas: HTMLCanvasElement, type: string, quality?: number) => new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Failed to create blob'));
+    }, type, quality);
+  });
+
+  const dataUrlToBlob = async (dataUrl: string) => {
+    const res = await fetch(dataUrl);
+    return res.blob();
+  };
+
+  const buildExportBlob = async (
+    previewNode: HTMLDivElement,
+    targetProject: ProjectState,
+    settings: typeof exportSettings
+  ) => {
+    const options = buildExportOptions(targetProject, settings.pixelRatio);
+    const quality = getExportQuality(settings);
+
+    if (settings.format === 'png') {
+      const blob = await htmlToImage.toBlob(previewNode, options);
+      if (!blob) throw new Error('Export failed');
+      return blob;
+    }
+
+    if (settings.format === 'jpeg') {
+      const dataUrl = await htmlToImage.toJpeg(previewNode, { ...options, quality });
+      return dataUrlToBlob(dataUrl);
+    }
+
+    const canvas = await htmlToImage.toCanvas(previewNode, options);
+    return canvasToBlob(canvas, 'image/webp', quality);
   };
 
   const getGroupBounds = (layers: Layer[], childIds: string[]) => {
@@ -900,7 +994,11 @@ const App: React.FC = () => {
     }
   };
 
-  const handleExportImageWithDeselect = async (previewNode: HTMLDivElement | null, targetProject: ProjectState) => {
+  const handleExportImageWithDeselect = async (
+    previewNode: HTMLDivElement | null,
+    targetProject: ProjectState,
+    settings: typeof exportSettings
+  ) => {
     if (!project) return;
     const prevSelectedId = project.selectedLayerId;
     const prevSelectedIds = [...selectedLayerIds];
@@ -912,8 +1010,19 @@ const App: React.FC = () => {
     }
 
     try {
-      await handleExportImage(previewNode, targetProject);
+      if (!previewNode) {
+        showToast(t.exportPreviewMissing, "error");
+        return;
+      }
+      setIsExporting(true);
+      const blob = await buildExportBlob(previewNode, targetProject, settings);
+      const ext = getExportFileExt(settings.format);
+      downloadBlob(blob, `${targetProject.title}.${ext}`);
+      showToast(t.exportSuccess);
+    } catch (e) {
+      showToast(t.exportFailed, "error");
     } finally {
+      setIsExporting(false);
       if (prevSelectedId || prevSelectedIds.length > 0) {
         setSelectedLayerIds(prevSelectedIds);
         modifyProject(p => ({ ...p, selectedLayerId: prevSelectedId }), false);
@@ -1484,6 +1593,30 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
     return () => window.clearTimeout(handle);
   }, [projectSearchTerm, isCloudMode, loadCloudProjects]);
 
+  useEffect(() => {
+    if (!isExportModalOpen || !project) return;
+    const node = document.getElementById('export-target') as HTMLDivElement | null;
+    if (!node) return;
+
+    let cancelled = false;
+    setExportEstimating(true);
+    const handle = window.setTimeout(async () => {
+      try {
+        const blob = await buildExportBlob(node, project, exportSettings);
+        if (!cancelled) setExportEstimatedSize(blob.size);
+      } catch (err) {
+        if (!cancelled) setExportEstimatedSize(null);
+      } finally {
+        if (!cancelled) setExportEstimating(false);
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [isExportModalOpen, exportSettings, project?.id]);
+
   if (view === 'landing') {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-200 p-8 flex flex-col gap-12 max-w-8xl mx-auto h-screen overflow-hidden" style={{ maxWidth: '95%' }}>
@@ -1634,6 +1767,21 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
     <div className="flex flex-col h-screen bg-slate-950 text-slate-200 overflow-hidden">
       {toast && <Toast message={toast.msg} type={toast.type} />}
       {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
+      <ExportModal
+        isOpen={isExportModalOpen}
+        lang={lang}
+        settings={exportSettings}
+        estimatedSize={exportEstimatedSize}
+        estimating={exportEstimating}
+        onClose={() => setIsExportModalOpen(false)}
+        onChange={updateExportSettings}
+        onConfirm={() => {
+          const node = document.getElementById('export-target') as HTMLDivElement | null;
+          if (!project) return;
+          handleExportImageWithDeselect(node, project, exportSettings);
+          setIsExportModalOpen(false);
+        }}
+      />
       <BackgroundCropModal
         isOpen={Boolean(bgCropModal)}
         imageSrc={bgCropModal?.src || null}
@@ -1694,7 +1842,7 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
             <FileOutput className="w-4 h-4" />
             {t.exportJson}
           </button>
-          <button onClick={() => handleExportImageWithDeselect(document.getElementById('export-target') as HTMLDivElement, project)} disabled={isExporting} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white shadow-lg shadow-blue-900/20 disabled:opacity-50">
+          <button onClick={() => setIsExportModalOpen(true)} disabled={isExporting} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white shadow-lg shadow-blue-900/20 disabled:opacity-50">
             {isExporting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
             {t.export}
           </button>

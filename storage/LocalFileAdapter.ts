@@ -8,6 +8,7 @@ const CONFIG_FILE = 'config.json';
 const DATA_DIR = 'data';
 const FONT_DIR = 'font';
 const LIB_DIR = 'lib';
+const PROJECT_FILE_EXT = 'cfj';
 
 type LocalFileConfig = {
   version: number;
@@ -128,7 +129,7 @@ export class LocalFileAdapter implements StorageAdapter {
           id: project.id,
           title: project.title,
           updatedAt: project.updatedAt,
-          fileName: `${project.id}.json`
+          fileName: `${project.id}.${PROJECT_FILE_EXT}`
         }))
       };
 
@@ -137,7 +138,7 @@ export class LocalFileAdapter implements StorageAdapter {
       const nextFiles = new Set(nextConfig.projects.map(item => item.fileName));
 
       for (const project of projects) {
-        const fileHandle = await dataHandle.getFileHandle(`${project.id}.json`, { create: true });
+        const fileHandle = await dataHandle.getFileHandle(`${project.id}.${PROJECT_FILE_EXT}`, { create: true });
         await writeFileText(fileHandle, JSON.stringify(project, null, 2));
       }
 

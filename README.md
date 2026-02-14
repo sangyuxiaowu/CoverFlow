@@ -29,6 +29,7 @@ CoverFlow - 专业 SVG 文章封面设计器
 - [SVG Repo](https://www.svgrepo.com/) - 大量免费 SVG 图标与插画
 - [Font Awesome](https://fontawesome.com/) - 丰富的图标库（需手动加载数据）
 - [Pixabay Vectors](https://pixabay.com/zh/vectors/) - 免费矢量图资源
+- [Iconfont](https://www.iconfont.cn/) - 阿里巴巴矢量图标库
 
 ### 图标库
 

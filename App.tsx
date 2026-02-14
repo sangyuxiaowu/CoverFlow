@@ -930,7 +930,7 @@ const App: React.FC = () => {
 
   const handleExportJson = (targetProject: ProjectState) => {
     const json = JSON.stringify({ ...targetProject, version: APP_VERSION, github: GITHUB_REPO_URL }, null, 2);
-    downloadFile(json, `${targetProject.title}.json`, 'application/json');
+    downloadFile(json, `${targetProject.title}.cfj`, 'application/json');
   };
 
   const handleDuplicateProject = (targetProject: ProjectState) => {
@@ -1660,7 +1660,7 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
             <label className="flex items-center gap-2 px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 cursor-pointer transition-all">
               <Upload className="w-4 h-4 text-blue-500" />
               <span className="text-xs font-bold">{t.import}</span>
-              <input type="file" accept=".json" onChange={handleImportJson} className="hidden" />
+              <input type="file" accept=".cfj" onChange={handleImportJson} className="hidden" />
             </label>
             {!isCloudMode && (
               <button

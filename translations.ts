@@ -40,7 +40,7 @@ export const translations = {
       balanced: "平衡",
       small: "更小"
     },
-    exportJson: "导出 JSON",
+    exportJson: "导出项目",
     assets: "资源库",
     layout: "背景设置",
     layers: "图层",
@@ -217,7 +217,7 @@ export const translations = {
       balanced: "Balanced",
       small: "Smaller"
     },
-    exportJson: "Export JSON",
+    exportJson: "Export Project",
     assets: "Assets",
     layout: "Background Settings",
     layers: "Layers",

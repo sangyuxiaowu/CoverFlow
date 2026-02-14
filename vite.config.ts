@@ -6,7 +6,12 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
+    let base = env.VITE_BASE || '/';
+    if (!base.endsWith('/')) {
+      base += '/';
+    }
     return {
+      base,
       server: {
         port: 3000,
         host: '0.0.0.0',
@@ -21,19 +26,19 @@ export default defineConfig(({ mode }) => {
             name: 'CoverFlow Designer',
             short_name: 'CoverFlow',
             description: 'CoverFlow - Professional SVG cover designer',
-            start_url: '/',
-            scope: '/',
+            start_url: base,
+            scope: base,
             display: 'standalone',
             background_color: '#0f172a',
             theme_color: '#0f172a',
             icons: [
               {
-                src: '/icons/icon-192.png',
+                src: `${base}icons/icon-192.png`,
                 sizes: '192x192',
                 type: 'image/png'
               },
               {
-                src: '/icons/icon-512.png',
+                src: `${base}icons/icon-512.png`,
                 sizes: '512x512',
                 type: 'image/png'
               }

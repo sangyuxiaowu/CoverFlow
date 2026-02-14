@@ -913,7 +913,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <div className="w-80 flex bg-slate-900 border-r border-slate-800 flex-shrink-0 relative h-full">
-      <div className="w-16 border-r border-slate-800 flex flex-col items-center py-6 gap-6 flex-shrink-0">
+      <div className="w-14 border-r border-slate-800 flex flex-col items-center py-6 gap-6 flex-shrink-0">
         <button
           title={t.assets}
           onClick={() => setActiveTab('assets')}

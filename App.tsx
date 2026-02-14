@@ -1486,7 +1486,7 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
 
   if (view === 'landing') {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-200 p-8 md:p-16 flex flex-col gap-12 max-w-7xl mx-auto h-screen overflow-hidden">
+      <div className="min-h-screen bg-slate-950 text-slate-200 p-8 flex flex-col gap-12 max-w-8xl mx-auto h-screen overflow-hidden" style={{ maxWidth: '95%' }}>
         {toast && <Toast message={toast.msg} type={toast.type} />}
         {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
         {!isCloudMode && renderStorageSettingsModal()}
@@ -1579,7 +1579,7 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
                     <span>{group.label}</span>
                     <div className="flex-1 h-px bg-slate-900"></div>
                   </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
                     {group.items.map(p => (
                       <ProjectCard 
                         key={p.id} 

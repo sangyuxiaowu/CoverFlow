@@ -137,4 +137,5 @@ npm run preview
 许可协议
 --------
 
-Apache License 2.0
+AGPL-3.0-or-later
+

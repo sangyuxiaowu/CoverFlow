@@ -1,5 +1,5 @@
 // 模块：图层面板与属性检查器
-import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo, useLayoutEffect } from 'react';
 import { Layer, ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
 import { PRESET_COLORS, TEXT_GRADIENT_PRESETS } from '../constants.ts';
@@ -90,7 +90,11 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   const [isFontPickerOpen, setIsFontPickerOpen] = useState(false);
   const [isWeightPickerOpen, setIsWeightPickerOpen] = useState(false);
   const fontPickerRef = useRef<HTMLDivElement>(null);
+  const fontButtonRef = useRef<HTMLButtonElement>(null);
   const weightPickerRef = useRef<HTMLDivElement>(null);
+  const weightButtonRef = useRef<HTMLButtonElement>(null);
+  const [fontPickerPos, setFontPickerPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [weightPickerPos, setWeightPickerPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; layerId: string } | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -384,6 +388,47 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
     return val.replace(/"/g, '').split(',')[0];
   }, [selectedLayer, localFonts]);
 
+  const getDropdownTop = (rect: DOMRect, height: number) => {
+    const padding = 8;
+    const fitsBelow = rect.bottom + height <= window.innerHeight - padding;
+    return fitsBelow ? rect.bottom + 4 : Math.max(padding, rect.top - height - 4);
+  };
+
+  useLayoutEffect(() => {
+    if (!isFontPickerOpen) return;
+    const updatePos = () => {
+      const rect = fontButtonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setFontPickerPos({
+        top: getDropdownTop(rect, 360),
+        left: rect.left,
+        width: Math.max(rect.width, 240)
+      });
+    };
+    updatePos();
+    window.addEventListener('resize', updatePos);
+    return () => window.removeEventListener('resize', updatePos);
+  }, [isFontPickerOpen]);
+
+  useLayoutEffect(() => {
+    if (!isWeightPickerOpen) return;
+    const updatePos = () => {
+      const rect = weightButtonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const padding = 8;
+      const width = Math.min(Math.max(rect.width, 160), 220);
+      const maxLeft = Math.max(padding, window.innerWidth - width - padding);
+      setWeightPickerPos({
+        top: getDropdownTop(rect, 260),
+        left: Math.min(rect.left, maxLeft),
+        width
+      });
+    };
+    updatePos();
+    window.addEventListener('resize', updatePos);
+    return () => window.removeEventListener('resize', updatePos);
+  }, [isWeightPickerOpen]);
+
   return (
     <div className="w-72 bg-slate-900 border-l border-slate-800 flex flex-col flex-shrink-0 shadow-2xl relative z-20 h-full">
       {/* 属性检查器区域 */}
@@ -482,6 +527,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                       <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.fontFamily}</label>
                       <div className="relative" ref={fontPickerRef}>
                         <button 
+                          ref={fontButtonRef}
                           onClick={() => setIsFontPickerOpen(!isFontPickerOpen)}
                           className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 focus:border-blue-500 outline-none transition-colors text-left flex items-center justify-between"
                         >
@@ -489,8 +535,11 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                           <ChevronDown className="w-3 h-3 opacity-50" />
                         </button>
                         
-                        {isFontPickerOpen && (
-                          <div className="absolute top-full left-0 w-64 mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-[100] flex flex-col max-h-80 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-200">
+                        {isFontPickerOpen && fontPickerPos && (
+                          <div
+                            className="fixed bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-[200] flex flex-col max-h-80 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-200"
+                            style={{ top: fontPickerPos.top, left: fontPickerPos.left, width: fontPickerPos.width }}
+                          >
                             <div className="p-2 border-b border-slate-800 flex items-center gap-2">
                               <Search className="w-3.5 h-3.5 text-slate-500" />
                               <input 
@@ -530,6 +579,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                       <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.fontWeight}</label>
                       <div className="relative" ref={weightPickerRef}>
                         <button
+                          ref={weightButtonRef}
                           onClick={() => setIsWeightPickerOpen(!isWeightPickerOpen)}
                           className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 focus:border-blue-500 outline-none transition-colors text-left flex items-center justify-between"
                         >
@@ -539,8 +589,11 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                           <ChevronDown className="w-3 h-3 opacity-50" />
                         </button>
 
-                        {isWeightPickerOpen && (
-                          <div className="absolute top-full left-0 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-1 duration-200">
+                        {isWeightPickerOpen && weightPickerPos && (
+                          <div
+                            className="fixed bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-[200] overflow-hidden animate-in fade-in slide-in-from-top-1 duration-200"
+                            style={{ top: weightPickerPos.top, left: weightPickerPos.left, width: weightPickerPos.width }}
+                          >
                             <div className="max-h-56 overflow-y-auto custom-scrollbar p-1">
                               {FONT_WEIGHTS.map(w => (
                                 <button

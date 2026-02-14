@@ -5,7 +5,7 @@
   "identifier": "com.sangyuxiaowu.coverflow",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://localhost:3000",
     "beforeDevCommand": "npm run dev -- --mode tauri",
     "beforeBuildCommand": "npm run build -- --mode tauri"
   },

@@ -9,6 +9,8 @@ import BackgroundCropModal from './components/BackgroundCropModal.tsx';
 import LivePreview from './components/LivePreview.tsx';
 import ProjectPresetModal from './components/ProjectPresetModal.tsx';
 import ExportModal from './components/ExportModal.tsx';
+// Tauri 环境下的本地文件适配器
+import { useLocalProjects, type RecentProjectItem } from './hooks/useLocalProjects.ts';
 import { ProjectState, Layer } from './types.ts';
 import {
   createIndexedDBAdapter,
@@ -28,7 +30,7 @@ import { type Area } from 'react-easy-crop';
 import { 
   Download, Trash2, Plus, ArrowLeft, Clock, 
   LayoutGrid,
-  Upload, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, Search, X,
+  Upload, FolderOpen, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, Search, X,
   FileJson, ImageIcon as ImageIconLucide, Copy, Settings, Save
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
@@ -51,7 +53,8 @@ const ProjectCard = ({
   onDelete,
   onDownloadJson,
   onDownloadImage,
-  onDuplicate
+  onDuplicate,
+  sourceLabel
 }: {
   project: ProjectState;
   lang: Language;
@@ -60,6 +63,7 @@ const ProjectCard = ({
   onDownloadJson: (e: React.MouseEvent) => void;
   onDownloadImage: (previewNode: HTMLDivElement | null, e: React.MouseEvent) => void;
   onDuplicate: (e: React.MouseEvent) => void;
+  sourceLabel?: string;
 }) => {
   const t = translations[lang];
   const [isVisible, setIsVisible] = useState(false);
@@ -103,12 +107,21 @@ const ProjectCard = ({
           <Trash2 className="w-4 h-4" />
         </button>
 
-        {/* 比例标签 */}
-        <div className="absolute bottom-3 right-3 z-10 opacity-60 group-hover:opacity-100 transition-opacity">
+        {/* 标签 */}
+        <div className="absolute bottom-2 right-3 flex gap-2 z-10 opacity-60 group-hover:opacity-100 transition-opacity">
+          {/* Tauri 本地文件标签 */}
+          {sourceLabel && (
+            <span className="text-[9px] px-2 py-1 bg-emerald-600/20 text-emerald-300 font-black rounded-lg border border-emerald-500/40 uppercase tracking-tight">
+              {sourceLabel}
+            </span>
+          )}
+          {/* 比例标签 */}
            <span className="text-[9px] px-2 py-1 bg-slate-800 text-slate-400 font-black rounded-lg border border-slate-700 uppercase tracking-tight">
               {project.canvasConfig.ratio}
            </span>
         </div>
+
+        
       </div>
 
       <div className="px-5 py-4 flex flex-col gap-2 border-t border-slate-800/50 bg-slate-900/60 backdrop-blur-sm">
@@ -223,6 +236,33 @@ const App: React.FC = () => {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
+  const initProjectHistory = useCallback((p: ProjectState) => {
+    setHistory([JSON.parse(JSON.stringify(p))]);
+    setHistoryIndex(0);
+  }, []);
+
+  const {
+    isTauri,
+    localRecentItems,
+    activeLocalFilePath,
+    openLocalProjectDialog,
+    openLocalProjectFromPath,
+    removeLocalRecentByPath,
+    saveLocalProjectToFile,
+    clearActiveLocalFilePath
+  } = useLocalProjects({
+    view,
+    parseFailedMessage: t.parseFailed,
+    showToast,
+    onOpenProject: (nextProject) => {
+      setProject(nextProject);
+      setView('editor');
+      initProjectHistory(nextProject);
+    },
+    onUpdateProject: (nextProject) => {
+      setProject(nextProject);
+    }
+  });
 
   const handlePickStorageFolder = useCallback(async () => {
     if (!localFileAdapter.isAvailable()) {
@@ -339,7 +379,8 @@ const App: React.FC = () => {
   }, [project]);
 
   const performAutoSave = useCallback((reason: 'auto' | 'leave' | 'manual') => {
-    if (!storageReadyRef.current) return;
+    const canSaveLocal = Boolean(activeLocalFilePath && isTauri);
+    if (!storageReadyRef.current && !canSaveLocal) return;
     const currentProject = latestProjectRef.current;
     if (!currentProject) return;
 
@@ -359,6 +400,25 @@ const App: React.FC = () => {
       return;
     }
 
+    // tauri 模式下本地文件编辑关闭自动保存
+    if (activeLocalFilePath && isTauri && reason === 'auto') {
+      return;
+    }
+
+    if (activeLocalFilePath && isTauri) {
+      saveLocalProjectToFile(activeLocalFilePath, currentProject).then((nextProject) => {
+        lastSavedAtRef.current = Date.now();
+        lastSavedProjectIdRef.current = nextProject.id;
+        lastSavedSnapshotRef.current = JSON.stringify(nextProject);
+        if (reason === 'manual') {
+          showToast(t.save || 'Saved');
+        }
+      }).catch(() => {
+        showToast(t.storageSaveFailed, 'error');
+      });
+      return;
+    }
+
     storageAdapter.saveProject(currentProject).then(() => {
       lastSavedAtRef.current = Date.now();
       lastSavedProjectIdRef.current = currentProject.id;
@@ -369,7 +429,7 @@ const App: React.FC = () => {
     }).catch(() => {
       showToast(t.storageSaveFailed, 'error');
     });
-  }, [storageAdapter, showToast, t.storageSaveFailed]);
+  }, [activeLocalFilePath, isTauri, saveLocalProjectToFile, storageAdapter, showToast, t.storageSaveFailed]);
 
   const persistProject = useCallback(async (nextProject: ProjectState) => {
     try {
@@ -408,13 +468,15 @@ const App: React.FC = () => {
   useEffect(() => {
     if (isCloudMode) return;
     if (view !== 'editor' || !project) return;
+    if (activeLocalFilePath && isTauri) return;
     performAutoSave('auto');
-  }, [project, view, performAutoSave, isCloudMode]);
+  }, [project, view, performAutoSave, isCloudMode, activeLocalFilePath, isTauri]);
 
   useEffect(() => {
     if (prevViewRef.current === 'editor' && view !== 'editor') {
       // 离开编辑页时强制尝试保存（跳过 5s 限制）
       performAutoSave('leave');
+      clearActiveLocalFilePath();
     }
     prevViewRef.current = view;
   }, [view, performAutoSave]);
@@ -504,11 +566,6 @@ const App: React.FC = () => {
     ignoreHistoryChange.current = false;
   }, [project]);
 
-  const initProjectHistory = (p: ProjectState) => {
-    setHistory([JSON.parse(JSON.stringify(p))]);
-    setHistoryIndex(0);
-  };
-
   const handleUndo = useCallback(() => {
     if (historyIndex > 0) {
       isUndoRedoAction.current = true;
@@ -572,6 +629,7 @@ const App: React.FC = () => {
     setProjects(prev => [newProject, ...prev]);
     setView('editor');
     initProjectHistory(newProject);
+    clearActiveLocalFilePath();
     persistProject(newProject);
   };
 
@@ -970,6 +1028,7 @@ const App: React.FC = () => {
   const handleExportJson = (targetProject: ProjectState) => {
     const json = JSON.stringify({ ...targetProject, version: APP_VERSION, github: GITHUB_REPO_URL }, null, 2);
     downloadFile(json, `${targetProject.title}.cfj`, 'application/json');
+    showToast(t.exportSuccess);
   };
 
   const handleDuplicateProject = (targetProject: ProjectState) => {
@@ -991,7 +1050,7 @@ const App: React.FC = () => {
     const duplicated: ProjectState = {
       ...JSON.parse(JSON.stringify(targetProject)),
       id: generateId(),
-      title: `${targetProject.title}${t.importedCopySuffix}`,
+      title: `${targetProject.title}(${t.importedCopySuffix})`,
       updatedAt: Date.now(),
       layers: clonedLayers,
       selectedLayerId: null
@@ -999,7 +1058,7 @@ const App: React.FC = () => {
 
     setProjects(prev => [duplicated, ...prev]);
     persistProject(duplicated);
-    showToast(t.importSuccess);
+    showToast(t.importedCopySuffix);
   };
 
   // 基于预览节点导出 PNG
@@ -1522,9 +1581,13 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
   }, [project, handleUndo, handleRedo, updateLayer, lang, selectedLayerIds, handleDeleteLayers, handleCloneLayers, handleGroupLayers, performAutoSave]);
 
   const groupedProjects = useMemo(() => {
-    const filtered = isCloudMode
+    const search = projectSearchTerm.toLowerCase();
+    const storageItems: RecentProjectItem[] = (isCloudMode
       ? projects
-      : projects.filter(p => p.title.toLowerCase().includes(projectSearchTerm.toLowerCase()));
+      : projects.filter(p => p.title.toLowerCase().includes(search)))
+      .map(project => ({ project, source: 'storage' }));
+    const localItems = localRecentItems.filter(item => !search || item.project.title.toLowerCase().includes(search));
+    const filtered = [...storageItems, ...localItems];
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const startOfYesterday = startOfToday - 86400000;
@@ -1532,7 +1595,7 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
     const startOfLastWeek = startOfThisWeek - (7 * 86400000);
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()).getTime();
 
-    const groups: { label: string, key: string, items: ProjectState[] }[] = [
+    const groups: { label: string, key: string, items: RecentProjectItem[] }[] = [
       { label: t.dateGroups.today, key: 'today', items: [] },
       { label: t.dateGroups.yesterday, key: 'yesterday', items: [] },
       { label: t.dateGroups.thisWeek, key: 'thisWeek', items: [] },
@@ -1541,18 +1604,18 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
       { label: t.dateGroups.older, key: 'older', items: [] }
     ];
 
-    filtered.forEach(p => {
-      const time = p.updatedAt;
-      if (time >= startOfToday) groups[0].items.push(p);
-      else if (time >= startOfYesterday) groups[1].items.push(p);
-      else if (time >= startOfThisWeek) groups[2].items.push(p);
-      else if (time >= startOfLastWeek) groups[3].items.push(p);
-      else if (time >= startOfLastMonth) groups[4].items.push(p);
-      else groups[5].items.push(p);
+    filtered.forEach(item => {
+      const time = item.project.updatedAt;
+      if (time >= startOfToday) groups[0].items.push(item);
+      else if (time >= startOfYesterday) groups[1].items.push(item);
+      else if (time >= startOfThisWeek) groups[2].items.push(item);
+      else if (time >= startOfLastWeek) groups[3].items.push(item);
+      else if (time >= startOfLastMonth) groups[4].items.push(item);
+      else groups[5].items.push(item);
     });
 
     return groups.filter(g => g.items.length > 0);
-  }, [projects, projectSearchTerm, t.dateGroups]);
+  }, [projects, localRecentItems, projectSearchTerm, t.dateGroups, isCloudMode]);
 
   const renderStorageSettingsModal = () => {
     if (!isStorageSettingsOpen) return null;
@@ -1697,6 +1760,17 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
               <Plus className="w-4 h-4" />
               {t.createNew}
             </button>
+            {/* 本地打开需要文件系统权限，仅在 Tauri 版本支持 */}
+            {isTauri && (
+              <button
+                type="button"
+                onClick={openLocalProjectDialog}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 transition-all"
+              >
+                <FolderOpen className="w-4 h-4 text-blue-500" />
+                <span className="text-xs font-bold">{t.openLocalProject}</span>
+              </button>
+            )}
             <label className="flex items-center gap-2 px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 cursor-pointer transition-all">
               <Upload className="w-4 h-4 text-blue-500" />
               <span className="text-xs font-bold">{t.import}</span>
@@ -1739,7 +1813,7 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
           </div>
           
           <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar space-y-10 pb-16" onScroll={handleProjectsScroll}>
-            {projects.length === 0 ? (
+            {projects.length === 0 && localRecentItems.length === 0 ? (
               <div className="bg-slate-900/50 border-2 border-dashed border-slate-800 rounded-3xl h-80 flex flex-col items-center justify-center text-slate-600 gap-4"><LayoutGrid className="w-12 h-12 opacity-20" /><p className="text-sm font-medium">{t.noProjects}</p></div>
             ) : groupedProjects.length === 0 ? (
               <div className="h-64 flex flex-col items-center justify-center text-slate-600 opacity-50 italic">
@@ -1753,26 +1827,40 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
                     <div className="flex-1 h-px bg-slate-900"></div>
                   </h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
-                    {group.items.map(p => (
+                    {group.items.map(item => (
                       <ProjectCard 
-                        key={p.id} 
-                        project={p} 
+                        key={`${item.source}-${item.localPath || item.project.id}`} 
+                        project={item.project} 
                         lang={lang} 
+                        sourceLabel={item.source === 'local' ? t.localProjectTag : undefined}
                         onClick={() => { 
-                          setProject(JSON.parse(JSON.stringify(p))); 
+                          if (item.source === 'local' && item.localPath) {
+                            openLocalProjectFromPath(item.localPath);
+                            return;
+                          }
+                          setProject(JSON.parse(JSON.stringify(item.project))); 
                           setView('editor'); 
-                          initProjectHistory(p); 
+                          initProjectHistory(item.project); 
+                          clearActiveLocalFilePath();
                         }} 
                         onDelete={(e) => { 
                           e.stopPropagation(); 
+                          // 本地项目删除时，仅删除打开记录信息
+                          if (item.source === 'local' && item.localPath) {
+                            setConfirmDialog({
+                              message: t.confirmRemoveLocalProject,
+                              onConfirm: () => removeLocalRecentByPath(item.localPath as string)
+                            });
+                            return;
+                          }
                           setConfirmDialog({ 
                             message: t.confirmDeleteProject, 
-                              onConfirm: () => deleteProjectById(p.id)
+                            onConfirm: () => deleteProjectById(item.project.id)
                           }); 
                         }} 
-                        onDuplicate={(e) => { e.stopPropagation(); handleDuplicateProject(p); }}
-                        onDownloadJson={(e) => { e.stopPropagation(); handleExportJson(p); }}
-                        onDownloadImage={(node, e) => { e.stopPropagation(); handleExportImage(node, p); }}
+                        onDuplicate={(e) => { e.stopPropagation(); handleDuplicateProject(item.project); }}
+                        onDownloadJson={(e) => { e.stopPropagation(); handleExportJson(item.project); }}
+                        onDownloadImage={(node, e) => { e.stopPropagation(); handleExportImage(node, item.project); }}
                       />
                     ))}
                   </div>
@@ -1843,7 +1931,14 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
       />
       <header className="h-14 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between px-6 z-50">
         <div className="flex items-center gap-4">
-          <button onClick={() => { setProject(null); setView('landing'); }} className="p-2 hover:bg-slate-800 rounded-lg">
+          <button
+            onClick={() => {
+              performAutoSave('leave');
+              setProject(null);
+              setView('landing');
+            }}
+            className="p-2 hover:bg-slate-800 rounded-lg"
+          >
             <ArrowLeft className="w-5 h-5 text-slate-400" />
           </button>
           <div className="flex items-center gap-2">
@@ -1869,7 +1964,8 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
               <Redo2 className="w-4 h-4" />
             </button>
           </div>
-          {isCloudMode && (
+          {/* 云端或 Tauri 的本地文件模式才显示保存按钮 */}
+          {(isCloudMode || (activeLocalFilePath && isTauri)) && (
             <button
               onClick={() => performAutoSave('manual')}
               className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300 border border-slate-700 transition-colors"

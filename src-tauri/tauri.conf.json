@@ -17,5 +17,26 @@
         "height": 800
       }
     ]
+  },
+  "bundle": {
+    "active": true,
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.icns",
+      "icons/icon.png",
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["cfj"],
+        "name": "CoverFlow Project",
+        "description": "CoverFlow project file",
+        "mimeType": "application/x-coverflow-project",
+        "role": "Editor"
+      }
+    ]
   }
 }

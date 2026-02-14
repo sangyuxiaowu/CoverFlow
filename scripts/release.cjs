@@ -1,7 +1,10 @@
 const { execSync } = require("child_process");
 
 const run = (command) => execSync(command, { stdio: "inherit" });
-const read = (command) => execSync(command, { encoding: "utf8" }).trim();
+const read = (command, { trim = true } = {}) => {
+  const output = execSync(command, { encoding: "utf8" });
+  return trim ? output.trim() : output;
+};
 
 const branch = read("git rev-parse --abbrev-ref HEAD");
 if (branch !== "main") {
@@ -9,14 +12,15 @@ if (branch !== "main") {
   process.exit(1);
 }
 
-const status = read("git status --porcelain");
+const status = read("git status --porcelain -z", { trim: false });
 if (status) {
   const dirtyFiles = status
-    .split("\n")
+    .split("\0")
     .filter(Boolean)
-    .map((line) => {
-      const match = line.match(/^..\s+(.*)$/);
-      return (match ? match[1] : line).trim();
+    .map((entry) => {
+      const raw = entry.slice(3).trim();
+      const renameIndex = raw.indexOf(" -> ");
+      return renameIndex >= 0 ? raw.slice(renameIndex + 4) : raw;
     });
   const allowed = new Set(["package.json"]);
   const disallowed = dirtyFiles.filter((file) => !allowed.has(file));
@@ -28,7 +32,7 @@ if (status) {
 
 run("npm run prebuild:tauri");
 
-const nextStatus = read("git status --porcelain");
+const nextStatus = read("git status --porcelain -z", { trim: false });
 if (!nextStatus) {
   console.error("No changes detected after prebuild:tauri. Did you update version?");
   process.exit(1);

@@ -160,17 +160,20 @@ export const useLocalProjects = ({
 
   useEffect(() => {
     if (!isTauri) return;
-    let unlisten: (() => void) | null = null;
     const init = async () => {
-      const { listen } = await import('@tauri-apps/api/event');
-      unlisten = await listen<string>('open-local-project', (event) => {
-        if (event.payload) openLocalProjectFromPath(event.payload);
-      });
+      try {
+        const pendingFromGlobal = (window as any).__CFJ_PENDING__;
+        if (Array.isArray(pendingFromGlobal)) {
+          (window as any).__CFJ_PENDING__ = [];
+          for (const path of pendingFromGlobal) {
+            if (path) await openLocalProjectFromPath(path);
+          }
+        }
+      } catch (err) {
+        // ignore pending open errors
+      }
     };
     init();
-    return () => {
-      if (unlisten) unlisten();
-    };
   }, [isTauri, openLocalProjectFromPath]);
 
   return {

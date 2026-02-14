@@ -23,6 +23,13 @@ CoverFlow - 专业 SVG 文章封面设计器
 - 分类资源库：内置基础图形、装饰元素、可加载用户自定义SVG资源文件夹
 - 搜索与过滤：按名称关键词筛选
 
+资源推荐：
+- [Hero Patterns](https://www.heropatterns.com/) - 免费 SVG 背景图案
+- [Fluent UI Emoji](https://github.com/microsoft/fluentui-emoji) - 免费表情图标
+- [SVG Repo](https://www.svgrepo.com/) - 大量免费 SVG 图标与插画
+- [Font Awesome](https://fontawesome.com/) - 丰富的图标库（需手动加载数据）
+- [Pixabay Vectors](https://pixabay.com/zh/vectors/) - 免费矢量图资源
+
 ### 图标库
 
 - 集成 Font Awesome 图标库（需手动加载数据）
@@ -114,7 +121,12 @@ npm run preview
 ```
 .
 ├─ components/         # UI 组件与面板
+├─ hooks/              # 业务 Hooks
+├─ storage/            # 存储适配器
 ├─ utils/              # 工具函数
+├─ src-tauri/          # Tauri 原生端
+├─ scripts/            # 构建/同步脚本
+├─ doc/                # 文档与素材
 ├─ App.tsx             # 应用入口
 ├─ constants.ts        # 常量与默认配置
 ├─ types.ts            # 类型定义

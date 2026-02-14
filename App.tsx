@@ -7,6 +7,7 @@ import Toast from './components/Toast.tsx';
 import ConfirmModal from './components/ConfirmModal.tsx';
 import BackgroundCropModal from './components/BackgroundCropModal.tsx';
 import LivePreview from './components/LivePreview.tsx';
+import ProjectPresetModal from './components/ProjectPresetModal.tsx';
 import { ProjectState, Layer } from './types.ts';
 import {
   createIndexedDBAdapter,
@@ -25,7 +26,7 @@ import { getCroppedImage } from './utils/imageCrop.ts';
 import { type Area } from 'react-easy-crop';
 import { 
   Download, Trash2, Plus, ArrowLeft, Clock, 
-  Layout as LayoutIcon, ChevronRight, LayoutGrid,
+  LayoutGrid,
   Upload, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, Search, X,
   FileJson, ImageIcon as ImageIconLucide, Copy, Settings, Save
 } from 'lucide-react';
@@ -179,6 +180,12 @@ const App: React.FC = () => {
   const [cloudPage, setCloudPage] = useState(1);
   const [cloudHasMore, setCloudHasMore] = useState(true);
   const [cloudLoading, setCloudLoading] = useState(false);
+  const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
+  const [selectedPreset, setSelectedPreset] = useState(() => PRESET_RATIOS[0]);
+  const [customPresetSize, setCustomPresetSize] = useState(() => ({
+    width: PRESET_RATIOS[0].width,
+    height: PRESET_RATIOS[0].height
+  }));
   
   const [history, setHistory] = useState<ProjectState[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -482,10 +489,21 @@ const App: React.FC = () => {
     }
   };
 
-  const createNewProject = (preset: typeof PRESET_RATIOS[0]) => {
+  const clampPresetSize = (value: number) => Math.max(10, Math.round(value));
+
+  const createNewProject = (preset: typeof PRESET_RATIOS[0], overrides?: { width?: number; height?: number }) => {
+    const width = clampPresetSize(overrides?.width ?? preset.width);
+    const height = clampPresetSize(overrides?.height ?? preset.height);
+    const ratioLabel = (width === preset.width && height === preset.height)
+      ? preset.ratio
+      : `${width}x${height}`;
+    const textWidth = Math.max(10, width - 40);
+    const textHeight = Math.max(10, Math.min(100, height - 40));
+    const textX = Math.max(0, (width - textWidth) / 2);
+    const textY = Math.max(0, (height - textHeight) / 2);
     const newProject: ProjectState = {
       id: generateId(), title: t.untitled, updatedAt: Date.now(),
-      layers: [{ id: generateId(), name: t.defaultHeadlineName, type: 'text', content: t.doubleClickToEdit, x: 50, y: preset.height / 2 - 50, width: preset.width - 100, height: 100, fontSize: 64, fontFamily: 'Inter, sans-serif', fontWeight: 700, textAlign: 'center', writingMode: 'horizontal', rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, color: '#ffffff', ratioLocked: true }],
+      layers: [{ id: generateId(), name: t.defaultHeadlineName, type: 'text', content: t.doubleClickToEdit, x: textX, y: textY, width: textWidth, height: textHeight, fontSize: 64, fontFamily: 'Inter, sans-serif', fontWeight: 700, textAlign: 'center', writingMode: 'horizontal', rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, color: '#ffffff', ratioLocked: true }],
       background: { 
         type: 'color', 
         value: '#1e293b', 
@@ -494,13 +512,20 @@ const App: React.FC = () => {
         overlayOpacity: 0.1, 
         overlayScale: 20 
       },
-      canvasConfig: { width: preset.width, height: preset.height, ratio: preset.ratio },
+      canvasConfig: { width, height, ratio: ratioLabel },
       selectedLayerId: null
     };
     setProject(newProject);
     setProjects(prev => [newProject, ...prev]);
     setView('editor');
     initProjectHistory(newProject);
+  };
+
+  const openPresetModal = () => {
+    const preset = PRESET_RATIOS[0];
+    setSelectedPreset(preset);
+    setCustomPresetSize({ width: preset.width, height: preset.height });
+    setIsPresetModalOpen(true);
   };
 
   const getGroupBounds = (layers: Layer[], childIds: string[]) => {
@@ -1442,6 +1467,7 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
     );
   };
 
+
   const handleProjectsScroll = (e: React.UIEvent<HTMLDivElement>) => {
     if (!isCloudMode || cloudLoading || !cloudHasMore) return;
     const target = e.currentTarget;
@@ -1464,6 +1490,23 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
         {toast && <Toast message={toast.msg} type={toast.type} />}
         {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
         {!isCloudMode && renderStorageSettingsModal()}
+        <ProjectPresetModal
+          isOpen={isPresetModalOpen}
+          lang={lang}
+          presets={PRESET_RATIOS}
+          selectedPreset={selectedPreset}
+          size={customPresetSize}
+          onClose={() => setIsPresetModalOpen(false)}
+          onSelectPreset={(preset) => {
+            setSelectedPreset(preset);
+            setCustomPresetSize({ width: preset.width, height: preset.height });
+          }}
+          onSizeChange={(next) => setCustomPresetSize(next)}
+          onCreate={() => {
+            createNewProject(selectedPreset, customPresetSize);
+            setIsPresetModalOpen(false);
+          }}
+        />
         <div className="flex justify-between items-center flex-shrink-0">
           <div className="flex items-center gap-4"><div className="bg-blue-600 p-2.5 rounded-2xl shadow-xl shadow-blue-900/20 text-white"><span className="w-8 h-8 block" dangerouslySetInnerHTML={{ __html: logoSvg }} /></div><div className="relative"><h1 className="text-3xl font-black tracking-tight text-white">{t.title}</h1><p className="text-slate-500 text-sm font-medium">{t.landingHeader}</p>
           <a href={GITHUB_REPO_URL}
@@ -1473,6 +1516,14 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
                   <span className="absolute top-0 left-full ml-2 px-1.5 py-0.5 rounded-full bg-slate-900 text-[9px] font-black tracking-tight text-white border border-slate-700">v{APP_VERSION}</span>
           </a></div></div>
           <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={openPresetModal}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-900/20 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              {t.createNew}
+            </button>
             <label className="flex items-center gap-2 px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 cursor-pointer transition-all">
               <Upload className="w-4 h-4 text-blue-500" />
               <span className="text-xs font-bold">{t.import}</span>
@@ -1491,81 +1542,73 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
             <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800"><button onClick={() => setLang('zh')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'zh' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>中</button><button onClick={() => setLang('en')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'en' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>EN</button></div>
           </div>
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 flex-1 min-h-0">
-          <div className="lg:col-span-4 flex flex-col gap-6 h-full overflow-hidden">
-            <h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2 flex-shrink-0"><Plus className="w-4 h-4" /> {t.createNew}</h2>
-            <div className="grid grid-cols-1 gap-3 overflow-y-auto pr-2 custom-scrollbar">
-              {PRESET_RATIOS.map(ratio => (<button key={ratio.name} onClick={() => createNewProject(ratio)} className="flex items-center justify-between p-4 bg-slate-900 border border-slate-800 rounded-2xl hover:border-blue-500 hover:bg-slate-800/50 transition-all group text-left flex-shrink-0"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center border border-slate-700 group-hover:bg-blue-900/20 transition-colors"><LayoutIcon className="w-6 h-6 text-slate-500 group-hover:text-blue-400" /></div><div><p className="text-sm font-bold text-slate-100">{lang === 'zh' ? ratio.nameZh : ratio.name}</p><p className="text-[10px] text-slate-500 uppercase font-bold tracking-tight">{ratio.width} × {ratio.height} PX</p></div></div><ChevronRight className="w-5 h-5 text-slate-700 group-hover:text-blue-400 group-hover:translate-x-1 transition-all" /></button>))}
+        <div className="flex-1 min-h-0 flex flex-col gap-6 overflow-hidden">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 flex-shrink-0">
+            <h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Clock className="w-4 h-4" /> {t.recentProjects}</h2>
+            <div className="relative w-full md:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+              <input 
+                type="text" 
+                placeholder={t.searchProjects}
+                value={projectSearchTerm}
+                onChange={(e) => setProjectSearchTerm(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl py-2 pl-12 pr-4 text-xs font-medium text-slate-200 placeholder-slate-600 outline-none focus:border-blue-500 transition-all"
+              />
+              {projectSearchTerm && (
+                <button 
+                  onClick={() => setProjectSearchTerm('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 hover:text-slate-300"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
             </div>
           </div>
-          <div className="lg:col-span-8 flex flex-col gap-6 h-full overflow-hidden">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 flex-shrink-0">
-              <h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Clock className="w-4 h-4" /> {t.recentProjects}</h2>
-              <div className="relative w-full md:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-                <input 
-                  type="text" 
-                  placeholder={t.searchProjects}
-                  value={projectSearchTerm}
-                  onChange={(e) => setProjectSearchTerm(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl py-2 pl-12 pr-4 text-xs font-medium text-slate-200 placeholder-slate-600 outline-none focus:border-blue-500 transition-all"
-                />
-                {projectSearchTerm && (
-                  <button 
-                    onClick={() => setProjectSearchTerm('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 hover:text-slate-300"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
+          
+          <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar space-y-10 pb-16" onScroll={handleProjectsScroll}>
+            {projects.length === 0 ? (
+              <div className="bg-slate-900/50 border-2 border-dashed border-slate-800 rounded-3xl h-80 flex flex-col items-center justify-center text-slate-600 gap-4"><LayoutGrid className="w-12 h-12 opacity-20" /><p className="text-sm font-medium">{t.noProjects}</p></div>
+            ) : groupedProjects.length === 0 ? (
+              <div className="h-64 flex flex-col items-center justify-center text-slate-600 opacity-50 italic">
+                <p className="text-sm">{t.noMatchingProjects}</p>
               </div>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar space-y-10 pb-16" onScroll={handleProjectsScroll}>
-              {projects.length === 0 ? (
-                <div className="bg-slate-900/50 border-2 border-dashed border-slate-800 rounded-3xl h-80 flex flex-col items-center justify-center text-slate-600 gap-4"><LayoutGrid className="w-12 h-12 opacity-20" /><p className="text-sm font-medium">{t.noProjects}</p></div>
-              ) : groupedProjects.length === 0 ? (
-                <div className="h-64 flex flex-col items-center justify-center text-slate-600 opacity-50 italic">
-                  <p className="text-sm">{t.noMatchingProjects}</p>
-                </div>
-              ) : (
-                groupedProjects.map(group => (
-                  <div key={group.key} className="space-y-6">
-                    <h3 className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em] flex items-center gap-4">
-                      <span>{group.label}</span>
-                      <div className="flex-1 h-px bg-slate-900"></div>
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      {group.items.map(p => (
-                        <ProjectCard 
-                          key={p.id} 
-                          project={p} 
-                          lang={lang} 
-                          onClick={() => { 
-                            setProject(JSON.parse(JSON.stringify(p))); 
-                            setView('editor'); 
-                            initProjectHistory(p); 
-                          }} 
-                          onDelete={(e) => { 
-                            e.stopPropagation(); 
-                            setConfirmDialog({ 
-                              message: t.confirmDeleteProject, 
-                              onConfirm: () => setProjects(prev => prev.filter(pr => pr.id !== p.id))
-                            }); 
-                          }} 
-                          onDuplicate={(e) => { e.stopPropagation(); handleDuplicateProject(p); }}
-                          onDownloadJson={(e) => { e.stopPropagation(); handleExportJson(p); }}
-                          onDownloadImage={(node, e) => { e.stopPropagation(); handleExportImage(node, p); }}
-                        />
-                      ))}
-                    </div>
+            ) : (
+              groupedProjects.map(group => (
+                <div key={group.key} className="space-y-6">
+                  <h3 className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em] flex items-center gap-4">
+                    <span>{group.label}</span>
+                    <div className="flex-1 h-px bg-slate-900"></div>
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {group.items.map(p => (
+                      <ProjectCard 
+                        key={p.id} 
+                        project={p} 
+                        lang={lang} 
+                        onClick={() => { 
+                          setProject(JSON.parse(JSON.stringify(p))); 
+                          setView('editor'); 
+                          initProjectHistory(p); 
+                        }} 
+                        onDelete={(e) => { 
+                          e.stopPropagation(); 
+                          setConfirmDialog({ 
+                            message: t.confirmDeleteProject, 
+                            onConfirm: () => setProjects(prev => prev.filter(pr => pr.id !== p.id))
+                          }); 
+                        }} 
+                        onDuplicate={(e) => { e.stopPropagation(); handleDuplicateProject(p); }}
+                        onDownloadJson={(e) => { e.stopPropagation(); handleExportJson(p); }}
+                        onDownloadImage={(node, e) => { e.stopPropagation(); handleExportImage(node, p); }}
+                      />
+                    ))}
                   </div>
-                ))
-              )}
-              {isCloudMode && cloudLoading && (
-                <div className="flex items-center justify-center py-6 text-xs text-slate-500">{t.loading || 'Loading...'}</div>
-              )}
-            </div>
+                </div>
+              ))
+            )}
+            {isCloudMode && cloudLoading && (
+              <div className="flex items-center justify-center py-6 text-xs text-slate-500">{t.loading || 'Loading...'}</div>
+            )}
           </div>
         </div>
       </div>

@@ -435,15 +435,6 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
       <div className="h-[62%] flex flex-col border-b border-slate-800">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800/50 bg-slate-900 flex-shrink-0">
           <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t.inspector}</h3>
-          {selectedLayer && (
-            <button 
-              type="button"
-              onClick={(e) => handleDelete(e, selectedLayer.id)} 
-              className="p-1 text-slate-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-hide">

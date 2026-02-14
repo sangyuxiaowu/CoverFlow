@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { CATEGORIZED_ASSETS, PRESET_COLORS, PRESET_GRADIENTS } from '../constants.ts';
 import { BackgroundConfig, Layer, FAIconMetadata, FACategory } from '../types.ts';
 import { translations, Language } from '../translations.ts';
-import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash } from 'lucide-react';
+import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash, HelpCircle, Keyboard } from 'lucide-react';
 import * as yaml from 'js-yaml';
 import { normalizeSVG } from '../utils/helpers.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
@@ -414,25 +414,25 @@ const Sidebar: React.FC<SidebarProps> = ({
   }, [assetRenderData.pendingExternal, loadExternalSvg]);
 
   const renderResources = () => (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="relative">
-        <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
+        <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-500" />
         <input
           type="text"
           placeholder={t.searchPlaceholder}
-          className="w-full bg-slate-800 border border-slate-700 rounded-md py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-200"
+          className="w-full bg-slate-800 border border-slate-700 rounded-md py-1 pl-9 pr-3 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-200"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-6">
+      <div className="grid grid-cols-1 gap-4">
         {assetRenderData.groups.map((cat) => (
           <div key={cat.label}>
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
+            <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
               {cat.label}
             </h3>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-1">
               {cat.items.map((item) => (
                 <button
                   key={item.key}
@@ -446,16 +446,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                     }
                     onAddLayer({ name: item.name, type: 'svg', content: item.content, color: '#3b82f6' });
                   }}
-                  className="bg-slate-800 border border-slate-700 p-2 rounded hover:border-blue-500 transition-colors group flex flex-col items-center"
+                  className="bg-slate-800 border border-slate-700 p-1.5 rounded hover:border-blue-500 transition-colors group flex flex-col items-center"
                 >
-                  <div className="w-full h-12 flex items-center justify-center mb-1">
+                  <div className="w-full h-10 flex items-center justify-center mb-0.5">
                     {item.content ? (
                       <svg viewBox="0 0 100 100" className="w-full h-full text-slate-400 group-hover:text-blue-400 transition-colors" dangerouslySetInnerHTML={{ __html: item.content }} />
                     ) : (
-                      <div className="w-6 h-6 rounded-full border border-slate-700 border-t-slate-500 animate-spin opacity-40" />
+                      <div className="w-5 h-5 rounded-full border border-slate-700 border-t-slate-500 animate-spin opacity-40" />
                     )}
                   </div>
-                  <span className="text-[10px] text-slate-400 truncate w-full text-center">{item.name}</span>
+                  <span className="text-[9px] text-slate-400 truncate w-full text-center">{item.name}</span>
                 </button>
               ))}
             </div>
@@ -537,10 +537,10 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const renderBackgroundSettings = () => (
-    <div className="space-y-8 pb-6">
-      <section className="space-y-4">
-        <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">{t.backgroundStyle}</h3>
-        <div className="flex bg-slate-800 p-1.5 rounded-xl border border-slate-700 gap-1">
+    <div className="space-y-5 pb-4">
+      <section className="space-y-3">
+        <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-widest">{t.backgroundStyle}</h3>
+        <div className="flex bg-slate-800 p-0.5 rounded-lg border border-slate-700 gap-1">
           {[
             { id: 'color', icon: PaintBucket, title: t.bgTypeColor },
             { id: 'gradient', icon: Palette, title: t.bgTypeGradient },
@@ -550,23 +550,23 @@ const Sidebar: React.FC<SidebarProps> = ({
               key={item.id}
               title={item.title}
               onClick={() => handleTypeChange(item.id as any)}
-              className={`flex-1 flex items-center justify-center py-2.5 px-3 rounded-lg transition-all ${background.type === item.id
+              className={`flex-1 flex items-center justify-center py-1.5 px-2 rounded-md transition-all ${background.type === item.id
                 ? 'bg-blue-600 text-white shadow-lg'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
                 }`}
             >
-              <item.icon className="w-5 h-5" />
+              <item.icon className="w-4 h-4" />
             </button>
           ))}
         </div>
-        <div className="space-y-4 pt-2">
+        <div className="space-y-2.5 pt-1.5">
           {background.type === 'color' && (
-            <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="space-y-2.5 animate-in fade-in zoom-in-95 duration-200">
               <div className="flex gap-2">
-                <input type="color" value={background.value.startsWith('#') && !background.value.includes('gradient') ? background.value : '#ffffff'} onChange={(e) => onUpdateBackground({ value: e.target.value })} className="w-16 h-10 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer overflow-hidden p-0.5 flex-shrink-0" />
-                <input type="text" value={background.value} onChange={(e) => onUpdateBackground({ value: e.target.value })} className="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded-lg px-3 text-sm text-slate-200 font-mono focus:ring-1 focus:ring-blue-500 outline-none" placeholder="#FFFFFF" />
+                <input type="color" value={background.value.startsWith('#') && !background.value.includes('gradient') ? background.value : '#ffffff'} onChange={(e) => onUpdateBackground({ value: e.target.value })} className="w-12 h-8 rounded-md bg-slate-900 border border-slate-700 cursor-pointer overflow-hidden p-0.5 flex-shrink-0" />
+                <input type="text" value={background.value} onChange={(e) => onUpdateBackground({ value: e.target.value })} className="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded-md px-2 text-xs text-slate-200 font-mono focus:ring-1 focus:ring-blue-500 outline-none" placeholder="#FFFFFF" />
               </div>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-4 gap-1">
                 {PRESET_COLORS.map(c => (
                   <button key={c} onClick={() => onUpdateBackground({ value: c })} className={`aspect-square rounded-lg border-2 transition-all hover:scale-110 ${background.value === c ? 'border-blue-500 shadow-md' : 'border-transparent'}`} style={{ backgroundColor: c }} />
                 ))}
@@ -574,15 +574,15 @@ const Sidebar: React.FC<SidebarProps> = ({
             </div>
           )}
           {background.type === 'gradient' && (
-            <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
-              <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2.5 animate-in fade-in zoom-in-95 duration-200">
+              <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-slate-500 uppercase">{t.startColor}</span>
                   <input type="color" value={(background.value.match(/#[a-fA-F0-9]{3,6}/gi) || [])[0] || '#3b82f6'} onChange={(e) => {
                     const deg = (background.value.match(/(\d+)deg/) || [])[1] || 135;
                     const end = (background.value.match(/#[a-fA-F0-9]{3,6}/gi) || [])[1] || '#8b5cf6';
                     onUpdateBackground({ value: `linear-gradient(${deg}deg, ${e.target.value} 0%, ${end} 100%)` });
-                  }} className="w-full h-8 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer" />
+                  }} className="w-full h-7 rounded-md bg-slate-900 border border-slate-700 cursor-pointer" />
                 </div>
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-slate-500 uppercase">{t.endColor}</span>
@@ -590,7 +590,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     const deg = (background.value.match(/(\d+)deg/) || [])[1] || 135;
                     const start = (background.value.match(/#[a-fA-F0-9]{3,6}/gi) || [])[0] || '#3b82f6';
                     onUpdateBackground({ value: `linear-gradient(${deg}deg, ${start} 0%, ${e.target.value} 100%)` });
-                  }} className="w-full h-8 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer" />
+                  }} className="w-full h-7 rounded-md bg-slate-900 border border-slate-700 cursor-pointer" />
                 </div>
               </div>
               <div className="space-y-1">
@@ -600,17 +600,17 @@ const Sidebar: React.FC<SidebarProps> = ({
                   onUpdateBackground({ value: `linear-gradient(${e.target.value}deg, ${colors[0]} 0%, ${colors[1]} 100%)` });
                 }} className="w-full accent-blue-600" />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-1">
                 {PRESET_GRADIENTS.map(g => (
-                  <button key={g} onClick={() => onUpdateBackground({ value: g })} className="h-8 rounded-lg border border-slate-700 transition-all hover:border-slate-500" style={{ background: g }} />
+                  <button key={g} onClick={() => onUpdateBackground({ value: g })} className="h-6 rounded-md border border-slate-700 transition-all hover:border-slate-500" style={{ background: g }} />
                 ))}
               </div>
             </div>
           )}
           {background.type === 'image' && (
-            <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
-              <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-700 rounded-xl cursor-pointer hover:bg-slate-800 transition-colors group">
-                <Upload className="w-6 h-6 text-slate-500 group-hover:text-blue-500 mb-2" />
+            <div className="space-y-2.5 animate-in fade-in zoom-in-95 duration-200">
+              <label className="flex flex-col items-center justify-center w-full h-16 border-2 border-dashed border-slate-700 rounded-lg cursor-pointer hover:bg-slate-800 transition-colors group">
+                <Upload className="w-4 h-4 text-slate-500 group-hover:text-blue-500 mb-1" />
                 <span className="text-[10px] text-slate-500 font-bold uppercase">{t.uploadImage}</span>
                 <input type="file" className="hidden" accept="image/*" onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -626,37 +626,42 @@ const Sidebar: React.FC<SidebarProps> = ({
                   e.currentTarget.value = '';
                 }} />
               </label>
-              <input type="text" value={background.value.startsWith('http') || background.value.startsWith('data:') ? background.value : ''} onChange={(e) => onUpdateBackground({ value: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="https://..." />
+              <input type="text" value={background.value.startsWith('http') || background.value.startsWith('data:') ? background.value : ''} onChange={(e) => onUpdateBackground({ value: e.target.value })} className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-xs text-slate-200 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="https://..." />
             </div>
           )}
         </div>
       </section>
-      <section className="space-y-4 pt-4 border-t border-slate-800">
+      <section className="space-y-2.5 pt-3 border-t border-slate-800">
         <div className="flex items-center justify-between">
-          <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">{t.overlayType}</h3>
-          {background.overlayType !== 'none' && (
-            <button onClick={() => onUpdateBackground({ overlayType: 'none' })} className="text-[10px] font-bold text-red-400 hover:text-red-300 flex items-center gap-1">
-              <X className="w-3 h-3" /> {t.none}
-            </button>
-          )}
+          <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-widest">{t.overlayType}</h3>
         </div>
-        <div className="grid grid-cols-4 gap-2">
+        <div className="flex bg-slate-800 p-0.5 rounded-lg border border-slate-700 gap-1">
           {[{ id: 'none', icon: X, label: t.none }, { id: 'dots', icon: Grid, label: t.dots }, { id: 'grid', icon: Grid, label: t.grid }, { id: 'stripes', icon: Sliders, label: t.stripes }].map(item => (
-            <button key={item.id} onClick={() => onUpdateBackground({ overlayType: item.id as any })} className={`aspect-square flex flex-col items-center justify-center rounded-xl border-2 transition-all ${background.overlayType === item.id ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-slate-800 border-slate-700 text-slate-500 hover:border-slate-500 hover:bg-slate-750'}`} title={item.label}><item.icon className="w-5 h-5" /></button>
+            <button
+              key={item.id}
+              onClick={() => onUpdateBackground({ overlayType: item.id as any })}
+              className={`flex-1 flex items-center justify-center py-1.5 px-2 rounded-md transition-all ${background.overlayType === item.id
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+                }`}
+              title={item.label}
+            >
+              <item.icon className="w-4 h-4" />
+            </button>
           ))}
         </div>
         {background.overlayType !== 'none' && (
-          <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-300">
             <div className="space-y-1">
-              <span className="text-[10px] font-bold text-slate-500 uppercase">{t.overlayColor}</span>
+              <span className="text-[9px] font-bold text-slate-500 uppercase">{t.overlayColor}</span>
               <div className="flex gap-2">
-                <input type="color" value={background.overlayColor} onChange={(e) => onUpdateBackground({ overlayColor: e.target.value })} className="w-14 h-10 rounded-lg bg-slate-900 border border-slate-700 p-0.5 cursor-pointer flex-shrink-0" />
+                <input type="color" value={background.overlayColor} onChange={(e) => onUpdateBackground({ overlayColor: e.target.value })} className="w-12 h-8 rounded-md bg-slate-900 border border-slate-700 p-0.5 cursor-pointer flex-shrink-0" />
                 <input type="text" value={background.overlayColor} onChange={(e) => onUpdateBackground({ overlayColor: e.target.value })} className="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200 font-mono focus:ring-1 focus:ring-blue-500 outline-none" />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1"><div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase"><span>{t.opacity}</span><span>{Math.round(background.overlayOpacity * 100)}%</span></div><input type="range" min="0" max="1" step="0.01" value={background.overlayOpacity} onChange={(e) => onUpdateBackground({ overlayOpacity: parseFloat(e.target.value) })} className="w-full accent-blue-600" /></div>
-              <div className="space-y-1"><div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase"><span>{t.overlayScale}</span><span>{background.overlayScale}px</span></div><input type="range" min="5" max="100" step="1" value={background.overlayScale} onChange={(e) => onUpdateBackground({ overlayScale: parseInt(e.target.value) })} className="w-full accent-blue-600" /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1"><div className="flex justify-between text-[9px] font-bold text-slate-500 uppercase"><span>{t.opacity}</span><span>{Math.round(background.overlayOpacity * 100)}%</span></div><input type="range" min="0" max="1" step="0.01" value={background.overlayOpacity} onChange={(e) => onUpdateBackground({ overlayOpacity: parseFloat(e.target.value) })} className="w-full accent-blue-600" /></div>
+              <div className="space-y-1"><div className="flex justify-between text-[9px] font-bold text-slate-500 uppercase"><span>{t.overlayScale}</span><span>{background.overlayScale}px</span></div><input type="range" min="5" max="100" step="1" value={background.overlayScale} onChange={(e) => onUpdateBackground({ overlayScale: parseInt(e.target.value) })} className="w-full accent-blue-600" /></div>
             </div>
           </div>
         )}
@@ -845,14 +850,14 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
 
     return (
-      <div className="space-y-6">
-        <div className="flex flex-col gap-3">
+      <div className="space-y-4">
+        <div className="flex flex-col gap-2">
           <div className="relative">
-            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
+            <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-500" />
             <input
               type="text"
               placeholder={t.searchFA}
-              className="w-full bg-slate-800 border border-slate-700 rounded-md py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-200"
+              className="w-full bg-slate-800 border border-slate-700 rounded-md py-1 pl-9 pr-3 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-200"
               value={faSearchTerm}
               onChange={(e) => setFaSearchTerm(e.target.value)}
             />
@@ -862,12 +867,12 @@ const Sidebar: React.FC<SidebarProps> = ({
         <div
           ref={faListRef}
           onScroll={handleFaScroll}
-          className="space-y-8 max-h-[calc(100vh-280px)] overflow-y-auto pr-2 custom-scrollbar"
+          className="space-y-5 max-h-[calc(100vh-280px)] overflow-y-auto pr-2 custom-scrollbar"
         >
           {faRenderData.groups.map(group => (
             <div key={group.label}>
-              <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3 border-b border-slate-800 pb-1">{group.label}</h3>
-              <div className="grid grid-cols-3 gap-3">
+              <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-1.5 border-b border-slate-800 pb-1">{group.label}</h3>
+              <div className="grid grid-cols-3 gap-1.5">
                 {group.items.map(item => (
                   <button
                     key={item.key}
@@ -880,7 +885,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                       height: item.height
                     })}
                     title={`${item.label} - ${item.style}`}
-                    className="aspect-square bg-slate-800 border border-slate-700 p-2.5 rounded-xl hover:border-blue-500 transition-all group flex items-center justify-center hover:bg-slate-750 overflow-hidden relative shadow-sm"
+                    className="aspect-square bg-slate-800 border border-slate-700 p-1.5 rounded-md hover:border-blue-500 transition-all group flex items-center justify-center hover:bg-slate-750 overflow-hidden relative shadow-sm"
                   >
                     <div className="w-full h-full text-slate-400 group-hover:text-blue-400 transition-colors flex items-center justify-center p-1">
                       <svg
@@ -911,67 +916,128 @@ const Sidebar: React.FC<SidebarProps> = ({
     );
   };
 
+  const renderHelp = () => (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+          <Keyboard className="w-3.5 h-3.5" /> {t.helpShortcutsTitle}
+        </h3>
+        <div className="grid grid-cols-1 gap-1.5">
+          {t.helpShortcuts.map(item => (
+            <div key={item.keys} className="flex items-center justify-between gap-3 bg-slate-900/60 border border-slate-800 rounded-md px-2 py-1.5">
+              <span className="text-[9px] text-slate-300 font-bold uppercase tracking-wider">{item.desc}</span>
+              <span className="text-[9px] text-slate-400 font-mono bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700 whitespace-nowrap">
+                {item.keys}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-1.5 pt-2">
+        <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+          <ExternalLink className="w-3.5 h-3.5" /> {t.helpResourcesTitle}
+        </h3>
+        <div className="grid grid-cols-1 gap-1.5">
+          {t.helpResources.map(item => (
+            <a
+              key={item.url}
+              href={item.url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-between gap-3 bg-slate-900/60 border border-slate-800 rounded-md px-2 py-1.5 hover:border-blue-500/60 transition-colors"
+            >
+              <div className="flex flex-col gap-0.5 min-w-0">
+                <span className="text-[9px] text-slate-200 font-bold truncate">{item.name}</span>
+                <span className="text-[8px] text-slate-500 truncate">{item.desc}</span>
+              </div>
+              <ExternalLink className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+            </a>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="w-80 flex bg-slate-900 border-r border-slate-800 flex-shrink-0 relative h-full">
-      <div className="w-16 border-r border-slate-800 flex flex-col items-center py-6 gap-6 flex-shrink-0">
+    <div className="w-72 flex bg-slate-900 border-r border-slate-800 flex-shrink-0 relative h-full">
+      <div className="w-14 border-r border-slate-800 flex flex-col items-center py-5 gap-4 flex-shrink-0">
         <button
           title={t.assets}
           onClick={() => setActiveTab('assets')}
-          className={`p-3 rounded-xl transition-all ${activeTab === 'assets' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
+          className={`p-2.5 rounded-lg transition-all ${activeTab === 'assets' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
         >
-          <Box className="w-6 h-6" />
+          <Box className="w-5 h-5" />
         </button>
         <button
           title={t.fontAwesome}
           onClick={() => setActiveTab('fa')}
-          className={`p-3 rounded-xl transition-all ${activeTab === 'fa' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
+          className={`p-2.5 rounded-lg transition-all ${activeTab === 'fa' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
         >
-          <Flag className="w-6 h-6" />
+          <Flag className="w-5 h-5" />
         </button>
         <button
           title={t.layout}
           onClick={() => setActiveTab('layout')}
-          className={`p-3 rounded-xl transition-all ${activeTab === 'layout' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
+          className={`p-2.5 rounded-lg transition-all ${activeTab === 'layout' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
         >
-          <Palette className="w-6 h-6" />
+          <Palette className="w-5 h-5" />
+        </button>
+        <button
+          title={t.help}
+          onClick={() => setActiveTab('help')}
+          className={`p-2.5 rounded-lg transition-all ${activeTab === 'help' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
+        >
+          <HelpCircle className="w-5 h-5" />
         </button>
       </div>
 
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        <div className="p-6 pb-2 border-b border-slate-800/50 flex items-center justify-between">
-          <h2 className="text-lg font-bold flex items-center gap-2 text-slate-100 uppercase tracking-tighter">
-            {activeTab === 'assets' ? t.assets : activeTab === 'fa' ? t.fontAwesome : t.layout}
+        <div className="p-5 pb-2 border-b border-slate-800/50 flex items-center justify-between">
+          <h2 className="text-base font-bold flex items-center gap-2 text-slate-100 uppercase tracking-tighter">
+            {activeTab === 'assets'
+              ? t.assets
+              : activeTab === 'fa'
+                ? t.fontAwesome
+                : activeTab === 'layout'
+                  ? t.layout
+                  : t.help}
           </h2>
           {activeTab === 'assets' && !isLocalFileStorage && (
             <button
               onClick={() => setIsAssetSettingsOpen(true)}
-              className="p-1.5 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all"
+              className="p-1 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-md transition-all"
               title={t.assetFolderSettings}
             >
-              <Sliders className="w-4 h-4" />
+              <Sliders className="w-3.5 h-3.5" />
             </button>
           )}
           {activeTab === 'fa' && !isLocalFileStorage && (faIcons || faCategories) && (
             <button 
               onClick={clearFAData} 
-              className="p-1.5 text-slate-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+              className="p-1 text-slate-500 hover:text-red-500 hover:bg-red-500/10 rounded-md transition-all"
               title={t.clearFAData}
             >
-              <Trash2 className="w-4 h-4" />
+              <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
-        <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
-          {activeTab === 'assets' ? renderResources() : activeTab === 'fa' ? renderFontAwesome() : renderBackgroundSettings()}
+        <div className="flex-1 overflow-y-auto p-5 scrollbar-hide">
+          {activeTab === 'assets'
+            ? renderResources()
+            : activeTab === 'fa'
+              ? renderFontAwesome()
+              : activeTab === 'layout'
+                ? renderBackgroundSettings()
+                : renderHelp()}
         </div>
 
         {activeTab === 'layout' && (
-          <div className="p-6 border-t border-slate-800 bg-slate-900/80 backdrop-blur-md flex flex-col h-[280px]">
+          <div className="p-5 border-t border-slate-800 bg-slate-900/80 backdrop-blur-md flex flex-col h-[250px]">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t.savedPresets}</h3>
-              <button onClick={saveCurrentPreset} className="p-1.5 bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white rounded-lg transition-all active:scale-95 flex items-center gap-1">
-                <Save className="w-4 h-4" />
-                <span className="text-[10px] font-bold">{t.savePreset}</span>
+              <h3 className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{t.savedPresets}</h3>
+              <button onClick={saveCurrentPreset} className="p-1 bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white rounded-md transition-all active:scale-95 flex items-center gap-1">
+                <Save className="w-3.5 h-3.5" />
+                <span className="text-[9px] font-bold">{t.savePreset}</span>
               </button>
             </div>
             <div className="flex-1 overflow-y-auto pr-1 scrollbar-hide">

@@ -264,36 +264,37 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
   };
 
   return (
-    <div 
-      ref={scrollContainerRef}
-      className="flex-1 overflow-auto bg-slate-950 canvas-checkerboard relative w-full h-full"
-      onMouseDown={handleBackgroundClick}
-    >
+    <div className="flex-1 relative">
       <div 
-        className="flex items-center justify-center min-w-full min-h-full p-16 md:p-32"
+        ref={scrollContainerRef}
+        className="absolute inset-0 overflow-auto bg-slate-950 canvas-checkerboard"
         onMouseDown={handleBackgroundClick}
       >
         <div 
-          style={{
-            width: project.canvasConfig.width * zoom,
-            height: project.canvasConfig.height * zoom,
-            transition: interaction ? 'none' : 'width 0.1s ease-out, height 0.1s ease-out',
-            flexShrink: 0
-          }}
-          className="relative"
+          className="flex items-center justify-center min-w-full min-h-full p-16 md:p-32"
+          onMouseDown={handleBackgroundClick}
         >
           <div 
-            id="export-target"
-            className="absolute top-0 left-0 bg-white shadow-[0_0_100px_rgba(0,0,0,0.5)] overflow-hidden"
             style={{
-              width: project.canvasConfig.width,
-              height: project.canvasConfig.height,
-              transform: `scale(${zoom})`,
-              transformOrigin: 'top left',
-              ...buildBackgroundStyles(project.background),
-              backfaceVisibility: 'hidden'
+              width: project.canvasConfig.width * zoom,
+              height: project.canvasConfig.height * zoom,
+              transition: interaction ? 'none' : 'width 0.1s ease-out, height 0.1s ease-out',
+              flexShrink: 0
             }}
+            className="relative"
           >
+            <div 
+              id="export-target"
+              className="absolute top-0 left-0 bg-white shadow-[0_0_100px_rgba(0,0,0,0.5)] overflow-hidden"
+              style={{
+                width: project.canvasConfig.width,
+                height: project.canvasConfig.height,
+                transform: `scale(${zoom})`,
+                transformOrigin: 'top left',
+                ...buildBackgroundStyles(project.background),
+                backfaceVisibility: 'hidden'
+              }}
+            >
             {project.layers
               .filter(l => l.visible && l.type !== 'group')
               .sort((a, b) => a.zIndex - b.zIndex)
@@ -510,6 +511,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                 }}
               />
             ))}
+            </div>
           </div>
         </div>
       </div>

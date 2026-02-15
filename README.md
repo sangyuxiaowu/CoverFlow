@@ -5,6 +5,15 @@ CoverFlow - 专业 SVG 文章封面设计器
 
 ![软件界面](./doc/i1.png)
 
+使用方式
+--------
+
+- 在线使用：https://sangyuxiaowu.github.io/CoverFlow/
+- 安装为桌面/应用：在浏览器菜单中选择“安装应用”（PWA）
+- 前往 [Releases](https://github.com/sangyuxiaowu/CoverFlow/releases) 下载桌面版安装包：
+	- 打开最新版本（Latest）
+	- 选择与你的系统匹配的安装包（Windows/macOS/Linux）
+
 核心功能
 --------
 

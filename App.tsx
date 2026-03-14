@@ -833,7 +833,11 @@ const App: React.FC = () => {
     return expanded;
   };
 
-  const handleSelectLayer = (id: string | null, mode: 'replace' | 'toggle' = 'replace') => {
+  const handleSelectLayer = (
+    id: string | null,
+    mode: 'replace' | 'toggle' | 'range' | 'range-add' = 'replace',
+    orderedIds?: string[]
+  ) => {
     if (!project) return;
     if (!id) {
       setSelectedLayerIds([]);
@@ -843,6 +847,30 @@ const App: React.FC = () => {
 
     if (mode === 'replace') {
       setSelectedLayerIds([id]);
+      modifyProject(p => ({ ...p, selectedLayerId: id }), false);
+      return;
+    }
+
+    if (mode === 'range' || mode === 'range-add') {
+      const idsInOrder = orderedIds && orderedIds.length > 0 ? orderedIds : [...project.layers]
+        .sort((a, b) => b.zIndex - a.zIndex)
+        .map(l => l.id);
+      const anchorId = project.selectedLayerId || selectedLayerIds[selectedLayerIds.length - 1] || id;
+      const start = idsInOrder.indexOf(anchorId);
+      const end = idsInOrder.indexOf(id);
+
+      if (start === -1 || end === -1) {
+        setSelectedLayerIds([id]);
+        modifyProject(p => ({ ...p, selectedLayerId: id }), false);
+        return;
+      }
+
+      const [from, to] = start < end ? [start, end] : [end, start];
+      const rangeIds = idsInOrder.slice(from, to + 1);
+      const nextIds = mode === 'range-add'
+        ? Array.from(new Set([...selectedLayerIds, ...rangeIds]))
+        : rangeIds;
+      setSelectedLayerIds(nextIds);
       modifyProject(p => ({ ...p, selectedLayerId: id }), false);
       return;
     }

@@ -16,7 +16,11 @@ interface LayersPanelProps {
   selectedLayerIds: string[];
   onUpdateLayer: (id: string, updates: Partial<Layer>, record?: boolean) => void;
   onDeleteLayer: (id: string) => void;
-  onSelectLayer: (id: string | null, mode?: 'replace' | 'toggle') => void;
+  onSelectLayer: (
+    id: string | null,
+    mode?: 'replace' | 'toggle' | 'range' | 'range-add',
+    orderedIds?: string[]
+  ) => void;
   onReorderLayers: (newLayers: Layer[]) => void;
   onCloneLayers: (ids: string[]) => void;
   onDeleteLayers: (ids: string[]) => void;
@@ -314,6 +318,11 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
 
     return items;
   }, [sortedLayers, collapsedGroupIds, layerMap]);
+
+  const selectableOrder = useMemo(
+    () => displayLayers.map(item => item.layer.id),
+    [displayLayers]
+  );
 
   const menuSelection = contextMenu
     ? (selectedLayerIds.includes(contextMenu.layerId) ? selectedLayerIds : [contextMenu.layerId])
@@ -836,7 +845,13 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                   setDraggedIndex(null); setDragOverIndex(null);
                 }}
                 onDragEnd={() => { setDraggedIndex(null); setDragOverIndex(null); }}
-                onClick={(e) => onSelectLayer(layer.id, e.ctrlKey || e.metaKey ? 'toggle' : 'replace')}
+                onClick={(e) => {
+                  if (e.shiftKey) {
+                    onSelectLayer(layer.id, (e.ctrlKey || e.metaKey) ? 'range-add' : 'range', selectableOrder);
+                    return;
+                  }
+                  onSelectLayer(layer.id, e.ctrlKey || e.metaKey ? 'toggle' : 'replace');
+                }}
                 onContextMenu={(e) => handleLayerContextMenu(e, layer.id)}
                 className={`group relative flex items-center gap-2.5 p-2 rounded-md cursor-pointer transition-all ${
                   isSelected ? 'bg-blue-600 text-white shadow-md' : 'hover:bg-slate-800 text-slate-400'

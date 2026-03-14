@@ -736,6 +736,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       label: string;
       style: string;
       raw: string;
+      svgContent: string;
       innerHtml: string;
       viewBox: string;
       width: number;
@@ -745,9 +746,9 @@ const Sidebar: React.FC<SidebarProps> = ({
     const searchVal = faSearchTerm.trim().toLowerCase();
     let stop = false;
 
-    for (const [, cat] of Object.entries(faCategories)) {
+    for (const [, cat] of Object.entries(faCategories as Record<string, FACategory>)) {
       if (remaining <= 0) { hasMore = true; break; }
-      const items: { key: string; label: string; style: string; raw: string; innerHtml: string; viewBox: string; width: number; height: number }[] = [];
+      const items: { key: string; label: string; style: string; raw: string; svgContent: string; innerHtml: string; viewBox: string; width: number; height: number }[] = [];
 
       for (const iconId of cat.icons) {
         if (remaining <= 0) { hasMore = true; stop = true; break; }
@@ -759,24 +760,31 @@ const Sidebar: React.FC<SidebarProps> = ({
             metadata.search?.terms?.some(term => term.toLowerCase().includes(searchVal));
           if (!matched) continue;
         }
-
+        
         // 扁平化该图标在不同家族下的可用样式
         for (const [family, styles] of Object.entries(metadata.svgs)) {
           for (const [style, data] of Object.entries(styles as Record<string, any>)) {
             if (remaining <= 0) { hasMore = true; stop = true; break; }
             const svgData = data as { raw: string; viewBox?: number[] };
             const vb = svgData.viewBox || [0, 0, 512, 512];
-            const widthVal = vb[2] || 512;
-            const heightVal = vb[3] || 512;
+            const minX = Number.isFinite(vb[0]) ? vb[0] : 0;
+            const minY = Number.isFinite(vb[1]) ? vb[1] : 0;
+            const widthVal = Number.isFinite(vb[2]) && vb[2] > 0 ? vb[2] : 512;
+            const heightVal = Number.isFinite(vb[3]) && vb[3] > 0 ? vb[3] : 512;
+            const safePadding = Math.min(72, Math.max(8, Math.max(widthVal, heightVal) * 0.12));
+            const paddedViewBox = `${minX - safePadding} ${minY - safePadding} ${widthVal + safePadding * 2} ${heightVal + safePadding * 2}`;
             const maxInitialSize = 120;
             const scale = Math.min(maxInitialSize / widthVal, maxInitialSize / heightVal);
+            const innerHtml = svgData.raw.replace(/<svg[^>]*>/i, '').replace(/<\/svg>/i, '');
+            const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${paddedViewBox}" preserveAspectRatio="xMidYMid meet">${innerHtml}</svg>`;
             items.push({
               key: `${iconId}-${family}-${style}`,
               label: metadata.label,
               style,
               raw: svgData.raw,
-              innerHtml: svgData.raw.replace(/<svg[^>]*>/i, '').replace(/<\/svg>/i, ''),
-              viewBox: `0 0 ${vb[2]} ${vb[3]}`,
+              svgContent,
+              innerHtml,
+              viewBox: paddedViewBox,
               width: Math.round(widthVal * scale),
               height: Math.round(heightVal * scale)
             });
@@ -879,7 +887,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     onClick={() => onAddLayer({
                       name: `${item.label} (${item.style})`,
                       type: 'svg',
-                      content: item.raw,
+                      content: item.svgContent,
                       color: '#3b82f6',
                       width: item.width,
                       height: item.height

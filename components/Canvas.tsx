@@ -429,8 +429,6 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                           const isS = h.includes('s');
                           const isW = h.includes('w');
                           const isE = h.includes('e');
-                          const translateX = isW ? '-50%' : isE ? '50%' : '-50%';
-                          const translateY = isN ? '-50%' : isS ? '50%' : '-50%';
                           return (
                             <div
                               key={h}
@@ -439,7 +437,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                               style={{
                                 top: isN ? 0 : isS ? '100%' : '50%',
                                 left: isW ? 0 : isE ? '100%' : '50%',
-                                transform: `translate(${translateX}, ${translateY})`,
+                                transform: 'translate(-50%, -50%)',
                                 cursor: `${h}-resize`,
                                 backfaceVisibility: 'hidden'
                               }}
@@ -479,8 +477,6 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                     const isS = h.includes('s');
                     const isW = h.includes('w');
                     const isE = h.includes('e');
-                    const translateX = isW ? '-50%' : isE ? '50%' : '-50%';
-                    const translateY = isN ? '-50%' : isS ? '50%' : '-50%';
                     return (
                       <div
                         key={h}
@@ -489,7 +485,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                         style={{
                           top: isN ? 0 : isS ? '100%' : '50%',
                           left: isW ? 0 : isE ? '100%' : '50%',
-                          transform: `translate(${translateX}, ${translateY})`,
+                          transform: 'translate(-50%, -50%)',
                           cursor: `${h}-resize`
                         }}
                       />

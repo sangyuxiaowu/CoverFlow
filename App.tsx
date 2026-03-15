@@ -206,7 +206,7 @@ const App: React.FC = () => {
   }));
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportSettings, setExportSettings] = useState<{
-    pixelRatio: 1 | 1.5 | 2;
+    pixelRatio: 0.5 | 1 | 1.5 | 2;
     format: ExportFormat;
     compression: ExportCompression;
   }>({
@@ -718,6 +718,72 @@ const App: React.FC = () => {
     return canvasToBlob(canvas, 'image/webp', quality);
   };
 
+  const buildExportDataUrl = async (
+    previewNode: HTMLDivElement,
+    targetProject: ProjectState,
+    settings: typeof exportSettings
+  ) => {
+    const options = buildExportOptions(targetProject, settings.pixelRatio);
+    const quality = getExportQuality(settings);
+
+    if (settings.format === 'png') {
+      return htmlToImage.toPng(previewNode, options);
+    }
+
+    if (settings.format === 'jpeg') {
+      return htmlToImage.toJpeg(previewNode, { ...options, quality });
+    }
+
+    const canvas = await htmlToImage.toCanvas(previewNode, options);
+    return canvas.toDataURL('image/webp', quality);
+  };
+
+  const copyTextToClipboard = async (value: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+        return;
+      }
+    } catch (err) {
+      // fall back to execCommand path below
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.setAttribute('readonly', 'true');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    textarea.style.pointerEvents = 'none';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    if (!copied) {
+      throw new Error('Clipboard copy failed');
+    }
+  };
+
+  const withDeselectedExportPreview = async (action: () => Promise<void>) => {
+    if (!project) return;
+    const prevSelectedId = project.selectedLayerId;
+    const prevSelectedIds = [...selectedLayerIds];
+
+    if (prevSelectedId || prevSelectedIds.length > 0) {
+      setSelectedLayerIds([]);
+      modifyProject(p => ({ ...p, selectedLayerId: null }), false);
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    }
+
+    try {
+      await action();
+    } finally {
+      if (prevSelectedId || prevSelectedIds.length > 0) {
+        setSelectedLayerIds(prevSelectedIds);
+        modifyProject(p => ({ ...p, selectedLayerId: prevSelectedId }), false);
+      }
+    }
+  };
+
   const getGroupBounds = (layers: Layer[], childIds: string[]) => {
     const children = layers.filter(l => childIds.includes(l.id));
     if (children.length === 0) return { x: 0, y: 0, width: 1, height: 1 };
@@ -1126,35 +1192,46 @@ const App: React.FC = () => {
     targetProject: ProjectState,
     settings: typeof exportSettings
   ) => {
-    if (!project) return;
-    const prevSelectedId = project.selectedLayerId;
-    const prevSelectedIds = [...selectedLayerIds];
-
-    if (prevSelectedId || prevSelectedIds.length > 0) {
-      setSelectedLayerIds([]);
-      modifyProject(p => ({ ...p, selectedLayerId: null }), false);
-      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-    }
-
-    try {
-      if (!previewNode) {
-        showToast(t.exportPreviewMissing, "error");
-        return;
+    await withDeselectedExportPreview(async () => {
+      try {
+        if (!previewNode) {
+          showToast(t.exportPreviewMissing, "error");
+          return;
+        }
+        setIsExporting(true);
+        const blob = await buildExportBlob(previewNode, targetProject, settings);
+        const ext = getExportFileExt(settings.format);
+        downloadBlob(blob, `${targetProject.title}.${ext}`);
+        showToast(t.exportSuccess);
+      } catch (e) {
+        showToast(t.exportFailed, "error");
+      } finally {
+        setIsExporting(false);
       }
-      setIsExporting(true);
-      const blob = await buildExportBlob(previewNode, targetProject, settings);
-      const ext = getExportFileExt(settings.format);
-      downloadBlob(blob, `${targetProject.title}.${ext}`);
-      showToast(t.exportSuccess);
-    } catch (e) {
-      showToast(t.exportFailed, "error");
-    } finally {
-      setIsExporting(false);
-      if (prevSelectedId || prevSelectedIds.length > 0) {
-        setSelectedLayerIds(prevSelectedIds);
-        modifyProject(p => ({ ...p, selectedLayerId: prevSelectedId }), false);
+    });
+  };
+
+  const handleCopyExportBase64WithDeselect = async (
+    previewNode: HTMLDivElement | null,
+    targetProject: ProjectState,
+    settings: typeof exportSettings
+  ) => {
+    await withDeselectedExportPreview(async () => {
+      try {
+        if (!previewNode) {
+          showToast(t.exportPreviewMissing, 'error');
+          return;
+        }
+        setIsExporting(true);
+        const dataUrl = await buildExportDataUrl(previewNode, targetProject, settings);
+        await copyTextToClipboard(dataUrl);
+        showToast(t.copyBase64Success);
+      } catch (e) {
+        showToast(t.copyBase64Failed, 'error');
+      } finally {
+        setIsExporting(false);
       }
-    }
+    });
   };
 
   const addTextLayerWithContent = (text: string) => {
@@ -1931,6 +2008,12 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
         estimating={exportEstimating}
         onClose={() => setIsExportModalOpen(false)}
         onChange={updateExportSettings}
+        onCopyBase64={() => {
+          const node = document.getElementById('export-target') as HTMLDivElement | null;
+          if (!project) return;
+          handleCopyExportBase64WithDeselect(node, project, exportSettings);
+          setIsExportModalOpen(false);
+        }}
         onConfirm={() => {
           const node = document.getElementById('export-target') as HTMLDivElement | null;
           if (!project) return;

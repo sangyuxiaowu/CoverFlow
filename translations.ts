@@ -35,6 +35,9 @@ export const translations = {
     exportCompression: "压缩",
     exportEstimatedSize: "预计大小",
     exportEstimating: "计算中...",
+    copyBase64: "复制 Base64",
+    copyBase64Success: "Base64 已复制到剪贴板",
+    copyBase64Failed: "复制 Base64 失败",
     exportCompressionHint: "PNG 为无损格式，压缩选项仅对 JPEG/WebP 生效",
     exportCompressionLevels: {
       lossless: "无损",
@@ -239,6 +242,9 @@ export const translations = {
     exportCompression: "Compression",
     exportEstimatedSize: "Estimated Size",
     exportEstimating: "Estimating...",
+    copyBase64: "Copy Base64",
+    copyBase64Success: "Base64 copied to clipboard",
+    copyBase64Failed: "Failed to copy Base64",
     exportCompressionHint: "PNG is lossless. Compression applies to JPEG/WebP only",
     exportCompressionLevels: {
       lossless: "Lossless",

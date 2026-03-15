@@ -1,9 +1,9 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { Copy, X } from 'lucide-react';
 import { translations, Language } from '../translations.ts';
 
 interface ExportSettings {
-  pixelRatio: 1 | 1.5 | 2;
+  pixelRatio: 0.5 | 1 | 1.5 | 2;
   format: 'png' | 'jpeg' | 'webp';
   compression: 'lossless' | 'balanced' | 'small';
 }
@@ -17,6 +17,7 @@ interface ExportModalProps {
   onChange: (updates: Partial<ExportSettings>) => void;
   onClose: () => void;
   onConfirm: () => void;
+  onCopyBase64: () => void;
 }
 
 const formatBytes = (bytes: number) => {
@@ -35,7 +36,8 @@ const ExportModal: React.FC<ExportModalProps> = ({
   estimating,
   onChange,
   onClose,
-  onConfirm
+  onConfirm,
+  onCopyBase64
 }) => {
   if (!isOpen) return null;
   const t = translations[lang];
@@ -65,7 +67,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
           <div className="space-y-2">
             <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.exportPixelRatio}</div>
             <div className="flex items-center gap-2">
-              {[1, 1.5, 2].map((ratio) => (
+              {[0.5, 1, 1.5, 2].map((ratio) => (
                 <button
                   key={ratio}
                   type="button"
@@ -132,6 +134,14 @@ const ExportModal: React.FC<ExportModalProps> = ({
         </div>
 
         <div className="flex items-center justify-end gap-3">
+          <button
+            type="button"
+            onClick={onCopyBase64}
+            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors inline-flex items-center gap-2"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            {t.copyBase64}
+          </button>
           <button
             type="button"
             onClick={onClose}

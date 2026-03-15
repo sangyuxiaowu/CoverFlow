@@ -177,10 +177,12 @@ export const clearStoredAssetFolderHandle = async () => {
 export type AssetFolderItem = {
   key: string;
   name: string;
+  assetType: 'svg' | 'image';
   fileHandle: FileSystemFileHandle;
 };
 
 export type AssetFolderGroup = {
+  key: string;
   category: string;
   categoryZh: string;
   items: AssetFolderItem[];
@@ -214,6 +216,7 @@ export const scanAssetFolder = async (handle: FileSystemDirectoryHandle) => {
     const { en, zh } = parseGroupName(folderName);
     const groupKey = folderName;
     const group: AssetFolderGroup = groupsMap.get(groupKey) || {
+      key: groupKey,
       category: en,
       categoryZh: zh,
       items: []
@@ -221,11 +224,18 @@ export const scanAssetFolder = async (handle: FileSystemDirectoryHandle) => {
 
     for await (const [fileName, fileEntry] of entry.entries()) {
       if (fileEntry.kind !== 'file') continue;
-      if (!fileName.toLowerCase().endsWith('.svg')) continue;
-      const name = fileName.replace(/\.svg$/i, '');
+      const lowerFileName = fileName.toLowerCase();
+      const assetType = lowerFileName.endsWith('.svg')
+        ? 'svg'
+        : lowerFileName.endsWith('.png')
+          ? 'image'
+          : null;
+      if (!assetType) continue;
+      const name = fileName.replace(/\.(svg|png)$/i, '');
       group.items.push({
         key: `${groupKey}/${fileName}`,
         name,
+        assetType,
         fileHandle: fileEntry
       });
     }

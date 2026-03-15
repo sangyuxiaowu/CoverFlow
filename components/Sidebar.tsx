@@ -460,7 +460,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const renderResources = () => (
-    <div className="space-y-4">
+    <div className="h-full min-h-0 flex flex-col gap-4">
       <div className="relative">
         <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-500" />
         <input
@@ -475,7 +475,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       <div
         ref={assetListRef}
         onScroll={handleAssetScroll}
-        className="space-y-4 max-h-[calc(100vh-280px)] overflow-y-auto pr-2 custom-scrollbar"
+        className="flex-1 min-h-0 space-y-4 overflow-y-auto pr-2 custom-scrollbar"
       >
         <div className="grid grid-cols-1 gap-4">
           {assetRenderData.groups.map((cat) => {
@@ -931,7 +931,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
 
     return (
-      <div className="space-y-4">
+      <div className="h-full min-h-0 flex flex-col gap-4">
         <div className="flex flex-col gap-2">
           <div className="relative">
             <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-500" />
@@ -948,7 +948,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <div
           ref={faListRef}
           onScroll={handleFaScroll}
-          className="space-y-5 max-h-[calc(100vh-280px)] overflow-y-auto pr-2 custom-scrollbar"
+          className="flex-1 min-h-0 space-y-5 overflow-y-auto pr-2 custom-scrollbar"
         >
           {faRenderData.groups.map(group => (
             <div key={group.label}>
@@ -1102,7 +1102,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             </button>
           )}
         </div>
-        <div className="flex-1 overflow-y-auto p-5 scrollbar-hide">
+        <div className={`flex-1 min-h-0 p-5 ${activeTab === 'assets' || activeTab === 'fa' ? 'overflow-hidden' : 'overflow-y-auto scrollbar-hide'}`}>
           {activeTab === 'assets'
             ? renderResources()
             : activeTab === 'fa'

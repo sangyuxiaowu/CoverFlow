@@ -2043,6 +2043,52 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
               }));
               return;
             }
+
+            if (l.type === 'image' && l.content) {
+              const img = new Image();
+              img.onload = () => {
+                let width = img.width || 100;
+                let height = img.height || 100;
+                const maxWidth = project.canvasConfig.width * 0.8;
+                const maxHeight = project.canvasConfig.height * 0.8;
+                const ratio = width / Math.max(height, 1);
+
+                if (width > maxWidth) {
+                  width = maxWidth;
+                  height = width / ratio;
+                }
+                if (height > maxHeight) {
+                  height = maxHeight;
+                  width = height * ratio;
+                }
+
+                const newLayer: Layer = {
+                  id: generateId(),
+                  name: l.name || t.defaultLayerName,
+                  type: 'image',
+                  content: l.content,
+                  x: (project.canvasConfig.width - width) / 2,
+                  y: (project.canvasConfig.height - height) / 2,
+                  width,
+                  height,
+                  rotation: 0,
+                  zIndex: project.layers.length + 1,
+                  visible: true,
+                  locked: false,
+                  opacity: 1,
+                  ratioLocked: true
+                };
+
+                modifyProject(p => ({
+                  ...p,
+                  layers: [...p.layers, newLayer],
+                  selectedLayerId: newLayer.id
+                }));
+                setSelectedLayerIds([newLayer.id]);
+              };
+              img.src = l.content;
+              return;
+            }
             
             // 非 SVG 图层保持原有逻辑
             modifyProject(p => ({

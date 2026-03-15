@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { CATEGORIZED_ASSETS, PRESET_COLORS, PRESET_GRADIENTS } from '../constants.ts';
 import { BackgroundConfig, Layer, FAIconMetadata, FACategory } from '../types.ts';
 import { translations, Language } from '../translations.ts';
-import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash, HelpCircle, Keyboard } from 'lucide-react';
+import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash, HelpCircle, Keyboard, ChevronDown, ChevronRight } from 'lucide-react';
 import * as yaml from 'js-yaml';
 import { normalizeSVG } from '../utils/helpers.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
@@ -41,19 +41,28 @@ interface SidebarProps {
 interface ExternalAssetItem {
   key: string;
   name: string;
+  assetType: 'svg' | 'image';
   fileHandle: FileSystemFileHandle;
 }
 
 interface AssetGroup {
+  key: string;
   category: string;
   categoryZh: string;
   items: Array<
-    | { key: string; name: string; content: string; isExternal?: false }
-    | { key: string; name: string; fileHandle: FileSystemFileHandle; isExternal: true }
+    | { key: string; name: string; content: string; assetType: 'svg'; isExternal?: false }
+    | { key: string; name: string; fileHandle: FileSystemFileHandle; assetType: 'svg' | 'image'; isExternal: true }
   >;
 }
 
 const ASSET_PAGE_SIZE = 120;
+
+const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve((reader.result as string) || '');
+  reader.onerror = () => reject(reader.error);
+  reader.readAsDataURL(file);
+});
 
 // 侧边栏：资源库与背景配置。
 const Sidebar: React.FC<SidebarProps> = ({
@@ -85,8 +94,10 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [externalError, setExternalError] = useState<string | null>(null);
   const [externalCacheVersion, setExternalCacheVersion] = useState(0);
   const [isAssetSettingsOpen, setIsAssetSettingsOpen] = useState(false);
-  const externalSvgCacheRef = useRef<Map<string, string>>(new Map());
-  const externalSvgLoadingRef = useRef<Set<string>>(new Set());
+  const [collapsedAssetGroups, setCollapsedAssetGroups] = useState<Record<string, boolean>>({});
+  const assetListRef = useRef<HTMLDivElement | null>(null);
+  const externalAssetCacheRef = useRef<Map<string, string>>(new Map());
+  const externalAssetLoadingRef = useRef<Set<string>>(new Set());
 
   // Font Awesome 数据状态
   const [faIcons, setFaIcons] = useState<Record<string, FAIconMetadata> | null>(null);
@@ -170,18 +181,20 @@ const Sidebar: React.FC<SidebarProps> = ({
   const scanExternalFolder = useCallback(async (handle: FileSystemDirectoryHandle) => {
     setExternalLoading(true);
     setExternalError(null);
-    externalSvgCacheRef.current.clear();
-    externalSvgLoadingRef.current.clear();
+    externalAssetCacheRef.current.clear();
+    externalAssetLoadingRef.current.clear();
     setExternalCacheVersion(prev => prev + 1);
 
     try {
       const scanned = await scanAssetFolder(handle);
       const groups: AssetGroup[] = scanned.map(group => ({
+        key: group.key,
         category: group.category,
         categoryZh: group.categoryZh,
         items: group.items.map(item => ({
           key: item.key,
           name: item.name,
+          assetType: item.assetType,
           fileHandle: item.fileHandle,
           isExternal: true
         }))
@@ -195,20 +208,25 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   }, [t.assetFolderReadFailed]);
 
-  const loadExternalSvg = useCallback(async (item: ExternalAssetItem) => {
-    if (externalSvgCacheRef.current.has(item.key)) return;
-    if (externalSvgLoadingRef.current.has(item.key)) return;
-    externalSvgLoadingRef.current.add(item.key);
+  const loadExternalAsset = useCallback(async (item: ExternalAssetItem) => {
+    if (externalAssetCacheRef.current.has(item.key)) return;
+    if (externalAssetLoadingRef.current.has(item.key)) return;
+    externalAssetLoadingRef.current.add(item.key);
     try {
       const file = await item.fileHandle.getFile();
-      const text = await file.text();
-      const normalized = normalizeSVG(text);
-      externalSvgCacheRef.current.set(item.key, normalized);
+      if (item.assetType === 'svg') {
+        const text = await file.text();
+        const normalized = normalizeSVG(text);
+        externalAssetCacheRef.current.set(item.key, normalized);
+      } else {
+        const dataUrl = await readFileAsDataUrl(file);
+        externalAssetCacheRef.current.set(item.key, dataUrl);
+      }
       setExternalCacheVersion(prev => prev + 1);
     } catch (err) {
       // ignore single file read errors
     } finally {
-      externalSvgLoadingRef.current.delete(item.key);
+      externalAssetLoadingRef.current.delete(item.key);
     }
   }, []);
 
@@ -252,8 +270,8 @@ const Sidebar: React.FC<SidebarProps> = ({
     setExternalFolderHandle(null);
     setExternalFolderName('');
     setExternalGroups([]);
-    externalSvgCacheRef.current.clear();
-    externalSvgLoadingRef.current.clear();
+    externalAssetCacheRef.current.clear();
+    externalAssetLoadingRef.current.clear();
     setExternalCacheVersion(prev => prev + 1);
   }, []);
 
@@ -339,12 +357,14 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const combinedAssetGroups = useMemo<AssetGroup[]>(() => {
     const baseGroups: AssetGroup[] = CATEGORIZED_ASSETS.map(group => ({
+      key: `base:${group.category}`,
       category: group.category,
       categoryZh: group.categoryZh || group.category,
       items: group.items.map(item => ({
         key: `base:${group.category}:${item.name}`,
         name: item.name,
         content: item.content,
+        assetType: 'svg',
         isExternal: false
       }))
     }));
@@ -355,7 +375,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     const search = searchTerm.trim().toLowerCase();
     let remaining = assetVisibleCount;
     let hasMore = false;
-    const groups: { label: string; items: Array<{ key: string; name: string; content: string; isExternal?: boolean; fileHandle?: FileSystemFileHandle }> }[] = [];
+    const groups: { key: string; label: string; items: Array<{ key: string; name: string; content: string; assetType: 'svg' | 'image'; isExternal?: boolean; fileHandle?: FileSystemFileHandle }> }[] = [];
     const pendingExternal: ExternalAssetItem[] = [];
 
     for (const group of combinedAssetGroups) {
@@ -364,7 +384,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         break;
       }
       const label = lang === 'zh' ? group.categoryZh : group.category;
-      const items: Array<{ key: string; name: string; content: string; isExternal?: boolean; fileHandle?: FileSystemFileHandle }> = [];
+      const items: Array<{ key: string; name: string; content: string; assetType: 'svg' | 'image'; isExternal?: boolean; fileHandle?: FileSystemFileHandle }> = [];
 
       for (const item of group.items) {
         if (remaining <= 0) {
@@ -374,11 +394,12 @@ const Sidebar: React.FC<SidebarProps> = ({
         if (search && !item.name.toLowerCase().includes(search)) continue;
 
         if (item.isExternal) {
-          const cached = externalSvgCacheRef.current.get(item.key) || '';
+          const cached = externalAssetCacheRef.current.get(item.key) || '';
           items.push({
             key: item.key,
             name: item.name,
             content: cached,
+            assetType: item.assetType,
             isExternal: true,
             fileHandle: item.fileHandle
           });
@@ -386,6 +407,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             pendingExternal.push({
               key: item.key,
               name: item.name,
+              assetType: item.assetType,
               fileHandle: item.fileHandle
             });
           }
@@ -394,6 +416,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             key: item.key,
             name: item.name,
             content: item.content,
+            assetType: item.assetType,
             isExternal: false
           });
         }
@@ -401,7 +424,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       }
 
       if (items.length > 0) {
-        groups.push({ label, items });
+        groups.push({ key: group.key, label, items });
       }
     }
 
@@ -410,11 +433,34 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   useEffect(() => {
     if (assetRenderData.pendingExternal.length === 0) return;
-    assetRenderData.pendingExternal.forEach(item => loadExternalSvg(item));
-  }, [assetRenderData.pendingExternal, loadExternalSvg]);
+    assetRenderData.pendingExternal.forEach(item => loadExternalAsset(item));
+  }, [assetRenderData.pendingExternal, loadExternalAsset]);
+
+  useEffect(() => {
+    if (activeTab !== 'assets') return;
+    if (assetListRef.current) {
+      assetListRef.current.scrollTop = 0;
+    }
+  }, [activeTab, searchTerm, externalGroups]);
+
+  const handleAssetScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (!assetRenderData.hasMore) return;
+    const target = e.currentTarget;
+    const nearBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - 200;
+    if (nearBottom) {
+      setAssetVisibleCount(prev => prev + ASSET_PAGE_SIZE);
+    }
+  };
+
+  const toggleAssetGroup = (groupKey: string) => {
+    setCollapsedAssetGroups(prev => ({
+      ...prev,
+      [groupKey]: !prev[groupKey]
+    }));
+  };
 
   const renderResources = () => (
-    <div className="space-y-4">
+    <div className="h-full min-h-0 flex flex-col gap-4">
       <div className="relative">
         <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-500" />
         <input
@@ -426,51 +472,78 @@ const Sidebar: React.FC<SidebarProps> = ({
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4">
-        {assetRenderData.groups.map((cat) => (
-          <div key={cat.label}>
-            <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-              {cat.label}
-            </h3>
-            <div className="grid grid-cols-3 gap-1">
-              {cat.items.map((item) => (
+      <div
+        ref={assetListRef}
+        onScroll={handleAssetScroll}
+        className="flex-1 min-h-0 space-y-4 overflow-y-auto pr-2 custom-scrollbar"
+      >
+        <div className="grid grid-cols-1 gap-4">
+          {assetRenderData.groups.map((cat) => {
+            const isCollapsed = !searchTerm.trim() && !!collapsedAssetGroups[cat.key];
+            return (
+              <div key={cat.key}>
                 <button
-                  key={item.key}
-                  onClick={async () => {
-                    if (item.isExternal && item.fileHandle) {
-                      await loadExternalSvg({ key: item.key, name: item.name, fileHandle: item.fileHandle });
-                      const svg = externalSvgCacheRef.current.get(item.key);
-                      if (!svg) return;
-                      onAddLayer({ name: item.name, type: 'svg', content: svg, color: '#3b82f6' });
-                      return;
-                    }
-                    onAddLayer({ name: item.name, type: 'svg', content: item.content, color: '#3b82f6' });
-                  }}
-                  className="bg-slate-800 border border-slate-700 p-1.5 rounded hover:border-blue-500 transition-colors group flex flex-col items-center"
+                  type="button"
+                  onClick={() => toggleAssetGroup(cat.key)}
+                  className="w-full flex items-center justify-between gap-2 mb-1.5 text-left"
+                  title={isCollapsed ? t.expandGroup : t.collapseGroup}
                 >
-                  <div className="w-full h-10 flex items-center justify-center mb-0.5">
-                    {item.content ? (
-                      <svg viewBox="0 0 100 100" className="w-full h-full text-slate-400 group-hover:text-blue-400 transition-colors" dangerouslySetInnerHTML={{ __html: item.content }} />
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    {isCollapsed ? (
+                      <ChevronRight className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
                     ) : (
-                      <div className="w-5 h-5 rounded-full border border-slate-700 border-t-slate-500 animate-spin opacity-40" />
+                      <ChevronDown className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
                     )}
-                  </div>
-                  <span className="text-[9px] text-slate-400 truncate w-full text-center">{item.name}</span>
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider truncate">{cat.label}</span>
+                  </span>
+                  <span className="text-[9px] text-slate-600 font-bold">{cat.items.length}</span>
                 </button>
-              ))}
-            </div>
+                {!isCollapsed && (
+                  <div className="grid grid-cols-3 gap-1">
+                    {cat.items.map((item) => (
+                      <button
+                        key={item.key}
+                        onClick={async () => {
+                          let assetContent = item.content;
+                          if (item.isExternal && item.fileHandle) {
+                            await loadExternalAsset({ key: item.key, name: item.name, assetType: item.assetType, fileHandle: item.fileHandle });
+                            assetContent = externalAssetCacheRef.current.get(item.key) || '';
+                          }
+                          if (!assetContent) return;
+                          if (item.assetType === 'image') {
+                            onAddLayer({ name: item.name, type: 'image', content: assetContent });
+                            return;
+                          }
+                          onAddLayer({ name: item.name, type: 'svg', content: assetContent, color: '#3b82f6' });
+                        }}
+                        className="bg-slate-800 border border-slate-700 p-1.5 rounded hover:border-blue-500 transition-colors group flex flex-col items-center"
+                      >
+                        <div className="w-full h-10 flex items-center justify-center mb-0.5 overflow-hidden rounded-sm">
+                          {item.content ? (
+                            item.assetType === 'image' ? (
+                              <img src={item.content} alt={item.name} className="w-full h-full object-contain" />
+                            ) : (
+                              <svg viewBox="0 0 100 100" className="w-full h-full text-slate-400 group-hover:text-blue-400 transition-colors" dangerouslySetInnerHTML={{ __html: item.content }} />
+                            )
+                          ) : (
+                            <div className="w-5 h-5 rounded-full border border-slate-700 border-t-slate-500 animate-spin opacity-40" />
+                          )}
+                        </div>
+                        <span className="text-[9px] text-slate-400 truncate w-full text-center">{item.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {assetRenderData.hasMore && (
+          <div className="text-[10px] text-slate-600 font-bold uppercase tracking-widest text-center py-2">
+            {t.loadingMore}
           </div>
-        ))}
+        )}
       </div>
-      {assetRenderData.hasMore && (
-        <button
-          type="button"
-          onClick={() => setAssetVisibleCount(prev => prev + ASSET_PAGE_SIZE)}
-          className="w-full py-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-200 border border-slate-800 rounded-xl hover:border-slate-600 transition-all"
-        >
-          {t.loadingMore}
-        </button>
-      )}
     </div>
   );
 
@@ -858,7 +931,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
 
     return (
-      <div className="space-y-4">
+      <div className="h-full min-h-0 flex flex-col gap-4">
         <div className="flex flex-col gap-2">
           <div className="relative">
             <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-500" />
@@ -875,7 +948,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <div
           ref={faListRef}
           onScroll={handleFaScroll}
-          className="space-y-5 max-h-[calc(100vh-280px)] overflow-y-auto pr-2 custom-scrollbar"
+          className="flex-1 min-h-0 space-y-5 overflow-y-auto pr-2 custom-scrollbar"
         >
           {faRenderData.groups.map(group => (
             <div key={group.label}>
@@ -1029,7 +1102,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             </button>
           )}
         </div>
-        <div className="flex-1 overflow-y-auto p-5 scrollbar-hide">
+        <div className={`flex-1 min-h-0 p-5 ${activeTab === 'assets' || activeTab === 'fa' ? 'overflow-hidden' : 'overflow-y-auto scrollbar-hide'}`}>
           {activeTab === 'assets'
             ? renderResources()
             : activeTab === 'fa'

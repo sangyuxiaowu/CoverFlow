@@ -1653,7 +1653,7 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
         // 旋转调整
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
           e.preventDefault();
-          const dr = e.key === 'ArrowLeft' ? -15 : 15;
+          const dr = e.key === 'ArrowLeft' ? -5 : 5;
           updateLayer(project.selectedLayerId, { rotation: (layer.rotation + dr) % 360 });
           return;
         }

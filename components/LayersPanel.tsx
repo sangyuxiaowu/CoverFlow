@@ -1,6 +1,6 @@
 // 模块：图层面板与属性检查器
 import React, { useState, useCallback, useRef, useEffect, useMemo, useLayoutEffect } from 'react';
-import { Layer, ProjectState } from '../types.ts';
+import { Layer, ProjectState, TextGradient, TextShadow } from '../types.ts';
 import { translations, Language } from '../translations.ts';
 import { PRESET_COLORS, TEXT_GRADIENT_PRESETS } from '../constants.ts';
 import { 
@@ -60,6 +60,21 @@ const FONT_WEIGHTS = [
   { label: 'Bold', value: 700 },
   { label: 'Black', value: 900 }
 ];
+
+const DEFAULT_TEXT_GRADIENT: TextGradient = {
+  enabled: false,
+  from: '#3b82f6',
+  to: '#8b5cf6',
+  angle: 90
+};
+
+const DEFAULT_TEXT_SHADOW: TextShadow = {
+  enabled: false,
+  color: '#000000',
+  blur: 12,
+  offsetX: 0,
+  offsetY: 4
+};
 
 const isChineseText = (text: string) => /[\u4e00-\u9fa5]/.test(text);
 
@@ -235,6 +250,15 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
     if (scrubbingRef.current.prop === 'opacity') {
       finalValue = Math.min(Math.max(0, newValue), 1);
       onUpdateLayerRef.current(latestSelectedLayerRef.current.id, { opacity: finalValue }, false);
+    } else if (scrubbingRef.current.prop.startsWith('textShadow.')) {
+      const current = latestSelectedLayerRef.current.textShadow || DEFAULT_TEXT_SHADOW;
+      const shadowKey = scrubbingRef.current.prop.replace('textShadow.', '') as keyof TextShadow;
+      onUpdateLayerRef.current(latestSelectedLayerRef.current.id, {
+        textShadow: {
+          ...current,
+          [shadowKey]: finalValue
+        }
+      }, false);
     } else {
       onUpdateLayerRef.current(latestSelectedLayerRef.current.id, { [scrubbingRef.current.prop]: finalValue }, false);
     }
@@ -352,17 +376,33 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
 
   const handleToggleGradient = () => {
     if (!selectedLayer || selectedLayer.type !== 'text') return;
-    const current = selectedLayer.textGradient || { enabled: false, from: '#3b82f6', to: '#8b5cf6', angle: 90 };
+    const current = selectedLayer.textGradient || DEFAULT_TEXT_GRADIENT;
     onUpdateLayer(selectedLayer.id, {
       textGradient: { ...current, enabled: !current.enabled }
     });
   };
 
-  const handleUpdateTextGradient = (updates: any) => {
+  const handleUpdateTextGradient = (updates: Partial<TextGradient>) => {
     if (!selectedLayer || selectedLayer.type !== 'text') return;
-    const current = selectedLayer.textGradient || { enabled: false, from: '#3b82f6', to: '#8b5cf6', angle: 90 };
+    const current = selectedLayer.textGradient || DEFAULT_TEXT_GRADIENT;
     onUpdateLayer(selectedLayer.id, {
       textGradient: { ...current, ...updates }
+    });
+  };
+
+  const handleToggleTextShadow = () => {
+    if (!selectedLayer || selectedLayer.type !== 'text') return;
+    const current = selectedLayer.textShadow || DEFAULT_TEXT_SHADOW;
+    onUpdateLayer(selectedLayer.id, {
+      textShadow: { ...current, enabled: !current.enabled }
+    });
+  };
+
+  const handleUpdateTextShadow = (updates: Partial<TextShadow>) => {
+    if (!selectedLayer || selectedLayer.type !== 'text') return;
+    const current = selectedLayer.textShadow || DEFAULT_TEXT_SHADOW;
+    onUpdateLayer(selectedLayer.id, {
+      textShadow: { ...current, ...updates }
     });
   };
 
@@ -719,6 +759,42 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                         </div>
                       </div>
                     )}
+                  </div>
+
+                  <div className="space-y-2 pt-2 !mt-0 border-t border-slate-800/60">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5"><Sliders className="w-3 h-3" /> {t.textShadow}</h4>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" className="sr-only peer" checked={selectedLayer.textShadow?.enabled || false} onChange={handleToggleTextShadow} />
+                        <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+
+                    {selectedLayer.textShadow?.enabled ? (
+                      <div className="space-y-2 !mt-0 animate-in fade-in duration-200">
+                        <div className="space-y-1">
+                          <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.shadowColor}</label>
+                          <div className="flex gap-2">
+                            <input type="color" value={selectedLayer.textShadow.color} onChange={(e) => handleUpdateTextShadow({ color: e.target.value })} className="h-7 w-7 bg-slate-900 border border-slate-700 cursor-pointer rounded-md p-1" />
+                            <input type="text" value={selectedLayer.textShadow.color} onChange={(e) => handleUpdateTextShadow({ color: e.target.value })} className="flex-1 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 font-mono focus:border-blue-500 outline-none" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="space-y-1">
+                            <label onMouseDown={(e) => handleScrubMouseDown(e, 'textShadow.blur', selectedLayer.textShadow.blur)} className="flex items-center gap-1 text-[8px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">{t.shadowBlur}</label>
+                            <input type="number" min="0" max="40" value={selectedLayer.textShadow.blur} onChange={(e) => handleUpdateTextShadow({ blur: parseInt(e.target.value) || 0 })} className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 focus:border-blue-500 outline-none" />
+                          </div>
+                          <div className="space-y-1">
+                            <label onMouseDown={(e) => handleScrubMouseDown(e, 'textShadow.offsetX', selectedLayer.textShadow.offsetX)} className="flex items-center gap-1 text-[8px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">{t.shadowOffsetX}</label>
+                            <input type="number" value={selectedLayer.textShadow.offsetX} onChange={(e) => handleUpdateTextShadow({ offsetX: parseInt(e.target.value) || 0 })} className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 focus:border-blue-500 outline-none" />
+                          </div>
+                          <div className="space-y-1">
+                            <label onMouseDown={(e) => handleScrubMouseDown(e, 'textShadow.offsetY', selectedLayer.textShadow.offsetY)} className="flex items-center gap-1 text-[8px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">{t.shadowOffsetY}</label>
+                            <input type="number" value={selectedLayer.textShadow.offsetY} onChange={(e) => handleUpdateTextShadow({ offsetY: parseInt(e.target.value) || 0 })} className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 focus:border-blue-500 outline-none" />
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               )}

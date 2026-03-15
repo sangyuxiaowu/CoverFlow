@@ -5,20 +5,19 @@ import { VitePWA } from 'vite-plugin-pwa';
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig(({ mode }) => {
+    const isTauriMode = mode === 'tauri';
     const env = loadEnv(mode, '.', '');
     let base = env.VITE_BASE || '/';
     if (!base.endsWith('/')) {
       base += '/';
     }
-    return {
-      base,
-      server: {
-        port: 3000,
-        host: '0.0.0.0',
-      },
-      plugins: [
-        react(),
-        tailwindcss(),
+    const plugins = [
+      react(),
+      tailwindcss()
+    ];
+
+    if (!isTauriMode) {
+      plugins.push(
         VitePWA({
           registerType: 'autoUpdate',
           injectRegister: 'auto',
@@ -45,7 +44,16 @@ export default defineConfig(({ mode }) => {
             ]
           }
         })
-      ],
+      );
+    }
+
+    return {
+      base,
+      server: {
+        port: 3000,
+        host: '0.0.0.0',
+      },
+      plugins,
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),

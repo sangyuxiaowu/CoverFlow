@@ -1,6 +1,6 @@
 [package]
 name = "coverflow"
-version = "3.8.6"
+version = "3.9.6"
 edition = "2021"
 build = "build.rs"
 authors = ["sangyuxiaowu"]

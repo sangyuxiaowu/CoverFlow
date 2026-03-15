@@ -7,6 +7,14 @@ export interface TextGradient {
   to: string;
   angle: number;
 }
+
+export interface TextShadow {
+  enabled: boolean;
+  color: string;
+  blur: number;
+  offsetX: number;
+  offsetY: number;
+}
 // 模块：类型定义
 export interface Layer {
   id: string;
@@ -30,6 +38,7 @@ export interface Layer {
   writingMode?: 'horizontal' | 'vertical';
   ratioLocked?: boolean;
   textGradient?: TextGradient;
+  textShadow?: TextShadow;
   children?: string[]; // 当类型为 group 时的子图层 ID
   parentId?: string; // 所属分组的图层 ID
 }

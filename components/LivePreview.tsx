@@ -96,6 +96,10 @@ const LivePreview: React.FC<{
               textStyle.color = layer.color || '#ffffff';
             }
 
+            if (layer.type === 'text' && layer.textShadow?.enabled) {
+              textStyle.textShadow = `${layer.textShadow.offsetX}px ${layer.textShadow.offsetY}px ${layer.textShadow.blur}px ${layer.textShadow.color}`;
+            }
+
             return (
               <div
                 key={layer.id}

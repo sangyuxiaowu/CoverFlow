@@ -112,12 +112,25 @@ interface FaRenderData {
   hasMore: boolean;
 }
 
+interface ScrollViewportMetrics {
+  scrollTop: number;
+  viewportHeight: number;
+  containerWidth: number;
+}
+
+interface VirtualGridSlice<T> {
+  items: T[];
+  topPadding: number;
+  bottomPadding: number;
+}
+
 interface AssetLibraryPanelProps {
   t: SidebarTranslation;
   searchTerm: string;
   onSearchTermChange: (value: string) => void;
   assetListRef: React.RefObject<HTMLDivElement | null>;
   assetRenderData: AssetRenderData;
+  viewportMetrics: ScrollViewportMetrics;
   collapsedAssetGroups: Record<string, boolean>;
   onToggleAssetGroup: (groupKey: string) => void;
   onAssetScroll: (e: React.UIEvent<HTMLDivElement>) => void;
@@ -130,9 +143,76 @@ interface FontAwesomePanelProps {
   onFaSearchTermChange: (value: string) => void;
   faListRef: React.RefObject<HTMLDivElement | null>;
   faRenderData: FaRenderData;
+  viewportMetrics: ScrollViewportMetrics;
   onFaScroll: (e: React.UIEvent<HTMLDivElement>) => void;
   onSelectFaItem: (item: FaRenderItem) => void;
 }
+
+const ASSET_GRID_COLUMNS = 3;
+const ASSET_GRID_GAP = 4;
+const ASSET_CARD_HEIGHT = 68;
+const ASSET_GROUP_HEADER_HEIGHT = 30;
+const ASSET_GROUP_GAP = 16;
+const FA_GRID_COLUMNS = 3;
+const FA_GRID_GAP = 6;
+const FA_GROUP_HEADER_HEIGHT = 30;
+const FA_GROUP_GAP = 20;
+const VIRTUAL_GRID_OVERSCAN_ROWS = 2;
+
+const createDefaultViewportMetrics = (): ScrollViewportMetrics => ({
+  scrollTop: 0,
+  viewportHeight: 0,
+  containerWidth: 0
+});
+
+const getGridContentHeight = (totalRows: number, rowHeight: number, rowGap: number) => {
+  if (totalRows <= 0 || rowHeight <= 0) return 0;
+  return totalRows * rowHeight + Math.max(0, totalRows - 1) * rowGap;
+};
+
+const getVirtualGridSlice = <T,>(
+  items: T[],
+  columns: number,
+  rowHeight: number,
+  rowGap: number,
+  groupTop: number,
+  headerHeight: number,
+  viewport?: ScrollViewportMetrics
+): VirtualGridSlice<T> => {
+  const safeViewport = viewport || createDefaultViewportMetrics();
+
+  if (safeViewport.viewportHeight <= 0 || rowHeight <= 0) {
+    return { items, topPadding: 0, bottomPadding: 0 };
+  }
+
+  const totalRows = Math.ceil(items.length / columns);
+  if (totalRows <= 0) {
+    return { items: [], topPadding: 0, bottomPadding: 0 };
+  }
+
+  const rowStride = rowHeight + rowGap;
+  const contentTop = groupTop + headerHeight;
+  const relativeTop = safeViewport.scrollTop - contentTop;
+  const relativeBottom = safeViewport.scrollTop + safeViewport.viewportHeight - contentTop;
+  const startRow = Math.min(totalRows, Math.max(0, Math.floor(relativeTop / rowStride) - VIRTUAL_GRID_OVERSCAN_ROWS));
+  const endRow = Math.min(totalRows, Math.max(startRow, Math.ceil(relativeBottom / rowStride) + VIRTUAL_GRID_OVERSCAN_ROWS));
+  const topPadding = startRow * rowStride;
+  const visibleRows = endRow - startRow;
+  const visibleHeight = getGridContentHeight(visibleRows, rowHeight, rowGap);
+  const totalHeight = getGridContentHeight(totalRows, rowHeight, rowGap);
+
+  return {
+    items: items.slice(startRow * columns, endRow * columns),
+    topPadding,
+    bottomPadding: Math.max(0, totalHeight - topPadding - visibleHeight)
+  };
+};
+
+const getFaCardSize = (containerWidth: number) => {
+  const totalGap = FA_GRID_GAP * (FA_GRID_COLUMNS - 1);
+  if (containerWidth <= totalGap) return 0;
+  return (containerWidth - totalGap) / FA_GRID_COLUMNS;
+};
 
 const PREVIEW_ICON_COLOR = '#94a3b8';
 
@@ -162,11 +242,15 @@ const AssetLibraryPanel = React.memo(({
   onSearchTermChange,
   assetListRef,
   assetRenderData,
+  viewportMetrics = createDefaultViewportMetrics(),
   collapsedAssetGroups,
   onToggleAssetGroup,
   onAssetScroll,
   onSelectAsset
-}: AssetLibraryPanelProps) => (
+}: AssetLibraryPanelProps) => {
+  let groupOffset = 0;
+
+  return (
   <div className="h-full min-h-0 flex flex-col gap-4">
     <div className="relative">
       <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-500" />
@@ -187,12 +271,20 @@ const AssetLibraryPanel = React.memo(({
       <div className="grid grid-cols-1 gap-4">
         {assetRenderData.groups.map((cat) => {
           const isCollapsed = !searchTerm.trim() && !!collapsedAssetGroups[cat.key];
+          const groupTop = groupOffset;
+          const totalRows = Math.ceil(cat.items.length / ASSET_GRID_COLUMNS);
+          const contentHeight = isCollapsed ? 0 : getGridContentHeight(totalRows, ASSET_CARD_HEIGHT, ASSET_GRID_GAP);
+          const virtualSlice = isCollapsed
+            ? { items: cat.items, topPadding: 0, bottomPadding: 0 }
+            : getVirtualGridSlice(cat.items, ASSET_GRID_COLUMNS, ASSET_CARD_HEIGHT, ASSET_GRID_GAP, groupTop, ASSET_GROUP_HEADER_HEIGHT, viewportMetrics);
+          groupOffset += ASSET_GROUP_HEADER_HEIGHT + contentHeight + ASSET_GROUP_GAP;
+
           return (
             <div key={cat.key}>
               <button
                 type="button"
                 onClick={() => onToggleAssetGroup(cat.key)}
-                className="w-full flex items-center justify-between gap-2 mb-1.5 text-left"
+                className="w-full h-6 flex items-center justify-between gap-2 mb-1.5 text-left"
                 title={isCollapsed ? t.expandGroup : t.collapseGroup}
               >
                 <span className="flex items-center gap-1.5 min-w-0">
@@ -206,12 +298,15 @@ const AssetLibraryPanel = React.memo(({
                 <span className="text-[9px] text-slate-600 font-bold">{cat.items.length}</span>
               </button>
               {!isCollapsed && (
-                <div className="grid grid-cols-3 gap-1">
-                  {cat.items.map((item) => (
+                <div
+                  className="grid grid-cols-3 gap-1"
+                  style={{ paddingTop: virtualSlice.topPadding, paddingBottom: virtualSlice.bottomPadding }}
+                >
+                  {virtualSlice.items.map((item) => (
                     <button
                       key={item.key}
                       onClick={() => onSelectAsset(item)}
-                      className="bg-slate-800 border border-slate-700 p-1.5 rounded hover:border-blue-500 transition-colors group flex flex-col items-center"
+                      className="h-[68px] bg-slate-800 border border-slate-700 p-1.5 rounded hover:border-blue-500 transition-colors group flex flex-col items-center"
                     >
                       <div className="w-full h-10 flex items-center justify-center mb-0.5 overflow-hidden rounded-sm">
                         {item.content ? (
@@ -236,7 +331,8 @@ const AssetLibraryPanel = React.memo(({
       )}
     </div>
   </div>
-));
+  );
+});
 
 AssetLibraryPanel.displayName = 'AssetLibraryPanel';
 
@@ -246,9 +342,14 @@ const FontAwesomePanel = React.memo(({
   onFaSearchTermChange,
   faListRef,
   faRenderData,
+  viewportMetrics = createDefaultViewportMetrics(),
   onFaScroll,
   onSelectFaItem
-}: FontAwesomePanelProps) => (
+}: FontAwesomePanelProps) => {
+  const cardSize = getFaCardSize(viewportMetrics.containerWidth);
+  let groupOffset = 0;
+
+  return (
   <div className="h-full min-h-0 flex flex-col gap-4">
     <div className="flex flex-col gap-2">
       <div className="relative">
@@ -268,11 +369,18 @@ const FontAwesomePanel = React.memo(({
       onScroll={onFaScroll}
       className="flex-1 min-h-0 space-y-5 overflow-y-auto pr-2 custom-scrollbar"
     >
-      {faRenderData.groups.map(group => (
+      {faRenderData.groups.map(group => {
+        const groupTop = groupOffset;
+        const totalRows = Math.ceil(group.items.length / FA_GRID_COLUMNS);
+        const contentHeight = getGridContentHeight(totalRows, cardSize, FA_GRID_GAP);
+        const virtualSlice = getVirtualGridSlice(group.items, FA_GRID_COLUMNS, cardSize, FA_GRID_GAP, groupTop, FA_GROUP_HEADER_HEIGHT, viewportMetrics);
+        groupOffset += FA_GROUP_HEADER_HEIGHT + contentHeight + FA_GROUP_GAP;
+
+        return (
         <div key={group.label}>
-          <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-1.5 border-b border-slate-800 pb-1">{group.label}</h3>
-          <div className="grid grid-cols-3 gap-1.5">
-            {group.items.map(item => (
+          <h3 className="h-6 flex items-center text-[11px] font-black text-slate-500 uppercase tracking-widest mb-1.5 border-b border-slate-800 pb-1">{group.label}</h3>
+          <div className="grid grid-cols-3 gap-1.5" style={{ paddingTop: virtualSlice.topPadding, paddingBottom: virtualSlice.bottomPadding }}>
+            {virtualSlice.items.map(item => (
               <button
                 key={item.key}
                 onClick={() => onSelectFaItem(item)}
@@ -290,7 +398,7 @@ const FontAwesomePanel = React.memo(({
             ))}
           </div>
         </div>
-      ))}
+      )})}
       {faRenderData.groups.length === 0 && (
         <div className="py-12 flex flex-col items-center opacity-30">
           <AlertCircle className="w-8 h-8 mb-2" />
@@ -304,7 +412,8 @@ const FontAwesomePanel = React.memo(({
       )}
     </div>
   </div>
-));
+  );
+});
 
 FontAwesomePanel.displayName = 'FontAwesomePanel';
 
@@ -344,6 +453,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [isAssetSettingsOpen, setIsAssetSettingsOpen] = useState(false);
   const [collapsedAssetGroups, setCollapsedAssetGroups] = useState<Record<string, boolean>>({});
   const assetListRef = useRef<HTMLDivElement | null>(null);
+  const [assetViewportMetrics, setAssetViewportMetrics] = useState<ScrollViewportMetrics>(() => createDefaultViewportMetrics());
+  const [faViewportMetrics, setFaViewportMetrics] = useState<ScrollViewportMetrics>(() => createDefaultViewportMetrics());
   const externalAssetCacheRef = useRef<Map<string, string>>(new Map());
   const externalAssetLoadingRef = useRef<Set<string>>(new Set());
   const assetPreviewCacheRef = useRef<Map<string, string>>(new Map());
@@ -363,6 +474,36 @@ const Sidebar: React.FC<SidebarProps> = ({
   useEffect(() => {
     faPreviewCacheRef.current.clear();
   }, [faIcons, faCategories]);
+
+  const syncAssetViewportMetrics = useCallback(() => {
+    const element = assetListRef.current;
+    if (!element) return;
+    setAssetViewportMetrics(prev => {
+      const next = {
+        scrollTop: element.scrollTop,
+        viewportHeight: element.clientHeight,
+        containerWidth: element.clientWidth
+      };
+      return prev.scrollTop === next.scrollTop && prev.viewportHeight === next.viewportHeight && prev.containerWidth === next.containerWidth
+        ? prev
+        : next;
+    });
+  }, []);
+
+  const syncFaViewportMetrics = useCallback(() => {
+    const element = faListRef.current;
+    if (!element) return;
+    setFaViewportMetrics(prev => {
+      const next = {
+        scrollTop: element.scrollTop,
+        viewportHeight: element.clientHeight,
+        containerWidth: element.clientWidth
+      };
+      return prev.scrollTop === next.scrollTop && prev.viewportHeight === next.viewportHeight && prev.containerWidth === next.containerWidth
+        ? prev
+        : next;
+    });
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -725,11 +866,32 @@ const Sidebar: React.FC<SidebarProps> = ({
     if (assetListRef.current) {
       assetListRef.current.scrollTop = 0;
     }
+    syncAssetViewportMetrics();
   }, [activeTab, searchTerm, externalGroups]);
 
+  useEffect(() => {
+    if (activeTab !== 'assets') return;
+    syncAssetViewportMetrics();
+    const element = assetListRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => syncAssetViewportMetrics());
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [activeTab, syncAssetViewportMetrics, assetRenderData.groups.length]);
+
   const handleAssetScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    if (!assetRenderData.hasMore) return;
     const target = e.currentTarget;
+    setAssetViewportMetrics(prev => {
+      const next = {
+        scrollTop: target.scrollTop,
+        viewportHeight: target.clientHeight,
+        containerWidth: target.clientWidth
+      };
+      return prev.scrollTop === next.scrollTop && prev.viewportHeight === next.viewportHeight && prev.containerWidth === next.containerWidth
+        ? prev
+        : next;
+    });
+    if (!assetRenderData.hasMore) return;
     const nearBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - 200;
     if (nearBottom) {
       setAssetVisibleCount(prev => prev + ASSET_PAGE_SIZE);
@@ -764,6 +926,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       onSearchTermChange={setSearchTerm}
       assetListRef={assetListRef}
       assetRenderData={assetRenderData}
+      viewportMetrics={assetViewportMetrics}
       collapsedAssetGroups={collapsedAssetGroups}
       onToggleAssetGroup={toggleAssetGroup}
       onAssetScroll={handleAssetScroll}
@@ -1095,11 +1258,32 @@ const Sidebar: React.FC<SidebarProps> = ({
     if (faListRef.current) {
       faListRef.current.scrollTop = 0;
     }
+    syncFaViewportMetrics();
   }, [activeTab, faSearchTerm, faIcons, faCategories]);
 
+  useEffect(() => {
+    if (activeTab !== 'fa') return;
+    syncFaViewportMetrics();
+    const element = faListRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => syncFaViewportMetrics());
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [activeTab, syncFaViewportMetrics, faRenderData.groups.length]);
+
   const handleFaScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    if (!faRenderData.hasMore) return;
     const target = e.currentTarget;
+    setFaViewportMetrics(prev => {
+      const next = {
+        scrollTop: target.scrollTop,
+        viewportHeight: target.clientHeight,
+        containerWidth: target.clientWidth
+      };
+      return prev.scrollTop === next.scrollTop && prev.viewportHeight === next.viewportHeight && prev.containerWidth === next.containerWidth
+        ? prev
+        : next;
+    });
+    if (!faRenderData.hasMore) return;
     const nearBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - 200;
     if (nearBottom) {
       setFaVisibleCount(prev => prev + FA_PAGE_SIZE);
@@ -1160,6 +1344,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         onFaSearchTermChange={setFaSearchTerm}
         faListRef={faListRef}
         faRenderData={faRenderData}
+        viewportMetrics={faViewportMetrics}
         onFaScroll={handleFaScroll}
         onSelectFaItem={handleFaSelect}
       />

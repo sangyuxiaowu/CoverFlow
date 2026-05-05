@@ -68,6 +68,129 @@ const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) 
   reader.readAsDataURL(file);
 });
 
+type SidebarTranslation = typeof translations.zh;
+
+interface AssetRenderItem {
+  key: string;
+  name: string;
+  content: string;
+  assetType: 'svg' | 'image';
+  isExternal?: boolean;
+  fileHandle?: FileSystemFileHandle;
+}
+
+interface AssetRenderGroup {
+  key: string;
+  label: string;
+  items: AssetRenderItem[];
+}
+
+interface AssetRenderData {
+  groups: AssetRenderGroup[];
+  hasMore: boolean;
+  pendingExternal: ExternalAssetItem[];
+}
+
+interface AssetLibraryPanelProps {
+  t: SidebarTranslation;
+  searchTerm: string;
+  onSearchTermChange: (value: string) => void;
+  assetListRef: React.RefObject<HTMLDivElement | null>;
+  assetRenderData: AssetRenderData;
+  collapsedAssetGroups: Record<string, boolean>;
+  onToggleAssetGroup: (groupKey: string) => void;
+  onAssetScroll: (e: React.UIEvent<HTMLDivElement>) => void;
+  onSelectAsset: (item: AssetRenderItem) => void | Promise<void>;
+}
+
+const AssetLibraryPanel = React.memo(({
+  t,
+  searchTerm,
+  onSearchTermChange,
+  assetListRef,
+  assetRenderData,
+  collapsedAssetGroups,
+  onToggleAssetGroup,
+  onAssetScroll,
+  onSelectAsset
+}: AssetLibraryPanelProps) => (
+  <div className="h-full min-h-0 flex flex-col gap-4">
+    <div className="relative">
+      <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-500" />
+      <input
+        type="text"
+        placeholder={t.searchPlaceholder}
+        className="w-full bg-slate-800 border border-slate-700 rounded-md py-1 pl-9 pr-3 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-200"
+        value={searchTerm}
+        onChange={(e) => onSearchTermChange(e.target.value)}
+      />
+    </div>
+
+    <div
+      ref={assetListRef}
+      onScroll={onAssetScroll}
+      className="flex-1 min-h-0 space-y-4 overflow-y-auto pr-2 custom-scrollbar"
+    >
+      <div className="grid grid-cols-1 gap-4">
+        {assetRenderData.groups.map((cat) => {
+          const isCollapsed = !searchTerm.trim() && !!collapsedAssetGroups[cat.key];
+          return (
+            <div key={cat.key}>
+              <button
+                type="button"
+                onClick={() => onToggleAssetGroup(cat.key)}
+                className="w-full flex items-center justify-between gap-2 mb-1.5 text-left"
+                title={isCollapsed ? t.expandGroup : t.collapseGroup}
+              >
+                <span className="flex items-center gap-1.5 min-w-0">
+                  {isCollapsed ? (
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                  )}
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider truncate">{cat.label}</span>
+                </span>
+                <span className="text-[9px] text-slate-600 font-bold">{cat.items.length}</span>
+              </button>
+              {!isCollapsed && (
+                <div className="grid grid-cols-3 gap-1">
+                  {cat.items.map((item) => (
+                    <button
+                      key={item.key}
+                      onClick={() => onSelectAsset(item)}
+                      className="bg-slate-800 border border-slate-700 p-1.5 rounded hover:border-blue-500 transition-colors group flex flex-col items-center"
+                    >
+                      <div className="w-full h-10 flex items-center justify-center mb-0.5 overflow-hidden rounded-sm">
+                        {item.content ? (
+                          item.assetType === 'image' ? (
+                            <img src={item.content} alt={item.name} className="w-full h-full object-contain" />
+                          ) : (
+                            <svg viewBox="0 0 100 100" className="w-full h-full text-slate-400 group-hover:text-blue-400 transition-colors" dangerouslySetInnerHTML={{ __html: item.content }} />
+                          )
+                        ) : (
+                          <div className="w-5 h-5 rounded-full border border-slate-700 border-t-slate-500 animate-spin opacity-40" />
+                        )}
+                      </div>
+                      <span className="text-[9px] text-slate-400 truncate w-full text-center">{item.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {assetRenderData.hasMore && (
+        <div className="text-[10px] text-slate-600 font-bold uppercase tracking-widest text-center py-2">
+          {t.loadingMore}
+        </div>
+      )}
+    </div>
+  </div>
+));
+
+AssetLibraryPanel.displayName = 'AssetLibraryPanel';
+
 // 侧边栏：资源库与背景配置。
 const Sidebar: React.FC<SidebarProps> = ({
   lang,
@@ -106,12 +229,17 @@ const Sidebar: React.FC<SidebarProps> = ({
   const assetListRef = useRef<HTMLDivElement | null>(null);
   const externalAssetCacheRef = useRef<Map<string, string>>(new Map());
   const externalAssetLoadingRef = useRef<Set<string>>(new Set());
+  const onAddLayerRef = useRef(onAddLayer);
 
   // Font Awesome 数据状态
   const [faIcons, setFaIcons] = useState<Record<string, FAIconMetadata> | null>(null);
   const [faCategories, setFaCategories] = useState<Record<string, FACategory> | null>(null);
 
   const [savedPresets, setSavedPresets] = useState<BackgroundConfig[]>(() => getStoredBackgroundPresets());
+
+  useEffect(() => {
+    onAddLayerRef.current = onAddLayer;
+  }, [onAddLayer]);
 
   useEffect(() => {
     let active = true;
@@ -379,11 +507,11 @@ const Sidebar: React.FC<SidebarProps> = ({
     return [...baseGroups, ...externalGroups];
   }, [externalGroups]);
 
-  const assetRenderData = useMemo(() => {
+  const assetRenderData = useMemo<AssetRenderData>(() => {
     const search = searchTerm.trim().toLowerCase();
     let remaining = assetVisibleCount;
     let hasMore = false;
-    const groups: { key: string; label: string; items: Array<{ key: string; name: string; content: string; assetType: 'svg' | 'image'; isExternal?: boolean; fileHandle?: FileSystemFileHandle }> }[] = [];
+    const groups: AssetRenderGroup[] = [];
     const pendingExternal: ExternalAssetItem[] = [];
 
     for (const group of combinedAssetGroups) {
@@ -392,7 +520,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         break;
       }
       const label = lang === 'zh' ? group.categoryZh : group.category;
-      const items: Array<{ key: string; name: string; content: string; assetType: 'svg' | 'image'; isExternal?: boolean; fileHandle?: FileSystemFileHandle }> = [];
+      const items: AssetRenderItem[] = [];
 
       for (const item of group.items) {
         if (remaining <= 0) {
@@ -451,108 +579,48 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   }, [activeTab, searchTerm, externalGroups]);
 
-  const handleAssetScroll = (e: React.UIEvent<HTMLDivElement>) => {
+  const handleAssetScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     if (!assetRenderData.hasMore) return;
     const target = e.currentTarget;
     const nearBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - 200;
     if (nearBottom) {
       setAssetVisibleCount(prev => prev + ASSET_PAGE_SIZE);
     }
-  };
+  }, [assetRenderData.hasMore]);
 
-  const toggleAssetGroup = (groupKey: string) => {
+  const toggleAssetGroup = useCallback((groupKey: string) => {
     setCollapsedAssetGroups(prev => ({
       ...prev,
       [groupKey]: !prev[groupKey]
     }));
-  };
+  }, []);
+
+  const handleAssetSelect = useCallback(async (item: AssetRenderItem) => {
+    let assetContent = item.content;
+    if (item.isExternal && item.fileHandle) {
+      await loadExternalAsset({ key: item.key, name: item.name, assetType: item.assetType, fileHandle: item.fileHandle });
+      assetContent = externalAssetCacheRef.current.get(item.key) || '';
+    }
+    if (!assetContent) return;
+    if (item.assetType === 'image') {
+      onAddLayerRef.current({ name: item.name, type: 'image', content: assetContent });
+      return;
+    }
+    onAddLayerRef.current({ name: item.name, type: 'svg', content: assetContent, color: '#3b82f6' });
+  }, [loadExternalAsset]);
 
   const renderResources = () => (
-    <div className="h-full min-h-0 flex flex-col gap-4">
-      <div className="relative">
-        <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-500" />
-        <input
-          type="text"
-          placeholder={t.searchPlaceholder}
-          className="w-full bg-slate-800 border border-slate-700 rounded-md py-1 pl-9 pr-3 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-200"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
-      </div>
-
-      <div
-        ref={assetListRef}
-        onScroll={handleAssetScroll}
-        className="flex-1 min-h-0 space-y-4 overflow-y-auto pr-2 custom-scrollbar"
-      >
-        <div className="grid grid-cols-1 gap-4">
-          {assetRenderData.groups.map((cat) => {
-            const isCollapsed = !searchTerm.trim() && !!collapsedAssetGroups[cat.key];
-            return (
-              <div key={cat.key}>
-                <button
-                  type="button"
-                  onClick={() => toggleAssetGroup(cat.key)}
-                  className="w-full flex items-center justify-between gap-2 mb-1.5 text-left"
-                  title={isCollapsed ? t.expandGroup : t.collapseGroup}
-                >
-                  <span className="flex items-center gap-1.5 min-w-0">
-                    {isCollapsed ? (
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
-                    ) : (
-                      <ChevronDown className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
-                    )}
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider truncate">{cat.label}</span>
-                  </span>
-                  <span className="text-[9px] text-slate-600 font-bold">{cat.items.length}</span>
-                </button>
-                {!isCollapsed && (
-                  <div className="grid grid-cols-3 gap-1">
-                    {cat.items.map((item) => (
-                      <button
-                        key={item.key}
-                        onClick={async () => {
-                          let assetContent = item.content;
-                          if (item.isExternal && item.fileHandle) {
-                            await loadExternalAsset({ key: item.key, name: item.name, assetType: item.assetType, fileHandle: item.fileHandle });
-                            assetContent = externalAssetCacheRef.current.get(item.key) || '';
-                          }
-                          if (!assetContent) return;
-                          if (item.assetType === 'image') {
-                            onAddLayer({ name: item.name, type: 'image', content: assetContent });
-                            return;
-                          }
-                          onAddLayer({ name: item.name, type: 'svg', content: assetContent, color: '#3b82f6' });
-                        }}
-                        className="bg-slate-800 border border-slate-700 p-1.5 rounded hover:border-blue-500 transition-colors group flex flex-col items-center"
-                      >
-                        <div className="w-full h-10 flex items-center justify-center mb-0.5 overflow-hidden rounded-sm">
-                          {item.content ? (
-                            item.assetType === 'image' ? (
-                              <img src={item.content} alt={item.name} className="w-full h-full object-contain" />
-                            ) : (
-                              <svg viewBox="0 0 100 100" className="w-full h-full text-slate-400 group-hover:text-blue-400 transition-colors" dangerouslySetInnerHTML={{ __html: item.content }} />
-                            )
-                          ) : (
-                            <div className="w-5 h-5 rounded-full border border-slate-700 border-t-slate-500 animate-spin opacity-40" />
-                          )}
-                        </div>
-                        <span className="text-[9px] text-slate-400 truncate w-full text-center">{item.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        {assetRenderData.hasMore && (
-          <div className="text-[10px] text-slate-600 font-bold uppercase tracking-widest text-center py-2">
-            {t.loadingMore}
-          </div>
-        )}
-      </div>
-    </div>
+    <AssetLibraryPanel
+      t={t}
+      searchTerm={searchTerm}
+      onSearchTermChange={setSearchTerm}
+      assetListRef={assetListRef}
+      assetRenderData={assetRenderData}
+      collapsedAssetGroups={collapsedAssetGroups}
+      onToggleAssetGroup={toggleAssetGroup}
+      onAssetScroll={handleAssetScroll}
+      onSelectAsset={handleAssetSelect}
+    />
   );
 
   const renderAssetSettingsModal = () => {

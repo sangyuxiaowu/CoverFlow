@@ -42,6 +42,7 @@ type DraftDecoration = {
 };
 
 const DEFAULT_COLOR = '#38bdf8';
+const PREVIEW_SAFE_PADDING = 16;
 
 const createDraft = (element?: Partial<DecorationElement>): DraftDecoration => {
   const fallback = PRESET_DECORATIONS[0];
@@ -339,41 +340,65 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
   }, [customElements, lang, persistCollections, project.title, savedTemplates, templateSourceLayers]);
 
   const renderElementPreview = (element: DecorationElement) => {
-    const scale = Math.min(1, 72 / Math.max(element.width, element.height, 1));
+    const previewWidth = element.width + PREVIEW_SAFE_PADDING * 2;
+    const previewHeight = element.height + PREVIEW_SAFE_PADDING * 2;
+    const scale = Math.min(1, 72 / Math.max(previewWidth, previewHeight, 1));
+    const scaledWidth = Math.max(1, Math.ceil(previewWidth * scale));
+    const scaledHeight = Math.max(1, Math.ceil(previewHeight * scale));
+
     return (
       <div className="h-20 flex items-center justify-center overflow-hidden">
-        <div style={{ width: element.width, height: element.height, transform: `scale(${scale})`, transformOrigin: 'center center' }}>
-          <div className="w-full h-full" style={buildDecorationLayerStyle(element.cssText, DEFAULT_COLOR)} />
+        <div className="relative overflow-hidden shrink-0" style={{ width: scaledWidth, height: scaledHeight }}>
+          <div className="relative" style={{ width: previewWidth, height: previewHeight, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
+            <div
+              className="absolute"
+              style={{
+                left: PREVIEW_SAFE_PADDING,
+                top: PREVIEW_SAFE_PADDING,
+                width: element.width,
+                height: element.height
+              }}
+            >
+              <div className="w-full h-full" style={buildDecorationLayerStyle(element.cssText, DEFAULT_COLOR)} />
+            </div>
+          </div>
         </div>
       </div>
     );
   };
 
   const renderTemplatePreview = (template: DecorationTemplate) => {
-    const scale = Math.min(1, 78 / Math.max(template.width, template.height, 1));
+    const previewWidth = template.width + PREVIEW_SAFE_PADDING * 2;
+    const previewHeight = template.height + PREVIEW_SAFE_PADDING * 2;
+    const scale = Math.min(1, 78 / Math.max(previewWidth, previewHeight, 1));
+    const scaledWidth = Math.max(1, Math.ceil(previewWidth * scale));
+    const scaledHeight = Math.max(1, Math.ceil(previewHeight * scale));
+
     return (
       <div className="h-20 flex items-center justify-center overflow-hidden">
-        <div className="relative overflow-hidden" style={{ width: template.width, height: template.height, transform: `scale(${scale})`, transformOrigin: 'center center' }}>
-          {template.layers.map((layer) => {
-            const textStyle = layer.type === 'text' ? getTemplatePreviewTextStyle(layer) : undefined;
-            return (
-              <div key={layer.id} className="absolute pointer-events-none" style={{ left: layer.x, top: layer.y, width: layer.width, height: layer.height, transform: `rotate(${layer.rotation}deg)`, zIndex: layer.zIndex }}>
-                {layer.type === 'svg' ? (
-                  <div className="w-full h-full overflow-hidden" style={{ color: layer.color, opacity: layer.opacity }}>
-                    {layer.content.toLowerCase().includes('<svg') ? (
-                      <div className="w-full h-full" dangerouslySetInnerHTML={{ __html: applySvgAspectRatio(layer.content, !!layer.ratioLocked) }} />
-                    ) : (
-                      <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio={layer.ratioLocked ? 'xMidYMid meet' : 'none'} dangerouslySetInnerHTML={{ __html: layer.content }} />
-                    )}
-                  </div>
-                ) : layer.type === 'text' ? (
-                  <div className="w-full h-full" style={textStyle}>{layer.content}</div>
-                ) : layer.type === 'decoration' ? (
-                  <div className="w-full h-full" style={{ ...buildDecorationLayerStyle(layer.content, layer.color || DEFAULT_COLOR), opacity: layer.opacity }} />
-                ) : null}
-              </div>
-            );
-          })}
+        <div className="relative overflow-hidden shrink-0" style={{ width: scaledWidth, height: scaledHeight }}>
+          <div className="relative" style={{ width: previewWidth, height: previewHeight, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
+            {template.layers.map((layer) => {
+              const textStyle = layer.type === 'text' ? getTemplatePreviewTextStyle(layer) : undefined;
+              return (
+                <div key={layer.id} className="absolute pointer-events-none" style={{ left: layer.x + PREVIEW_SAFE_PADDING, top: layer.y + PREVIEW_SAFE_PADDING, width: layer.width, height: layer.height, transform: `rotate(${layer.rotation}deg)`, zIndex: layer.zIndex }}>
+                  {layer.type === 'svg' ? (
+                    <div className="w-full h-full overflow-hidden" style={{ color: layer.color, opacity: layer.opacity }}>
+                      {layer.content.toLowerCase().includes('<svg') ? (
+                        <div className="w-full h-full" dangerouslySetInnerHTML={{ __html: applySvgAspectRatio(layer.content, !!layer.ratioLocked) }} />
+                      ) : (
+                        <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio={layer.ratioLocked ? 'xMidYMid meet' : 'none'} dangerouslySetInnerHTML={{ __html: layer.content }} />
+                      )}
+                    </div>
+                  ) : layer.type === 'text' ? (
+                    <div className="w-full h-full" style={textStyle}>{layer.content}</div>
+                  ) : layer.type === 'decoration' ? (
+                    <div className="w-full h-full" style={{ ...buildDecorationLayerStyle(layer.content, layer.color || DEFAULT_COLOR), opacity: layer.opacity }} />
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     );

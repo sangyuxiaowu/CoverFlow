@@ -75,6 +75,7 @@ interface AssetRenderItem {
   name: string;
   content: string;
   assetType: 'svg' | 'image';
+  previewSrc: string;
   isExternal?: boolean;
   fileHandle?: FileSystemFileHandle;
 }
@@ -91,6 +92,26 @@ interface AssetRenderData {
   pendingExternal: ExternalAssetItem[];
 }
 
+interface FaRenderItem {
+  key: string;
+  label: string;
+  style: string;
+  svgContent: string;
+  previewSrc: string;
+  width: number;
+  height: number;
+}
+
+interface FaRenderGroup {
+  label: string;
+  items: FaRenderItem[];
+}
+
+interface FaRenderData {
+  groups: FaRenderGroup[];
+  hasMore: boolean;
+}
+
 interface AssetLibraryPanelProps {
   t: SidebarTranslation;
   searchTerm: string;
@@ -102,6 +123,31 @@ interface AssetLibraryPanelProps {
   onAssetScroll: (e: React.UIEvent<HTMLDivElement>) => void;
   onSelectAsset: (item: AssetRenderItem) => void | Promise<void>;
 }
+
+interface FontAwesomePanelProps {
+  t: SidebarTranslation;
+  faSearchTerm: string;
+  onFaSearchTermChange: (value: string) => void;
+  faListRef: React.RefObject<HTMLDivElement | null>;
+  faRenderData: FaRenderData;
+  onFaScroll: (e: React.UIEvent<HTMLDivElement>) => void;
+  onSelectFaItem: (item: FaRenderItem) => void;
+}
+
+const PREVIEW_ICON_COLOR = '#94a3b8';
+
+const svgToDataUrl = (svgMarkup: string) => `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgMarkup)}`;
+
+const addPreviewColor = (svgMarkup: string, color: string) => {
+  if (svgMarkup.includes(' color:')) return svgMarkup;
+
+  return svgMarkup.replace(/<svg\b([^>]*)style="([^"]*)"/i, (_match, before, style) => {
+    const separator = style.trim().endsWith(';') ? ' ' : '; ';
+    return `<svg${before}style="${style}${separator}color: ${color};"`;
+  });
+};
+
+const createSvgPreviewSrc = (svgMarkup: string) => svgToDataUrl(addPreviewColor(normalizeSVG(svgMarkup), PREVIEW_ICON_COLOR));
 
 const AssetLibraryPanel = React.memo(({
   t,
@@ -162,11 +208,7 @@ const AssetLibraryPanel = React.memo(({
                     >
                       <div className="w-full h-10 flex items-center justify-center mb-0.5 overflow-hidden rounded-sm">
                         {item.content ? (
-                          item.assetType === 'image' ? (
-                            <img src={item.content} alt={item.name} className="w-full h-full object-contain" />
-                          ) : (
-                            <svg viewBox="0 0 100 100" className="w-full h-full text-slate-400 group-hover:text-blue-400 transition-colors" dangerouslySetInnerHTML={{ __html: item.content }} />
-                          )
+                          <img src={item.previewSrc} alt={item.name} className="w-full h-full object-contain transition-transform group-hover:scale-105" />
                         ) : (
                           <div className="w-5 h-5 rounded-full border border-slate-700 border-t-slate-500 animate-spin opacity-40" />
                         )}
@@ -190,6 +232,74 @@ const AssetLibraryPanel = React.memo(({
 ));
 
 AssetLibraryPanel.displayName = 'AssetLibraryPanel';
+
+const FontAwesomePanel = React.memo(({
+  t,
+  faSearchTerm,
+  onFaSearchTermChange,
+  faListRef,
+  faRenderData,
+  onFaScroll,
+  onSelectFaItem
+}: FontAwesomePanelProps) => (
+  <div className="h-full min-h-0 flex flex-col gap-4">
+    <div className="flex flex-col gap-2">
+      <div className="relative">
+        <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-500" />
+        <input
+          type="text"
+          placeholder={t.searchFA}
+          className="w-full bg-slate-800 border border-slate-700 rounded-md py-1 pl-9 pr-3 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-200"
+          value={faSearchTerm}
+          onChange={(e) => onFaSearchTermChange(e.target.value)}
+        />
+      </div>
+    </div>
+
+    <div
+      ref={faListRef}
+      onScroll={onFaScroll}
+      className="flex-1 min-h-0 space-y-5 overflow-y-auto pr-2 custom-scrollbar"
+    >
+      {faRenderData.groups.map(group => (
+        <div key={group.label}>
+          <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-1.5 border-b border-slate-800 pb-1">{group.label}</h3>
+          <div className="grid grid-cols-3 gap-1.5">
+            {group.items.map(item => (
+              <button
+                key={item.key}
+                onClick={() => onSelectFaItem(item)}
+                title={`${item.label} - ${item.style}`}
+                className="aspect-square bg-slate-800 border border-slate-700 p-1.5 rounded-md hover:border-blue-500 transition-all group flex items-center justify-center hover:bg-slate-750 overflow-hidden relative shadow-sm"
+              >
+                <div className="w-full h-full flex items-center justify-center p-1">
+                  <img
+                    src={item.previewSrc}
+                    alt={`${item.label} - ${item.style}`}
+                    className="w-full h-full max-h-full max-w-full object-contain pointer-events-none drop-shadow-sm transition-transform group-hover:scale-105"
+                  />
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+      {faRenderData.groups.length === 0 && (
+        <div className="py-12 flex flex-col items-center opacity-30">
+          <AlertCircle className="w-8 h-8 mb-2" />
+          <span className="text-xs font-bold uppercase">{t.faNoMatches}</span>
+        </div>
+      )}
+      {faRenderData.hasMore && (
+        <div className="text-[10px] text-slate-600 font-bold uppercase tracking-widest text-center py-2">
+          {t.loadingMore}
+        </div>
+      )}
+    </div>
+  </div>
+));
+
+FontAwesomePanel.displayName = 'FontAwesomePanel';
 
 // 侧边栏：资源库与背景配置。
 const Sidebar: React.FC<SidebarProps> = ({
@@ -229,6 +339,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   const assetListRef = useRef<HTMLDivElement | null>(null);
   const externalAssetCacheRef = useRef<Map<string, string>>(new Map());
   const externalAssetLoadingRef = useRef<Set<string>>(new Set());
+  const assetPreviewCacheRef = useRef<Map<string, string>>(new Map());
+  const faPreviewCacheRef = useRef<Map<string, string>>(new Map());
   const onAddLayerRef = useRef(onAddLayer);
 
   // Font Awesome 数据状态
@@ -240,6 +352,10 @@ const Sidebar: React.FC<SidebarProps> = ({
   useEffect(() => {
     onAddLayerRef.current = onAddLayer;
   }, [onAddLayer]);
+
+  useEffect(() => {
+    faPreviewCacheRef.current.clear();
+  }, [faIcons, faCategories]);
 
   useEffect(() => {
     let active = true;
@@ -319,6 +435,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     setExternalError(null);
     externalAssetCacheRef.current.clear();
     externalAssetLoadingRef.current.clear();
+    assetPreviewCacheRef.current.clear();
     setExternalCacheVersion(prev => prev + 1);
 
     try {
@@ -408,6 +525,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     setExternalGroups([]);
     externalAssetCacheRef.current.clear();
     externalAssetLoadingRef.current.clear();
+    assetPreviewCacheRef.current.clear();
     setExternalCacheVersion(prev => prev + 1);
   }, []);
 
@@ -507,6 +625,27 @@ const Sidebar: React.FC<SidebarProps> = ({
     return [...baseGroups, ...externalGroups];
   }, [externalGroups]);
 
+  const getAssetPreviewSrc = useCallback((key: string, content: string, assetType: 'svg' | 'image') => {
+    if (!content) return '';
+    if (assetType === 'image') return content;
+
+    const cached = assetPreviewCacheRef.current.get(key);
+    if (cached) return cached;
+
+    const previewSrc = createSvgPreviewSrc(content);
+    assetPreviewCacheRef.current.set(key, previewSrc);
+    return previewSrc;
+  }, []);
+
+  const getFaPreviewSrc = useCallback((key: string, svgContent: string) => {
+    const cached = faPreviewCacheRef.current.get(key);
+    if (cached) return cached;
+
+    const previewSrc = createSvgPreviewSrc(svgContent);
+    faPreviewCacheRef.current.set(key, previewSrc);
+    return previewSrc;
+  }, []);
+
   const assetRenderData = useMemo<AssetRenderData>(() => {
     const search = searchTerm.trim().toLowerCase();
     let remaining = assetVisibleCount;
@@ -536,6 +675,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             name: item.name,
             content: cached,
             assetType: item.assetType,
+            previewSrc: getAssetPreviewSrc(item.key, cached, item.assetType),
             isExternal: true,
             fileHandle: item.fileHandle
           });
@@ -553,6 +693,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             name: item.name,
             content: item.content,
             assetType: item.assetType,
+            previewSrc: getAssetPreviewSrc(item.key, item.content, item.assetType),
             isExternal: false
           });
         }
@@ -565,7 +706,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
 
     return { groups, hasMore, pendingExternal };
-  }, [assetVisibleCount, combinedAssetGroups, externalCacheVersion, lang, searchTerm]);
+  }, [assetVisibleCount, combinedAssetGroups, externalCacheVersion, getAssetPreviewSrc, lang, searchTerm]);
 
   useEffect(() => {
     if (assetRenderData.pendingExternal.length === 0) return;
@@ -875,29 +1016,19 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
 
   // 根据搜索词过滤并按需渲染，避免一次性渲染过多图标
-  const faRenderData = useMemo(() => {
+  const faRenderData = useMemo<FaRenderData>(() => {
     if (!faIcons || !faCategories || activeTab !== 'fa') return { groups: [], hasMore: false };
 
     let remaining = faVisibleCount;
     let hasMore = false;
-    const groups: { label: string; items: {
-      key: string;
-      label: string;
-      style: string;
-      raw: string;
-      svgContent: string;
-      innerHtml: string;
-      viewBox: string;
-      width: number;
-      height: number;
-    }[] }[] = [];
+    const groups: FaRenderGroup[] = [];
 
     const searchVal = faSearchTerm.trim().toLowerCase();
     let stop = false;
 
     for (const [, cat] of Object.entries(faCategories as Record<string, FACategory>)) {
       if (remaining <= 0) { hasMore = true; break; }
-      const items: { key: string; label: string; style: string; raw: string; svgContent: string; innerHtml: string; viewBox: string; width: number; height: number }[] = [];
+      const items: FaRenderItem[] = [];
 
       for (const iconId of cat.icons) {
         if (remaining <= 0) { hasMore = true; stop = true; break; }
@@ -930,10 +1061,8 @@ const Sidebar: React.FC<SidebarProps> = ({
               key: `${iconId}-${family}-${style}`,
               label: metadata.label,
               style,
-              raw: svgData.raw,
               svgContent,
-              innerHtml,
-              viewBox: paddedViewBox,
+              previewSrc: getFaPreviewSrc(`${iconId}-${family}-${style}`, svgContent),
               width: Math.round(widthVal * scale),
               height: Math.round(heightVal * scale)
             });
@@ -951,7 +1080,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
 
     return { groups, hasMore };
-  }, [faIcons, faCategories, faSearchTerm, faVisibleCount, activeTab]);
+  }, [faIcons, faCategories, faSearchTerm, faVisibleCount, activeTab, getFaPreviewSrc]);
 
   useEffect(() => {
     if (activeTab !== 'fa') return;
@@ -961,14 +1090,25 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   }, [activeTab, faSearchTerm, faIcons, faCategories]);
 
-  const handleFaScroll = (e: React.UIEvent<HTMLDivElement>) => {
+  const handleFaScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     if (!faRenderData.hasMore) return;
     const target = e.currentTarget;
     const nearBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - 200;
     if (nearBottom) {
       setFaVisibleCount(prev => prev + FA_PAGE_SIZE);
     }
-  };
+  }, [faRenderData.hasMore]);
+
+  const handleFaSelect = useCallback((item: FaRenderItem) => {
+    onAddLayerRef.current({
+      name: `${item.label} (${item.style})`,
+      type: 'svg',
+      content: item.svgContent,
+      color: '#3b82f6',
+      width: item.width,
+      height: item.height
+    });
+  }, []);
 
   const renderFontAwesome = () => {
     if (!faIcons || !faCategories) {
@@ -1007,69 +1147,15 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
 
     return (
-      <div className="h-full min-h-0 flex flex-col gap-4">
-        <div className="flex flex-col gap-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-500" />
-            <input
-              type="text"
-              placeholder={t.searchFA}
-              className="w-full bg-slate-800 border border-slate-700 rounded-md py-1 pl-9 pr-3 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-200"
-              value={faSearchTerm}
-              onChange={(e) => setFaSearchTerm(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div
-          ref={faListRef}
-          onScroll={handleFaScroll}
-          className="flex-1 min-h-0 space-y-5 overflow-y-auto pr-2 custom-scrollbar"
-        >
-          {faRenderData.groups.map(group => (
-            <div key={group.label}>
-              <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-1.5 border-b border-slate-800 pb-1">{group.label}</h3>
-              <div className="grid grid-cols-3 gap-1.5">
-                {group.items.map(item => (
-                  <button
-                    key={item.key}
-                    onClick={() => onAddLayer({
-                      name: `${item.label} (${item.style})`,
-                      type: 'svg',
-                      content: item.svgContent,
-                      color: '#3b82f6',
-                      width: item.width,
-                      height: item.height
-                    })}
-                    title={`${item.label} - ${item.style}`}
-                    className="aspect-square bg-slate-800 border border-slate-700 p-1.5 rounded-md hover:border-blue-500 transition-all group flex items-center justify-center hover:bg-slate-750 overflow-hidden relative shadow-sm"
-                  >
-                    <div className="w-full h-full text-slate-400 group-hover:text-blue-400 transition-colors flex items-center justify-center p-1">
-                      <svg
-                        viewBox={item.viewBox}
-                        className="w-full h-full max-h-full max-w-full pointer-events-none drop-shadow-sm"
-                        preserveAspectRatio="xMidYMid meet"
-                        dangerouslySetInnerHTML={{ __html: item.innerHtml }}
-                      />
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-          {faRenderData.groups.length === 0 && (
-            <div className="py-12 flex flex-col items-center opacity-30">
-               <AlertCircle className="w-8 h-8 mb-2" />
-               <span className="text-xs font-bold uppercase">{t.faNoMatches}</span>
-            </div>
-          )}
-          {faRenderData.hasMore && (
-            <div className="text-[10px] text-slate-600 font-bold uppercase tracking-widest text-center py-2">
-              {t.loadingMore}
-            </div>
-          )}
-        </div>
-      </div>
+      <FontAwesomePanel
+        t={t}
+        faSearchTerm={faSearchTerm}
+        onFaSearchTermChange={setFaSearchTerm}
+        faListRef={faListRef}
+        faRenderData={faRenderData}
+        onFaScroll={handleFaScroll}
+        onSelectFaItem={handleFaSelect}
+      />
     );
   };
 

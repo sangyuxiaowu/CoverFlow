@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Layout, X } from 'lucide-react';
 import { PresetRatio } from '../types.ts';
 import { translations, Language } from '../translations.ts';
@@ -28,14 +28,38 @@ const ProjectPresetModal: React.FC<PresetModalProps> = ({
   onClose,
   onCreate
 }) => {
+  const [widthInput, setWidthInput] = useState(() => String(size.width));
+  const [heightInput, setHeightInput] = useState(() => String(size.height));
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setWidthInput(String(size.width));
+    setHeightInput(String(size.height));
+  }, [isOpen, size.width, size.height]);
+
+  const commitWidth = () => {
+    const parsed = Number(widthInput);
+    const next = Number.isFinite(parsed) ? clampSize(parsed) : size.width;
+    setWidthInput(String(next));
+    if (next !== size.width) {
+      onSizeChange({ width: next, height: size.height });
+    }
+  };
+
+  const commitHeight = () => {
+    const parsed = Number(heightInput);
+    const next = Number.isFinite(parsed) ? clampSize(parsed) : size.height;
+    setHeightInput(String(next));
+    if (next !== size.height) {
+      onSizeChange({ width: size.width, height: next });
+    }
+  };
+
   if (!isOpen) return null;
   const t = translations[lang];
 
   return (
-    <div
-      className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
       <div
         className="w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-5"
         onClick={(e) => e.stopPropagation()}
@@ -88,30 +112,38 @@ const ProjectPresetModal: React.FC<PresetModalProps> = ({
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
             <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{t.selectRatio}</div>
             <div className="grid grid-cols-2 gap-3 mt-3">
-              <label className="space-y-1 text-xs text-slate-400 font-bold">
-                <span>{t.width}</span>
+              <label className="flex flex-col gap-2.5 text-xs text-slate-400 font-bold">
+                <span className="leading-none">{t.width}</span>
                 <input
                   type="number"
                   min={10}
                   step={1}
-                  value={size.width}
-                  onChange={(e) => {
-                    const next = clampSize(Number(e.target.value || 0));
-                    onSizeChange({ width: next, height: size.height });
+                  value={widthInput}
+                  onChange={(e) => setWidthInput(e.target.value)}
+                  onBlur={commitWidth}
+                  onFocus={(e) => e.target.select()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.currentTarget.blur();
+                    }
                   }}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
                 />
               </label>
-              <label className="space-y-1 text-xs text-slate-400 font-bold">
-                <span>{t.height}</span>
+              <label className="flex flex-col gap-2.5 text-xs text-slate-400 font-bold">
+                <span className="leading-none">{t.height}</span>
                 <input
                   type="number"
                   min={10}
                   step={1}
-                  value={size.height}
-                  onChange={(e) => {
-                    const next = clampSize(Number(e.target.value || 0));
-                    onSizeChange({ width: size.width, height: next });
+                  value={heightInput}
+                  onChange={(e) => setHeightInput(e.target.value)}
+                  onBlur={commitHeight}
+                  onFocus={(e) => e.target.select()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.currentTarget.blur();
+                    }
                   }}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
                 />

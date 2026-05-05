@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { CATEGORIZED_ASSETS, PRESET_COLORS, PRESET_GRADIENTS } from '../constants.ts';
 import { BackgroundConfig, DecorationTemplate, Layer, FAIconMetadata, FACategory, ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
-import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash, HelpCircle, Keyboard, ChevronDown, ChevronRight, Sparkles, Plus } from 'lucide-react';
+import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash, HelpCircle, Keyboard, ChevronDown, ChevronRight, Flower, Plus } from 'lucide-react';
 import * as yaml from 'js-yaml';
 import { normalizeSVG } from '../utils/helpers.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
@@ -1062,7 +1062,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           onClick={() => setActiveTab('decorations')}
           className={`p-2.5 rounded-lg transition-all ${activeTab === 'decorations' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
         >
-          <Sparkles className="w-5 h-5" />
+          <Flower className="w-5 h-5" />
         </button>
         <button
           title={t.fontAwesome}

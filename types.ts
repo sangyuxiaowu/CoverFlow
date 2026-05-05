@@ -1,5 +1,16 @@
 
-export type LayerType = 'svg' | 'text' | 'image' | 'group';
+export type LayerType = 'svg' | 'text' | 'image' | 'group' | 'decoration';
+
+export interface DecorationElement {
+  id: string;
+  name: string;
+  nameZh?: string;
+  cssText: string;
+  width: number;
+  height: number;
+  createdAt?: number;
+  updatedAt?: number;
+}
 
 export interface TextGradient {
   enabled: boolean;
@@ -20,7 +31,7 @@ export interface Layer {
   id: string;
   name: string;
   type: LayerType;
-  content: string; // SVG 代码、文字内容或图片 URL
+  content: string; // SVG 代码、文字内容、图片 URL 或装饰 CSS
   x: number;
   y: number;
   width: number;
@@ -41,6 +52,17 @@ export interface Layer {
   textShadow?: TextShadow;
   children?: string[]; // 当类型为 group 时的子图层 ID
   parentId?: string; // 所属分组的图层 ID
+}
+
+export interface DecorationTemplate {
+  id: string;
+  name: string;
+  nameZh?: string;
+  width: number;
+  height: number;
+  layers: Layer[];
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 export interface CanvasConfig {

@@ -1,4 +1,4 @@
-import { BackgroundConfig, FAIconMetadata, FACategory } from '../types.ts';
+import { BackgroundConfig, DecorationElement, DecorationTemplate, FAIconMetadata, FACategory } from '../types.ts';
 import { Language } from '../translations.ts';
 import { StorageAdapterType } from './StorageAdapter.ts';
 
@@ -10,6 +10,8 @@ export * from './CloudAdapter.ts';
 const LANG_KEY = 'coverflow_lang';
 const STORAGE_TYPE_KEY = 'coverflow_storage_adapter';
 const BG_PRESETS_KEY = 'coverflow_bg_presets_v3';
+const DECORATION_ELEMENTS_KEY = 'coverflow_decoration_elements_v1';
+const DECORATION_PRESETS_KEY = 'coverflow_decoration_presets_v1';
 
 const safeJsonParse = <T,>(value: string | null, fallback: T): T => {
   if (!value) return fallback;
@@ -48,6 +50,22 @@ export const getStoredBackgroundPresets = () => {
 // 保存背景预设列表。
 export const setStoredBackgroundPresets = (presets: BackgroundConfig[]) => {
   localStorage.setItem(BG_PRESETS_KEY, JSON.stringify(presets));
+};
+
+export const getStoredDecorationElements = () => {
+  return safeJsonParse<DecorationElement[]>(localStorage.getItem(DECORATION_ELEMENTS_KEY), []);
+};
+
+export const setStoredDecorationElements = (elements: DecorationElement[]) => {
+  localStorage.setItem(DECORATION_ELEMENTS_KEY, JSON.stringify(elements));
+};
+
+export const getStoredDecorationPresets = () => {
+  return safeJsonParse<DecorationTemplate[]>(localStorage.getItem(DECORATION_PRESETS_KEY), []);
+};
+
+export const setStoredDecorationPresets = (presets: DecorationTemplate[]) => {
+  localStorage.setItem(DECORATION_PRESETS_KEY, JSON.stringify(presets));
 };
 
 const FA_DB_NAME = 'coverflow_fa_cache_v1';
@@ -115,6 +133,9 @@ export const clearFaCache = async () => {
 const FS_DB_NAME = 'coverflow_fs_handles_v1';
 const FS_STORE_NAME = 'handles';
 const FS_ASSET_KEY = 'assetsFolder';
+const DECORATION_DIR = 'decoration';
+const DECORATION_ELEMENTS_FILE = 'elements.json';
+const DECORATION_PRESETS_FILE = 'presets.json';
 
 const openFsHandleDb = () => new Promise<IDBDatabase>((resolve, reject) => {
   const request = indexedDB.open(FS_DB_NAME, 1);
@@ -202,9 +223,14 @@ export const verifyAssetFolderPermission = async (
   mode: 'read' | 'readwrite' = 'read'
 ) => {
   const options = { mode } as const;
-  if ((await handle.queryPermission(options)) === 'granted') return true;
+  const permissionHandle = handle as FileSystemDirectoryHandle & {
+    queryPermission?: (options: { mode: 'read' | 'readwrite' }) => Promise<PermissionState>;
+    requestPermission?: (options: { mode: 'read' | 'readwrite' }) => Promise<PermissionState>;
+  };
+  if (permissionHandle.queryPermission && (await permissionHandle.queryPermission(options)) === 'granted') return true;
   if (!request) return false;
-  return (await handle.requestPermission(options)) === 'granted';
+  if (!permissionHandle.requestPermission) return false;
+  return (await permissionHandle.requestPermission(options)) === 'granted';
 };
 
 // 扫描资产文件夹并按分类聚合。
@@ -249,5 +275,51 @@ export const scanAssetFolder = async (handle: FileSystemDirectoryHandle) => {
   const groups = Array.from(groupsMap.values());
   groups.sort((a, b) => a.category.localeCompare(b.category, 'en'));
   return groups;
+};
+
+const readJsonFile = async <T,>(dirHandle: FileSystemDirectoryHandle, fileName: string, fallback: T) => {
+  try {
+    const fileHandle = await dirHandle.getFileHandle(fileName);
+    const file = await fileHandle.getFile();
+    return safeJsonParse<T>(await file.text(), fallback);
+  } catch (err) {
+    return fallback;
+  }
+};
+
+const writeJsonFile = async (dirHandle: FileSystemDirectoryHandle, fileName: string, data: unknown) => {
+  const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(JSON.stringify(data, null, 2));
+  await writable.close();
+};
+
+const getDecorationDirHandle = async (rootHandle: FileSystemDirectoryHandle) => {
+  return rootHandle.getDirectoryHandle(DECORATION_DIR, { create: true });
+};
+
+export const readDecorationLibraryFiles = async (rootHandle: FileSystemDirectoryHandle) => {
+  const decorationHandle = await getDecorationDirHandle(rootHandle);
+  const [elements, presets] = await Promise.all([
+    readJsonFile<DecorationElement[]>(decorationHandle, DECORATION_ELEMENTS_FILE, []),
+    readJsonFile<DecorationTemplate[]>(decorationHandle, DECORATION_PRESETS_FILE, [])
+  ]);
+  return { elements, presets };
+};
+
+export const writeDecorationElementsFile = async (
+  rootHandle: FileSystemDirectoryHandle,
+  elements: DecorationElement[]
+) => {
+  const decorationHandle = await getDecorationDirHandle(rootHandle);
+  await writeJsonFile(decorationHandle, DECORATION_ELEMENTS_FILE, elements);
+};
+
+export const writeDecorationPresetsFile = async (
+  rootHandle: FileSystemDirectoryHandle,
+  presets: DecorationTemplate[]
+) => {
+  const decorationHandle = await getDecorationDirHandle(rootHandle);
+  await writeJsonFile(decorationHandle, DECORATION_PRESETS_FILE, presets);
 };
 

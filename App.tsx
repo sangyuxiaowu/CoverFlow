@@ -11,7 +11,7 @@ import ProjectPresetModal from './components/ProjectPresetModal.tsx';
 import ExportModal from './components/ExportModal.tsx';
 // Tauri 环境下的本地文件适配器
 import { useLocalProjects, type RecentProjectItem } from './hooks/useLocalProjects.ts';
-import { ProjectState, Layer } from './types.ts';
+import { ProjectState, Layer, DecorationTemplate } from './types.ts';
 import {
   createIndexedDBAdapter,
   createLocalFileAdapter,
@@ -25,6 +25,7 @@ import {
 import { translations, Language } from './translations.ts';
 import { PRESET_RATIOS } from './constants.ts';
 import { generateId, downloadFile, normalizeSVG } from './utils/helpers.ts';
+import { clampDecorationSize } from './utils/decorationStyles.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
 import { type Area } from 'react-easy-crop';
 import { 
@@ -1271,8 +1272,37 @@ const App: React.FC = () => {
     showToast(t.textLayerPasted);
   };
 
+  const createDecorationLayer = (
+    cssText: string,
+    canvasWidth: number,
+    canvasHeight: number,
+    layerName: string,
+    options?: { width?: number; height?: number; color?: string }
+  ) => {
+    const width = clampDecorationSize(options?.width ?? Math.min(280, canvasWidth * 0.4), 220);
+    const height = clampDecorationSize(options?.height ?? Math.min(180, canvasHeight * 0.3), 120);
+
+    return {
+      id: generateId(),
+      name: layerName,
+      type: 'decoration' as const,
+      content: cssText,
+      x: canvasWidth / 2 - width / 2,
+      y: canvasHeight / 2 - height / 2,
+      width,
+      height,
+      rotation: 0,
+      zIndex: 0,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      color: options?.color || '#38bdf8',
+      ratioLocked: false
+    };
+  };
+
   // 提取公共的 SVG 处理函数
-const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: number, layerName: string) => {
+  const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: number, layerName: string) => {
     try {
       // 解析 SVG 获取 viewBox 信息
       const svgElement = new DOMParser().parseFromString(svgContent, 'image/svg+xml').documentElement;
@@ -1570,6 +1600,35 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
       }
     };
     input.click();
+  };
+
+  const handleApplyDecorationTemplate = (template: DecorationTemplate) => {
+    if (!project || template.layers.length === 0) return;
+    const offsetX = (project.canvasConfig.width - template.width) / 2;
+    const offsetY = (project.canvasConfig.height - template.height) / 2;
+    const baseZIndex = Math.max(0, ...project.layers.map((layer) => layer.zIndex));
+    const nextLayers = [...template.layers]
+      .sort((a, b) => a.zIndex - b.zIndex)
+      .map((layer, index) => ({
+        ...JSON.parse(JSON.stringify(layer)),
+        id: generateId(),
+        x: offsetX + layer.x,
+        y: offsetY + layer.y,
+        zIndex: baseZIndex + index + 1,
+        visible: true,
+        locked: false,
+        parentId: undefined,
+        children: undefined
+      }));
+
+    const nextSelectedIds = nextLayers.map((layer) => layer.id);
+    const nextActiveId = nextSelectedIds[nextSelectedIds.length - 1] || null;
+    modifyProject((currentProject) => ({
+      ...currentProject,
+      layers: [...currentProject.layers, ...nextLayers],
+      selectedLayerId: nextActiveId
+    }));
+    setSelectedLayerIds(nextSelectedIds);
   };
 
   
@@ -2104,10 +2163,13 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
           lang={lang} 
           activeTab={activeTab} 
           setActiveTab={setActiveTab} 
+          project={project}
+          selectedLayerIds={selectedLayerIds}
           background={project.background} 
           onOpenBackgroundCrop={handleOpenBackgroundCrop}
           storageType={isCloudMode ? 'indexeddb' : storageType}
           localFileAdapter={localFileAdapter}
+          onApplyTemplate={handleApplyDecorationTemplate}
           onAddLayer={(l) => {
             // 处理 SVG 图层的特殊逻辑
             if (l.type === 'svg' && l.content) {
@@ -2124,6 +2186,25 @@ const createSvgLayer = (svgContent: string, canvasWidth: number, canvasHeight: n
                 ...p,
                 layers: [...p.layers, newLayer]
               }));
+              return;
+            }
+
+            if (l.type === 'decoration' && l.content) {
+              const newLayer = createDecorationLayer(
+                l.content,
+                project.canvasConfig.width,
+                project.canvasConfig.height,
+                l.name || t.defaultLayerName,
+                { width: l.width, height: l.height, color: l.color }
+              );
+              newLayer.zIndex = project.layers.length + 1;
+
+              modifyProject(p => ({
+                ...p,
+                layers: [...p.layers, newLayer],
+                selectedLayerId: newLayer.id
+              }));
+              setSelectedLayerIds([newLayer.id]);
               return;
             }
 

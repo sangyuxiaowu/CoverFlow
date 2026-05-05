@@ -3,6 +3,7 @@ import React, { useState, useCallback, useRef, useEffect, useMemo, useLayoutEffe
 import { Layer, ProjectState, TextGradient, TextShadow } from '../types.ts';
 import { translations, Language } from '../translations.ts';
 import { PRESET_COLORS, TEXT_GRADIENT_PRESETS } from '../constants.ts';
+import { buildDecorationLayerStyle } from '../utils/decorationStyles.ts';
 import { 
   Eye, EyeOff, Lock, Unlock, Trash2, Hash, RotateCw, Maximize2, 
   Type as TextIcon, Image as ImageIcon, GripVertical, Link as LinkIcon, Link2Off, MoveHorizontal, MoveVertical,
@@ -799,8 +800,20 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                 </div>
               )}
 
+              {selectedLayer.type === 'decoration' && (
+                <div className="space-y-2 pt-2 border-t border-slate-800">
+                  <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.decorationCode}</label>
+                  <textarea
+                    value={selectedLayer.content}
+                    onChange={(e) => onUpdateLayer(selectedLayer.id, { content: e.target.value })}
+                    className="w-full min-h-[120px] bg-slate-950 border border-slate-800 rounded-lg p-2 text-[11px] leading-5 text-slate-200 font-mono focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none resize-none"
+                  />
+                  <div className="text-[9px] text-slate-600 leading-relaxed">{t.decorationUseCurrentColorHint}</div>
+                </div>
+              )}
+
               {/* SVG 专用主色选择器 */}
-              {selectedLayer.type === 'svg' && (
+              {(selectedLayer.type === 'svg' || selectedLayer.type === 'decoration') && (
                 <div className="space-y-1.5 pt-2 border-t border-slate-800">
                   <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.primaryColor}</label>
                   <div className="flex gap-2">
@@ -952,6 +965,8 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                   <Folder className="w-3 h-3" />
                 ) : layer.type === 'text' ? (
                    <TextIcon className="w-3 h-3" /> 
+                 ) : layer.type === 'decoration' ? (
+                   <div className="w-3.5 h-3.5 overflow-hidden rounded-[2px]" style={buildDecorationLayerStyle(layer.content, layer.color || '#38bdf8')} />
                 ) : layer.type === 'image' ? (
                    <ImageIcon className="w-3 h-3" /> 
                 ) : (

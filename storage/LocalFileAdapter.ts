@@ -7,6 +7,7 @@ const FS_PROJECT_KEY = 'projectStorageFolder';
 const DATA_DIR = 'data';
 const FONT_DIR = 'font';
 const LIB_DIR = 'lib';
+const DECORATION_DIR = 'decoration';
 const PROJECT_FILE_EXT = 'cfj';
 
 const openFsHandleDb = () => new Promise<IDBDatabase>((resolve, reject) => {
@@ -207,6 +208,7 @@ export class LocalFileAdapter implements StorageAdapter {
     await handle.getDirectoryHandle(DATA_DIR, { create: true });
     await handle.getDirectoryHandle(FONT_DIR, { create: true });
     await handle.getDirectoryHandle(LIB_DIR, { create: true });
+    await handle.getDirectoryHandle(DECORATION_DIR, { create: true });
   };
 }
 

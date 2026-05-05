@@ -84,7 +84,7 @@ export const PRESET_DECORATIONS: DecorationElement[] = [
     nameZh: '极光边框',
     width: 320,
     height: 180,
-    cssText: 'background: linear-gradient(135deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.02) 48%), linear-gradient(135deg, currentColor 0%, rgba(15,23,42,0.06) 100%); border: 1px solid rgba(255,255,255,0.24); border-radius: 28px; box-shadow: 0 18px 40px rgba(15,23,42,0.28), 0 0 0 10px rgba(255,255,255,0.05) inset;'
+    cssText: 'background: linear-gradient(135deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.02) 48%), linear-gradient(135deg, currentColor 0%, rgba(15,23,42,0.06) 100%); border: 1px solid rgba(255,255,255,0.24); border-radius: 28px;'
   },
   {
     id: 'builtin-ribbon-tag',
@@ -100,7 +100,7 @@ export const PRESET_DECORATIONS: DecorationElement[] = [
     nameZh: '光晕圆盘',
     width: 220,
     height: 220,
-    cssText: 'background: radial-gradient(circle at center, currentColor 0%, rgba(255,255,255,0.2) 42%, transparent 74%); border-radius: 999px; box-shadow: 0 0 48px rgba(59,130,246,0.22);'
+    cssText: 'background: radial-gradient(circle at center, currentColor 0%, rgba(255,255,255,0.2) 42%, transparent 74%); border-radius: 999px;'
   },
   {
     id: 'builtin-glass-card',
@@ -108,7 +108,7 @@ export const PRESET_DECORATIONS: DecorationElement[] = [
     nameZh: '玻璃片',
     width: 280,
     height: 150,
-    cssText: 'background: linear-gradient(135deg, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.04) 100%); border: 1px solid rgba(255,255,255,0.3); border-radius: 24px; outline: 2px solid currentColor; outline-offset: -10px; box-shadow: 0 16px 34px rgba(15,23,42,0.2); backdrop-filter: blur(10px);'
+    cssText: 'background: linear-gradient(135deg, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.04) 100%); border: 1px solid rgba(255,255,255,0.3); border-radius: 24px; outline: 2px solid currentColor; outline-offset: -10px; backdrop-filter: blur(10px);'
   },
   {
     id: 'builtin-striped-plate',
@@ -116,7 +116,7 @@ export const PRESET_DECORATIONS: DecorationElement[] = [
     nameZh: '条纹片',
     width: 280,
     height: 140,
-    cssText: 'background: repeating-linear-gradient(135deg, currentColor 0px, currentColor 12px, rgba(255,255,255,0.08) 12px, rgba(255,255,255,0.08) 24px); border-radius: 22px; border: 1px solid rgba(255,255,255,0.22); box-shadow: 0 14px 30px rgba(15,23,42,0.22);'
+    cssText: 'background: repeating-linear-gradient(135deg, currentColor 0px, currentColor 12px, rgba(255,255,255,0.08) 12px, rgba(255,255,255,0.08) 24px); border-radius: 22px; border: 1px solid rgba(255,255,255,0.22);'
   },
   {
     id: 'builtin-signal-pill',
@@ -124,6 +124,6 @@ export const PRESET_DECORATIONS: DecorationElement[] = [
     nameZh: '信号胶囊',
     width: 320,
     height: 90,
-    cssText: 'background: linear-gradient(90deg, currentColor 0%, rgba(255,255,255,0.14) 100%); border: 1px solid rgba(255,255,255,0.24); border-radius: 999px; box-shadow: 0 10px 28px rgba(15,23,42,0.24), 0 0 0 1px rgba(255,255,255,0.08) inset;'
+    cssText: 'background: linear-gradient(90deg, currentColor 0%, rgba(255,255,255,0.14) 100%); border: 1px solid rgba(255,255,255,0.24); border-radius: 999px;'
   }
 ];

@@ -32,13 +32,11 @@ CoverFlow - 专业 SVG 文章封面设计器
 - 分类资源库：内置基础图形、装饰元素、可加载用户自定义 SVG / PNG 资源文件夹
 - 搜索与过滤：按名称关键词筛选
 
-资源推荐：
-- [Hero Patterns](https://www.heropatterns.com/) - 免费 SVG 背景图案
-- [Fluent UI Emoji](https://github.com/microsoft/fluentui-emoji) - 免费表情图标
-- [SVG Repo](https://www.svgrepo.com/) - 大量免费 SVG 图标与插画
-- [Font Awesome](https://fontawesome.com/) - 丰富的图标库（需手动加载数据）
-- [Pixabay Vectors](https://pixabay.com/zh/vectors/) - 免费矢量图资源
-- [Iconfont](https://www.iconfont.cn/) - 阿里巴巴矢量图标库
+### 装饰库
+
+- 内置装饰库：提供一批可直接添加到画布的预置装饰
+- 自定义装饰：支持使用样式内容快速创建装饰元素，适合背景块、边框、标签、发光、阴影等轻量装饰
+- 装饰模板：可将当前画布中的多个图层保存为装饰模板，便于复用整套角标、边框、排版组合
 
 ### 图标库
 
@@ -55,6 +53,7 @@ CoverFlow - 专业 SVG 文章封面设计器
 	- 旋转（自由旋转 / 15 度步进）
 	- 顺序调整（拖拽排序）
 	- 显示 / 隐藏 / 锁定
+- 装饰图层：支持颜色联动、自定义宽高与样式内容编辑
 - 文本增强：文字渐变
 - 历史操作：撤销 / 重做
 
@@ -76,6 +75,12 @@ CoverFlow - 专业 SVG 文章封面设计器
 
 - 本地项目列表：浏览最近项目
 - 项目导入 / 导出：支持 cfj 后缀的 JSON 格式项目文件，便于备份与分享
+
+### 预设与模板
+
+- 背景预设：保存和复用常用背景方案
+- 装饰元素：保存常用单个装饰，构建个人装饰库
+- 装饰模板：保存当前画布中的多图层组合，适合沉淀常用版式组件
 
 ### 剪贴板与快速添加
 
@@ -137,6 +142,7 @@ npm run preview
 ├─ src-tauri/          # Tauri 原生端
 ├─ scripts/            # 构建/同步脚本
 ├─ doc/                # 文档与素材
+├─ public/             # PWA 资源与静态文件
 ├─ App.tsx             # 应用入口
 ├─ constants.ts        # 常量与默认配置
 ├─ types.ts            # 类型定义
@@ -148,3 +154,12 @@ npm run preview
 
 AGPL-3.0-or-later
 
+--------
+
+资源推荐：
+- [Hero Patterns](https://www.heropatterns.com/) - 免费 SVG 背景图案
+- [Fluent UI Emoji](https://github.com/microsoft/fluentui-emoji) - 免费表情图标
+- [SVG Repo](https://www.svgrepo.com/) - 大量免费 SVG 图标与插画
+- [Font Awesome](https://fontawesome.com/) - 丰富的图标库（需手动加载数据）
+- [Pixabay Vectors](https://pixabay.com/zh/vectors/) - 免费矢量图资源
+- [Iconfont](https://www.iconfont.cn/) - 阿里巴巴矢量图标库

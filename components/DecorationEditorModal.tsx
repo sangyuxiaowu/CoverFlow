@@ -49,7 +49,7 @@ const DecorationEditorModal: React.FC<DecorationEditorModalProps> = ({
   const previewScale = Math.min(1, 180 / Math.max(width, height, 1));
 
   return (
-    <div className="fixed inset-0 z-[150] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[150] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-4xl rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
           <div>

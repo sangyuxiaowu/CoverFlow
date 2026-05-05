@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { CATEGORIZED_ASSETS, PRESET_COLORS, PRESET_GRADIENTS } from '../constants.ts';
 import { BackgroundConfig, DecorationTemplate, Layer, FAIconMetadata, FACategory, ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
-import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash, HelpCircle, Keyboard, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
+import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash, HelpCircle, Keyboard, ChevronDown, ChevronRight, Sparkles, Plus } from 'lucide-react';
 import * as yaml from 'js-yaml';
 import { normalizeSVG } from '../utils/helpers.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
@@ -100,6 +100,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [externalLoading, setExternalLoading] = useState(false);
   const [externalError, setExternalError] = useState<string | null>(null);
   const [externalCacheVersion, setExternalCacheVersion] = useState(0);
+  const [decorationCreateRequestToken, setDecorationCreateRequestToken] = useState(0);
   const [isAssetSettingsOpen, setIsAssetSettingsOpen] = useState(false);
   const [collapsedAssetGroups, setCollapsedAssetGroups] = useState<Record<string, boolean>>({});
   const assetListRef = useRef<HTMLDivElement | null>(null);
@@ -1099,6 +1100,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                   ? t.layout
                   : t.help}
           </h2>
+          {activeTab === 'decorations' && (
+            <button
+              type="button"
+              onClick={() => setDecorationCreateRequestToken((value) => value + 1)}
+              className="text-slate-500 hover:text-white transition-colors"
+              title={t.decorationNew}
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          )}
           {activeTab === 'assets' && !isLocalFileStorage && (
             <button
               onClick={() => setIsAssetSettingsOpen(true)}
@@ -1127,6 +1138,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   lang={lang}
                   storageType={storageType}
                   localFileAdapter={localFileAdapter}
+                  createRequestToken={decorationCreateRequestToken}
                   project={project}
                   selectedLayerIds={selectedLayerIds}
                   onAddLayer={onAddLayer}

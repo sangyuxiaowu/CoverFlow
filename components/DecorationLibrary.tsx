@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Pencil, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
+import { Pencil, Sparkles, Trash2 } from 'lucide-react';
 import { PRESET_DECORATIONS } from '../constants.ts';
 import { DecorationElement, DecorationTemplate, Layer, ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
@@ -27,6 +27,7 @@ interface DecorationLibraryProps {
   lang: Language;
   storageType: StorageAdapterType;
   localFileAdapter: LocalFileAdapter;
+  createRequestToken: number;
   project: ProjectState;
   selectedLayerIds: string[];
   onAddLayer: (layer: Partial<Layer>) => void;
@@ -109,6 +110,7 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
   lang,
   storageType,
   localFileAdapter,
+  createRequestToken,
   project,
   selectedLayerIds,
   onAddLayer,
@@ -120,7 +122,6 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
   const [draft, setDraft] = useState<DraftDecoration>(() => createDraft());
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [storageError, setStorageError] = useState('');
 
@@ -140,7 +141,6 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
   }, [draftResult.issues, t]);
 
   const loadStoredData = useCallback(async () => {
-    setLoading(true);
     setStorageError('');
     try {
       if (storageType === 'localfile') {
@@ -166,8 +166,6 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
       setSavedTemplates(getStoredDecorationPresets());
     } catch (_err) {
       setStorageError(t.decorationLoadFailed);
-    } finally {
-      setLoading(false);
     }
   }, [localFileAdapter, storageType, t.decorationLoadFailed]);
 
@@ -225,6 +223,12 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
     setIsEditorOpen(true);
     setStatusMessage('');
   }, []);
+
+  useEffect(() => {
+    if (createRequestToken > 0) {
+      openCreateModal();
+    }
+  }, [createRequestToken, openCreateModal]);
 
   const buildElementFromDraft = useCallback(() => {
     return {
@@ -447,34 +451,12 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
         onApply={() => handleApplyElement()}
       />
 
-      <div className="p-5 border-b border-slate-800/50 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">{t.decorations}</div>
-            <div className="text-[10px] text-slate-500 mt-1">{t.decorationLibraryHint}</div>
-          </div>
-          <button type="button" onClick={loadStoredData} title={t.assetFolderRefresh} className="p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-blue-500 transition-colors">
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={openCreateModal} className="flex items-center justify-center gap-2 rounded-xl bg-slate-800 px-3 py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-700 transition-colors">
-            <Plus className="w-3.5 h-3.5" />
-            {t.decorationNew}
-          </button>
-          <button type="button" onClick={handleSaveCurrentCanvasAsTemplate} className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 py-2.5 text-xs font-bold text-white hover:bg-blue-500 transition-colors">
-            <Sparkles className="w-3.5 h-3.5" />
-            {t.decorationSaveCanvasTemplate}
-          </button>
-        </div>
-
-        <div className="space-y-1.5 min-h-[44px]">
-          <div className="text-[10px] text-slate-600 leading-relaxed">{t.decorationTemplateExcludeImages}</div>
+      {(storageError || statusMessage) && (
+        <div className="px-5 pt-4 space-y-1.5 min-h-[24px]">
           {storageError && <div className="text-[10px] text-red-400 leading-relaxed">{storageError}</div>}
           {statusMessage && <div className="text-[10px] text-emerald-400 leading-relaxed">{statusMessage}</div>}
         </div>
-      </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-5 space-y-5">
         <section className="space-y-3">
@@ -496,7 +478,17 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
         </section>
 
         <section className="space-y-3 pb-2">
-          <div className="text-[11px] font-black uppercase tracking-widest text-slate-500">{t.decorationTemplates}</div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-[11px] font-black uppercase tracking-widest text-slate-500">{t.decorationTemplates}</div>
+            <button
+              type="button"
+              onClick={handleSaveCurrentCanvasAsTemplate}
+              className="flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-blue-500 transition-colors"
+            >
+              <Sparkles className="w-3 h-3" />
+              {t.decorationSaveCanvasTemplate}
+            </button>
+          </div>
           {savedTemplates.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-800 bg-slate-900/40 px-4 py-8 text-center text-[10px] text-slate-600 font-bold uppercase tracking-wider">{t.decorationEmptyPresets}</div>
           ) : (

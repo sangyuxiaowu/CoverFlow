@@ -136,7 +136,14 @@ interface FontAwesomePanelProps {
 
 const PREVIEW_ICON_COLOR = '#94a3b8';
 
-const svgToObjectUrl = (svgMarkup: string) => URL.createObjectURL(new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' }));
+const svgToBase64DataUrl = (svgMarkup: string) => {
+  const encoded = new TextEncoder().encode(svgMarkup);
+  let binary = '';
+  encoded.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return `data:image/svg+xml;base64,${btoa(binary)}`;
+};
 
 const addPreviewColor = (svgMarkup: string, color: string) => {
   if (svgMarkup.includes(' color:')) return svgMarkup;
@@ -147,7 +154,7 @@ const addPreviewColor = (svgMarkup: string, color: string) => {
   });
 };
 
-const createSvgPreviewSrc = (svgMarkup: string) => svgToObjectUrl(addPreviewColor(normalizeSVG(svgMarkup), PREVIEW_ICON_COLOR));
+const createSvgPreviewSrc = (svgMarkup: string) => svgToBase64DataUrl(addPreviewColor(normalizeSVG(svgMarkup), PREVIEW_ICON_COLOR));
 
 const AssetLibraryPanel = React.memo(({
   t,

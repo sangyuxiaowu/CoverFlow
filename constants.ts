@@ -111,6 +111,14 @@ export const PRESET_DECORATIONS: DecorationElement[] = [
     cssText: 'background: linear-gradient(135deg, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.04) 100%); border: 1px solid rgba(255,255,255,0.3); border-radius: 24px; outline: 2px solid currentColor; outline-offset: -10px; backdrop-filter: blur(10px);'
   },
   {
+    id: 'builtin-glass-card2',
+    name: 'Glass',
+    nameZh: '毛玻璃',
+    width: 280,
+    height: 150,
+    cssText: 'background: linear-gradient(135deg, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.04) 100%); border: 1px solid rgba(255,255,255,0.3); border-radius: 24px;outline-offset: -10px; backdrop-filter: blur(10px);'
+  },
+  {
     id: 'builtin-striped-plate',
     name: 'Striped Plate',
     nameZh: '条纹片',

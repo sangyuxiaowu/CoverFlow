@@ -1,7 +1,11 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Plus, Save, X } from 'lucide-react';
 import { translations, Language } from '../translations.ts';
-import { buildDecorationLayerStyle } from '../utils/decorationStyles.ts';
+import {
+  buildDecorationLayerStyle,
+  compactDecorationCssForStorage,
+  formatDecorationCssForEditor
+} from '../utils/decorationStyles.ts';
 
 interface DecorationEditorModalProps {
   lang: Language;
@@ -43,10 +47,49 @@ const DecorationEditorModal: React.FC<DecorationEditorModalProps> = ({
   onApply
 }) => {
   const t = translations[lang];
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [editorCssText, setEditorCssText] = useState(() => formatDecorationCssForEditor(cssText));
+
+  useEffect(() => {
+    if (isOpen) {
+      setEditorCssText(formatDecorationCssForEditor(cssText));
+    }
+  }, [cssText, isOpen]);
 
   if (!isOpen) return null;
 
   const previewScale = Math.min(1, 180 / Math.max(width, height, 1));
+
+  const syncCssText = (nextEditorValue: string) => {
+    setEditorCssText(nextEditorValue);
+    onChangeCssText(compactDecorationCssForStorage(nextEditorValue));
+  };
+
+  const handleCssKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== ';' || event.ctrlKey || event.metaKey || event.altKey) {
+      return;
+    }
+
+    event.preventDefault();
+    const target = event.currentTarget;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    const afterSelection = editorCssText.slice(end);
+    const insertion = afterSelection.startsWith('\n') ? ';' : ';\n';
+    const nextEditorValue = `${editorCssText.slice(0, start)}${insertion}${afterSelection}`;
+
+    syncCssText(nextEditorValue);
+    requestAnimationFrame(() => {
+      const nextCaretPosition = start + insertion.length;
+      textareaRef.current?.setSelectionRange(nextCaretPosition, nextCaretPosition);
+    });
+  };
+
+  const handleCssBlur = () => {
+    const formatted = formatDecorationCssForEditor(editorCssText);
+    setEditorCssText(formatted);
+    onChangeCssText(compactDecorationCssForStorage(formatted));
+  };
 
   return (
     <div className="fixed inset-0 z-[150] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -95,9 +138,12 @@ const DecorationEditorModal: React.FC<DecorationEditorModalProps> = ({
             </div>
 
             <textarea
-              value={cssText}
+              ref={textareaRef}
+              value={editorCssText}
               placeholder={t.decorationDraftPlaceholder}
-              onChange={(e) => onChangeCssText(e.target.value)}
+              onChange={(e) => syncCssText(e.target.value)}
+              onKeyDown={handleCssKeyDown}
+              onBlur={handleCssBlur}
               className="w-full min-h-[320px] bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs leading-6 text-slate-200 font-mono resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>

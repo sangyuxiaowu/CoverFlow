@@ -83,8 +83,58 @@ export const clampDecorationSize = (value: number, fallback = 160) => {
   return Math.min(MAX_DECORATION_SIZE, Math.max(MIN_DECORATION_SIZE, Math.round(value)));
 };
 
+export const compactDecorationCssForStorage = (cssText: string) => {
+  const normalized = cssText
+    .replace(/\r/g, '')
+    .replace(/\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!normalized) return '';
+
+  const declarations = normalized
+    .split(';')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (declarations.length === 0) return normalized;
+
+  const hasTrailingSemicolon = /;\s*$/.test(normalized);
+  return declarations
+    .map((declaration, index) => {
+      if (!hasTrailingSemicolon && index === declarations.length - 1) {
+        return declaration;
+      }
+      return `${declaration};`;
+    })
+    .join(' ')
+    .trim();
+};
+
+export const formatDecorationCssForEditor = (cssText: string) => {
+  const compact = compactDecorationCssForStorage(cssText);
+  if (!compact) return '';
+
+  const declarations = compact
+    .split(';')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (declarations.length === 0) return compact;
+
+  const hasTrailingSemicolon = /;\s*$/.test(compact);
+  return declarations
+    .map((declaration, index) => {
+      if (!hasTrailingSemicolon && index === declarations.length - 1) {
+        return declaration;
+      }
+      return `${declaration};`;
+    })
+    .join('\n');
+};
+
 export const sanitizeDecorationCss = (cssText: string): DecorationSanitizeResult => {
-  const trimmed = cssText.trim();
+  const trimmed = compactDecorationCssForStorage(cssText).trim();
   const issues: DecorationIssue[] = [];
 
   if (!trimmed) {

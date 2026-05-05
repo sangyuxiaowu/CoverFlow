@@ -386,14 +386,21 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
   const renderElementCard = (element: DecorationElement, options?: { editable?: boolean; removable?: boolean }) => {
     const label = lang === 'zh' ? element.nameZh || element.name : element.name;
     return (
-      <button key={element.id} type="button" onClick={() => handleApplyElement(element)} className="rounded-xl border border-slate-800 bg-slate-900/50 p-2.5 space-y-2 text-left hover:border-blue-500 transition-colors" title={t.decorationAddToCanvas}>
-        {renderElementPreview(element)}
-        <div className="space-y-1">
-          <div className="text-[11px] font-bold text-slate-200 truncate">{label}</div>
-          <div className="text-[9px] uppercase tracking-wider text-slate-500">{element.width} x {element.height}</div>
-        </div>
+      <div key={element.id} className="rounded-xl border border-slate-800 bg-slate-900/50 p-2.5 space-y-2">
+        <button
+          type="button"
+          onClick={() => handleApplyElement(element)}
+          className="w-full space-y-2 text-left hover:text-white transition-colors"
+          title={t.decorationAddToCanvas}
+        >
+          {renderElementPreview(element)}
+          <div className="space-y-1">
+            <div className="text-[11px] font-bold text-slate-200 truncate">{label}</div>
+            <div className="text-[9px] uppercase tracking-wider text-slate-500">{element.width} x {element.height}</div>
+          </div>
+        </button>
         {(options?.editable || options?.removable) && (
-          <div className="grid grid-cols-2 gap-1.5" onClick={(e) => e.stopPropagation()}>
+          <div className="grid grid-cols-2 gap-1.5">
             {options.editable && (
               <button type="button" onClick={() => openEditModal(element)} className="flex items-center justify-center gap-1 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors px-2 py-1.5" title={t.decorationEdit}>
                 <Pencil className="w-3 h-3" />
@@ -406,28 +413,40 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
             )}
           </div>
         )}
-      </button>
+      </div>
     );
   };
 
-  const renderTemplateCard = (template: DecorationTemplate) => (
-    <button key={template.id} type="button" onClick={() => { onApplyTemplate(template); setStatusMessage(t.decorationTemplateApplied); }} className="rounded-xl border border-slate-800 bg-slate-900/50 p-2.5 space-y-2 text-left hover:border-blue-500 transition-colors" title={t.decorationTemplateApply}>
-      {renderTemplatePreview(template)}
-      <div className="space-y-1">
-        <div className="text-[11px] font-bold text-slate-200 truncate">{template.name}</div>
-        <div className="text-[9px] uppercase tracking-wider text-slate-500">{template.layers.length} {t.layers} · {template.width} x {template.height}</div>
-      </div>
-      <div className="grid grid-cols-2 gap-1.5" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-center gap-1 rounded-lg bg-blue-600/10 text-blue-400 px-2 py-1.5 text-[10px] font-bold">
-          <Sparkles className="w-3 h-3" />
-          {t.apply}
-        </div>
-        <button type="button" onClick={() => handleDeleteTemplate(template.id)} className="flex items-center justify-center gap-1 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-red-500 transition-colors px-2 py-1.5" title={t.decorationDelete}>
-          <Trash2 className="w-3 h-3" />
+  const renderTemplateCard = (template: DecorationTemplate) => {
+    return (
+      <div key={template.id} className="rounded-xl border border-slate-800 bg-slate-900/50 p-2.5 space-y-2">
+        <button
+          type="button"
+          onClick={() => {
+            onApplyTemplate(template);
+            setStatusMessage(t.decorationTemplateApplied);
+          }}
+          className="w-full space-y-2 text-left hover:text-white transition-colors"
+          title={t.decorationTemplateApply}
+        >
+          {renderTemplatePreview(template)}
+          <div className="space-y-1">
+            <div className="text-[11px] font-bold text-slate-200 truncate">{template.name}</div>
+            <div className="text-[9px] uppercase tracking-wider text-slate-500">{template.layers.length} {t.layers} · {template.width} x {template.height}</div>
+          </div>
         </button>
+        <div className="grid grid-cols-2 gap-1.5">
+          <div className="flex items-center justify-center gap-1 rounded-lg bg-blue-600/10 text-blue-400 px-2 py-1.5 text-[10px] font-bold">
+            <Sparkles className="w-3 h-3" />
+            {t.apply}
+          </div>
+          <button type="button" onClick={() => handleDeleteTemplate(template.id)} className="flex items-center justify-center gap-1 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-red-500 transition-colors px-2 py-1.5" title={t.decorationDelete}>
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </div>
       </div>
-    </button>
-  );
+    );
+  };
 
   return (
     <div className="h-full min-h-0 flex flex-col">

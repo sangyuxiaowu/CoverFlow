@@ -136,15 +136,6 @@ interface FontAwesomePanelProps {
 
 const PREVIEW_ICON_COLOR = '#94a3b8';
 
-const revokePreviewCache = (cache: Map<string, string>) => {
-  cache.forEach((value) => {
-    if (value.startsWith('blob:')) {
-      URL.revokeObjectURL(value);
-    }
-  });
-  cache.clear();
-};
-
 const svgToObjectUrl = (svgMarkup: string) => URL.createObjectURL(new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' }));
 
 const addPreviewColor = (svgMarkup: string, color: string) => {
@@ -363,13 +354,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   }, [onAddLayer]);
 
   useEffect(() => {
-    revokePreviewCache(faPreviewCacheRef.current);
+    faPreviewCacheRef.current.clear();
   }, [faIcons, faCategories]);
-
-  useEffect(() => () => {
-    revokePreviewCache(assetPreviewCacheRef.current);
-    revokePreviewCache(faPreviewCacheRef.current);
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -449,7 +435,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     setExternalError(null);
     externalAssetCacheRef.current.clear();
     externalAssetLoadingRef.current.clear();
-    revokePreviewCache(assetPreviewCacheRef.current);
+    assetPreviewCacheRef.current.clear();
     setExternalCacheVersion(prev => prev + 1);
 
     try {
@@ -539,7 +525,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     setExternalGroups([]);
     externalAssetCacheRef.current.clear();
     externalAssetLoadingRef.current.clear();
-    revokePreviewCache(assetPreviewCacheRef.current);
+    assetPreviewCacheRef.current.clear();
     setExternalCacheVersion(prev => prev + 1);
   }, []);
 

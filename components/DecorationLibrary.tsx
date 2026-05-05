@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pencil, Sparkles, Trash2 } from 'lucide-react';
+import { Pencil, Save, Sparkles, Trash2 } from 'lucide-react';
 import { PRESET_DECORATIONS } from '../constants.ts';
 import { DecorationElement, DecorationTemplate, Layer, ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
@@ -122,7 +122,6 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
   const [draft, setDraft] = useState<DraftDecoration>(() => createDraft());
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [statusMessage, setStatusMessage] = useState('');
   const [storageError, setStorageError] = useState('');
 
   const draftResult = useMemo(() => sanitizeDecorationCss(draft.cssText), [draft.cssText]);
@@ -175,8 +174,7 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
 
   const persistCollections = useCallback(async (
     nextElements: DecorationElement[],
-    nextTemplates: DecorationTemplate[],
-    successMessage: string
+    nextTemplates: DecorationTemplate[]
   ) => {
     setStorageError('');
     try {
@@ -202,7 +200,6 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
 
       setCustomElements(nextElements);
       setSavedTemplates(nextTemplates);
-      setStatusMessage(successMessage);
       return true;
     } catch (_err) {
       setStorageError(t.decorationStorageFailed);
@@ -214,14 +211,12 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
     setDraft(createDraft());
     setEditingElementId(null);
     setIsEditorOpen(true);
-    setStatusMessage('');
   }, []);
 
   const openEditModal = useCallback((element: DecorationElement) => {
     setDraft(createDraft(element));
     setEditingElementId(element.id);
     setIsEditorOpen(true);
-    setStatusMessage('');
   }, []);
 
   useEffect(() => {
@@ -243,7 +238,6 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
     const source = element || buildElementFromDraft();
     const result = sanitizeDecorationCss(source.cssText);
     if (hasBlockingDecorationIssues(result.issues)) {
-      setStatusMessage('');
       return;
     }
 
@@ -255,9 +249,8 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
       height: source.height,
       color: DEFAULT_COLOR
     });
-    setStatusMessage(t.decorationApplied);
     if (!element) setIsEditorOpen(false);
-  }, [buildElementFromDraft, onAddLayer, t.decorationApplied]);
+  }, [buildElementFromDraft, onAddLayer]);
 
   const handleSaveElement = useCallback(async () => {
     if (hasBlockingDecorationIssues(draftResult.issues)) return;
@@ -276,22 +269,22 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
       ? customElements.map((item) => item.id === existing.id ? nextElement : item)
       : [nextElement, ...customElements];
 
-    const saved = await persistCollections(nextElements, savedTemplates, t.decorationSaved);
+    const saved = await persistCollections(nextElements, savedTemplates);
     if (saved) {
       setEditingElementId(nextElement.id);
       setIsEditorOpen(false);
     }
-  }, [buildElementFromDraft, customElements, draftResult.issues, editingElementId, persistCollections, savedTemplates, t.decorationSaved]);
+  }, [buildElementFromDraft, customElements, draftResult.issues, editingElementId, persistCollections, savedTemplates]);
 
   const handleDeleteElement = useCallback(async (id: string) => {
     const nextElements = customElements.filter((item) => item.id !== id);
-    await persistCollections(nextElements, savedTemplates, t.decorationSaved);
-  }, [customElements, persistCollections, savedTemplates, t.decorationSaved]);
+    await persistCollections(nextElements, savedTemplates);
+  }, [customElements, persistCollections, savedTemplates]);
 
   const handleDeleteTemplate = useCallback(async (id: string) => {
     const nextTemplates = savedTemplates.filter((item) => item.id !== id);
-    await persistCollections(customElements, nextTemplates, t.decorationTemplateSaved);
-  }, [customElements, persistCollections, savedTemplates, t.decorationTemplateSaved]);
+    await persistCollections(customElements, nextTemplates);
+  }, [customElements, persistCollections, savedTemplates]);
 
   const templateSourceLayers = useMemo(() => {
     const layerMap = new Map(project.layers.map((layer) => [layer.id, layer]));
@@ -318,7 +311,6 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
 
   const handleSaveCurrentCanvasAsTemplate = useCallback(async () => {
     if (templateSourceLayers.length === 0) {
-      setStatusMessage(t.decorationTemplateNoEligibleLayers);
       return;
     }
 
@@ -339,8 +331,8 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
       updatedAt: Date.now()
     };
 
-    await persistCollections(customElements, [nextTemplate, ...savedTemplates], t.decorationTemplateSaved);
-  }, [customElements, lang, persistCollections, project.title, savedTemplates, t.decorationTemplateNoEligibleLayers, t.decorationTemplateSaved, templateSourceLayers]);
+    await persistCollections(customElements, [nextTemplate, ...savedTemplates]);
+  }, [customElements, lang, persistCollections, project.title, savedTemplates, templateSourceLayers]);
 
   const renderElementPreview = (element: DecorationElement) => {
     const scale = Math.min(1, 72 / Math.max(element.width, element.height, 1));
@@ -424,7 +416,6 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
           type="button"
           onClick={() => {
             onApplyTemplate(template);
-            setStatusMessage(t.decorationTemplateApplied);
           }}
           className="w-full space-y-2 text-left hover:text-white transition-colors"
           title={t.decorationTemplateApply}
@@ -470,10 +461,9 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
         onApply={() => handleApplyElement()}
       />
 
-      {(storageError || statusMessage) && (
+      {storageError && (
         <div className="px-5 pt-4 space-y-1.5 min-h-[24px]">
           {storageError && <div className="text-[10px] text-red-400 leading-relaxed">{storageError}</div>}
-          {statusMessage && <div className="text-[10px] text-emerald-400 leading-relaxed">{statusMessage}</div>}
         </div>
       )}
 
@@ -502,10 +492,11 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
             <button
               type="button"
               onClick={handleSaveCurrentCanvasAsTemplate}
-              className="flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-blue-500 transition-colors"
+              className="p-1 bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white rounded-md transition-all active:scale-95 flex items-center gap-1"
+              title={t.decorationSaveCanvasTemplate}
             >
-              <Sparkles className="w-3 h-3" />
-              {t.decorationSaveCanvasTemplate}
+              <Save className="w-3.5 h-3.5" />
+              <span className="text-[9px] font-bold">{t.decorationSaveCanvasTemplate}</span>
             </button>
           </div>
           {savedTemplates.length === 0 ? (

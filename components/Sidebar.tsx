@@ -1,12 +1,13 @@
 // 模块：侧边栏资源与背景设置
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { CATEGORIZED_ASSETS, PRESET_COLORS, PRESET_GRADIENTS } from '../constants.ts';
-import { BackgroundConfig, Layer, FAIconMetadata, FACategory } from '../types.ts';
+import { BackgroundConfig, DecorationTemplate, Layer, FAIconMetadata, FACategory, ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
-import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash, HelpCircle, Keyboard, ChevronDown, ChevronRight } from 'lucide-react';
+import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash, HelpCircle, Keyboard, ChevronDown, ChevronRight, Flower, Plus } from 'lucide-react';
 import * as yaml from 'js-yaml';
 import { normalizeSVG } from '../utils/helpers.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
+import DecorationLibrary from './DecorationLibrary.tsx';
 import {
   clearFaCache,
   clearStoredAssetFolderHandle,
@@ -29,8 +30,11 @@ import {
 interface SidebarProps {
   lang: Language;
   onAddLayer: (layer: Partial<Layer>) => void;
+  onApplyTemplate: (template: DecorationTemplate) => void;
   onUpdateBackground: (bg: Partial<BackgroundConfig>) => void;
   onOpenBackgroundCrop?: (dataUrl: string) => void;
+  project: ProjectState;
+  selectedLayerIds: string[];
   background: BackgroundConfig;
   activeTab: string;
   setActiveTab: (tab: string) => void;
@@ -68,8 +72,11 @@ const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) 
 const Sidebar: React.FC<SidebarProps> = ({
   lang,
   onAddLayer,
+  onApplyTemplate,
   onUpdateBackground,
   onOpenBackgroundCrop,
+  project,
+  selectedLayerIds,
   background,
   activeTab,
   setActiveTab,
@@ -93,6 +100,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [externalLoading, setExternalLoading] = useState(false);
   const [externalError, setExternalError] = useState<string | null>(null);
   const [externalCacheVersion, setExternalCacheVersion] = useState(0);
+  const [decorationCreateRequestToken, setDecorationCreateRequestToken] = useState(0);
   const [isAssetSettingsOpen, setIsAssetSettingsOpen] = useState(false);
   const [collapsedAssetGroups, setCollapsedAssetGroups] = useState<Record<string, boolean>>({});
   const assetListRef = useRef<HTMLDivElement | null>(null);
@@ -1050,6 +1058,13 @@ const Sidebar: React.FC<SidebarProps> = ({
           <Box className="w-5 h-5" />
         </button>
         <button
+          title={t.decorations}
+          onClick={() => setActiveTab('decorations')}
+          className={`p-2.5 rounded-lg transition-all ${activeTab === 'decorations' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
+        >
+          <Flower className="w-5 h-5" />
+        </button>
+        <button
           title={t.fontAwesome}
           onClick={() => setActiveTab('fa')}
           className={`p-2.5 rounded-lg transition-all ${activeTab === 'fa' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
@@ -1077,12 +1092,24 @@ const Sidebar: React.FC<SidebarProps> = ({
           <h2 className="text-base font-bold flex items-center gap-2 text-slate-100 uppercase tracking-tighter">
             {activeTab === 'assets'
               ? t.assets
+              : activeTab === 'decorations'
+                ? t.decorations
               : activeTab === 'fa'
                 ? t.fontAwesome
                 : activeTab === 'layout'
                   ? t.layout
                   : t.help}
           </h2>
+          {activeTab === 'decorations' && (
+            <button
+              type="button"
+              onClick={() => setDecorationCreateRequestToken((value) => value + 1)}
+              className="text-slate-500 hover:text-white transition-colors"
+              title={t.decorationNew}
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          )}
           {activeTab === 'assets' && !isLocalFileStorage && (
             <button
               onClick={() => setIsAssetSettingsOpen(true)}
@@ -1102,9 +1129,22 @@ const Sidebar: React.FC<SidebarProps> = ({
             </button>
           )}
         </div>
-        <div className={`flex-1 min-h-0 p-5 ${activeTab === 'assets' || activeTab === 'fa' ? 'overflow-hidden' : 'overflow-y-auto scrollbar-hide'}`}>
+        <div className={`flex-1 min-h-0 ${activeTab === 'decorations' ? 'overflow-hidden' : activeTab === 'assets' || activeTab === 'fa' ? 'overflow-hidden p-5' : 'overflow-y-auto scrollbar-hide p-5'}`}>
           {activeTab === 'assets'
             ? renderResources()
+            : activeTab === 'decorations'
+              ? (
+                <DecorationLibrary
+                  lang={lang}
+                  storageType={storageType}
+                  localFileAdapter={localFileAdapter}
+                  createRequestToken={decorationCreateRequestToken}
+                  project={project}
+                  selectedLayerIds={selectedLayerIds}
+                  onAddLayer={onAddLayer}
+                  onApplyTemplate={onApplyTemplate}
+                />
+              )
             : activeTab === 'fa'
               ? renderFontAwesome()
               : activeTab === 'layout'

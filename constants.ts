@@ -1,5 +1,5 @@
 // 模块：常量与预设数据
-import { PresetRatio } from './types.ts';
+import { DecorationElement, PresetRatio } from './types.ts';
 import logoSvg from './doc/logo.svg?raw';
 
 export const PRESET_RATIOS: (PresetRatio & { nameZh?: string })[] = [
@@ -75,4 +75,63 @@ export const PRESET_GRADIENTS = [
   'linear-gradient(90.05deg, #f65163 42.42%, #00c9ff 106.66%)',
   'linear-gradient(90deg, #190649 95%, #a62dd8 5%)',
   'linear-gradient(45deg, #1e293b 0%, #0f172a 100%)',
+];
+
+export const PRESET_DECORATIONS: DecorationElement[] = [
+  {
+    id: 'builtin-aurora-frame',
+    name: 'Aurora Frame',
+    nameZh: '极光边框',
+    width: 320,
+    height: 180,
+    cssText: 'background: linear-gradient(135deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.02) 48%), linear-gradient(135deg, currentColor 0%, rgba(15,23,42,0.06) 100%); border: 1px solid rgba(255,255,255,0.24); border-radius: 28px;'
+  },
+  {
+    id: 'builtin-ribbon-tag',
+    name: 'Ribbon Tag',
+    nameZh: '丝带标签',
+    width: 300,
+    height: 96,
+    cssText: 'background: linear-gradient(90deg, currentColor 0%, rgba(255,255,255,0.18) 100%); border-radius: 18px; clip-path: polygon(0 0, 88% 0, 100% 50%, 88% 100%, 0 100%, 8% 50%); box-shadow: 0 12px 26px rgba(15,23,42,0.24);'
+  },
+  {
+    id: 'builtin-halo-disc',
+    name: 'Halo Disc',
+    nameZh: '光晕圆盘',
+    width: 220,
+    height: 220,
+    cssText: 'background: radial-gradient(circle at center, currentColor 0%, rgba(255,255,255,0.2) 42%, transparent 74%); border-radius: 999px;'
+  },
+  {
+    id: 'builtin-glass-card',
+    name: 'Glass Card',
+    nameZh: '玻璃片',
+    width: 280,
+    height: 150,
+    cssText: 'background: linear-gradient(135deg, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.04) 100%); border: 1px solid rgba(255,255,255,0.3); border-radius: 24px; outline: 2px solid currentColor; outline-offset: -10px; backdrop-filter: blur(10px);'
+  },
+  {
+    id: 'builtin-glass-card2',
+    name: 'Glass',
+    nameZh: '毛玻璃',
+    width: 280,
+    height: 150,
+    cssText: 'background: linear-gradient(135deg, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.04) 100%); border: 1px solid rgba(255,255,255,0.3); border-radius: 24px;outline-offset: -10px; backdrop-filter: blur(10px);'
+  },
+  {
+    id: 'builtin-striped-plate',
+    name: 'Striped Plate',
+    nameZh: '条纹片',
+    width: 280,
+    height: 140,
+    cssText: 'background: repeating-linear-gradient(135deg, currentColor 0px, currentColor 12px, rgba(255,255,255,0.08) 12px, rgba(255,255,255,0.08) 24px); border-radius: 22px; border: 1px solid rgba(255,255,255,0.22);'
+  },
+  {
+    id: 'builtin-signal-pill',
+    name: 'Signal Pill',
+    nameZh: '信号胶囊',
+    width: 320,
+    height: 90,
+    cssText: 'background: linear-gradient(90deg, currentColor 0%, rgba(255,255,255,0.14) 100%); border: 1px solid rgba(255,255,255,0.24); border-radius: 999px;'
+  }
 ];

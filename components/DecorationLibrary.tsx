@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pencil, Save, Sparkles, Trash2 } from 'lucide-react';
+import { Check, Pencil, Save, Trash2, X } from 'lucide-react';
 import { PRESET_DECORATIONS } from '../constants.ts';
 import { DecorationElement, DecorationTemplate, Layer, ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
@@ -121,6 +121,7 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
   const [savedTemplates, setSavedTemplates] = useState<DecorationTemplate[]>([]);
   const [draft, setDraft] = useState<DraftDecoration>(() => createDraft());
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [storageError, setStorageError] = useState('');
 
@@ -283,7 +284,10 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
 
   const handleDeleteTemplate = useCallback(async (id: string) => {
     const nextTemplates = savedTemplates.filter((item) => item.id !== id);
-    await persistCollections(customElements, nextTemplates);
+    const deleted = await persistCollections(customElements, nextTemplates);
+    if (deleted) {
+      setDeletingTemplateId((currentId) => currentId === id ? null : currentId);
+    }
   }, [customElements, persistCollections, savedTemplates]);
 
   const templateSourceLayers = useMemo(() => {
@@ -410,30 +414,69 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
   };
 
   const renderTemplateCard = (template: DecorationTemplate) => {
+    const isConfirmingDelete = deletingTemplateId === template.id;
+
     return (
-      <div key={template.id} className="rounded-xl border border-slate-800 bg-slate-900/50 p-2.5 space-y-2">
+      <div
+        key={template.id}
+        onClick={() => {
+          if (isConfirmingDelete) return;
+          onApplyTemplate(template);
+        }}
+        className="group relative rounded-xl border border-slate-700 bg-slate-900/50 p-2.5 space-y-2 cursor-pointer overflow-hidden transition-all hover:border-blue-500 hover:shadow-lg hover:shadow-blue-900/20"
+        title={t.decorationTemplateApply}
+      >
         <button
           type="button"
-          onClick={() => {
-            onApplyTemplate(template);
+          onClick={(event) => {
+            event.stopPropagation();
+            setDeletingTemplateId(template.id);
           }}
-          className="w-full space-y-2 text-left hover:text-white transition-colors"
-          title={t.decorationTemplateApply}
+          className={`absolute top-1 right-1 p-1 bg-red-600/80 text-white rounded-full transition-all hover:bg-red-500 opacity-0 group-hover:opacity-100 z-10 ${isConfirmingDelete ? 'hidden' : 'block'}`}
+          title={t.decorationDelete}
         >
+          <X className="w-2.5 h-2.5" />
+        </button>
+
+        {isConfirmingDelete && (
+          <div
+            className="absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center animate-in fade-in duration-200 z-20"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span className="text-[8px] font-black text-white uppercase mb-1 tracking-tighter">{t.confirmDeleteShort}</span>
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleDeleteTemplate(template.id);
+                }}
+                className="p-1 bg-red-600 text-white rounded-md hover:bg-red-500 shadow-lg"
+                title={t.confirmDeleteAction}
+              >
+                <Check className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setDeletingTemplateId(null);
+                }}
+                className="p-1 bg-slate-700 text-white rounded-md hover:bg-slate-600"
+                title={t.cancel}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2 text-left">
           {renderTemplatePreview(template)}
           <div className="space-y-1">
             <div className="text-[11px] font-bold text-slate-200 truncate">{template.name}</div>
             <div className="text-[9px] uppercase tracking-wider text-slate-500">{template.layers.length} {t.layers} · {template.width} x {template.height}</div>
           </div>
-        </button>
-        <div className="grid grid-cols-2 gap-1.5">
-          <div className="flex items-center justify-center gap-1 rounded-lg bg-blue-600/10 text-blue-400 px-2 py-1.5 text-[10px] font-bold">
-            <Sparkles className="w-3 h-3" />
-            {t.apply}
-          </div>
-          <button type="button" onClick={() => handleDeleteTemplate(template.id)} className="flex items-center justify-center gap-1 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-red-500 transition-colors px-2 py-1.5" title={t.decorationDelete}>
-            <Trash2 className="w-3 h-3" />
-          </button>
         </div>
       </div>
     );

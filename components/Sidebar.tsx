@@ -136,7 +136,16 @@ interface FontAwesomePanelProps {
 
 const PREVIEW_ICON_COLOR = '#94a3b8';
 
-const svgToDataUrl = (svgMarkup: string) => `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgMarkup)}`;
+const revokePreviewCache = (cache: Map<string, string>) => {
+  cache.forEach((value) => {
+    if (value.startsWith('blob:')) {
+      URL.revokeObjectURL(value);
+    }
+  });
+  cache.clear();
+};
+
+const svgToObjectUrl = (svgMarkup: string) => URL.createObjectURL(new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' }));
 
 const addPreviewColor = (svgMarkup: string, color: string) => {
   if (svgMarkup.includes(' color:')) return svgMarkup;
@@ -147,7 +156,7 @@ const addPreviewColor = (svgMarkup: string, color: string) => {
   });
 };
 
-const createSvgPreviewSrc = (svgMarkup: string) => svgToDataUrl(addPreviewColor(normalizeSVG(svgMarkup), PREVIEW_ICON_COLOR));
+const createSvgPreviewSrc = (svgMarkup: string) => svgToObjectUrl(addPreviewColor(normalizeSVG(svgMarkup), PREVIEW_ICON_COLOR));
 
 const AssetLibraryPanel = React.memo(({
   t,
@@ -354,8 +363,13 @@ const Sidebar: React.FC<SidebarProps> = ({
   }, [onAddLayer]);
 
   useEffect(() => {
-    faPreviewCacheRef.current.clear();
+    revokePreviewCache(faPreviewCacheRef.current);
   }, [faIcons, faCategories]);
+
+  useEffect(() => () => {
+    revokePreviewCache(assetPreviewCacheRef.current);
+    revokePreviewCache(faPreviewCacheRef.current);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -435,7 +449,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     setExternalError(null);
     externalAssetCacheRef.current.clear();
     externalAssetLoadingRef.current.clear();
-    assetPreviewCacheRef.current.clear();
+    revokePreviewCache(assetPreviewCacheRef.current);
     setExternalCacheVersion(prev => prev + 1);
 
     try {
@@ -525,7 +539,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     setExternalGroups([]);
     externalAssetCacheRef.current.clear();
     externalAssetLoadingRef.current.clear();
-    assetPreviewCacheRef.current.clear();
+    revokePreviewCache(assetPreviewCacheRef.current);
     setExternalCacheVersion(prev => prev + 1);
   }, []);
 

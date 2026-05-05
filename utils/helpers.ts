@@ -98,7 +98,7 @@ export const normalizeSVG = (svgContent: string): string => {
       newAttrs.push(`preserveAspectRatio="${par || 'xMidYMid meet'}"`);
 
       // 显式排除的属性（只移除布局相关）
-      const blacklist = ['width', 'height', 'x', 'y', 'id', 'enable-background', 'viewbox', 'preserveaspectratio'];
+      const blacklist = ['width', 'height', 'x', 'y', 'id', 'enable-background', 'viewbox', 'preserveaspectratio', 'style'];
       
       // 保留所有其他原始属性
       Array.from(svg.attributes).forEach(attr => {

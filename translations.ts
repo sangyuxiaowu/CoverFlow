@@ -254,7 +254,35 @@ export const translations = {
       { name: "Font Awesome", url: "https://fontawesome.com/", desc: "丰富的图标库" },
       { name: "Pixabay Vectors", url: "https://pixabay.com/zh/vectors/", desc: "免费矢量图资源" },
       { name: "Iconfont", url: "https://www.iconfont.cn/", desc: "阿里巴巴矢量图标库" }
-    ]
+    ],
+    pwa: {
+      installApp: "安装应用",
+      installAppTitle: "将封面大咖安装至系统桌面或应用抽屉，享受原生应用般的独立窗口体验",
+      installMobile: "安装到手机",
+      pwaSupport: "PWA 支持",
+      iosInstallTitle: "在 iPhone / iPad 上安装",
+      iosStep1: "步骤 1：点击 Safari 浏览器底部的「分享」按钮",
+      iosStep2: "步骤 2：在菜单中下滑找到并点击「添加到主屏幕」",
+      iosStep3: "完成：桌面将生成独立应用图标，支持离线高速启动",
+      gotIt: "我知道了",
+      desktopGuideTitle: "CoverFlow PWA",
+      desktopGuideDesc: "已启用 Service Worker 离线缓存与桌面安装",
+      howToInstall: "如何在现代浏览器中安装：",
+      howToInstallDesc: "在 Chrome、Edge 或其他 Chromium 浏览器中，点击地址栏右侧的「安装」图标，或通过右上角菜单选择「保存并共享 → 安装 CoverFlow Designer」。",
+      pwaFeatures: "PWA 特性支持",
+      pwaFeature1: "独立桌面窗口体验，告别浏览器标签栏干扰",
+      pwaFeature2: "Service Worker 本地缓存，支持无网离线创作",
+      pwaFeature3: "后台自动检测新版本并安全提示更新",
+      close: "关闭",
+      offlineModeNotice: "离线模式 — 已激活 PWA 本地缓存，可正常创作与导出",
+      updateAvailableTitle: "发现新版本可用",
+      updateAvailableDesc: "新版本已下载就绪，点击「立即更新」即可加载最新功能与界面优化。",
+      updateNow: "立即更新",
+      updating: "正在更新...",
+      updateLater: "稍后",
+      updateReadyBadge: "有新版本可用",
+      offlineReadyNotice: "PWA 离线缓存已就绪，支持无网环境随时使用"
+    }
   },
   en: {
     title: "CoverFlow",
@@ -510,7 +538,35 @@ export const translations = {
       { name: "Font Awesome", url: "https://fontawesome.com/", desc: "Icon library" },
       { name: "Pixabay Vectors", url: "https://pixabay.com/zh/vectors/", desc: "Free vector resources" },
       { name: "Iconfont", url: "https://www.iconfont.cn/", desc: "Alibaba vector icons" }
-    ]
+    ],
+    pwa: {
+      installApp: "Install App",
+      installAppTitle: "Install CoverFlow to desktop or app drawer for a native standalone window experience",
+      installMobile: "Install on Phone",
+      pwaSupport: "PWA Support",
+      iosInstallTitle: "Install on iPhone / iPad",
+      iosStep1: "Step 1: Tap the Share button at the bottom of Safari",
+      iosStep2: "Step 2: Scroll down the menu and tap \"Add to Home Screen\"",
+      iosStep3: "Complete: A standalone app icon will be added with offline instant launch",
+      gotIt: "Got It",
+      desktopGuideTitle: "CoverFlow PWA",
+      desktopGuideDesc: "Service Worker offline caching and desktop installation enabled",
+      howToInstall: "How to install in modern browsers:",
+      howToInstallDesc: "In Chrome, Edge, or other Chromium browsers, click the install icon in the address bar, or choose \"Save and share -> Install CoverFlow Designer\" from the menu.",
+      pwaFeatures: "PWA Features Supported",
+      pwaFeature1: "Standalone desktop window without browser tab clutter",
+      pwaFeature2: "Service Worker local caching for offline design & export",
+      pwaFeature3: "Background version detection with safe update prompts",
+      close: "Close",
+      offlineModeNotice: "Offline Mode — PWA local cache activated, editor is fully operational",
+      updateAvailableTitle: "New Version Available",
+      updateAvailableDesc: "A new version is ready. Click \"Update Now\" to load the latest features and UI improvements.",
+      updateNow: "Update Now",
+      updating: "Updating...",
+      updateLater: "Later",
+      updateReadyBadge: "Update Available",
+      offlineReadyNotice: "PWA offline cache is ready for offline use"
+    }
   }
 };
 

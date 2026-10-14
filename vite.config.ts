@@ -13,39 +13,56 @@ export default defineConfig(({ mode }) => {
     }
     const plugins = [
       react(),
-      tailwindcss()
+      tailwindcss(),
+      VitePWA({
+        disable: isTauriMode || mode === 'test',
+        registerType: 'prompt',
+        includeManifestIcons: false,
+        manifest: {
+          id: base,
+          name: 'CoverFlow Designer',
+          short_name: 'CoverFlow',
+          description: 'CoverFlow - Professional SVG cover designer',
+          start_url: base,
+          scope: base,
+          display: 'standalone',
+          orientation: 'portrait-primary',
+          background_color: '#0f172a',
+          theme_color: '#0f172a',
+          categories: ['design', 'graphics', 'productivity', 'utilities'],
+          icons: [
+            {
+              src: `${base}icons/icon-192.png`,
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'any'
+            },
+            {
+              src: `${base}icons/icon-512.png`,
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any'
+            },
+            {
+              src: `${base}icons/icon-512.png`,
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable'
+            },
+            {
+              src: `${base}icons/icon.svg`,
+              sizes: 'any',
+              type: 'image/svg+xml',
+              purpose: 'any'
+            }
+          ]
+        },
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          cleanupOutdatedCaches: true
+        }
+      })
     ];
-
-    if (!isTauriMode) {
-      plugins.push(
-        VitePWA({
-          registerType: 'autoUpdate',
-          injectRegister: 'auto',
-          manifest: {
-            name: 'CoverFlow Designer',
-            short_name: 'CoverFlow',
-            description: 'CoverFlow - Professional SVG cover designer',
-            start_url: base,
-            scope: base,
-            display: 'standalone',
-            background_color: '#0f172a',
-            theme_color: '#0f172a',
-            icons: [
-              {
-                src: `${base}icons/icon-192.png`,
-                sizes: '192x192',
-                type: 'image/png'
-              },
-              {
-                src: `${base}icons/icon-512.png`,
-                sizes: '512x512',
-                type: 'image/png'
-              }
-            ]
-          }
-        })
-      );
-    }
 
     return {
       base,

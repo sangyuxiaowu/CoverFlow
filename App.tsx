@@ -9,6 +9,9 @@ import BackgroundCropModal from './components/BackgroundCropModal.tsx';
 import LivePreview from './components/LivePreview.tsx';
 import ProjectPresetModal from './components/ProjectPresetModal.tsx';
 import ExportModal from './components/ExportModal.tsx';
+import { PWAInstallButton } from './components/pwa/PWAInstallButton.tsx';
+import { PWAUpdatePrompt } from './components/pwa/PWAUpdatePrompt.tsx';
+import { OfflineIndicator } from './components/pwa/OfflineIndicator.tsx';
 // Tauri 环境下的本地文件适配器
 import { useLocalProjects, type RecentProjectItem } from './hooks/useLocalProjects.ts';
 import { ProjectState, Layer, DecorationTemplate } from './types.ts';
@@ -1884,8 +1887,22 @@ const App: React.FC = () => {
     };
   }, [isExportModalOpen, exportSettings, project?.id]);
 
-  if (view === 'landing') {
-    return (
+  const cropAspect = project ? project.canvasConfig.width / project.canvasConfig.height : 1;
+  const cropSize = (() => {
+    const maxWidth = 720;
+    const maxHeight = 420;
+    let width = maxWidth;
+    let height = width / cropAspect;
+    if (height > maxHeight) {
+      height = maxHeight;
+      width = height * cropAspect;
+    }
+    return { width: Math.round(width), height: Math.round(height) };
+  })();
+
+  return (
+    <>
+      {view === 'landing' ? (
       <div className="min-h-screen bg-slate-950 text-slate-200 p-8 flex flex-col gap-12 max-w-8xl mx-auto h-screen overflow-hidden" style={{ maxWidth: '95%' }}>
         {toast && <Toast message={toast.msg} type={toast.type} />}
         {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
@@ -1950,6 +1967,7 @@ const App: React.FC = () => {
                 <span className="text-xs font-bold">{t.storageSettings}</span>
               </button>
             )}
+            <PWAInstallButton lang={lang} />
             <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800"><button onClick={() => setLang('zh')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'zh' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>中</button><button onClick={() => setLang('en')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'en' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>EN</button></div>
           </div>
         </div>
@@ -2037,26 +2055,8 @@ const App: React.FC = () => {
           </div>
         </div>
       </div>
-    );
-  }
-
-  if (!project) return null;
-
-  const cropAspect = project.canvasConfig.width / project.canvasConfig.height;
-  const cropSize = (() => {
-    const maxWidth = 720;
-    const maxHeight = 420;
-    let width = maxWidth;
-    let height = width / cropAspect;
-    if (height > maxHeight) {
-      height = maxHeight;
-      width = height * cropAspect;
-    }
-    return { width: Math.round(width), height: Math.round(height) };
-  })();
-
-  return (
-    <div className="flex flex-col h-screen bg-slate-950 text-slate-200 overflow-hidden">
+      ) : project ? (
+      <div className="flex flex-col h-screen bg-slate-950 text-slate-200 overflow-hidden">
       {toast && <Toast message={toast.msg} type={toast.type} />}
       {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
       <ExportModal
@@ -2316,7 +2316,12 @@ const App: React.FC = () => {
         />
       </main>
     </div>
+      ) : null}
+      <PWAUpdatePrompt lang={lang} onShowToast={showToast} />
+      <OfflineIndicator lang={lang} />
+    </>
   );
 };
 
 export default App;
+  

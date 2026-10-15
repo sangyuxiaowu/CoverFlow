@@ -518,7 +518,7 @@ dependencies = [
 
 [[package]]
 name = "coverflow"
-version = "4.2.1"
+version = "5.0.0"
 dependencies = [
  "serde_json",
  "tauri",

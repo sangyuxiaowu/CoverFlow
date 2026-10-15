@@ -19,7 +19,7 @@ export function createModel(modelId = 'gpt-4o-mini'): AiModelConfig {
   const local = /^(qwen|llama|gemma|gpt-oss)/i.test(modelId);
   const thinkingAvailable = deepseek || /^(qwen3|gpt-oss|o[134](?:-|$)|gpt-5)/i.test(modelId);
   const supportedReasoningEfforts: ReasoningEffort[] = deepseek ? ['none', 'low', 'high', 'max'] : ['none', 'low', 'medium', 'high'];
-  return { id: crypto.randomUUID(), label: modelId, modelId, temperature: 0.7, maxTokens: deepseek ? 16384 : 4096, contextWindow: deepseek ? 1000000 : local ? 32768 : 128000, thinkingAvailable, supportedReasoningEfforts, thinkingEnabled: thinkingAvailable, reasoningEffort: deepseek ? 'high' : 'medium' };
+  return { id: crypto.randomUUID(), label: modelId, modelId, maxTokens: deepseek ? 16384 : 4096, contextWindow: deepseek ? 1000000 : local ? 32768 : 128000, thinkingAvailable, supportedReasoningEfforts, thinkingEnabled: thinkingAvailable, reasoningEffort: deepseek ? 'high' : 'medium' };
 }
 
 export function createEndpoint(provider: 'openai' | 'deepseek' | 'local' | 'custom' = 'custom'): AiEndpointConfig {
@@ -62,7 +62,7 @@ export function normalizeConfig(value: unknown, preserveKeys = true): AiConfig {
 
 export function toRequestConfig(config: AiConfig): AiRequestConfig {
   const { endpoint, model } = resolveSelection(config);
-  return { endpoint: endpoint.endpoint, apiKey: endpoint.apiKey, model: model.modelId, temperature: model.temperature, maxTokens: model.maxTokens, contextWindow: model.contextWindow, systemPrompt: config.systemPrompt, thinkingAvailable: model.thinkingAvailable, supportedReasoningEfforts: model.supportedReasoningEfforts, thinkingEnabled: model.thinkingEnabled, reasoningEffort: model.reasoningEffort };
+  return { endpoint: endpoint.endpoint, apiKey: endpoint.apiKey, model: model.modelId, maxTokens: model.maxTokens, contextWindow: model.contextWindow, systemPrompt: config.systemPrompt, thinkingAvailable: model.thinkingAvailable, supportedReasoningEfforts: model.supportedReasoningEfforts, thinkingEnabled: model.thinkingEnabled, reasoningEffort: model.reasoningEffort };
 }
 
 export function selectModel(config: AiConfig, endpointId: string, modelId: string): AiConfig {
@@ -86,7 +86,6 @@ export function validateRequestConfig(config: AiRequestConfig): void {
   if (url.username || url.password || url.search || url.hash) throw new Error('Endpoint cannot contain credentials, query parameters or fragments.');
   if (/\/(?:chat\/completions|responses)\/?$/.test(url.pathname)) throw new Error('Use the API base URL, not a chat/completions or responses request URL.');
   if (!config.model.trim()) throw new Error('Model is required.');
-  if (!Number.isFinite(config.temperature) || config.temperature < 0 || config.temperature > 2) throw new Error('Temperature must be between 0 and 2.');
   if (!Number.isInteger(config.maxTokens) || config.maxTokens < 1 || config.maxTokens > 393216) throw new Error('Max tokens must be between 1 and 393216.');
   if (config.contextWindow !== undefined && (!Number.isInteger(config.contextWindow) || config.contextWindow < 256 || config.contextWindow > 10000000 || config.maxTokens > config.contextWindow)) throw new Error('Context window must be between 256 and 10000000, and at least max output tokens.');
   if (config.reasoningEffort !== undefined && (!REASONING_EFFORTS.includes(config.reasoningEffort) || config.reasoningEffort === 'none')) throw new Error('Invalid reasoning effort.');

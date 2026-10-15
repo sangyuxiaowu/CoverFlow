@@ -9,7 +9,7 @@ import { AI_DATABASE_NAME, listStoredSessions, saveStoredSession, deleteStoredSe
 import { createFileChatStore, type ChatFileAccess } from './chatStore.ts';
 import { sessionUsage, sumUsage } from './usage.ts';
 
-const config: AiRequestConfig = { endpoint: 'https://example.com/v1', model: 'test', apiKey: 'secret', temperature: 0.7, maxTokens: 4096, systemPrompt: SYSTEM_PROMPT };
+const config: AiRequestConfig = { endpoint: 'https://example.com/v1', model: 'test', apiKey: 'secret', maxTokens: 4096, systemPrompt: SYSTEM_PROMPT };
 const configuredConfig = () => {
   const profiles = defaultConfig();
   Object.assign(profiles.endpoints[0], { endpoint: config.endpoint, apiKey: config.apiKey });
@@ -64,6 +64,24 @@ test('tool results and assistant calls are preserved for the next round', async 
     assert.equal(requests[1].input[1].type, 'reasoning');
     assert.equal(usages.length, 2);
     assert.equal(result, 'Done');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('Responses never sends temperature in any reasoning mode', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Record<string, unknown>[] = [];
+  globalThis.fetch = async (_url, options) => {
+    requests.push(JSON.parse(options!.body as string));
+    return streamResponse(responsePayload([textOutput]));
+  };
+  try {
+    for (const settings of [config, { ...config, thinkingAvailable: true, thinkingEnabled: true, reasoningEffort: 'high' as const }, { ...config, thinkingAvailable: true, thinkingEnabled: false }]) {
+      await runConversation({ config: settings, input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {} });
+    }
+    assert.equal(requests.length, 3);
+    assert.equal(requests.every(request => !Object.hasOwn(request, 'temperature')), true);
+    assert.equal(Object.hasOwn(defaultConfig().endpoints[0].models[0], 'temperature'), false);
+    assert.equal(Object.hasOwn(toRequestConfig(configuredConfig()), 'temperature'), false);
   } finally { globalThis.fetch = originalFetch; }
 });
 

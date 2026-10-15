@@ -73,7 +73,6 @@ export async function runConversation(options: ConversationOptions): Promise<str
         tools: TOOL_DEFINITIONS.map(tool => ({ type: 'function' as const, ...tool.function, strict: false })),
         stream: true, store: false, max_output_tokens: config.maxTokens,
         ...reasoningPayload(config),
-        ...(!config.thinkingAvailable || !config.thinkingEnabled ? { temperature: config.temperature } : {}),
         ...(new URL(baseURL).hostname === 'api.openai.com' ? { include: ['reasoning.encrypted_content' as const] } : {})
       }, { signal: requestController.signal });
       response = await readResponse(stream, onText, requestController.signal, options.onReasoning);

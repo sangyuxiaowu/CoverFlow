@@ -29,7 +29,6 @@ export interface AiModelConfig {
   id: string;
   label: string;
   modelId: string;
-  temperature: number;
   maxTokens: number;
   contextWindow: number;
   thinkingAvailable: boolean;
@@ -56,7 +55,6 @@ export interface AiRequestConfig {
   endpoint: string;
   model: string;
   apiKey: string;
-  temperature: number;
   maxTokens: number;
   systemPrompt: string;
   contextWindow?: number;

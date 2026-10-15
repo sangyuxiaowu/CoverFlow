@@ -1,7 +1,29 @@
 import type { ProjectState } from '../../types.ts';
+import type { ResponseInputItem } from 'openai/resources/responses/responses';
 
-export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
-export type ReasoningProtocol = 'none' | 'openai' | 'deepseek';
+export type ResponseItem = ResponseInputItem;
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedTokens?: number;
+  reasoningTokens?: number;
+}
+
+export interface RequestUsage {
+  id: string;
+  entryId?: string;
+  endpoint: string;
+  model: string;
+  createdAt: number;
+  status: 'completed' | 'incomplete' | 'failed' | 'aborted';
+  inputEstimate?: number;
+  responseId?: string;
+  usage?: TokenUsage;
+}
+
+export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface AiModelConfig {
   id: string;
@@ -9,7 +31,9 @@ export interface AiModelConfig {
   modelId: string;
   temperature: number;
   maxTokens: number;
-  reasoningProtocol: ReasoningProtocol;
+  contextWindow: number;
+  thinkingAvailable: boolean;
+  supportedReasoningEfforts: ReasoningEffort[];
   thinkingEnabled: boolean;
   reasoningEffort: ReasoningEffort;
 }
@@ -35,23 +59,11 @@ export interface AiRequestConfig {
   temperature: number;
   maxTokens: number;
   systemPrompt: string;
-  reasoningProtocol?: ReasoningProtocol;
+  contextWindow?: number;
+  thinkingAvailable?: boolean;
+  supportedReasoningEfforts?: ReasoningEffort[];
   thinkingEnabled?: boolean;
   reasoningEffort?: ReasoningEffort;
-}
-
-export interface ToolCall {
-  id: string;
-  type: 'function';
-  function: { name: string; arguments: string };
-}
-
-export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
-  reasoning_content?: string;
-  tool_calls?: ToolCall[];
-  tool_call_id?: string;
 }
 
 export interface ToolDefinition {
@@ -89,7 +101,8 @@ export interface ChatSession {
   createdAt: number;
   updatedAt: number;
   entries: ChatEntry[];
-  messages: ChatMessage[];
+  responseItems: ResponseItem[];
+  requests: RequestUsage[];
 }
 
 export interface ChatUiState {

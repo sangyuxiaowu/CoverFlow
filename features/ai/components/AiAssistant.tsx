@@ -9,6 +9,7 @@ import { useFloatingPanel } from '../hooks/useFloatingPanel.ts';
 import ModelControls from './ModelControls.tsx';
 import { useChatStore } from '../hooks/useChatStore.ts';
 import SessionList from './SessionList.tsx';
+import TokenUsageBar from './TokenUsageBar.tsx';
 import './assistant.css';
 
 interface Props { workspace: WorkspaceOptions; lang: Language; onBusyChange: (busy: boolean) => void }
@@ -71,6 +72,7 @@ export default function AiAssistant({ workspace, lang, onBusyChange }: Props) {
         </div>
         {assistant.confirmation && <section className="cf-ai-confirm" role="alertdialog" aria-modal="true" aria-label={label('确认删除', 'Confirm Deletion')}><p>{assistant.confirmation.message}</p><div className="cf-ai-actions"><button className="cf-ai-secondary" onClick={() => assistant.confirmation?.resolve(false)}><X size={16} />{label('取消', 'Cancel')}</button><button className="cf-ai-danger" onClick={() => assistant.confirmation?.resolve(true)}><Check size={16} />{label('确认删除', 'Delete')}</button></div></section>}
         <form className="cf-ai-composer" onSubmit={event => { event.preventDefault(); submit(); }}>
+          <TokenUsageBar session={assistant.sessions.find(session => session.id === assistant.activeSessionId)} config={assistant.config} prompt={prompt} busy={assistant.busy} english={english} />
           <textarea ref={inputRef} value={prompt} disabled={controlsDisabled} rows={3} aria-label={label('发送消息', 'Message')} placeholder={label('想做些什么？', 'What would you like to do?')} onChange={event => setPrompt(event.target.value)} onKeyDown={event => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); }
           }} />

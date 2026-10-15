@@ -1,6 +1,6 @@
 import type { AiConfig, ChatSession, ChatUiState } from '../types.ts';
-import { defaultConfig, loadConfig, validateConfig } from './config.ts';
-import { decryptEndpointKeys, deleteStoredSession, encryptEndpointKeys, listStoredSessions, loadStoredUiState, saveStoredConfig, saveStoredSession, saveStoredUiState } from './configStore.ts';
+import { defaultConfig, loadConfig, normalizeConfig, validateConfig } from './config.ts';
+import { decryptEndpointKeys, deleteStoredSession, encryptEndpointKeys, listStoredSessions, loadStoredUiState, saveStoredConfig, saveStoredSession, saveStoredUiState, validateSession } from './configStore.ts';
 
 export interface ChatFileAccess {
   read: (relativePath: string) => Promise<string | null>;
@@ -46,8 +46,9 @@ export function createFileChatStore(files: ChatFileAccess, id: string): ChatStor
       if (!raw) return defaultConfig();
       const stored = JSON.parse(raw) as { version: number; config: AiConfig; secrets: { endpointId: string; iv: string; ciphertext: string }[] };
       if (stored.version !== 1 || !Array.isArray(stored.secrets)) throw new Error('Unsupported chat configuration file.');
-      validateConfig(stored.config);
-      return decryptEndpointKeys(stored.config, stored.secrets.map(secret => ({ endpointId: secret.endpointId, iv: buffer(secret.iv), ciphertext: buffer(secret.ciphertext) })));
+      const config = normalizeConfig(stored.config);
+      validateConfig(config);
+      return decryptEndpointKeys(config, stored.secrets.map(secret => ({ endpointId: secret.endpointId, iv: buffer(secret.iv), ciphertext: buffer(secret.ciphertext) })));
     },
     saveConfig: config => {
       validateConfig(config);
@@ -66,12 +67,14 @@ export function createFileChatStore(files: ChatFileAccess, id: string): ChatStor
         const raw = await files.read(`chat/sessions/${name}`);
         if (!raw) continue;
         const session = JSON.parse(raw) as ChatSession;
-        if (sessionPath(session.id) !== `chat/sessions/${name}` || !Array.isArray(session.entries) || !Array.isArray(session.messages)) throw new Error('Invalid chat session file: ' + name);
+        if (sessionPath(session.id) !== `chat/sessions/${name}`) throw new Error('Invalid chat session file: ' + name);
+        validateSession(session);
         sessions.push(session);
       }
       return sessions.sort((left, right) => right.updatedAt - left.updatedAt);
     },
     saveSession: session => {
+      validateSession(session);
       const snapshot = structuredClone(session);
       const path = sessionPath(snapshot.id);
       return enqueue(() => files.write(path, JSON.stringify(snapshot, null, 2)));

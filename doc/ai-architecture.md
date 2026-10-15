@@ -10,11 +10,12 @@ features/ai/
   tools/definitions.ts        模型可见的 JSON Schema
   tools/validation.ts         运行时白名单、数值范围及内容安全校验
   tools/execute.ts            工具分发与当前项目 ID 校验
-  services/config.ts          多接入点、多模型、思考参数及旧配置迁移
+  services/config.ts          多接入点、多模型、思考参数及配置校验
   services/configStore.ts     IndexedDB 配置与 AES-GCM 加密密钥存储
   services/chatStore.ts       浏览器/文件双模式配置、会话与界面状态
   services/chatFileAccess.ts  File System Access 与 Tauri 文件适配
-  services/conversation.ts    SSE/JSON 响应、多轮工具调用、中止与超时
+  services/conversation.ts    OpenAI SDK Responses 事件、原生历史、工具循环
+  services/usage.ts           服务端用量汇总、上下文估算与输出预算
   services/workspace.ts       项目生命周期与真实存储适配器
   hooks/useAiAssistant.ts     React 会话、确认、错误和工作区实时值
   hooks/useFloatingPanel.ts   指针拖动、缩放、窗口状态及位置记忆
@@ -27,9 +28,12 @@ features/ai/
 ## 模型与浮窗
 
 - 配置包含 endpoints，每个接入点维护独立的 API 地址、Key 与 models；activeSelection 使用接入点 ID 和模型配置 ID，不用模型名称作为唯一标识。
-- 聊天窗口按接入点分组选择模型，并可调整思考开关和 low/medium/high/xhigh 深度，每个模型分别记忆。
-- 普通模型不发送推理参数；OpenAI 推理协议发送 reasoning_effort 和 max_completion_tokens，省略 temperature；DeepSeek 协议发送 thinking，启用时附带 reasoning_effort。深度选项及关闭思考是否可用取决于模型本身。
-- 模型返回 reasoning_content 或 reasoning 时，在独立的可折叠思考区域显示，不混入最终回答。
+- 接入地址是 SDK baseURL，不填写完整请求地址。DeepSeek 官方使用 https://api.deepseek.com，Ollama 使用 http://localhost:11434/v1。
+- 模型分别配置上下文窗口、输出限制、思考能力与支持档位，不再选择思考协议。统一使用 reasoning.effort 和 max_output_tokens；思考开启时省略 temperature。DeepSeek 预设支持 none/low/high/max。
+- 通过 SDK 读取 Responses 语义事件：正文、原始思考/推理摘要、工具参数以及 completed/incomplete/failed。推理在独立折叠区域显示，不混入最终回答；不同服务商不保证提供相同的可见推理内容。
+- DeepSeek 和 Ollama 均采用无状态会话，完整 reasoning/message/function_call 输出与 function_call_output 按顺序保存并回传，不使用 previous_response_id。OpenAI 官方请求关闭服务端存储，并保留返回的加密推理项用于续接。
+- 每次终结事件保存 usage（输入、输出、总量及可选缓存/思考明细），按操作及会话汇总；缓存与思考是子集，不额外加到总数。中断或缺失 usage 明确标记未知，已返回的用量仍保留。
+- 上次输入实测与下一次上下文估算分开显示。估算采用序列化输入、系统提示词及工具定义的 UTF-8 字节数除以 3，再以同接入点/模型最近实测输入校准；占用比例不是累计消耗除以窗口。预留输出超过预算时提示，不自动丢弃历史。窗口设置是客户端预算，不修改服务端容量。
 - 浮窗支持标题栏指针拖动、角落缩放、最小化和最大化，窗口几何写入当前 ChatStore 的界面状态。视口变化后始终限制在可见范围，不再使用 localStorage 保存 AI 界面状态。
 - 模型配置异步加载或保存期间禁止发送与切换。读取/解密失败展示可重试错误，禁止用默认配置覆盖旧数据。
 
@@ -47,14 +51,14 @@ chat/
 
 - 浏览器文件模式使用用户已授权的项目存储根目录；Tauri 文件模式使用当前 .cfj 旁的 chat 文件夹。
 - 会话有独立 ID，支持新建、选择、重命名和确认删除。每轮开始与结束立即保存，流式显示记录节流保存；刷新后恢复当前会话，并标记未完成工具为中断。
-- 完整模型 transcript（包括工具请求/结果）与显示条目一起按会话保存；新会话不会继承其他会话的消息。
+- 完整 Responses 输入历史（responseItems）、逐请求用量（requests）与显示条目一起按会话保存；新会话不会继承其他会话的消息。只使用当前配置与会话结构，不维护开发阶段的旧格式兼容或自动迁移。
 - 配置、窗口状态和会话写入各自文件。目录模式使用 FileSystemWritableFileStream.close 提交，Tauri 先写临时文件再重命名。文件路径严格限制会话 ID，不允许路径穿越。
 - 切换模式或项目文件目录时重新加载对应存储，禁止把旧请求结果和窗口状态写入新位置。文件权限失败如实展示，不回退到 IndexedDB。
 - Tauri 新增 prepare_chat_storage 只为已有文件访问权限的 .cfj 授权其旁的 chat 目录，拒绝链接目录；补充最小创建/列目录/删除/重命名命令权限。
 
 ## 数据流
 
-用户消息 -> Chat Completions -> 工具 Schema -> 运行时校验 -> WorkspaceBridge -> App 状态 / StorageAdapter -> 工具结果 -> 模型最终回复。
+用户消息 -> SDK Responses -> 工具 Schema -> 运行时校验 -> WorkspaceBridge -> App 状态 / StorageAdapter -> function_call_output -> 模型最终回复。
 
 - 工具从实时桥接状态读取，不依赖请求发出时的 React 闭包快照。
 - 所有画布修改要求当前 projectId，防止编辑错误项目。
@@ -80,7 +84,7 @@ chat/
 
 - 浏览器 AI 配置存入独立 IndexedDB 数据库 coverflow-ai：settings 保存剔除 Key 的配置，encryption-key 保存不可导出的 AES-GCM 256 位 CryptoKey，endpoint-secrets 保存各接入点的随机 12 字节 IV 和密文。文件模式仅主密钥仍留在本机 encryption-key，其余配置和密文在 chat/config.json。接入点 ID 作为附加认证数据，避免密文被换到其他连接。
 - 配置与密文同一事务提交，保存队列串行化；删除接入点或清空 Key 会清理旧密文。并发生成加密密钥时使用读写事务回读，避免两个页面互相覆盖主密钥。
-- 旧 localStorage 配置仅在成功写入 IndexedDB 后移除。缺失主密钥或解密失败时报错，不生成替代密钥来覆盖数据。该本机方案不防御同源恶意脚本，也不保证浏览器配置文件被整体复制后的安全性；清理站点数据后无法恢复。
+- 缺失主密钥或解密失败时报错，不生成替代密钥来覆盖数据。该本机方案不防御同源恶意脚本，也不保证浏览器配置文件被整体复制后的安全性；清理站点数据后无法恢复。
 - 修改接入地址时清空该接入点的旧密钥，避免将它发送给另一服务。
 - HTTP 仅允许回环地址；其余端点必须 HTTPS。端点拒绝 URL 内的用户名、密码、查询参数与片段。
 - 项目删除由用户确认。拒绝后立即结束本轮，不让模型自动再次申请删除。
@@ -88,10 +92,10 @@ chat/
 - SVG 通过 DOMParser 检查结构，拒绝脚本、事件、foreignObject、嵌入样式、动画和外部引用。装饰 CSS 拒绝 HTML 和外部资源加载。
 - 图片只允许 HTTP(S) 或 PNG/JPEG/WebP/GIF 数据 URL。数据 URL 在 AI 读取结果中隐藏；云端 URL 仍可能由浏览器加载。
 - 所有服务请求由用户指定的端点直接处理，必须考虑服务商的数据合规和 CORS。项目内容不属于可信指令。
-- 请求超时 120 秒，最多 12 轮、每轮最多 30 个工具调用。网络断流或输出截断时不执行不完整调用。
+- 请求超时 120 秒，最多 12 轮、每轮最多 30 个工具调用。SDK 自动重试关闭，保留用户中止信号。网络断流或输出截断时不执行不完整调用；工具中断或用户拒绝时配对剩余调用的错误结果，不自动重试已完成操作。
 
 ## 验证与扩展
 
-`npm run test:ai` 使用 Node 原生测试、TypeScript 类型剥离（Node 22.18+）与 fake-indexeddb。覆盖图层几何、组关系、锁定、字段安全、过期 ID、项目生命周期、删除确认、SSE 分片、工具回传、配置迁移、多模型选择、思考参数、浮窗边界、加密往返、密文篡改、会话隔离及文件路径限制。`npm run typecheck:ai` 对 AI 目录执行严格类型检查。前端打包使用 `npm run build`；原生存储命令使用 `cargo check --manifest-path src-tauri/Cargo.toml`。全仓类型检查仍存在既有翻译字段、文件系统 API 声明和 Vite 插件版本诊断，未在本次功能中扩展修复范围。
+`npm run test:ai` 使用 Node 原生测试、TypeScript 类型剥离（Node 22.18+）与 fake-indexeddb。覆盖图层几何、组关系、锁定、字段安全、过期 ID、项目生命周期、删除确认、Responses 事件、工具历史回传、配置校验、多模型选择、思考参数、用量汇总、中止、浮窗边界、加密往返、密文篡改、会话隔离及文件路径限制。`npm run typecheck:ai` 对 AI 目录执行严格类型检查。前端打包使用 `npm run build`；原生存储命令使用 `cargo check --manifest-path src-tauri/Cargo.toml`。全仓类型检查仍存在既有翻译字段、文件系统 API 声明和 Vite 插件版本诊断，未在本次功能中扩展修复范围。
 
 新增工具时先补 definition 与参数校验，再实现 executor 或 workspace 行为，并添加相邻测试。模型通信不要直接导入 App 或操作 DOM。图片生成、资产库搜索与导出工具不在当前实现范围内，可按需要另增服务和工具。

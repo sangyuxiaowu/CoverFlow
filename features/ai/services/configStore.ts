@@ -116,10 +116,16 @@ export async function listStoredSessions(): Promise<ChatSession[]> {
   const complete = done(transaction);
   const sessions = await result(transaction.objectStore(SESSIONS).getAll()) as ChatSession[];
   await complete;
+  sessions.forEach(validateSession);
   return sessions.sort((left, right) => right.updatedAt - left.updatedAt);
 }
 
+export function validateSession(session: ChatSession): void {
+  if (!Array.isArray(session.entries) || !Array.isArray(session.responseItems) || !Array.isArray(session.requests)) throw new Error('Invalid chat session structure.');
+}
+
 export async function saveStoredSession(session: ChatSession): Promise<void> {
+  validateSession(session);
   const db = await database();
   const transaction = db.transaction(SESSIONS, 'readwrite');
   const complete = done(transaction);

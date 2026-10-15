@@ -39,7 +39,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     setActiveSessionId(session.id);
     setEntries(session.entries);
   };
-  const freshSession = (): ChatSession => ({ id: crypto.randomUUID(), title: '新对话', projectId: workspaceRef.current.project?.id, createdAt: Date.now(), updatedAt: Date.now(), entries: [], messages: [] });
+  const freshSession = (): ChatSession => ({ id: crypto.randomUUID(), title: '新对话', projectId: workspaceRef.current.project?.id, createdAt: Date.now(), updatedAt: Date.now(), entries: [], responseItems: [], requests: [] });
   const upsert = (session: ChatSession) => setSessions(previous => [session, ...previous.filter(item => item.id !== session.id)].sort((left, right) => right.updatedAt - left.updatedAt));
   const persist = async (session: ChatSession, target = store) => {
     await target.saveSession(session);
@@ -144,6 +144,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     const user = { role: 'user' as const, content: prompt.trim() };
     if (!working.entries.length && working.title === '新对话') working.title = prompt.trim().slice(0, 40);
     working.projectId = workspaceRef.current.project?.id;
+    working.responseItems = [...working.responseItems, user];
     working.entries.push({ id: crypto.randomUUID(), role: 'user', content: prompt.trim() }, { id, role: 'assistant', content: '', tools: [] });
     const publish = () => {
       working.updatedAt = Date.now();
@@ -156,17 +157,19 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     const update = (modifier: (entry: ChatEntry) => ChatEntry) => { working = { ...working, entries: working.entries.map(entry => entry.id === id ? modifier(entry) : entry) }; publish(); };
     try {
       await persist(working, targetStore);
-      const transcript = await runConversation({
-        config: toRequestConfig(config), messages: [...working.messages, user], bridge: bridgeRef.current!, signal: controller.signal,
+      const content = await runConversation({
+        config: toRequestConfig(config), input: working.responseItems, bridge: bridgeRef.current!, signal: controller.signal,
         onText: chunk => update(entry => ({ ...entry, content: entry.content + chunk })),
         onReasoning: chunk => update(entry => ({ ...entry, reasoning: (entry.reasoning || '') + chunk })),
-        onTool: event => update(entry => ({ ...entry, tools: [...(entry.tools || []).filter(tool => tool.id !== event.id), event] }))
+        onTool: event => update(entry => ({ ...entry, tools: [...(entry.tools || []).filter(tool => tool.id !== event.id), event] })),
+        onUsage: request => {
+          working.requests = [...working.requests.filter(item => item.id !== request.id), { ...request, entryId: id }];
+          publish();
+        },
+        onHistory: input => { working.responseItems = input; publish(); }
       });
-      working.messages = transcript;
-      const final = transcript.at(-1);
-      if (final?.role === 'assistant') update(entry => ({ ...entry, content: final.content || entry.content }));
+      update(entry => ({ ...entry, content: content || entry.content }));
     } catch (error) {
-      working.messages = [];
       const message = controller.signal.aborted ? '已停止。已完成的操作保留，请检查当前项目。' : `${error instanceof Error ? error.message : 'AI 请求失败。'} 已完成的操作不会自动回滚。`;
       update(entry => ({ ...entry, content: entry.content ? entry.content + '\n\n' + message : message, error: !controller.signal.aborted, tools: entry.tools?.map(tool => tool.status === 'running' ? { ...tool, status: 'error', result: message } : tool) }));
     } finally {
@@ -179,7 +182,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   };
   const clear = () => operateSession(async () => {
     if (!sessionRef.current) return;
-    const next = { ...sessionRef.current, entries: [], messages: [], updatedAt: Date.now() };
+    const next = { ...sessionRef.current, entries: [], responseItems: [], requests: [], updatedAt: Date.now() };
     await persist(next);
     activate(next);
   });

@@ -52,6 +52,28 @@ function responseText(response: Response): string {
   return texts.join('');
 }
 
+export function sanitizeResponseItems(items: ResponseItem[]): ResponseItem[] {
+  const result: ResponseItem[] = [];
+  const pendingCalls = new Set<string>();
+
+  for (const item of items) {
+    if ('type' in item && item.type === 'function_call' && item.call_id) {
+      pendingCalls.add(item.call_id);
+      result.push(item);
+    } else if ('type' in item && item.type === 'function_call_output' && item.call_id) {
+      pendingCalls.delete(item.call_id);
+      result.push(item);
+    } else {
+      result.push(item);
+    }
+  }
+
+  if (pendingCalls.size > 0) {
+    return result.filter(item => !('type' in item && item.type === 'function_call' && item.call_id && pendingCalls.has(item.call_id)));
+  }
+  return result;
+}
+
 export async function runConversation(options: ConversationOptions): Promise<string> {
   const { config, bridge, signal, onText, onTool } = options;
   validateRequestConfig(config);
@@ -66,7 +88,8 @@ export async function runConversation(options: ConversationOptions): Promise<str
     const timeout = setTimeout(() => requestController.abort(new Error('AI request timed out after 120 seconds.')), 120000);
     let response: Response;
     let reported = false;
-    const request = { id: crypto.randomUUID(), endpoint: baseURL, model: config.model, createdAt: Date.now(), inputEstimate: estimateInput(input, config.systemPrompt) };
+    const startTime = Date.now();
+    const request = { id: crypto.randomUUID(), endpoint: baseURL, model: config.model, createdAt: startTime, inputEstimate: estimateInput(input, config.systemPrompt) };
     try {
       const stream = await client.responses.create({
         model: config.model, instructions: config.systemPrompt, input,
@@ -76,14 +99,20 @@ export async function runConversation(options: ConversationOptions): Promise<str
         ...(new URL(baseURL).hostname === 'api.openai.com' ? { include: ['reasoning.encrypted_content' as const] } : {})
       }, { signal: requestController.signal });
       response = await readResponse(stream, onText, requestController.signal, options.onReasoning);
-      options.onUsage?.({ ...request, responseId: response.id, status: response.status === 'incomplete' ? 'incomplete' : response.status === 'failed' ? 'failed' : 'completed', usage: normalizeUsage(response.usage) });
+      const completedAt = Date.now();
+      const durationMs = Math.max(1, completedAt - startTime);
+      options.onUsage?.({ ...request, completedAt, durationMs, responseId: response.id, status: response.status === 'incomplete' ? 'incomplete' : response.status === 'failed' ? 'failed' : 'completed', usage: normalizeUsage(response.usage) });
       reported = true;
       if (response.status === 'incomplete') throw new Error(`Response incomplete: ${response.incomplete_details?.reason || 'unknown'}. Increase output tokens or start a new session.`);
       if (response.status === 'failed' || response.error) throw new Error(response.error?.message || 'AI response failed.');
     } finally {
       clearTimeout(timeout);
       signal.removeEventListener('abort', abortRequest);
-      if (!reported) options.onUsage?.({ ...request, status: signal.aborted ? 'aborted' : 'failed' });
+      if (!reported) {
+        const completedAt = Date.now();
+        const durationMs = Math.max(1, completedAt - startTime);
+        options.onUsage?.({ ...request, completedAt, durationMs, status: signal.aborted ? 'aborted' : 'failed' });
+      }
     }
     const content = responseText(response);
     const calls = response.output.filter(item => item.type === 'function_call');

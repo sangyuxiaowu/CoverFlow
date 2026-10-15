@@ -17,6 +17,8 @@ export interface RequestUsage {
   endpoint: string;
   model: string;
   createdAt: number;
+  completedAt?: number;
+  durationMs?: number;
   status: 'completed' | 'incomplete' | 'failed' | 'aborted';
   inputEstimate?: number;
   responseId?: string;
@@ -35,6 +37,9 @@ export interface AiModelConfig {
   supportedReasoningEfforts: ReasoningEffort[];
   thinkingEnabled: boolean;
   reasoningEffort: ReasoningEffort;
+  defaultThinkingEnabled?: boolean;
+  defaultReasoningEffort?: ReasoningEffort;
+  temperature?: number;
 }
 
 export interface AiEndpointConfig {
@@ -49,6 +54,7 @@ export interface AiConfig {
   endpoints: AiEndpointConfig[];
   activeSelection: { endpointId: string; modelId: string };
   systemPrompt: string;
+  quickSnippets?: string[];
 }
 
 export interface AiRequestConfig {
@@ -90,6 +96,10 @@ export interface ChatEntry {
   reasoning?: string;
   tools?: ToolEvent[];
   error?: boolean;
+  usage?: TokenUsage;
+  durationMs?: number;
+  projectSnapshot?: ProjectState | null;
+  previousResponseItems?: ResponseItem[];
 }
 
 export interface ChatSession {
@@ -106,4 +116,10 @@ export interface ChatSession {
 export interface ChatUiState {
   activeSessionId?: string;
   floatingRect?: { x: number; y: number; width: number; height: number };
+}
+
+export interface ExecutionError {
+  message: string;
+  prompt: string;
+  entryId?: string;
 }

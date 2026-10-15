@@ -13,6 +13,7 @@
         "html-to-image": "^1.11.13",
         "js-yaml": "^4.1.1",
         "lucide-react": "^0.564.0",
+        "marked": "^18.1.1",
         "openai": "^7.34.0",
         "react": "^19.2.4",
         "react-dom": "^19.2.4",
@@ -740,6 +741,8 @@
     "lucide-react": ["lucide-react@0.564.0", "https://registry.npmmirror.com/lucide-react/-/lucide-react-0.564.0.tgz", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-JJ8GVTQqFwuliifD48U6+h7DXEHdkhJ/E87kksGByII3qHxtPciVb8T8woQONHBQgHVOl7rSMrrip3SeVNy7Fg=="],
 
     "magic-string": ["magic-string@1.4.3", "https://registry.npmmirror.com/magic-string/-/magic-string-1.4.3.tgz", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.6.0" } }, "sha512-z12OxmaPGE0F4xlpGdjuAUckipLpQlTAuAmyGhNoD7ODpYUzvDfvtxUbjM/jwznyP178oju/KDdyi220wNJ0RQ=="],
+
+    "marked": ["marked@18.1.1", "https://registry.npmmirror.com/marked/-/marked-18.1.1.tgz", { "bin": { "marked": "bin/marked.js" } }, "sha512-zEGgrtUG8crk+TrMacJSVABU4DYDDkS8uqgU3ohrn/2fW9C2AEfUrO3m6IhpIpQpl7YcVpiXXC9cSMWDANT3dg=="],
 
     "math-intrinsics": ["math-intrinsics@1.1.0", "https://registry.npmmirror.com/math-intrinsics/-/math-intrinsics-1.1.0.tgz", {}, "sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g=="],
 

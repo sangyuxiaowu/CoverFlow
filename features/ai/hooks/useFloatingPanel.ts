@@ -5,7 +5,7 @@ import type { ChatStore } from '../services/chatStore.ts';
 export function useFloatingPanel(store: ChatStore) {
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
   const [rect, setRect] = useState<FloatingRect>(() => {
-    return { x: Math.max(10, window.innerWidth - 544), y: Math.max(10, window.innerHeight - 664), width: 520, height: 640 };
+    return { x: Math.max(10, window.innerWidth - 555), y: Math.max(10, window.innerHeight - 664), width: 525, height: 640 };
   });
   const [loadedStore, setLoadedStore] = useState<ChatStore | null>(null);
   const [minimized, setMinimized] = useState(false);

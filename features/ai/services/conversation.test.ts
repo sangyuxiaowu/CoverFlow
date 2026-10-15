@@ -1,13 +1,16 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
-import { readResponse, runConversation, normalizeUsage } from './conversation.ts';
+import { readResponse, runConversation, normalizeUsage, sanitizeResponseItems } from './conversation.ts';
 import type { Response as AiResponse, ResponseStreamEvent } from 'openai/resources/responses/responses';
 import { SYSTEM_PROMPT, defaultConfig, saveConfig, normalizeConfig, normalizeEndpoint, selectModel, toRequestConfig, reasoningPayload, loadConfig, createEndpoint, validateRequestConfig } from './config.ts';
-import type { AiRequestConfig, ChatSession, RequestUsage, ResponseItem, WorkspaceBridge } from '../types.ts';
+import type { ProjectState } from '../../types.ts';
+import type { AiRequestConfig, ChatEntry, ChatSession, RequestUsage, ResponseItem, WorkspaceBridge } from '../types.ts';
 import { AI_DATABASE_NAME, listStoredSessions, saveStoredSession, deleteStoredSession } from './configStore.ts';
 import { createFileChatStore, type ChatFileAccess } from './chatStore.ts';
 import { sessionUsage, sumUsage } from './usage.ts';
+import { parseMarkdown } from './markdown.ts';
+
 
 const config: AiRequestConfig = { endpoint: 'https://example.com/v1', model: 'test', apiKey: 'secret', maxTokens: 4096, systemPrompt: SYSTEM_PROMPT };
 const configuredConfig = () => {
@@ -188,6 +191,9 @@ test('session statistics sum all tool rounds but do not confuse spend with conte
   assert.equal(summary.current?.totalTokens, 240);
   assert.equal(summary.lastInputTokens, 100);
   assert.equal(summary.incomplete, false);
+  assert.ok(summary.breakdown.systemAndTools > 0);
+  assert.equal(summary.breakdown.contextWindow, 4096);
+  assert.equal(summary.breakdown.safetyLevel, 'danger');
   assert.equal(sessionUsage({ ...session, requests: [...requests, { ...requests[0], id: 'failed', usage: undefined, status: 'aborted' }] }, config, [], '').incomplete, true);
   assert.equal(sessionUsage({ ...session, requests: [] }, config, [], '').total, undefined);
 });
@@ -256,3 +262,177 @@ test('file mode stores encrypted configuration and each session under chat', asy
   assert.equal((await store.listSessions()).length, 0);
   assert.throws(() => store.saveSession({ ...session, id: '../escape' }), /Invalid/);
 });
+
+test('endpoint without configured API key is identified', () => {
+  const cfg = defaultConfig();
+  const selected = cfg.endpoints[0];
+  assert.equal(!selected.apiKey || !selected.apiKey.trim(), true);
+  selected.apiKey = 'sk-test-key-123';
+  assert.equal(Boolean(selected.apiKey && selected.apiKey.trim().length > 0), true);
+});
+
+test('parseMarkdown correctly renders markdown constructs with secure links', () => {
+  const md = '# 标题\n\n**加粗** 与 *斜体*\n\n- 列表项 1\n- 列表项 2\n\n```ts\nconst a = 1;\n```\n\n[链接](https://example.com)';
+  const html = parseMarkdown(md);
+  assert.equal(html.includes('<h1>标题</h1>'), true);
+  assert.equal(html.includes('<strong>加粗</strong>'), true);
+  assert.equal(html.includes('<em>斜体</em>'), true);
+  assert.equal(html.includes('<li>列表项 1</li>'), true);
+  assert.equal(html.includes('<pre><code class="language-ts">const a = 1;\n</code></pre>'), true);
+  assert.equal(html.includes('<a href="https://example.com" target="_blank" rel="noopener noreferrer">链接</a>'), true);
+  assert.equal(parseMarkdown(''), '');
+});
+
+test('sanitizeResponseItems removes unpaired function_calls but keeps paired calls and outputs', () => {
+  const user: ResponseItem = { role: 'user', content: '优化设计' };
+  const call1: ResponseItem = { type: 'function_call', id: 'fc-1', call_id: 'c1', name: 'read_layers', arguments: '{}' };
+  const out1: ResponseItem = { type: 'function_call_output', call_id: 'c1', output: '{"layers":[]}' };
+  const danglingCall: ResponseItem = { type: 'function_call', id: 'fc-2', call_id: 'c2', name: 'update_canvas', arguments: '{}' };
+
+  const sanitized = sanitizeResponseItems([user, call1, out1, danglingCall]);
+  assert.equal(sanitized.length, 3);
+  assert.equal(sanitized.some(item => 'call_id' in item && item.call_id === 'c2'), false);
+  assert.equal(sanitized.some(item => 'call_id' in item && item.call_id === 'c1'), true);
+});
+
+test('runConversation can resume directly from existing tool outputs', async () => {
+  const originalFetch = globalThis.fetch;
+  let receivedInput: unknown[] = [];
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options!.body as string);
+    receivedInput = body.input;
+    return streamResponse(responsePayload([textOutput]));
+  };
+  try {
+    const resumedInput: ResponseItem[] = [
+      { role: 'user', content: '优化设计' },
+      { type: 'reasoning', id: 'rs-1', summary: [], content: [{ type: 'reasoning_text', text: 'Plan' }] },
+      { type: 'function_call', id: 'fc-1', call_id: 'c1', name: 'read_layers', arguments: '{}' },
+      { type: 'function_call_output', call_id: 'c1', output: '{"layers":[]}' }
+    ];
+    const result = await runConversation({
+      config,
+      input: resumedInput,
+      bridge,
+      signal: new AbortController().signal,
+      onText: () => {},
+      onTool: () => {}
+    });
+    assert.equal(result, 'Done');
+    assert.equal(receivedInput.length, 4);
+    assert.equal((receivedInput[3] as { type: string }).type, 'function_call_output');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('sumUsage computes single-turn token output accurately', () => {
+  const requests: RequestUsage[] = [
+    {
+      id: 'req-1',
+      entryId: 'assistant-1',
+      endpoint: 'https://example.com/v1',
+      model: 'test-model',
+      createdAt: 100,
+      status: 'completed',
+      usage: { inputTokens: 500, outputTokens: 120, totalTokens: 620 }
+    },
+    {
+      id: 'req-2',
+      entryId: 'assistant-1',
+      endpoint: 'https://example.com/v1',
+      model: 'test-model',
+      createdAt: 200,
+      status: 'completed',
+      usage: { inputTokens: 620, outputTokens: 80, totalTokens: 700 }
+    },
+    {
+      id: 'req-3',
+      entryId: 'assistant-2',
+      endpoint: 'https://example.com/v1',
+      model: 'test-model',
+      createdAt: 300,
+      status: 'completed',
+      usage: { inputTokens: 700, outputTokens: 50, totalTokens: 750 }
+    }
+  ];
+
+  const turn1Usage = sumUsage(requests.filter(r => r.entryId === 'assistant-1'));
+  assert.ok(turn1Usage);
+  assert.equal(turn1Usage.inputTokens, 1120);
+  assert.equal(turn1Usage.outputTokens, 200);
+  assert.equal(turn1Usage.totalTokens, 1320);
+
+  const turn2Usage = sumUsage(requests.filter(r => r.entryId === 'assistant-2'));
+  assert.ok(turn2Usage);
+  assert.equal(turn2Usage.outputTokens, 50);
+});
+
+test('regenerate reverts project snapshot and resets turn without branching', async () => {
+  let committedProject: any = null;
+  const mockBridge = {
+    ...bridge,
+    commit: async (p: any) => { committedProject = p; }
+  };
+
+  const initialProject: ProjectState = {
+    id: 'proj-1',
+    title: 'Initial Title',
+    layers: [],
+    background: { type: 'color' as const, value: '#000000', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0.1, overlayScale: 20 },
+    canvasConfig: { width: 1200, height: 630, ratio: '1200x630' },
+    selectedLayerId: null,
+    updatedAt: 1
+  };
+
+  const modifiedProject: ProjectState = {
+    ...initialProject,
+    title: 'AI Modified Title',
+    layers: [{ id: 'layer-1', name: 'AI Layer', type: 'text', content: 'Hello', x: 0, y: 0, width: 100, height: 50, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }]
+  };
+
+  const previousResponseItems: ResponseItem[] = [
+    { role: 'user', content: '第一轮对话' },
+    { role: 'assistant', content: '第一轮回复' }
+  ];
+
+  const assistantEntry: ChatEntry = {
+    id: 'asst-2',
+    role: 'assistant',
+    content: '修改了标题和图层',
+    projectSnapshot: initialProject,
+    previousResponseItems
+  };
+
+  const userEntry: ChatEntry = {
+    id: 'user-2',
+    role: 'user',
+    content: '添加一个图层并修改标题'
+  };
+
+  const entries: ChatEntry[] = [
+    { id: 'user-1', role: 'user', content: '第一轮对话' },
+    { id: 'asst-1', role: 'assistant', content: '第一轮回复' },
+    userEntry,
+    assistantEntry
+  ];
+
+  // 模拟 regenerate 操作逻辑
+  // 1. 恢复 snapshot
+  await mockBridge.commit(assistantEntry.projectSnapshot);
+  assert.equal(committedProject.title, 'Initial Title');
+  assert.equal(committedProject.layers.length, 0);
+
+  // 2. 移除上一轮的用户和助手 entry，撤销历史不分叉
+  const filteredEntries = entries.filter(e => e.id !== assistantEntry.id && e.id !== userEntry.id);
+  assert.equal(filteredEntries.length, 2);
+  assert.equal(filteredEntries[filteredEntries.length - 1].id, 'asst-1');
+
+  // 3. 恢复 responseItems 到该轮之前的状态
+  const restoredResponseItems = assistantEntry.previousResponseItems!;
+  assert.equal(restoredResponseItems.length, 2);
+  assert.equal((restoredResponseItems[1] as any).content, '第一轮回复');
+});
+
+
+

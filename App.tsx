@@ -38,7 +38,7 @@ import {
   Download, Trash2, Plus, ArrowLeft, Clock, 
   LayoutGrid,
   Upload, FolderOpen, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, Search, X,
-  FileJson, ImageIcon as ImageIconLucide, Copy, Settings, Save
+  FileJson, ImageIcon as ImageIconLucide, Copy, Settings, Save, Bot
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import logoSvg from './doc/logo.svg?raw';
@@ -195,6 +195,7 @@ const App: React.FC = () => {
   
   const [view, setView] = useState<'landing' | 'editor'>('landing');
   const [aiBusy, setAiBusy] = useState(false);
+  const [isAiOpen, setIsAiOpen] = useState(false);
   const [project, setProject] = useState<ProjectState | null>(null);
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState('assets');
@@ -1933,6 +1934,22 @@ const App: React.FC = () => {
               </button>
             )}
             <PWAInstallButton lang={lang} />
+            <button
+              type="button"
+              onClick={() => setIsAiOpen(prev => !prev)}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border shadow-sm ${
+                isAiOpen
+                  ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300 shadow-emerald-950/30'
+                  : 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:border-emerald-500/40 hover:bg-slate-800/80'
+              }`}
+              title={lang === 'en' ? 'AI Assistant' : 'AI 助手'}
+              aria-label={lang === 'en' ? 'AI Assistant' : 'AI 助手'}
+              aria-expanded={isAiOpen}
+            >
+              <Bot className={`w-4 h-4 ${isAiOpen ? 'text-emerald-400' : 'text-emerald-500'}`} />
+              <span>{lang === 'en' ? 'AI Assistant' : 'AI 助手'}</span>
+              {aiBusy && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />}
+            </button>
             <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800"><button onClick={() => setLang('zh')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'zh' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>中</button><button onClick={() => setLang('en')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'en' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>EN</button></div>
           </div>
         </div>
@@ -2085,6 +2102,22 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsAiOpen(prev => !prev)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+              isAiOpen
+                ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-sm shadow-emerald-950/40'
+                : 'bg-slate-800/90 hover:bg-slate-700 text-slate-300 border-slate-700 hover:text-white hover:border-emerald-500/40'
+            }`}
+            title={lang === 'en' ? 'AI Assistant' : 'AI 助手'}
+            aria-label={lang === 'en' ? 'AI Assistant' : 'AI 助手'}
+            aria-expanded={isAiOpen}
+          >
+            <Bot className={`w-4 h-4 ${isAiOpen ? 'text-emerald-400' : 'text-emerald-500'}`} />
+            <span>{lang === 'en' ? 'AI Assistant' : 'AI 助手'}</span>
+            {aiBusy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />}
+          </button>
           <div className="flex items-center gap-1 mr-4 bg-slate-800 p-1 rounded-lg">
             <button 
               onClick={handleUndo} 
@@ -2282,7 +2315,13 @@ const App: React.FC = () => {
       </main>
     </div>
       ) : null}
-      <AiAssistant workspace={aiWorkspace} lang={lang} onBusyChange={setAiBusy} />
+      <AiAssistant
+        workspace={aiWorkspace}
+        lang={lang}
+        onBusyChange={setAiBusy}
+        open={isAiOpen}
+        onOpenChange={setIsAiOpen}
+      />
       <PWAUpdatePrompt lang={lang} onShowToast={showToast} />
       <OfflineIndicator lang={lang} />
     </>

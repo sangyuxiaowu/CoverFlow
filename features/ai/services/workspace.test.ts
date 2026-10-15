@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { createWorkspaceBridge, type WorkspaceOptions } from './workspace.ts';
 import type { ProjectState } from '../../../types.ts';

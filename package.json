@@ -10,8 +10,8 @@
     "dev:tauri": "tauri dev",
     "build": "vite build",
     "build:cloud": "vite build --mode cloud",
-    "test:ai": "node --experimental-strip-types --test features/ai/domain/layerOperations.test.ts features/ai/tools/execute.test.ts features/ai/services/conversation.test.ts features/ai/services/workspace.test.ts",
-    "typecheck:ai": "tsc --noEmit -p features/ai/tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "prebuild:tauri": "node scripts/sync-tauri-version.cjs && npx tauri icon --output src-tauri/icons doc/app.svg",
     "build:tauri": "tauri build",
     "release": "node scripts/release.cjs",
@@ -45,6 +45,7 @@
     "typescript": "~5.9.3",
     "vite": "^7.3.1",
     "vite-plugin-pwa": "^1.2.0",
+    "vitest": "^5.0.4",
     "workbox-window": "^7.4.0"
   }
 }

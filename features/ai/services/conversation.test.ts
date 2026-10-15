@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
 import { readResponse, runConversation, normalizeUsage } from './conversation.ts';

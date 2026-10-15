@@ -85,6 +85,7 @@ export const useLocalProjects = ({
         const next = prev.filter(item => item.localPath !== path);
         return [{ project: parsed, source: 'local', localPath: path }, ...next];
       });
+      return parsed;
     } catch (err) {
       removeLocalRecentByPath(path);
       showToast(parseFailedMessage, 'error');

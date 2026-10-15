@@ -10,6 +10,11 @@
     "fs:default",
     "fs:read-files",
     "fs:write-files",
+    "fs:allow-exists",
+    "fs:allow-mkdir",
+    "fs:allow-read-dir",
+    "fs:allow-remove",
+    "fs:allow-rename",
     {
       "identifier": "fs:scope",
       "allow": [

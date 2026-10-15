@@ -1,5 +1,5 @@
 import { ProjectState } from '../types.ts';
-import { StorageAdapter, StorageAdapterType } from './StorageAdapter.ts';
+import { ListProjectsOptions, StorageAdapter, StorageAdapterType } from './StorageAdapter.ts';
 
 const DB_NAME = 'coverflow_projects_db_v1';
 const STORE_NAME = 'projects';
@@ -58,10 +58,17 @@ export class IndexedDBAdapter implements StorageAdapter {
 
   ensureReady = async () => this.isAvailable();
 
-  listProjects = async () => {
+  listProjects = async (options?: ListProjectsOptions) => {
     if (!this.isAvailable()) return { items: [], total: 0 };
     const items = await readAllProjects();
-    return { items, total: items.length };
+    if (!options) return { items, total: items.length };
+    const query = options.query?.trim().toLowerCase() || '';
+    const filtered = items.filter(project => !query || project.title.toLowerCase().includes(query))
+      .sort((left, right) => right.updatedAt - left.updatedAt);
+    const page = options.page ?? 1;
+    const pageSize = options.pageSize ?? 20;
+    const start = (page - 1) * pageSize;
+    return { items: filtered.slice(start, start + pageSize), total: filtered.length };
   };
 
   saveProject = async (project: ProjectState) => {

@@ -9,6 +9,9 @@ import BackgroundCropModal from './components/BackgroundCropModal.tsx';
 import LivePreview from './components/LivePreview.tsx';
 import ProjectPresetModal from './components/ProjectPresetModal.tsx';
 import ExportModal from './components/ExportModal.tsx';
+import AiAssistant from './features/ai/components/AiAssistant.tsx';
+import type { WorkspaceOptions } from './features/ai/services/workspace.ts';
+import { updateProjectLayer } from './features/ai/domain/layerOperations.ts';
 import { PWAInstallButton } from './components/pwa/PWAInstallButton.tsx';
 import { PWAUpdatePrompt } from './components/pwa/PWAUpdatePrompt.tsx';
 import { OfflineIndicator } from './components/pwa/OfflineIndicator.tsx';
@@ -191,6 +194,7 @@ const App: React.FC = () => {
   const prevViewRef = useRef<'landing' | 'editor'>('landing');
   
   const [view, setView] = useState<'landing' | 'editor'>('landing');
+  const [aiBusy, setAiBusy] = useState(false);
   const [project, setProject] = useState<ProjectState | null>(null);
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState('assets');
@@ -800,98 +804,10 @@ const App: React.FC = () => {
 
   const updateLayer = useCallback((id: string, updates: Partial<Layer>, record: boolean = true) => {
     modifyProject(p => {
-      const target = p.layers.find(l => l.id === id);
-      if (!target) return p;
-
-      if (target.type === 'group') {
-        const childIds = target.children || [];
-        const baseBounds = {
-          x: target.x,
-          y: target.y,
-          width: Math.max(1, target.width),
-          height: Math.max(1, target.height),
-          rotation: target.rotation || 0
-        };
-        const nextBounds = {
-          x: updates.x !== undefined ? updates.x : baseBounds.x,
-          y: updates.y !== undefined ? updates.y : baseBounds.y,
-          width: updates.width !== undefined ? Math.max(1, updates.width) : baseBounds.width,
-          height: updates.height !== undefined ? Math.max(1, updates.height) : baseBounds.height,
-          rotation: updates.rotation !== undefined ? updates.rotation : baseBounds.rotation
-        };
-        const scaleX = nextBounds.width / baseBounds.width;
-        const scaleY = nextBounds.height / baseBounds.height;
-        const deltaRotation = nextBounds.rotation - baseBounds.rotation;
-        const baseCenter = { x: baseBounds.x + baseBounds.width / 2, y: baseBounds.y + baseBounds.height / 2 };
-        const nextCenter = { x: nextBounds.x + nextBounds.width / 2, y: nextBounds.y + nextBounds.height / 2 };
-        const rad = deltaRotation * (Math.PI / 180);
-
-        const hasTransform = updates.x !== undefined || updates.y !== undefined || updates.width !== undefined || updates.height !== undefined || updates.rotation !== undefined;
-
-        const nextLayers = p.layers.map(l => {
-          if (l.id === target.id) {
-            return { ...target, ...updates, ...nextBounds };
-          }
-          if (!childIds.includes(l.id)) return l;
-
-          let updatedChild = { ...l };
-          if (updates.opacity !== undefined) updatedChild.opacity = updates.opacity;
-          if (updates.visible !== undefined) updatedChild.visible = updates.visible;
-          if (updates.locked !== undefined) updatedChild.locked = updates.locked;
-
-          if (hasTransform) {
-            const childCenter = { x: l.x + l.width / 2, y: l.y + l.height / 2 };
-            let relX = (childCenter.x - baseCenter.x) * scaleX;
-            let relY = (childCenter.y - baseCenter.y) * scaleY;
-            if (deltaRotation !== 0) {
-              const rx = relX * Math.cos(rad) - relY * Math.sin(rad);
-              const ry = relX * Math.sin(rad) + relY * Math.cos(rad);
-              relX = rx;
-              relY = ry;
-            }
-            const newCenter = { x: nextCenter.x + relX, y: nextCenter.y + relY };
-            const newW = Math.max(10, l.width * scaleX);
-            const newH = Math.max(10, l.height * scaleY);
-            updatedChild = {
-              ...updatedChild,
-              x: newCenter.x - newW / 2,
-              y: newCenter.y - newH / 2,
-              width: newW,
-              height: newH,
-              rotation: l.rotation + deltaRotation
-            };
-          }
-          return updatedChild;
-        });
-
-        return { ...p, layers: nextLayers };
-      }
-
-      const layers = p.layers.map(l => {
-        if (l.id !== id) return l;
-        const newL = { ...l, ...updates };
-        if (l.ratioLocked) {
-          if (updates.width !== undefined && updates.height === undefined) newL.height = updates.width * (l.height / l.width);
-          else if (updates.height !== undefined && updates.width === undefined) newL.width = updates.height * (l.width / l.height);
-        }
-        return newL;
-      });
-
-      const updatedLayer = layers.find(l => l.id === id);
-      if (updatedLayer?.parentId) {
-        const parentLayer = layers.find(l => l.id === updatedLayer.parentId);
-        if (parentLayer?.type === 'group') {
-          const bounds = getGroupBounds(layers, parentLayer.children || []);
-          return {
-            ...p,
-            layers: layers.map(l => l.id === parentLayer.id ? { ...parentLayer, ...bounds } : l)
-          };
-        }
-      }
-
-      return { ...p, layers };
+      if (!p.layers.some(layer => layer.id === id)) return p;
+      return updateProjectLayer(p, id, updates);
     }, record);
-  }, [getGroupBounds]);
+  }, []);
 
   const getExpandedSelection = (layers: Layer[], ids: string[]) => {
     const expanded = new Set(ids);
@@ -1475,6 +1391,7 @@ const App: React.FC = () => {
     });
 
     const handlePaste = async (e: ClipboardEvent) => {
+      if (aiBusy) return;
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
         return;
@@ -1526,7 +1443,7 @@ const App: React.FC = () => {
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [view, project, lang]);
+  }, [view, project, lang, aiBusy]);
 
   const handleAddText = () => {
     if (!project) return;
@@ -1638,6 +1555,7 @@ const App: React.FC = () => {
     // 键盘快捷键处理
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (aiBusy || (e.target as HTMLElement).closest('.cf-ai-panel')) return;
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
         return;
@@ -1745,7 +1663,7 @@ const App: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [project, handleUndo, handleRedo, updateLayer, lang, selectedLayerIds, handleDeleteLayers, handleCloneLayers, handleGroupLayers, performAutoSave]);
+  }, [project, handleUndo, handleRedo, updateLayer, lang, selectedLayerIds, handleDeleteLayers, handleCloneLayers, handleGroupLayers, performAutoSave, aiBusy]);
 
   const groupedProjects = useMemo(() => {
     const search = projectSearchTerm.toLowerCase();
@@ -1888,6 +1806,53 @@ const App: React.FC = () => {
   }, [isExportModalOpen, exportSettings, project?.id]);
 
   const cropAspect = project ? project.canvasConfig.width / project.canvasConfig.height : 1;
+  const aiWorkspace: WorkspaceOptions = {
+    project,
+    selectedLayerIds,
+    storage: storageAdapter,
+    localProjects: localRecentItems,
+    activeLocalPath: activeLocalFilePath,
+    chatStorageKey: `directory:${storageFolderName}`,
+    getChatDirectory: async () => {
+      if (!await localFileAdapter.ensureReady({ prompt: false })) throw new Error('Select a storage folder and grant file access first.');
+      const directory = localFileAdapter.getRootHandle();
+      if (!directory) throw new Error('No storage folder selected.');
+      return directory;
+    },
+    onCommit: next => {
+      latestProjectRef.current = next;
+      setProject(next);
+      setSelectedLayerIds(next.selectedLayerId ? [next.selectedLayerId] : []);
+    },
+    onOpen: async (next, localPath) => {
+      if (localPath) {
+        const opened = await openLocalProjectFromPath(localPath);
+        if (!opened) throw new Error('Unable to open local project.');
+        return opened;
+      }
+      clearActiveLocalFilePath();
+      latestProjectRef.current = next;
+      setProject(structuredClone(next));
+      setSelectedLayerIds(next.selectedLayerId ? [next.selectedLayerId] : []);
+      setView('editor');
+      initProjectHistory(next);
+    },
+    onUpsert: next => setProjects(previous => [next, ...previous.filter(item => item.id !== next.id)]),
+    onDelete: (id, localPath) => {
+      if (localPath) removeLocalRecentByPath(localPath);
+      else setProjects(previous => previous.filter(item => item.id !== id));
+      if (project?.id === id) {
+        latestProjectRef.current = null;
+        if (saveTimerRef.current !== null) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+        clearActiveLocalFilePath();
+        setProject(null);
+        setSelectedLayerIds([]);
+        setView('landing');
+      }
+    },
+    onSearch: setProjectSearchTerm,
+    saveLocal: saveLocalProjectToFile
+  };
   const cropSize = (() => {
     const maxWidth = 720;
     const maxHeight = 420;
@@ -1903,7 +1868,7 @@ const App: React.FC = () => {
   return (
     <>
       {view === 'landing' ? (
-      <div className="min-h-screen bg-slate-950 text-slate-200 p-8 flex flex-col gap-12 max-w-8xl mx-auto h-screen overflow-hidden" style={{ maxWidth: '95%' }}>
+      <div inert={aiBusy} className="min-h-screen bg-slate-950 text-slate-200 p-8 flex flex-col gap-12 max-w-8xl mx-auto h-screen overflow-hidden" style={{ maxWidth: '95%' }}>
         {toast && <Toast message={toast.msg} type={toast.type} />}
         {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
         {!isCloudMode && renderStorageSettingsModal()}
@@ -2056,7 +2021,7 @@ const App: React.FC = () => {
         </div>
       </div>
       ) : project ? (
-      <div className="flex flex-col h-screen bg-slate-950 text-slate-200 overflow-hidden">
+      <div inert={aiBusy} className="flex flex-col h-screen bg-slate-950 text-slate-200 overflow-hidden">
       {toast && <Toast message={toast.msg} type={toast.type} />}
       {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
       <ExportModal
@@ -2317,6 +2282,7 @@ const App: React.FC = () => {
       </main>
     </div>
       ) : null}
+      <AiAssistant workspace={aiWorkspace} lang={lang} onBusyChange={setAiBusy} />
       <PWAUpdatePrompt lang={lang} onShowToast={showToast} />
       <OfflineIndicator lang={lang} />
     </>

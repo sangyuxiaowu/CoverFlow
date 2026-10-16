@@ -5,6 +5,7 @@ import { choice, number, text } from '../tools/validation.ts';
 
 export interface WorkspaceOptions {
   project: ProjectState | null;
+  getCanvasPreview?: () => Promise<Blob>;
   selectedLayerIds: string[];
   storage: StorageAdapter;
   localProjects: { project: ProjectState; localPath?: string }[];
@@ -65,6 +66,12 @@ export function createWorkspaceBridge(
   };
   return {
     getProject: () => { read(); return current || null; },
+    getCanvasPreview: async () => {
+      const options = read();
+      if (!current) throw new Error('No project open.');
+      if (!options.getCanvasPreview) throw new Error('Canvas preview is unavailable.');
+      return options.getCanvasPreview();
+    },
     getSelection: () => read().selectedLayerIds,
     commit: async project => {
       const options = read();

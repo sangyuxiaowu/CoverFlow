@@ -222,7 +222,7 @@
   font-family: inherit;
   font-weight: 500;
   color: #a7f3d0;
-  animation: cf-ai-ticker-pulse 2.4s infinite ease-in-out;
+  animation: cf-ai-fade-in 0.25s ease-out, cf-ai-ticker-pulse 2.4s infinite ease-in-out;
 }
 
 @keyframes cf-ai-ticker-pulse {
@@ -857,6 +857,64 @@
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.cf-ai-preview-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+  margin: 8px 10px 10px;
+  padding: 5px 8px;
+  border: 1px solid rgba(100, 116, 139, 0.5);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.7);
+  color: #cbd5e1;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.cf-ai-preview-link:hover {
+  border-color: rgba(52, 211, 153, 0.65);
+  color: #a7f3d0;
+}
+
+.cf-ai-preview-link span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-ai-continue-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid rgba(52, 211, 153, 0.38);
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.12);
+  color: #a7f3d0;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cf-ai-continuable-note {
+  margin: 6px 2px;
+  color: #94a3b8;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.cf-ai-continue-btn:hover:not(:disabled) {
+  border-color: rgba(52, 211, 153, 0.7);
+  background: rgba(16, 185, 129, 0.2);
+}
+
+.cf-ai-continue-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .cf-ai-error, .cf-ai-tool summary > svg.cf-ai-error {

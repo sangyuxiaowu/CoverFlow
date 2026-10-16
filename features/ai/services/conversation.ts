@@ -1,11 +1,12 @@
 import OpenAI from 'openai';
-import type { Response, ResponseStreamEvent } from 'openai/resources/responses/responses';
-import type { AiRequestConfig, RequestUsage, ResponseItem, TokenUsage, ToolEvent, WorkspaceBridge } from '../types.ts';
-import { TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import type { Response, ResponseFunctionCallOutputItemList, ResponseStreamEvent } from 'openai/resources/responses/responses';
+import type { AiRequestConfig, ChatImageRef, RequestUsage, ResponseItem, TokenUsage, ToolEvent, WorkspaceBridge } from '../types.ts';
+import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
 import { executeTool } from '../tools/execute.ts';
 import { record } from '../tools/validation.ts';
 import { normalizeEndpoint, reasoningPayload, validateRequestConfig } from './config.ts';
 import { estimateInput } from './usage.ts';
+import { blobToDataUrl } from './imageAttachments.ts';
 
 interface ConversationOptions {
   config: AiRequestConfig;
@@ -17,6 +18,10 @@ interface ConversationOptions {
   onTool: (event: ToolEvent) => void;
   onUsage?: (request: RequestUsage) => void;
   onHistory?: (input: ResponseItem[]) => void;
+  loadImage?: (imageId: string) => Promise<Blob | null>;
+  saveImage?: (blob: Blob, name: string) => Promise<ChatImageRef>;
+  onImage?: (image: ChatImageRef) => void;
+  onLimit?: () => void;
 }
 
 export function normalizeUsage(usage: Response['usage'] | null): TokenUsage | undefined {
@@ -74,12 +79,33 @@ export function sanitizeResponseItems(items: ResponseItem[]): ResponseItem[] {
   return result;
 }
 
+async function hydrateImageReferences(items: ResponseItem[], loadImage?: (imageId: string) => Promise<Blob | null>): Promise<ResponseItem[]> {
+  const result = structuredClone(items) as unknown as Record<string, unknown>[];
+  if (!loadImage) return result as unknown as ResponseItem[];
+  const hydrateParts = async (parts: unknown[]) => Promise.all(parts.map(async part => {
+    if (!part || typeof part !== 'object') return part;
+    const image = part as { type?: string; image_url?: string | null };
+    if (image.type !== 'input_image' || !image.image_url?.startsWith('attachment://')) return part;
+    const blob = await loadImage(image.image_url.slice('attachment://'.length));
+    if (!blob) throw new Error('A referenced chat image is missing.');
+    return { ...image, image_url: await blobToDataUrl(blob) };
+  }));
+  for (const item of result) {
+    if (Array.isArray(item.content)) item.content = await hydrateParts(item.content);
+    if (item.type === 'function_call_output' && Array.isArray(item.output)) item.output = await hydrateParts(item.output);
+  }
+  return result as unknown as ResponseItem[];
+}
+
 export async function runConversation(options: ConversationOptions): Promise<string> {
   const { config, bridge, signal, onText, onTool } = options;
   validateRequestConfig(config);
+  if (!config.supportsVision && JSON.stringify(options.input).includes('attachment://')) throw new Error('The selected model is not configured for image input.');
   const baseURL = normalizeEndpoint(config.endpoint);
   const client = new OpenAI({ baseURL, apiKey: config.apiKey || 'local', dangerouslyAllowBrowser: true, maxRetries: 0 });
   const input = structuredClone(options.input);
+  const tools = [...TOOL_DEFINITIONS, ...(config.supportsVision ? VISION_TOOL_DEFINITIONS : [])];
+  let previewCount = 0;
   for (let round = 0; round < 12; round++) {
     signal.throwIfAborted();
     const requestController = new AbortController();
@@ -88,17 +114,21 @@ export async function runConversation(options: ConversationOptions): Promise<str
     const timeout = setTimeout(() => requestController.abort(new Error('AI request timed out after 120 seconds.')), 120000);
     let response: Response;
     let reported = false;
+    let streamedText = '';
     const startTime = Date.now();
-    const request = { id: crypto.randomUUID(), endpoint: baseURL, model: config.model, createdAt: startTime, inputEstimate: estimateInput(input, config.systemPrompt) };
+    const request = { id: crypto.randomUUID(), endpoint: baseURL, model: config.model, createdAt: startTime, inputEstimate: estimateInput(input, config.systemPrompt, config.supportsVision) };
     try {
       const stream = await client.responses.create({
-        model: config.model, instructions: config.systemPrompt, input,
-        tools: TOOL_DEFINITIONS.map(tool => ({ type: 'function' as const, ...tool.function, strict: false })),
+        model: config.model, instructions: config.systemPrompt, input: await hydrateImageReferences(input, options.loadImage),
+        tools: tools.map(tool => ({ type: 'function' as const, ...tool.function, strict: false })),
         stream: true, store: false, max_output_tokens: config.maxTokens,
         ...reasoningPayload(config),
         ...(new URL(baseURL).hostname === 'api.openai.com' ? { include: ['reasoning.encrypted_content' as const] } : {})
       }, { signal: requestController.signal });
-      response = await readResponse(stream, onText, requestController.signal, options.onReasoning);
+      response = await readResponse(stream, chunk => {
+        streamedText += chunk;
+        onText(chunk);
+      }, requestController.signal, options.onReasoning);
       const completedAt = Date.now();
       const durationMs = Math.max(1, completedAt - startTime);
       options.onUsage?.({ ...request, completedAt, durationMs, responseId: response.id, status: response.status === 'incomplete' ? 'incomplete' : response.status === 'failed' ? 'failed' : 'completed', usage: normalizeUsage(response.usage) });
@@ -115,6 +145,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
       }
     }
     const content = responseText(response);
+    if (content && !streamedText) onText(content);
     const calls = response.output.filter(item => item.type === 'function_call');
     if (!content && !calls.length) throw new Error('Empty model response.');
     if (calls.length > 30 || calls.some(call => !call.call_id || !call.name)) throw new Error('Invalid or too many tool calls.');
@@ -125,18 +156,31 @@ export async function runConversation(options: ConversationOptions): Promise<str
     for (const call of calls) {
       onTool({ id: call.call_id, name: call.name, arguments: call.arguments, status: 'running' });
       let result: string;
+      let output: string | ResponseFunctionCallOutputItemList;
+      let imageRef: ChatImageRef | undefined;
       let status: 'success' | 'error' = 'success';
       try {
         signal.throwIfAborted();
         if (cancelled) throw new Error('User cancelled. Do not retry this operation without new approval.');
-        if (!TOOL_DEFINITIONS.some(tool => tool.function.name === call.name)) throw new Error('Unknown tool.');
-        result = JSON.stringify(await executeTool(call.name, record(JSON.parse(call.arguments)), bridge, signal));
+        if (!tools.some(tool => tool.function.name === call.name)) throw new Error('Unknown tool.');
+        const value = await executeTool(call.name, record(JSON.parse(call.arguments)), bridge, signal);
+        if (call.name === 'get_canvas_preview' && value instanceof Blob) {
+          if (!options.saveImage) throw new Error('Image storage is unavailable.');
+          imageRef = await options.saveImage(value, `canvas-preview-${++previewCount}.webp`);
+          options.onImage?.(imageRef);
+          output = [{ type: 'input_image', image_url: `attachment://${imageRef.id}` }];
+          result = JSON.stringify({ image: imageRef.name, widthLimit: 600, format: 'webp' });
+        } else {
+          result = JSON.stringify(value);
+          output = result;
+        }
       } catch (error) {
         status = 'error';
         result = JSON.stringify({ error: signal.aborted ? 'Operation interrupted. Do not retry without explicit user approval.' : error instanceof Error ? error.message : 'Tool failed.' });
+        output = result;
       }
-      input.push({ type: 'function_call_output', call_id: call.call_id, output: result });
-      onTool({ id: call.call_id, name: call.name, arguments: call.arguments, status, result });
+      input.push({ type: 'function_call_output', call_id: call.call_id, output });
+      onTool({ id: call.call_id, name: call.name, arguments: call.arguments, status, result, ...(imageRef ? { image: imageRef } : {}) });
       if (status === 'error' && result.includes('User cancelled')) cancelled = true;
     }
     if (cancelled) {
@@ -148,6 +192,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
     if (!calls.length) return content;
   }
   const limit = { role: 'assistant' as const, content: '已达到本轮工具调用上限。已完成的修改已保留，请检查画布后继续。' };
+  options.onLimit?.();
   input.push(limit);
   options.onHistory?.(structuredClone(input));
   return limit.content;

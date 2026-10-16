@@ -5,6 +5,7 @@ const SETTINGS = 'settings';
 const KEYS = 'encryption-key';
 const SECRETS = 'endpoint-secrets';
 const SESSIONS = 'sessions';
+const IMAGES = 'images';
 const UI = 'ui-state';
 export interface EncryptedSecret { endpointId: string; iv: ArrayBuffer; ciphertext: ArrayBuffer }
 
@@ -23,12 +24,13 @@ function database(): Promise<IDBDatabase> {
   if (databasePromise) return databasePromise;
   databasePromise = new Promise<IDBDatabase>((resolve, reject) => {
     if (typeof indexedDB === 'undefined' || !crypto.subtle) { reject(new Error('IndexedDB and Web Crypto are required.')); return; }
-    const request = indexedDB.open(AI_DATABASE_NAME, 3);
+    const request = indexedDB.open(AI_DATABASE_NAME, 4);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(SETTINGS)) request.result.createObjectStore(SETTINGS);
       if (!request.result.objectStoreNames.contains(KEYS)) request.result.createObjectStore(KEYS);
       if (!request.result.objectStoreNames.contains(SECRETS)) request.result.createObjectStore(SECRETS, { keyPath: 'endpointId' });
       if (!request.result.objectStoreNames.contains(SESSIONS)) request.result.createObjectStore(SESSIONS, { keyPath: 'id' });
+      if (!request.result.objectStoreNames.contains(IMAGES)) request.result.createObjectStore(IMAGES, { keyPath: 'id' }).createIndex('sessionId', 'sessionId');
       if (!request.result.objectStoreNames.contains(UI)) request.result.createObjectStore(UI);
     };
     request.onsuccess = () => {
@@ -133,11 +135,49 @@ export async function saveStoredSession(session: ChatSession): Promise<void> {
   await complete;
 }
 
+export async function saveStoredImage(sessionId: string, imageId: string, blob: Blob): Promise<void> {
+  const db = await database();
+  const transaction = db.transaction(IMAGES, 'readwrite');
+  const complete = done(transaction);
+  transaction.objectStore(IMAGES).put({ id: imageId, sessionId, blob });
+  await complete;
+}
+
+export async function loadStoredImage(sessionId: string, imageId: string): Promise<Blob | null> {
+  const db = await database();
+  const transaction = db.transaction(IMAGES, 'readonly');
+  const complete = done(transaction);
+  const image = await result(transaction.objectStore(IMAGES).get(imageId)) as { sessionId: string; blob: Blob } | undefined;
+  await complete;
+  return image?.sessionId === sessionId ? image.blob : null;
+}
+
+export async function pruneStoredImages(sessionId: string, keepIds: string[]): Promise<void> {
+  const db = await database();
+  const transaction = db.transaction(IMAGES, 'readwrite');
+  const complete = done(transaction);
+  const request = transaction.objectStore(IMAGES).index('sessionId').openCursor(IDBKeyRange.only(sessionId));
+  request.onsuccess = () => {
+    const cursor = request.result;
+    if (!cursor) return;
+    if (!keepIds.includes(cursor.primaryKey as string)) cursor.delete();
+    cursor.continue();
+  };
+  await complete;
+}
+
 export async function deleteStoredSession(id: string): Promise<void> {
   const db = await database();
-  const transaction = db.transaction(SESSIONS, 'readwrite');
+  const transaction = db.transaction([SESSIONS, IMAGES], 'readwrite');
   const complete = done(transaction);
   transaction.objectStore(SESSIONS).delete(id);
+  const request = transaction.objectStore(IMAGES).index('sessionId').openCursor(IDBKeyRange.only(id));
+  request.onsuccess = () => {
+    const cursor = request.result;
+    if (!cursor) return;
+    cursor.delete();
+    cursor.continue();
+  };
   await complete;
 }
 

@@ -33,6 +33,7 @@ import { PRESET_RATIOS } from './constants.ts';
 import { generateId, downloadFile, normalizeSVG } from './utils/helpers.ts';
 import { clampDecorationSize } from './utils/decorationStyles.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
+import { encodeWebp, MAX_IMAGE_EDGE } from './features/ai/services/imageAttachments.ts';
 import { type Area } from 'react-easy-crop';
 import { 
   Download, Trash2, Plus, ArrowLeft, Clock, 
@@ -245,9 +246,19 @@ const App: React.FC = () => {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
+  const reportStorageError = useCallback((error: unknown, operation: string, message: string, projectId?: string, path?: string | null) => {
+    console.error('[CoverFlow storage]', { operation, storageType: path ? 'tauri-file' : storageAdapter.type, projectId, path }, error);
+    const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    showToast(`${message}: ${detail}`, 'error');
+  }, [showToast, storageAdapter]);
+
   const initProjectHistory = useCallback((p: ProjectState) => {
     setHistory([JSON.parse(JSON.stringify(p))]);
     setHistoryIndex(0);
+  }, []);
+
+  const handleLocalProjectUpdate = useCallback((nextProject: ProjectState) => {
+    setProject(nextProject);
   }, []);
 
   const {
@@ -268,9 +279,7 @@ const App: React.FC = () => {
       setView('editor');
       initProjectHistory(nextProject);
     },
-    onUpdateProject: (nextProject) => {
-      setProject(nextProject);
-    }
+    onUpdateProject: handleLocalProjectUpdate
   });
 
   const handlePickStorageFolder = useCallback(async () => {
@@ -328,11 +337,11 @@ const App: React.FC = () => {
       setCloudPage(page);
       setCloudHasMore(page * CLOUD_PAGE_SIZE < result.total);
     } catch (err) {
-      showToast(t.storageLoadFailed, 'error');
+      reportStorageError(err, 'list-projects', t.storageLoadFailed);
     } finally {
       setCloudLoading(false);
     }
-  }, [storageAdapter, showToast, t.storageLoadFailed]);
+  }, [storageAdapter, reportStorageError, t.storageLoadFailed]);
 
   useEffect(() => {
     let active = true;
@@ -362,7 +371,7 @@ const App: React.FC = () => {
           setStorageFolderName(localFileAdapter.getFolderName());
         }
       } catch (err) {
-        if (active) showToast(t.storageLoadFailed, 'error');
+        if (active) reportStorageError(err, 'load-projects', t.storageLoadFailed);
       } finally {
         if (active) storageReadyRef.current = true;
       }
@@ -372,7 +381,7 @@ const App: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [storageAdapter, storageType, localFileAdapter, t.storageLoadFailed, isCloudMode, showToast]);
+  }, [storageAdapter, storageType, localFileAdapter, t.storageLoadFailed, isCloudMode, reportStorageError]);
 
   useEffect(() => {
     latestProjectRef.current = project;
@@ -422,8 +431,8 @@ const App: React.FC = () => {
         if (reason === 'manual') {
           showToast(t.save || 'Saved');
         }
-      }).catch(() => {
-        showToast(t.storageSaveFailed, 'error');
+      }).catch((err) => {
+        reportStorageError(err, `save-${reason}`, t.storageSaveFailed, currentProject.id, activeLocalFilePath);
       });
       return;
     }
@@ -435,10 +444,10 @@ const App: React.FC = () => {
       if (reason === 'manual') {
         showToast(t.save || 'Saved');
       }
-    }).catch(() => {
-      showToast(t.storageSaveFailed, 'error');
+    }).catch((err) => {
+      reportStorageError(err, `save-${reason}`, t.storageSaveFailed, currentProject.id);
     });
-  }, [activeLocalFilePath, isTauri, saveLocalProjectToFile, storageAdapter, showToast, t.storageSaveFailed]);
+  }, [activeLocalFilePath, isTauri, saveLocalProjectToFile, storageAdapter, showToast, reportStorageError, t.storageSaveFailed]);
 
   const persistProject = useCallback(async (nextProject: ProjectState) => {
     try {
@@ -446,17 +455,17 @@ const App: React.FC = () => {
       lastSavedProjectIdRef.current = nextProject.id;
       lastSavedSnapshotRef.current = JSON.stringify(nextProject);
     } catch (err) {
-      showToast(t.storageSaveFailed, 'error');
+      reportStorageError(err, 'persist-project', t.storageSaveFailed, nextProject.id);
     }
-  }, [storageAdapter, showToast, t.storageSaveFailed]);
+  }, [storageAdapter, reportStorageError, t.storageSaveFailed]);
 
   const removeStoredProject = useCallback(async (projectId: string) => {
     try {
       await storageAdapter.deleteProject(projectId);
     } catch (err) {
-      showToast(t.storageSaveFailed, 'error');
+      reportStorageError(err, 'delete-project', t.storageDeleteFailed, projectId);
     }
-  }, [storageAdapter, showToast, t.storageSaveFailed]);
+  }, [storageAdapter, reportStorageError, t.storageDeleteFailed]);
 
   const deleteProjectById = useCallback((projectId: string) => {
     setProjects(prev => prev.filter(pr => pr.id !== projectId));
@@ -772,8 +781,8 @@ const App: React.FC = () => {
     }
   };
 
-  const withDeselectedExportPreview = async (action: () => Promise<void>) => {
-    if (!project) return;
+  const withDeselectedExportPreview = async <Result,>(action: () => Promise<Result>): Promise<Result | undefined> => {
+    if (!project) return undefined;
     const prevSelectedId = project.selectedLayerId;
     const prevSelectedIds = [...selectedLayerIds];
 
@@ -784,7 +793,7 @@ const App: React.FC = () => {
     }
 
     try {
-      await action();
+      return await action();
     } finally {
       if (prevSelectedId || prevSelectedIds.length > 0) {
         setSelectedLayerIds(prevSelectedIds);
@@ -1809,6 +1818,24 @@ const App: React.FC = () => {
   const cropAspect = project ? project.canvasConfig.width / project.canvasConfig.height : 1;
   const aiWorkspace: WorkspaceOptions = {
     project,
+    getCanvasPreview: async () => {
+      const preview = await withDeselectedExportPreview(async () => {
+        const node = document.getElementById('export-target') as HTMLDivElement | null;
+        if (!node || !project) throw new Error('No canvas is available to preview.');
+        const { width, height } = project.canvasConfig;
+        const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(width, height));
+        const canvas = await htmlToImage.toCanvas(node, {
+          pixelRatio: 1,
+          width,
+          height,
+          canvasWidth: Math.max(1, Math.round(width * scale)),
+          canvasHeight: Math.max(1, Math.round(height * scale))
+        });
+        return encodeWebp(canvas);
+      });
+      if (!preview) throw new Error('No project is open.');
+      return preview;
+    },
     selectedLayerIds,
     storage: storageAdapter,
     localProjects: localRecentItems,

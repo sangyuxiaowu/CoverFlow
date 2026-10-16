@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AiConfig, ChatEntry, ChatSession, ExecutionError } from '../types.ts';
+import type { AiConfig, ChatEntry, ChatImageRef, ChatImageUpload, ChatSession, ExecutionError, ResponseItem, ToolEvent } from '../types.ts';
+import type { ResponseInputMessageContentList } from 'openai/resources/responses/responses';
 import { runConversation, sanitizeResponseItems } from '../services/conversation.ts';
 import { createWorkspaceBridge, type WorkspaceOptions } from '../services/workspace.ts';
 import { defaultConfig, normalizeConfig, toRequestConfig } from '../services/config.ts';
@@ -7,6 +8,23 @@ import type { ChatStore } from '../services/chatStore.ts';
 import { sumUsage } from '../services/usage.ts';
 
 interface Confirmation { message: string; resolve: (accepted: boolean) => void }
+
+function appendAssistantText(entry: ChatEntry, text: string): ChatEntry {
+  const activity = [...(entry.activity || [])];
+  const last = activity.at(-1);
+  if (last?.type === 'text') activity[activity.length - 1] = { ...last, text: last.text + text };
+  else activity.push({ id: crypto.randomUUID(), type: 'text', text });
+  return { ...entry, content: entry.content + text, activity };
+}
+
+function updateToolActivity(entry: ChatEntry, event: ToolEvent): ChatEntry {
+  const tools = [...(entry.tools || []).filter(tool => tool.id !== event.id), event];
+  const activity = [...(entry.activity || [])];
+  if (event.status === 'running' && !activity.some(item => item.type === 'tool' && item.toolId === event.id)) {
+    activity.push({ id: event.id, type: 'tool', toolId: event.id });
+  }
+  return { ...entry, tools, activity };
+}
 
 export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy: boolean) => void, store: ChatStore) {
   const [config, setConfig] = useState<AiConfig>(defaultConfig);
@@ -136,8 +154,15 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     catch (error) { setConfigError(error instanceof Error ? error.message : 'Unable to save AI settings.'); throw error; }
     finally { savingRef.current = false; setSaving(false); }
   };
-  const send = async (prompt: string) => {
-    if (!prompt.trim() || controllerRef.current || loading || loadError || savingRef.current || !sessionRef.current) return;
+  const loadUploads = async (sessionId: string, images: ChatImageRef[] = []): Promise<ChatImageUpload[]> => Promise.all(images.map(async image => {
+    const blob = await storeRef.current.loadImage(sessionId, image.id);
+    if (!blob) throw new Error(`Missing image attachment: ${image.name}`);
+    return { image, blob };
+  }));
+
+  const send = async (prompt: string, attachments: ChatImageUpload[] = []) => {
+    if ((!prompt.trim() && !attachments.length) || controllerRef.current || loading || loadError || savingRef.current || !sessionRef.current) return;
+    if (attachments.length && !toRequestConfig(config).supportsVision) throw new Error('The selected model is not configured for image input.');
     setExecutionError(null);
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -146,7 +171,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     const id = crypto.randomUUID();
     const targetStore = store;
     let working = structuredClone(sessionRef.current);
-
+    working.entries = working.entries.map(entry => entry.continuable ? { ...entry, continuable: false } : entry);
     // 确保若上轮以未封闭的 tool 输出结尾，添加占位 assistant 标记以保持 turn 规范
     working.responseItems = sanitizeResponseItems(working.responseItems);
     const lastItem = working.responseItems.at(-1);
@@ -157,12 +182,16 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     const currentProject = bridgeRef.current?.getProject() || workspaceRef.current.project;
     const projectSnapshot = currentProject ? structuredClone(currentProject) : null;
     const previousResponseItems = structuredClone(working.responseItems);
-    const user = { role: 'user' as const, content: prompt.trim() };
+    const images = attachments.map(item => item.image);
+    const userContent: string | ResponseInputMessageContentList = images.length
+      ? [{ type: 'input_text', text: prompt.trim() }, ...images.map(image => ({ type: 'input_image' as const, image_url: `attachment://${image.id}`, detail: 'auto' as const }))]
+      : prompt.trim();
+    const user = { role: 'user' as const, content: userContent };
     if (!working.entries.length && working.title === '新对话') working.title = prompt.trim().slice(0, 40);
     working.projectId = workspaceRef.current.project?.id;
     working.responseItems = [...working.responseItems, user];
     working.entries.push(
-      { id: crypto.randomUUID(), role: 'user', content: prompt.trim() },
+      { id: crypto.randomUUID(), role: 'user', content: prompt.trim(), ...(images.length ? { images } : {}) },
       { id, role: 'assistant', content: '', tools: [], projectSnapshot, previousResponseItems }
     );
     const publish = () => {
@@ -175,12 +204,25 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     publish();
     const update = (modifier: (entry: ChatEntry) => ChatEntry) => { working = { ...working, entries: working.entries.map(entry => entry.id === id ? modifier(entry) : entry) }; publish(); };
     try {
+      for (const attachment of attachments) await targetStore.saveImage(working.id, attachment.image.id, attachment.blob);
       await persist(working, targetStore);
+      let streamedText = '';
       const content = await runConversation({
         config: toRequestConfig(config), input: working.responseItems, bridge: bridgeRef.current!, signal: controller.signal,
-        onText: chunk => update(entry => ({ ...entry, content: entry.content + chunk })),
+        onText: chunk => {
+          streamedText += chunk;
+          update(entry => appendAssistantText(entry, chunk));
+        },
         onReasoning: chunk => update(entry => ({ ...entry, reasoning: (entry.reasoning || '') + chunk })),
-        onTool: event => update(entry => ({ ...entry, tools: [...(entry.tools || []).filter(tool => tool.id !== event.id), event] })),
+        onTool: event => update(entry => updateToolActivity(entry, event)),
+        loadImage: imageId => targetStore.loadImage(working.id, imageId),
+        saveImage: async (blob, name) => {
+          const image = { id: crypto.randomUUID(), name, type: 'image/webp' as const, size: blob.size };
+          await targetStore.saveImage(working.id, image.id, blob);
+          return image;
+        },
+        onImage: image => update(entry => ({ ...entry, images: [...(entry.images || []), image] })),
+        onLimit: () => update(entry => ({ ...entry, continuable: true })),
         onUsage: request => {
           const updatedRequests = [...working.requests.filter(item => item.id !== request.id), { ...request, entryId: id }];
           working.requests = updatedRequests;
@@ -192,13 +234,13 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
         },
         onHistory: input => { working.responseItems = input; publish(); }
       });
-      update(entry => ({ ...entry, content: content || entry.content }));
+      if (!streamedText && content) update(entry => appendAssistantText(entry, content));
     } catch (error) {
       if (controller.signal.aborted) {
         const message = '已停止。已完成的操作保留，请检查当前项目。';
         update(entry => ({
           ...entry,
-          content: entry.content ? entry.content + '\n\n' + message : message,
+          ...appendAssistantText(entry, `${entry.content ? '\n\n' : ''}${message}`),
           tools: entry.tools?.map(tool => tool.status === 'running' ? { ...tool, status: 'error', result: message } : tool)
         }));
       } else {
@@ -236,6 +278,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     } finally {
       try { await persist(working, targetStore); }
       catch (error) { if (storeRef.current === targetStore) setConfigError(error instanceof Error ? error.message : 'Chat save failed.'); }
+      await targetStore.pruneImages(working.id, working.entries.flatMap(entry => entry.images || []).map(image => image.id)).catch(() => {});
       controllerRef.current = null;
       setBusy(false);
       onBusyChange(false);
@@ -255,8 +298,8 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
       entry.id === assistantId
         ? {
             ...entry,
-            content: '',
             error: false,
+            continuable: false,
             tools: entry.tools?.map(tool => tool.status === 'running' ? { ...tool, status: 'error' } : tool)
           }
         : entry
@@ -282,17 +325,26 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
 
     try {
       await persist(working, targetStore);
+      let streamedText = '';
       const content = await runConversation({
         config: toRequestConfig(config),
         input: working.responseItems,
         bridge: bridgeRef.current!,
         signal: controller.signal,
-        onText: chunk => update(entry => ({ ...entry, content: entry.content + chunk })),
+        onText: chunk => {
+          streamedText += chunk;
+          update(entry => appendAssistantText(entry, chunk));
+        },
         onReasoning: chunk => update(entry => ({ ...entry, reasoning: (entry.reasoning || '') + chunk })),
-        onTool: event => update(entry => ({
-          ...entry,
-          tools: [...(entry.tools || []).filter(tool => tool.id !== event.id), event]
-        })),
+        onTool: event => update(entry => updateToolActivity(entry, event)),
+        loadImage: imageId => targetStore.loadImage(working.id, imageId),
+        saveImage: async (blob, name) => {
+          const image = { id: crypto.randomUUID(), name, type: 'image/webp' as const, size: blob.size };
+          await targetStore.saveImage(working.id, image.id, blob);
+          return image;
+        },
+        onImage: image => update(entry => ({ ...entry, images: [...(entry.images || []), image] })),
+        onLimit: () => update(entry => ({ ...entry, continuable: true })),
         onUsage: request => {
           const updatedRequests = [...working.requests.filter(item => item.id !== request.id), { ...request, entryId: assistantId }];
           working.requests = updatedRequests;
@@ -304,13 +356,13 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
         },
         onHistory: input => { working.responseItems = input; publish(); }
       });
-      update(entry => ({ ...entry, content: content || entry.content }));
+      if (!streamedText && content) update(entry => appendAssistantText(entry, `${entry.content ? '\n\n' : ''}${content}`));
     } catch (error) {
       if (controller.signal.aborted) {
         const message = '已停止。已完成的操作保留，请检查当前项目。';
         update(entry => ({
           ...entry,
-          content: entry.content ? entry.content + '\n\n' + message : message,
+          ...appendAssistantText(entry, `${entry.content ? '\n\n' : ''}${message}`),
           tools: entry.tools?.map(tool => tool.status === 'running' ? { ...tool, status: 'error', result: message } : tool)
         }));
       } else {
@@ -336,6 +388,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     } finally {
       try { await persist(working, targetStore); }
       catch (error) { if (storeRef.current === targetStore) setConfigError(error instanceof Error ? error.message : 'Chat save failed.'); }
+      await targetStore.pruneImages(working.id, working.entries.flatMap(entry => entry.images || []).map(image => image.id)).catch(() => {});
       controllerRef.current = null;
       setBusy(false);
       onBusyChange(false);
@@ -346,6 +399,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     if (!sessionRef.current) return;
     const next = { ...sessionRef.current, entries: [], responseItems: [], requests: [], updatedAt: Date.now() };
     await persist(next);
+    await store.pruneImages(next.id, []);
     activate(next);
   });
   const clearExecutionError = () => setExecutionError(null);
@@ -368,6 +422,8 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     if (hasProgress && targetEntryId) {
       await continueTurn(targetEntryId);
     } else {
+      const userEntry = working.entries.find(entry => entry.role === 'user' && entry.content === promptToRetry);
+      const uploads = await loadUploads(working.id, userEntry?.images);
       const lastEntry = working.entries.at(-1);
       if (lastEntry && lastEntry.role === 'user' && lastEntry.content === promptToRetry) {
         working.entries.pop();
@@ -378,7 +434,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
         sessionRef.current = working;
         setEntries([...working.entries]);
       }
-      await send(promptToRetry);
+      await send(promptToRetry, uploads);
     }
   };
 
@@ -454,7 +510,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     await persist(working);
 
     // 4. 从上次用户输入重新发起
-    await send(promptToRerun);
+    await send(promptToRerun, await loadUploads(working.id, lastUserEntry.images));
   };
 
   return {

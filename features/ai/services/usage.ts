@@ -1,9 +1,10 @@
 import type { AiRequestConfig, ChatSession, RequestUsage, ResponseItem, TokenUsage } from '../types.ts';
 import { normalizeEndpoint } from './config.ts';
-import { TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
 
-export function estimateInput(input: ResponseItem[], instructions: string): number {
-  const bytes = new TextEncoder().encode(JSON.stringify({ input, instructions, tools: TOOL_DEFINITIONS }));
+export function estimateInput(input: ResponseItem[], instructions: string, supportsVision = false): number {
+  const tools = [...TOOL_DEFINITIONS, ...(supportsVision ? VISION_TOOL_DEFINITIONS : [])];
+  const bytes = new TextEncoder().encode(JSON.stringify({ input, instructions, tools }));
   return Math.ceil(bytes.length / 3);
 }
 
@@ -47,7 +48,7 @@ export function sessionUsage(session: ChatSession | undefined, config: AiRequest
   const current = requests.filter(request => request.entryId === lastEntry?.id);
   const matching = [...requests].reverse().find(request => request.usage && request.endpoint === normalizeEndpoint(config.endpoint) && request.model === config.model);
   const projectedInput: ResponseItem[] = prompt.trim() ? [...input, { role: 'user', content: prompt.trim() }] : input;
-  const estimate = estimateInput(projectedInput, config.systemPrompt);
+  const estimate = estimateInput(projectedInput, config.systemPrompt, config.supportsVision);
   const contextTokens = matching?.usage && matching.inputEstimate !== undefined
     ? Math.max(0, matching.usage.inputTokens + estimate - matching.inputEstimate)
     : estimate;
@@ -58,7 +59,7 @@ export function sessionUsage(session: ChatSession | undefined, config: AiRequest
   const remainingTokens = Math.max(0, contextWindow - contextTokens - reservedOutput);
 
   // 1. 系统指令与工具定义基础开销
-  const systemBytes = new TextEncoder().encode(JSON.stringify({ instructions: config.systemPrompt, tools: TOOL_DEFINITIONS })).length;
+  const systemBytes = new TextEncoder().encode(JSON.stringify({ instructions: config.systemPrompt, tools: [...TOOL_DEFINITIONS, ...(config.supportsVision ? VISION_TOOL_DEFINITIONS : [])] })).length;
   const systemAndTools = Math.ceil(systemBytes / 3);
 
   // 2. 画布与工具调用数据 (图层属性、设计快照与工具输出)

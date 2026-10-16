@@ -24,8 +24,26 @@ export function createDirectoryChatAccess(root: () => Promise<FileSystemDirector
       try { await writable.write(content); await writable.close(); }
       catch (error) { await writable.abort().catch(() => {}); throw error; }
     },
+    readBinary: async path => {
+      try {
+        const { parent, name } = await locate(path, false);
+        const file = await (await parent.getFileHandle(name)).getFile();
+        return file.slice(0, file.size, 'image/webp');
+      }
+      catch (error) { if ((error as DOMException).name === 'NotFoundError') return null; throw error; }
+    },
+    writeBinary: async (path, content) => {
+      const { parent, name } = await locate(path, true);
+      const writable = await (await parent.getFileHandle(name, { create: true })).createWritable();
+      try { await writable.write(content); await writable.close(); }
+      catch (error) { await writable.abort().catch(() => {}); throw error; }
+    },
     remove: async path => {
       try { const { parent, name } = await locate(path, false); await parent.removeEntry(name); }
+      catch (error) { if ((error as DOMException).name !== 'NotFoundError') throw error; }
+    },
+    removeDirectory: async path => {
+      try { const { parent, name } = await locate(path, false); await parent.removeEntry(name, { recursive: true }); }
       catch (error) { if ((error as DOMException).name !== 'NotFoundError') throw error; }
     },
     list: async path => {
@@ -59,7 +77,20 @@ export function createTauriChatAccess(projectPath: string): ChatFileAccess {
       try { await fs.writeTextFile(temporary, content); await fs.rename(temporary, target); }
       catch (error) { if (await fs.exists(temporary)) await fs.remove(temporary).catch(() => {}); throw error; }
     },
+    readBinary: async relative => {
+      const fs = await import('@tauri-apps/plugin-fs');
+      const target = await path(relative);
+      return await fs.exists(target) ? new Blob([await fs.readFile(target)], { type: 'image/webp' }) : null;
+    },
+    writeBinary: async (relative, content) => {
+      const fs = await import('@tauri-apps/plugin-fs');
+      const { dirname } = await import('@tauri-apps/api/path');
+      const target = await path(relative);
+      await fs.mkdir(await dirname(target), { recursive: true });
+      await fs.writeFile(target, new Uint8Array(await content.arrayBuffer()));
+    },
     remove: async relative => { const fs = await import('@tauri-apps/plugin-fs'); const target = await path(relative); if (await fs.exists(target)) await fs.remove(target); },
+    removeDirectory: async relative => { const fs = await import('@tauri-apps/plugin-fs'); const target = await path(relative); if (await fs.exists(target)) await fs.remove(target, { recursive: true }); },
     list: async relative => { const fs = await import('@tauri-apps/plugin-fs'); const target = await path(relative); return await fs.exists(target) ? (await fs.readDir(target)).filter(entry => entry.isFile).map(entry => entry.name) : []; }
   };
 }

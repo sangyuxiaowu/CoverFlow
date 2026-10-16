@@ -170,31 +170,33 @@ export class LocalFileAdapter implements StorageAdapter {
 
   saveProject = async (project: ProjectState) => {
     const ready = await this.ensureReady({ prompt: false });
-    if (!ready || !this.rootHandle) return;
+    if (!ready || !this.rootHandle) throw new Error('Project storage folder is unavailable or write permission was not granted.');
 
-    this.writeQueue = this.writeQueue.then(async () => {
+    const operation = this.writeQueue.then(async () => {
       const dataHandle = await this.rootHandle!.getDirectoryHandle(DATA_DIR, { create: true });
       const fileHandle = await dataHandle.getFileHandle(`${project.id}.${PROJECT_FILE_EXT}`, { create: true });
       await writeFileText(fileHandle, JSON.stringify(project, null, 2));
     });
 
-    return this.writeQueue;
+    this.writeQueue = operation.catch(() => {});
+    return operation;
   };
 
   deleteProject = async (projectId: string) => {
     const ready = await this.ensureReady({ prompt: false });
-    if (!ready || !this.rootHandle) return;
+    if (!ready || !this.rootHandle) throw new Error('Project storage folder is unavailable or write permission was not granted.');
 
-    this.writeQueue = this.writeQueue.then(async () => {
+    const operation = this.writeQueue.then(async () => {
       const dataHandle = await this.rootHandle!.getDirectoryHandle(DATA_DIR, { create: true });
       try {
         await dataHandle.removeEntry(`${projectId}.${PROJECT_FILE_EXT}`);
       } catch (err) {
-        // Ignore delete failures
+        if (!(err instanceof DOMException && err.name === 'NotFoundError')) throw err;
       }
     });
 
-    return this.writeQueue;
+    this.writeQueue = operation.catch(() => {});
+    return operation;
   };
 
   private verifyFolderPermission = async (handle: FileSystemDirectoryHandle, request: boolean) => {

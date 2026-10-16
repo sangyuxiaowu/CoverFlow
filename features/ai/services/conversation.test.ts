@@ -6,11 +6,11 @@ import type { Response as AiResponse, ResponseStreamEvent } from 'openai/resourc
 import { SYSTEM_PROMPT, VISUAL_CONTENT_GUIDE, defaultConfig, saveConfig, normalizeConfig, normalizeEndpoint, selectModel, toRequestConfig, reasoningPayload, loadConfig, createEndpoint, validateRequestConfig } from './config.ts';
 import type { ProjectState } from '../../types.ts';
 import type { AiRequestConfig, ChatEntry, ChatSession, RequestUsage, ResponseItem, ToolEvent, WorkspaceBridge } from '../types.ts';
-import { AI_DATABASE_NAME, listStoredSessions, saveStoredSession, deleteStoredSession } from './configStore.ts';
+import { AI_DATABASE_NAME, listStoredSessions, saveStoredImage, loadStoredImage, saveStoredSession, deleteStoredSession } from './configStore.ts';
 import { createFileChatStore, type ChatFileAccess } from './chatStore.ts';
 import { estimateInput, sessionUsage, sumUsage } from './usage.ts';
 import { parseMarkdown } from './markdown.ts';
-import { TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
 
 
 const config: AiRequestConfig = { endpoint: 'https://example.com/v1', model: 'test', apiKey: 'secret', maxTokens: 4096, systemPrompt: SYSTEM_PROMPT };
@@ -52,8 +52,8 @@ test('visual capability instructions accompany custom prompts without modifying 
   try {
     await runConversation({ config: requestConfig, input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}, onUsage: usage => { inputEstimate = usage.inputEstimate ?? 0; } });
     assert.equal(sentInstructions, requestConfig.systemPrompt);
-    assert.deepEqual(sentTools, TOOL_DEFINITIONS.map(definition => ({ type: 'function', ...definition.function, strict: false })));
-    assert.equal(inputEstimate, estimateInput([], requestConfig.systemPrompt));
+    assert.deepEqual(sentTools, [...TOOL_DEFINITIONS, ...VISION_TOOL_DEFINITIONS].map(definition => ({ type: 'function', ...definition.function, strict: false })));
+    assert.equal(inputEstimate, estimateInput([], requestConfig.systemPrompt, requestConfig.supportsVision));
     assert.ok(inputEstimate > estimateInput([], original));
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -64,6 +64,113 @@ test('Responses text deltas and final output are returned', async () => {
   const response = await readResponse(events, chunk => { content += chunk; }, new AbortController().signal);
   assert.equal(content, '你好');
   assert.equal(response.output[0].type, 'message');
+});
+
+test('vision models receive a WebP image from the canvas preview tool', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Record<string, any>[] = [];
+  let round = 0;
+  globalThis.fetch = async (_url, options) => {
+    const request = JSON.parse(options!.body as string);
+    requests.push(request);
+    round++;
+    return streamResponse(responsePayload(round === 1
+      ? [{ type: 'function_call', call_id: 'preview-call', name: 'get_canvas_preview', arguments: '{}' }]
+      : [textOutput]));
+  };
+  try {
+    const image = new Blob(['webp-bytes'], { type: 'image/webp' });
+    const result = await runConversation({
+      config: { ...config, supportsVision: true }, input: [],
+      bridge: { ...bridge, getCanvasPreview: async () => image },
+      signal: new AbortController().signal, onText: () => {}, onTool: () => {},
+      saveImage: async () => ({ id: 'preview-image', name: 'canvas-preview.webp', type: 'image/webp', size: image.size }),
+      loadImage: async () => image
+    });
+    assert.equal(result, 'Done');
+    assert.ok(requests[0].tools.some((tool: { name: string }) => tool.name === 'get_canvas_preview'));
+    const output = requests[1].input.at(-1).output;
+    assert.equal(output[0].type, 'input_image');
+    assert.match(output[0].image_url, /^data:image\/webp;base64,/);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('tool round limit signals that the conversation can continue', async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  let limitReached = 0;
+  const outputText: string[] = [];
+  globalThis.fetch = async () => {
+    requests++;
+    return streamResponse(responsePayload([
+      { ...textOutput, content: [{ type: 'output_text', text: `Step ${requests}` }] },
+      { type: 'function_call', call_id: `call-${requests}`, name: 'get_context', arguments: '{}' }
+    ]));
+  };
+  try {
+    await runConversation({
+      config,
+      input: [{ role: 'user', content: '调整封面' }],
+      bridge,
+      signal: new AbortController().signal,
+      onText: text => { outputText.push(text); },
+      onTool: () => {},
+      onLimit: () => { limitReached++; }
+    });
+    assert.equal(requests, 12);
+    assert.equal(limitReached, 1);
+    assert.deepEqual(outputText, Array.from({ length: 12 }, (_, index) => `Step ${index + 1}`));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('canvas preview names and images stay associated with their tool events', async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  const names: string[] = [];
+  const completedTools: ToolEvent[] = [];
+  globalThis.fetch = async () => {
+    requests++;
+    return streamResponse(responsePayload(requests < 3
+      ? [{ type: 'function_call', call_id: `preview-${requests}`, name: 'get_canvas_preview', arguments: '{}' }]
+      : [textOutput]));
+  };
+  try {
+    const image = new Blob(['preview'], { type: 'image/webp' });
+    await runConversation({
+      config: { ...config, supportsVision: true },
+      input: [{ role: 'user', content: 'Review the cover' }],
+      bridge: { ...bridge, getCanvasPreview: async () => image },
+      signal: new AbortController().signal,
+      onText: () => {},
+      onTool: event => { if (event.status === 'success') completedTools.push(event); },
+      saveImage: async (_blob, name) => {
+        names.push(name);
+        return { id: `image-${names.length}`, name, type: 'image/webp', size: image.size };
+      }
+    });
+    assert.deepEqual(names, ['canvas-preview-1.webp', 'canvas-preview-2.webp']);
+    assert.deepEqual(completedTools.map(tool => tool.image?.name), names);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('uploaded image references are hydrated only for vision requests', async () => {
+  const originalFetch = globalThis.fetch;
+  let request: Record<string, any> | null = null;
+  globalThis.fetch = async (_url, options) => {
+    request = JSON.parse(options!.body as string);
+    return streamResponse(responsePayload([textOutput]));
+  };
+  try {
+    await runConversation({
+      config: { ...config, supportsVision: true },
+      input: [{ role: 'user', content: [{ type: 'input_text', text: 'What is this?' }, { type: 'input_image', image_url: 'attachment://image-one', detail: 'auto' }] }],
+      bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {},
+      loadImage: async () => new Blob(['webp-bytes'], { type: 'image/webp' })
+    });
+    assert.equal(request!.input[0].content[1].type, 'input_image');
+    assert.match(request!.input[0].content[1].image_url, /^data:image\/webp;base64,/);
+    assert.equal(request!.tools.some((tool: { name: string }) => tool.name === 'get_canvas_preview'), true);
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test('truncated streams and token exhaustion cannot execute tools', async () => {
@@ -284,6 +391,10 @@ test('IndexedDB keeps separate session messages, titles and update ordering', as
   const second: ChatSession = { ...first, id: 'session-two', title: 'Second', updatedAt: 2, entries: [{ id: 'u2', role: 'user', content: 'Two' }], responseItems: [{ role: 'user', content: 'Two' }] };
   await saveStoredSession(first);
   await saveStoredSession(second);
+  const imageBlob = new Blob(['image-data'], { type: 'image/webp' });
+  await saveStoredImage(first.id, 'image-one', imageBlob);
+  assert.equal((await loadStoredImage(first.id, 'image-one'))?.type, 'image/webp');
+  assert.equal(await loadStoredImage(second.id, 'image-one'), null);
   assert.deepEqual((await listStoredSessions()).map(session => session.id), ['session-two', 'session-one']);
   await saveStoredSession({ ...first, title: 'Renamed', updatedAt: 3 });
   const restored = await listStoredSessions();
@@ -292,13 +403,23 @@ test('IndexedDB keeps separate session messages, titles and update ordering', as
   assert.deepEqual(restored[0].responseItems, first.responseItems);
   assert.deepEqual(restored[1].responseItems, second.responseItems);
   await deleteStoredSession(first.id);
+  assert.equal(await loadStoredImage(first.id, 'image-one'), null);
   assert.deepEqual((await listStoredSessions()).map(session => session.id), ['session-two']);
   await deleteStoredSession(second.id);
 });
 
 test('file mode stores encrypted configuration and each session under chat', async () => {
   const data = new Map<string, string>();
-  const files: ChatFileAccess = { read: async path => data.get(path) || null, write: async (path, value) => { data.set(path, value); }, remove: async path => { data.delete(path); }, list: async path => [...data.keys()].filter(key => key.startsWith(path + '/')).map(key => key.slice(path.length + 1)) };
+  const binary = new Map<string, Blob>();
+  const files: ChatFileAccess = {
+    read: async path => data.get(path) || null,
+    write: async (path, value) => { data.set(path, value); },
+    readBinary: async path => binary.get(path) || null,
+    writeBinary: async (path, value) => { binary.set(path, value); },
+    remove: async path => { data.delete(path); binary.delete(path); },
+    removeDirectory: async path => { for (const key of binary.keys()) if (key.startsWith(path + '/')) binary.delete(key); },
+    list: async path => [...data.keys(), ...binary.keys()].filter(key => key.startsWith(path + '/')).map(key => key.slice(path.length + 1))
+  };
   const store = createFileChatStore(files, 'test-directory');
   const settings = configuredConfig();
   await store.saveConfig(settings);
@@ -306,11 +427,16 @@ test('file mode stores encrypted configuration and each session under chat', asy
   assert.equal(toRequestConfig(await store.loadConfig()).apiKey, 'secret');
   const session: ChatSession = { id: 'file-session', title: 'File chat', createdAt: 1, updatedAt: 1, entries: [{ id: 'u', role: 'user', content: 'File message' }], responseItems: [{ role: 'user', content: 'File message' }], requests: [{ id: 'file-request', endpoint: 'https://example.com/v1', model: 'test', createdAt: 1, status: 'completed', usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 } }] };
   await store.saveSession(session);
+  const imageBlob = new Blob(['webp'], { type: 'image/webp' });
+  await store.saveImage(session.id, 'image-one', imageBlob);
+  assert.equal((await store.loadImage(session.id, 'image-one'))?.type, 'image/webp');
+  assert.equal(binary.has('chat/images/file-session/image-one.webp'), true);
   assert.equal(data.has('chat/sessions/file-session.json'), true);
   assert.deepEqual((await store.listSessions())[0].requests, session.requests);
   assert.deepEqual((await store.listSessions())[0].responseItems, session.responseItems);
   assert.equal((await listStoredSessions()).some(item => item.id === session.id), false);
   await store.deleteSession(session.id);
+  assert.equal(binary.has('chat/images/file-session/image-one.webp'), false);
   assert.equal((await store.listSessions()).length, 0);
   assert.throws(() => store.saveSession({ ...session, id: '../escape' }), /Invalid/);
 });

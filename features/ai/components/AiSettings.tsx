@@ -605,7 +605,20 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                                               />
                                               <span className="text-slate-200 text-xs font-semibold flex items-center gap-1.5">
                                                 <Brain size={14} className="text-blue-400" />
-                                                <span>{label('支持思考 / 推理参数 (Thinking)', 'Supports Thinking / Reasoning')}</span>
+                                                <span>{label('支持思考', 'Supports Thinking')}</span>
+                                              </span>
+                                            </label>
+
+                                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                                              <input
+                                                type="checkbox"
+                                                checked={m.supportsVision}
+                                                onChange={e => updateModel(ep.id, m.id, { supportsVision: e.target.checked })}
+                                                className="rounded accent-blue-500 w-4 h-4 cursor-pointer"
+                                              />
+                                              <span className="text-slate-200 text-xs font-semibold flex items-center gap-1.5">
+                                                <Eye size={14} className="text-emerald-400" />
+                                                <span>{label('支持视觉', 'Supports Vision')}</span>
                                               </span>
                                             </label>
 

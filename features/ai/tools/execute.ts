@@ -8,6 +8,10 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
   signal.throwIfAborted();
   const args = record(input);
   if (name === 'manage_projects') return bridge.manageProjects(args, signal);
+  if (name === 'get_canvas_preview') {
+    if (!bridge.getCanvasPreview) throw new Error('Canvas preview is unavailable.');
+    return bridge.getCanvasPreview();
+  }
   const project = bridge.getProject();
   if (name === 'get_context') return project ? {
     projectId: project.id, title: project.title, canvas: project.canvasConfig,

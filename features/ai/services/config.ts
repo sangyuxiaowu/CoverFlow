@@ -35,6 +35,7 @@ export const DEFAULT_QUICK_SNIPPETS = [
 export function createModel(modelId = 'gpt-4o-mini'): AiModelConfig {
   const deepseek = /^deepseek-/i.test(modelId);
   const local = /^(qwen|llama|gemma|gpt-oss)/i.test(modelId);
+  const supportsVision = /^(gpt-4o|gpt-4\.1|gpt-4\.5|gpt-5|o[1-4](?:-|$))/i.test(modelId);
   const thinkingAvailable = deepseek || /^(qwen3|gpt-oss|o[134](?:-|$)|gpt-5)/i.test(modelId);
   const supportedReasoningEfforts: ReasoningEffort[] = deepseek
     ? ['none', 'low', 'high', 'max']
@@ -47,6 +48,7 @@ export function createModel(modelId = 'gpt-4o-mini'): AiModelConfig {
     maxTokens: deepseek ? 16384 : 4096,
     contextWindow: deepseek ? 1000000 : local ? 32768 : 128000,
     thinkingAvailable,
+    supportsVision,
     supportedReasoningEfforts,
     thinkingEnabled: thinkingAvailable,
     reasoningEffort: thinkingAvailable ? defaultEffort : 'none',
@@ -97,6 +99,7 @@ export function normalizeConfig(value: unknown, preserveKeys = true): AiConfig {
         return {
           ...model,
           thinkingAvailable,
+          supportsVision: Boolean(model.supportsVision),
           supportedReasoningEfforts: supported,
           defaultThinkingEnabled,
           defaultReasoningEffort,
@@ -128,6 +131,7 @@ export function toRequestConfig(config: AiConfig): AiRequestConfig {
     contextWindow: model.contextWindow,
     systemPrompt: config.systemPrompt.includes(VISUAL_CONTENT_GUIDE) ? config.systemPrompt : `${config.systemPrompt}\n\n${VISUAL_CONTENT_GUIDE}`,
     thinkingAvailable: model.thinkingAvailable,
+    supportsVision: model.supportsVision,
     supportedReasoningEfforts: model.supportedReasoningEfforts,
     thinkingEnabled: model.thinkingEnabled,
     reasoningEffort: model.reasoningEffort

@@ -98,3 +98,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     })
   }, ['projectId']))
 ];
+
+export const VISION_TOOL_DEFINITIONS: ToolDefinition[] = [
+  tool('get_canvas_preview', '预览当前画布效果，用于视觉分析；返回缩放后的 WebP 图片。', object('无需参数。', {}))
+];

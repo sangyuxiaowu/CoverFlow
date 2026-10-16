@@ -34,6 +34,7 @@ export interface AiModelConfig {
   maxTokens: number;
   contextWindow: number;
   thinkingAvailable: boolean;
+  supportsVision: boolean;
   supportedReasoningEfforts: ReasoningEffort[];
   thinkingEnabled: boolean;
   reasoningEffort: ReasoningEffort;
@@ -65,6 +66,7 @@ export interface AiRequestConfig {
   systemPrompt: string;
   contextWindow?: number;
   thinkingAvailable?: boolean;
+  supportsVision?: boolean;
   supportedReasoningEfforts?: ReasoningEffort[];
   thinkingEnabled?: boolean;
   reasoningEffort?: ReasoningEffort;
@@ -77,6 +79,7 @@ export interface ToolDefinition {
 
 export interface WorkspaceBridge {
   getProject: () => ProjectState | null;
+  getCanvasPreview?: () => Promise<Blob>;
   getSelection: () => string[];
   commit: (project: ProjectState) => Promise<void>;
   manageProjects: (args: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>;
@@ -88,17 +91,37 @@ export interface ToolEvent {
   arguments: string;
   status: 'running' | 'success' | 'error';
   result?: string;
+  image?: ChatImageRef;
+}
+
+export type AssistantActivityEvent =
+  | { id: string; type: 'text'; text: string }
+  | { id: string; type: 'tool'; toolId: string };
+
+export interface ChatImageRef {
+  id: string;
+  name: string;
+  type: 'image/webp';
+  size: number;
+}
+
+export interface ChatImageUpload {
+  image: ChatImageRef;
+  blob: Blob;
 }
 
 export interface ChatEntry {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  activity?: AssistantActivityEvent[];
+  continuable?: boolean;
   reasoning?: string;
   tools?: ToolEvent[];
   error?: boolean;
   usage?: TokenUsage;
   durationMs?: number;
+  images?: ChatImageRef[];
   projectSnapshot?: ProjectState | null;
   previousResponseItems?: ResponseItem[];
 }

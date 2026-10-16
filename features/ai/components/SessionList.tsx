@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, MessageSquare, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Check, Image as ImageIcon, MessageSquare, Pencil, Plus, Trash2, X } from 'lucide-react';
 import type { ChatSession } from '../types.ts';
 
 interface Props {
@@ -49,7 +49,9 @@ export default function SessionList({
           {label('暂无历史会话', 'No history sessions')}
         </div>
       )}
-      {sessions.map(session => (
+      {sessions.map(session => {
+        const imageCount = session.entries.reduce((count, entry) => count + (entry.images?.length || 0), 0);
+        return (
         <div
           key={session.id}
           className={`cf-ai-session-row ${session.id === activeId ? 'cf-ai-session-active' : ''}`}
@@ -108,6 +110,7 @@ export default function SessionList({
                       minute: '2-digit'
                     })}{' '}
                     · {session.entries.length} {label('条对话', 'messages')}
+                    {imageCount > 0 && <span className="inline-flex items-center gap-1 ml-1"><ImageIcon size={11} />{imageCount}</span>}
                   </small>
                 </span>
               </button>
@@ -163,7 +166,8 @@ export default function SessionList({
             </div>
           )}
         </div>
-      ))}
+        );
+      })}
     </section>
   );
 }

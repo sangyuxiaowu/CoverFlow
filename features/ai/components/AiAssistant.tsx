@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Bot,
   Brain,
@@ -7,10 +8,13 @@ import {
   CircleAlert,
   Copy,
   History,
+  Image as ImageIcon,
+  ImagePlus,
   LoaderCircle,
   Maximize2,
   Minus,
   Plus,
+  Play,
   RotateCcw,
   RotateCw,
   Send,
@@ -33,6 +37,8 @@ import SessionList from './SessionList.tsx';
 import TokenUsageBar from './TokenUsageBar.tsx';
 import MarkdownView from './MarkdownView.tsx';
 import { sumUsage } from '../services/usage.ts';
+import { createImageUpload } from '../services/imageAttachments.ts';
+import type { ChatImageUpload } from '../types.ts';
 import './assistant.css';
 
 interface Props {
@@ -49,7 +55,8 @@ const toolLabels: Record<string, [string, string]> = {
   read_layers: ['读取图层', 'Read Layers'],
   add_layer: ['新建图层', 'Add Layer'],
   edit_layers: ['编辑图层', 'Edit Layers'],
-  update_canvas: ['调整画布', 'Update Canvas']
+  update_canvas: ['调整画布', 'Update Canvas'],
+  get_canvas_preview: ['预览当前效果', 'Preview Canvas']
 };
 
 export default function AiAssistant({
@@ -82,6 +89,16 @@ export default function AiAssistant({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [imageUploads, setImageUploads] = useState<ChatImageUpload[]>([]);
+  const [selectedImage, setSelectedImage] = useState<{ name: string; src: string } | null>(null);
+  const imagePreviewUrls = useMemo(() => imageUploads.map(item => URL.createObjectURL(item.blob)), [imageUploads]);
+
+  useEffect(() => () => imagePreviewUrls.forEach(url => URL.revokeObjectURL(url)), [imagePreviewUrls]);
+  useEffect(() => {
+    if (!selectedImage) return;
+    return () => URL.revokeObjectURL(selectedImage.src);
+  }, [selectedImage?.src]);
 
   const english = lang === 'en';
   const active = resolveSelection(assistant.config);
@@ -91,7 +108,7 @@ export default function AiAssistant({
   const activeSession = assistant.sessions.find(session => session.id === assistant.activeSessionId);
   const currentSessionTitle = activeSession?.title || label('新对话', 'New Chat');
 
-  // 最小化时的动态滚动操作状态
+  // 最小化时轮播真实的模型文本和工具步骤
   const [tickerIndex, setTickerIndex] = useState(0);
 
   useEffect(() => {
@@ -108,35 +125,31 @@ export default function AiAssistant({
   );
   const runningTool = lastAssistantEntry?.tools?.find(t => t.status === 'running');
   const runningToolLabel = runningTool ? (toolLabels[runningTool.name]?.[english ? 1 : 0] || runningTool.name) : null;
-  const lastCompletedTool = lastAssistantEntry?.tools?.filter(t => t.status === 'done').slice(-1)[0];
-  const lastCompletedToolLabel = lastCompletedTool ? (toolLabels[lastCompletedTool.name]?.[english ? 1 : 0] || lastCompletedTool.name) : null;
-  const rawReasoning = lastAssistantEntry?.reasoning?.trim();
-  const rawContent = lastAssistantEntry?.content?.trim();
 
   const busyStatusList = useMemo(() => {
     if (!assistant.busy) return [];
-    const list: string[] = [];
-    if (runningToolLabel) {
-      list.push(english ? `Executing: ${runningToolLabel}...` : `正在执行: ${runningToolLabel}...`);
-    }
-    if (rawReasoning) {
-      const cleanReasoning = rawReasoning.replace(/\s+/g, ' ').slice(-35);
-      list.push(english ? `Thinking: ${cleanReasoning}` : `思考中: ${cleanReasoning}`);
-    }
-    if (rawContent) {
-      const cleanContent = rawContent.replace(/[#*`\n]/g, ' ').trim().slice(-35);
-      if (cleanContent) {
-        list.push(english ? `Drafting: ${cleanContent}` : `正在输出: ${cleanContent}`);
+    const list = (lastAssistantEntry?.activity || []).flatMap(event => {
+      if (event.type === 'text') {
+        const text = event.text.replace(/[#*`\n]/g, ' ').replace(/\s+/g, ' ').trim().slice(-64);
+        return text ? [text] : [];
       }
-    }
-    if (lastCompletedToolLabel && !runningToolLabel) {
-      list.push(english ? `Done: ${lastCompletedToolLabel}` : `已完成: ${lastCompletedToolLabel}`);
+      const tool = lastAssistantEntry?.tools?.find(item => item.id === event.toolId);
+      if (!tool) return [];
+      const name = toolLabels[tool.name]?.[english ? 1 : 0] || tool.name;
+      return [tool.status === 'running'
+        ? (english ? `Executing: ${name}...` : `正在执行：${name}`)
+        : tool.status === 'error'
+          ? (english ? `Failed: ${name}` : `执行失败：${name}`)
+          : (english ? `Done: ${name}` : `已完成：${name}`)];
+    });
+    if (runningToolLabel && !list.length) {
+      list.push(english ? `Executing: ${runningToolLabel}...` : `正在执行：${runningToolLabel}`);
     }
     const defaults = english
       ? ['Planning canvas layout & hierarchy...', 'Adjusting layers and typography...', 'Refining visual aesthetics...']
       : ['正在规划画面排版与视觉重点...', '正在组织画布图层与尺寸规范...', '正在完善细节与配色方案...'];
-    return [...list, ...defaults];
-  }, [assistant.busy, runningToolLabel, rawReasoning, rawContent, lastCompletedToolLabel, english]);
+    return list.length ? list : defaults;
+  }, [assistant.busy, runningToolLabel, lastAssistantEntry, english]);
 
   const currentBusyStatus = busyStatusList[tickerIndex % (busyStatusList.length || 1)] || (english ? 'AI is working...' : 'AI 正在执行操作...');
 
@@ -186,7 +199,7 @@ export default function AiAssistant({
 
   const submit = (overridePrompt?: string) => {
     const value = overridePrompt !== undefined ? overridePrompt : prompt;
-    if (!value.trim() || controlsDisabled) return;
+    if ((!value.trim() && !imageUploads.length) || controlsDisabled) return;
 
     // 当前选择的AI模型没有设置KEY的时候，在发送时，直接提醒前往设置配置KEY，然后输入内容退回输入框
     const hasKey = Boolean(active.endpoint.apiKey && active.endpoint.apiKey.trim().length > 0);
@@ -204,7 +217,41 @@ export default function AiAssistant({
     setKeyAlert(null);
     setShowSessions(false);
     setPrompt('');
-    void assistant.send(value);
+    const uploads = imageUploads;
+    setImageUploads([]);
+    void assistant.send(value.trim() || label('请分析这张图片。', 'Please analyze this image.'), uploads).catch(error => {
+      setPrompt(value);
+      setImageUploads(uploads);
+      setKeyAlert(error instanceof Error ? error.message : label('图片发送失败。', 'Image upload failed.'));
+    });
+  };
+
+  const addImages = async (files: FileList | File[] | null) => {
+    const selectedFiles = files ? Array.from(files) : [];
+    if (!selectedFiles.length) return;
+    if (imageUploads.length + selectedFiles.length > 4) {
+      setKeyAlert(label('每条消息最多添加 4 张图片。', 'Attach up to 4 images per message.'));
+      return;
+    }
+    try {
+      const uploads = await Promise.all(selectedFiles.map(createImageUpload));
+      setImageUploads(previous => [...previous, ...uploads]);
+      setKeyAlert(null);
+    } catch (error) {
+      setKeyAlert(error instanceof Error ? error.message : label('图片处理失败。', 'Image processing failed.'));
+    }
+  };
+
+  const openStoredImage = async (image: { id: string; name: string }) => {
+    const sessionId = assistant.activeSessionId;
+    if (!sessionId) return;
+    try {
+      const blob = await chatStore.loadImage(sessionId, image.id);
+      if (!blob) throw new Error(label('图片附件不存在。', 'Image attachment not found.'));
+      setSelectedImage({ name: image.name, src: URL.createObjectURL(blob) });
+    } catch (error) {
+      setKeyAlert(error instanceof Error ? error.message : label('图片读取失败。', 'Unable to load image.'));
+    }
   };
 
   const handleSelectQuickPrompt = (text: string) => {
@@ -260,7 +307,7 @@ export default function AiAssistant({
             {floating.minimized && assistant.busy ? (
               <div className="cf-ai-minimized-ticker" title={currentBusyStatus}>
                 <span className="cf-ai-ticker-badge">{english ? 'WORKING' : '执行中'}</span>
-                <span className="cf-ai-ticker-text">{currentBusyStatus}</span>
+                <span className="cf-ai-ticker-text" key={`${tickerIndex % busyStatusList.length}:${currentBusyStatus}`}>{currentBusyStatus}</span>
               </div>
             ) : (
               <span title={currentSessionTitle}>
@@ -426,7 +473,11 @@ export default function AiAssistant({
                       const isLastAssistant = entry.id === lastAssistantEntry?.id;
                       const entryUsage = entry.usage || (currentSession?.requests ? sumUsage(currentSession.requests.filter(r => r.entryId === entry.id)) : undefined);
                       const hasContent = Boolean(entry.content && entry.content.trim());
-                      const hasFinished = entry.role === 'assistant' && (hasContent || (Boolean(entry.tools?.length) && !assistant.busy));
+                      const hasFinished = entry.role === 'assistant' && (hasContent || Boolean(entry.tools?.length) || entry.continuable) && !assistant.busy;
+                      const activity = entry.activity?.length ? entry.activity : [
+                        ...(entry.tools || []).map(tool => ({ id: tool.id, type: 'tool' as const, toolId: tool.id })),
+                        ...(hasContent ? [{ id: `${entry.id}-content`, type: 'text' as const, text: entry.content }] : [])
+                      ];
 
                       return (
                         <article key={entry.id} className={`cf-ai-message cf-ai-${entry.role}`}>
@@ -444,40 +495,75 @@ export default function AiAssistant({
                               <p>{entry.reasoning}</p>
                             </details>
                           )}
-                          {entry.tools?.map(tool => (
-                            <details className="cf-ai-tool" key={tool.id}>
-                              <summary>
-                                {tool.status === 'running' ? (
-                                  <LoaderCircle size={14} className="cf-ai-spin text-amber-400" />
-                                ) : tool.status === 'error' ? (
-                                  <CircleAlert size={14} className="cf-ai-error" />
-                                ) : (
-                                  <CheckCircle2 size={14} className="text-emerald-400" />
+                          {activity.map(item => {
+                            if (item.type === 'text') {
+                              return (
+                                <div className="cf-ai-message-bubble" key={item.id}>
+                                  {entry.role === 'assistant' ? <MarkdownView content={item.text} /> : <p>{item.text}</p>}
+                                </div>
+                              );
+                            }
+                            const tool = entry.tools?.find(candidate => candidate.id === item.toolId);
+                            if (!tool) return null;
+                            return (
+                              <details className="cf-ai-tool" key={item.id} open={Boolean(tool.image)}>
+                                <summary>
+                                  {tool.status === 'running' ? (
+                                    <LoaderCircle size={14} className="cf-ai-spin text-amber-400" />
+                                  ) : tool.status === 'error' ? (
+                                    <CircleAlert size={14} className="cf-ai-error" />
+                                  ) : (
+                                    <CheckCircle2 size={14} className="text-emerald-400" />
+                                  )}
+                                  <span>{toolLabels[tool.name]?.[english ? 1 : 0] || tool.name}</span>
+                                  <span className={`cf-ai-tool-badge ${tool.status}`}>
+                                    {tool.status === 'running'
+                                      ? label('执行中', 'Running')
+                                      : tool.status === 'error'
+                                        ? label('失败', 'Failed')
+                                        : label('完成', 'Done')}
+                                  </span>
+                                </summary>
+                                <div className="cf-ai-tool-section-label">{label('请求参数', 'Request Arguments')}</div>
+                                <pre>{tool.arguments}</pre>
+                                <div className="cf-ai-tool-section-label">{label('执行结果', 'Execution Result')}</div>
+                                <pre>{tool.result || label('等待执行结果...', 'Waiting for result...')}</pre>
+                                {tool.image && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void openStoredImage(tool.image!)}
+                                    className="cf-ai-preview-link"
+                                    title={label('点击查看预览图', 'Click to view preview')}
+                                  >
+                                    <ImageIcon size={13} />
+                                    <span>{tool.image.name}</span>
+                                  </button>
                                 )}
-                                <span>{toolLabels[tool.name]?.[english ? 1 : 0] || tool.name}</span>
-                                <span className={`cf-ai-tool-badge ${tool.status}`}>
-                                  {tool.status === 'running'
-                                    ? label('执行中', 'Running')
-                                    : tool.status === 'error'
-                                      ? label('失败', 'Failed')
-                                      : label('完成', 'Done')}
-                                </span>
-                              </summary>
-                              <div className="cf-ai-tool-section-label">{label('请求参数', 'Request Arguments')}</div>
-                              <pre>{tool.arguments}</pre>
-                              <div className="cf-ai-tool-section-label">{label('执行结果', 'Execution Result')}</div>
-                              <pre>{tool.result || label('等待执行结果...', 'Waiting for result...')}</pre>
-                            </details>
-                          ))}
-                          {Boolean(entry.content && entry.content.trim()) && (
-                            <div className="cf-ai-message-bubble">
-                              {entry.role === 'assistant' ? (
-                                <MarkdownView content={entry.content} />
-                              ) : (
-                                <p className={entry.error ? 'cf-ai-error' : ''}>{entry.content}</p>
-                              )}
-                            </div>
+                              </details>
+                            );
+                          })}
+                          {entry.continuable && isLastAssistant && !assistant.busy && (
+                            <p className="cf-ai-continuable-note">
+                              {label('本轮已暂停，已完成的修改已保留。', 'Paused at the turn limit. Completed changes are preserved.')}
+                            </p>
                           )}
+                          {entry.role === 'user' && entry.images?.length ? (
+                            <div className="flex flex-wrap gap-1.5 mt-1">
+                              {entry.images.map(image => (
+                                <button
+                                  key={image.id}
+                                  type="button"
+                                  onClick={() => void openStoredImage(image)}
+                                  className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900/70 px-2 py-1 text-[10px] text-slate-400 transition-colors hover:border-emerald-500/60 hover:text-emerald-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-500"
+                                  title={label('点击查看图片', 'Click to view image')}
+                                  aria-label={`${label('查看图片', 'View image')}: ${image.name}`}
+                                >
+                                  <ImageIcon size={12} />
+                                  <span className="max-w-36 truncate">{image.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
                           {!entry.content?.trim() && assistant.busy && entry.role === 'assistant' && (
                             <div className="flex items-center gap-2 text-slate-400 text-xs py-2 px-1">
                               <LoaderCircle size={16} className="cf-ai-spin text-emerald-400" />
@@ -519,6 +605,18 @@ export default function AiAssistant({
                                   aria-label={label('重新生成 (重做)', 'Regenerate (Redo)')}
                                 >
                                   <RotateCw size={13} />
+                                </button>
+                              )}
+
+                              {isLastAssistant && entry.continuable && (
+                                <button
+                                  type="button"
+                                  disabled={controlsDisabled}
+                                  onClick={() => void assistant.send(label('继续', 'Continue'))}
+                                  className="cf-ai-continue-btn"
+                                >
+                                  <Play size={12} />
+                                  <span>{label('继续', 'Continue')}</span>
                                 </button>
                               )}
 
@@ -667,6 +765,24 @@ export default function AiAssistant({
               }}
             >
               <div className="relative rounded-xl border transition-colors focus-within:border-blue-500 bg-slate-950/70 border-slate-700/80">
+                {imageUploads.length > 0 && (
+                  <div className="flex gap-2 overflow-x-auto px-2 pt-2">
+                    {imageUploads.map((upload, index) => (
+                      <div key={upload.image.id} className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md border border-slate-700">
+                        <img src={imagePreviewUrls[index]} alt={upload.image.name} className="h-full w-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => setImageUploads(previous => previous.filter(item => item.image.id !== upload.image.id))}
+                          className="absolute right-0 top-0 flex h-5 w-5 items-center justify-center bg-slate-950/80 text-slate-200"
+                          title={label('移除图片', 'Remove image')}
+                          aria-label={`${label('移除图片', 'Remove image')}: ${upload.image.name}`}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <textarea
                   ref={inputRef}
                   value={prompt}
@@ -680,6 +796,16 @@ export default function AiAssistant({
                   onChange={event => {
                     setPrompt(event.target.value);
                     if (keyAlert) setKeyAlert(null);
+                  }}
+                  onPaste={event => {
+                    const pastedImages = Array.from(event.clipboardData.items)
+                      .filter(item => item.type.startsWith('image/'))
+                      .map(item => item.getAsFile())
+                      .filter((file): file is File => Boolean(file));
+                    if (pastedImages.length) {
+                      event.preventDefault();
+                      void addImages(pastedImages);
+                    }
                   }}
                   onKeyDown={event => {
                     if (
@@ -697,6 +823,27 @@ export default function AiAssistant({
                 {/* 悬浮工具栏 (h-5, 绝对定位在底部，不分割独立区域) */}
                 <div className="absolute inset-x-0 bottom-1.5 h-5 flex items-center justify-between gap-2 px-2 bg-transparent pointer-events-auto">
                   <div className="flex items-center gap-1 min-w-0">
+                    <input
+                      ref={imageInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      multiple
+                      className="hidden"
+                      onChange={event => {
+                        void addImages(event.currentTarget.files);
+                        event.currentTarget.value = '';
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => imageInputRef.current?.click()}
+                      disabled={controlsDisabled || !active.model.supportsVision || imageUploads.length >= 4}
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-emerald-300 disabled:opacity-30"
+                      title={active.model.supportsVision ? label('添加图片（最多 4 张）', 'Attach images (up to 4)') : label('当前模型未启用视觉输入', 'Vision input is not enabled for this model')}
+                      aria-label={label('添加图片', 'Attach image')}
+                    >
+                      <ImagePlus size={14} />
+                    </button>
                     <TokenUsageBar
                       session={assistant.sessions.find(session => session.id === assistant.activeSessionId)}
                       config={assistant.config}
@@ -725,7 +872,7 @@ export default function AiAssistant({
                     ) : (
                       <button
                         type="submit"
-                        disabled={!prompt.trim() || controlsDisabled}
+                        disabled={(!prompt.trim() && !imageUploads.length) || controlsDisabled}
                         className="relative -top-0.5 w-8 h-8 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white transition-colors cursor-pointer active:scale-95 shadow-md shadow-blue-900/40"
                         title={label('发送消息 (Ctrl+Enter)', 'Send message (Ctrl+Enter)')}
                       >
@@ -764,6 +911,44 @@ export default function AiAssistant({
           onBack={() => setSettings(false)}
           english={english}
         />
+      )}
+      {selectedImage && createPortal(
+        <div
+          className="fixed inset-0 z-[240] flex items-center justify-center bg-slate-950/90 p-4 backdrop-blur-sm"
+          onClick={() => setSelectedImage(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={selectedImage.name}
+            className="flex max-h-[94vh] max-w-[96vw] flex-col overflow-hidden rounded-lg border border-slate-700 bg-slate-900 shadow-2xl"
+            onClick={event => event.stopPropagation()}
+            onKeyDown={event => {
+              if (event.key === 'Escape') setSelectedImage(null);
+            }}
+            tabIndex={-1}
+          >
+            <div className="flex min-w-0 items-center justify-between gap-4 border-b border-slate-700 px-3 py-2">
+              <span className="truncate text-xs text-slate-300">{selectedImage.name}</span>
+              <button
+                type="button"
+                onClick={() => setSelectedImage(null)}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-white"
+                title={label('关闭图片预览', 'Close image preview')}
+                aria-label={label('关闭图片预览', 'Close image preview')}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <img
+              src={selectedImage.src}
+              alt={selectedImage.name}
+              className="max-h-[84vh] max-w-[96vw] object-contain"
+              draggable={false}
+            />
+          </div>
+        </div>,
+        document.body
       )}
     </>
   );

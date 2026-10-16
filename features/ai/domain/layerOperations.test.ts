@@ -65,7 +65,7 @@ test('floating windows stay visible on mobile and after viewport changes', () =>
   assert.equal(mobile.x, 10);
   assert.equal(mobile.y + mobile.height, 834);
   const desktop = clampFloatingRect({ x: -200, y: -100, width: 100, height: 100 }, { width: 1440, height: 900 });
-  assert.deepEqual(desktop, { x: 10, y: 10, width: 340, height: 360 });
+  assert.deepEqual(desktop, { x: 10, y: 10, width: 360, height: 360 });
 });
 
 test('invalid saved float geometry and minimized header positions are bounded', () => {

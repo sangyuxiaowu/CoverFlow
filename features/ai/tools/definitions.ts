@@ -1,4 +1,5 @@
 import type { ToolDefinition } from '../types.ts';
+import { ALIGN_MODES, DISTRIBUTE_MODES, EDIT_LAYER_RULES, PROJECT_RULES, fieldUsage } from './requests.ts';
 
 const string = (description: string) => ({ type: 'string', description, maxLength: 200000 });
 const numeric = (description: string, minimum = -100000, maximum = 100000) => ({ type: 'number', description, minimum, maximum });
@@ -8,6 +9,7 @@ const object = (description: string, properties: Record<string, unknown>, requir
 const layerIds = (description: string) => ({ type: 'array', description, items: string('来自 get_context 或 read_layers 的图层 ID，不可编造。'), minItems: 1, maxItems: 500 });
 const tool = (name: string, description: string, parameters: Record<string, unknown>): ToolDefinition => ({ type: 'function', function: { name, description, parameters } });
 const projectId = string('当前活动项目 ID，来自 get_context；活动项目改变后应重新读取。');
+const conditional = <Schema extends { description: string }>(rules: Parameters<typeof fieldUsage>[0], field: string, schema: Schema) => ({ ...schema, description: fieldUsage(rules, field) + schema.description });
 
 const patch = object('图层属性的部分更新；省略字段保持原值。不要提交 id、type、parentId 或 children 等结构字段。', {
   name: string('图层名称，用于图层列表与搜索。'),
@@ -58,14 +60,14 @@ const patch = object('图层属性的部分更新；省略字段保持原值。�
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   tool('get_context', '读取当前项目、画布、背景、选区及图层元数据；不含图层源码，源码请用 read_layers 读取。', object('无需参数。', {})),
   tool('manage_projects', '搜索和管理项目。新建会自动打开；删除需用户确认，本地文件项目只移除最近记录而不删除磁盘文件。', object('项目管理请求；除 action 外的字段是否需要取决于所选操作。', {
-    action: enumeration('list 为分页搜索；create 为新建；open 为打开；rename 为重命名；duplicate 为复制；delete 为删除；save 为保存。', ['list', 'create', 'open', 'rename', 'duplicate', 'delete', 'save']),
-    projectId: string('open/rename/duplicate/delete/save 时必填；来自 manage_projects/list 或 get_context，不可编造。'),
-    query: string('仅 list 使用：按项目名称搜索；省略表示不过滤，提供时不得为空白。'),
-    title: string('rename 时必填；create 可指定名称，省略为 Untitled；duplicate 可指定副本名称，省略自动追加 (copy)。不得为空白。'),
-    page: { type: 'integer', description: '仅 list 使用：页码，从 1 开始，省略为 1。', minimum: 1, maximum: 100000 },
-    pageSize: { type: 'integer', description: '仅 list 使用：每页项目数量，省略为 20。', minimum: 1, maximum: 50 },
-    width: numeric('仅 create 使用：画布宽度，单位为像素，省略为 1200。', 10, 10000),
-    height: numeric('仅 create 使用：画布高度，单位为像素，省略为 630。', 10, 10000)
+    action: enumeration('list 为分页搜索；create 为新建；open 为打开；rename 为重命名；duplicate 为复制；delete 为删除；save 为保存。', Object.keys(PROJECT_RULES)),
+    projectId: conditional(PROJECT_RULES, 'projectId', string('来自 manage_projects/list 或 get_context，不可编造。')),
+    query: conditional(PROJECT_RULES, 'query', string('按项目名称搜索；省略表示不过滤，提供时不得为空白。')),
+    title: conditional(PROJECT_RULES, 'title', string('项目名称，不得为空白。create 省略为 Untitled；duplicate 省略自动追加 (copy)。')),
+    page: conditional(PROJECT_RULES, 'page', { type: 'integer', description: '页码，从 1 开始，省略为 1。', minimum: 1, maximum: 100000 }),
+    pageSize: conditional(PROJECT_RULES, 'pageSize', { type: 'integer', description: '每页项目数量，省略为 20。', minimum: 1, maximum: 50 }),
+    width: conditional(PROJECT_RULES, 'width', numeric('画布宽度，单位为像素，省略为 1200。', 10, 10000)),
+    height: conditional(PROJECT_RULES, 'height', numeric('画布高度，单位为像素，省略为 630。', 10, 10000))
   }, ['action'])),
   tool('read_layers', '读取图层源码及属性，可按 ID 或名称/内容关键词筛选。修改已有源码前先调用此工具。', object('读取当前活动项目内的图层；ID 与关键词过滤同时提供时取交集。', {
     projectId,
@@ -79,22 +81,25 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   }, ['projectId', 'type', 'properties'])),
   tool('edit_layers', '批量修改或组织图层。组合变换会传递到子图层；除单独解锁操作外，锁定图层须先解锁。', object('对当前项目的一组图层执行同一个操作。', {
     projectId,
-    action: enumeration('update 更新属性；delete 删除；duplicate 复制；group 编组（至少两个未编组图层，不可嵌套）；ungroup 拆组；front/back 置顶/置底；align 对齐画布；distribute 等间距分布（至少三个独立图层）。', ['update', 'delete', 'duplicate', 'group', 'ungroup', 'front', 'back', 'align', 'distribute']),
+    action: enumeration('update 更新属性；delete 删除；duplicate 复制；group 编组（至少两个未编组图层，不可嵌套）；ungroup 拆组；front/back 置顶/置底；align 对齐画布；distribute 等间距分布（至少三个独立图层）。', Object.keys(EDIT_LAYER_RULES)),
     layerIds: layerIds('操作目标 ID 列表；同一 properties 会应用于全部目标，不应混合需要不同属性的图层。'),
-    properties: { ...patch, description: 'update 时提供待修改字段；group 时可用 name 指定组名。其余操作无需此参数。' },
-    mode: enumeration('align 时必填：left/center/right 为水平对齐，top/middle/bottom 为垂直对齐；distribute 时必填：horizontal/vertical。其他操作省略。', ['left', 'center', 'right', 'top', 'middle', 'bottom', 'horizontal', 'vertical'])
+    properties: conditional(EDIT_LAYER_RULES, 'properties', { ...patch, minProperties: 1, description: '待修改字段，至少提供一个；省略的属性保持原值。' }),
+    name: conditional(EDIT_LAYER_RULES, 'name', string('组名，不得为空白；省略为 Group。')),
+    mode: conditional(EDIT_LAYER_RULES, 'mode', enumeration('align 仅允许 left/center/right（水平对齐）或 top/middle/bottom（垂直对齐）；distribute 仅允许 horizontal/vertical。', [...ALIGN_MODES, ...DISTRIBUTE_MODES]))
   }, ['projectId', 'action', 'layerIds'])),
   tool('update_canvas', '更新当前画布及背景。调整画布尺寸不会缩放已有图层。', object('画布与背景的部分更新；省略的字段保持不变。', {
     projectId,
     width: numeric('画布宽度，单位为像素。', 10, 10000),
     height: numeric('画布高度，单位为像素。', 10, 10000),
-    background: object('背景部分更新。切换 type 时应同时提供对应格式的 value；不支持 HTML 背景。', {
-      type: enumeration('color 为纯色，gradient 为 CSS 渐变值，image 为已有图片，css 为自定义背景声明。', ['color', 'gradient', 'image', 'css']),
+    background: object('背景部分更新。切换 type 时应同时提供对应格式的 value；不支持 HTML 背景。CSS 模式省略 overlay。', {
+      type: enumeration('color 为纯色，gradient 为 CSS 渐变值，image 为已有图片，css 为自定义背景声明；CSS 模式不能提供 overlay。', ['color', 'gradient', 'image', 'css']),
       value: string('随 type 变化：color 为 CSS 颜色；gradient 为渐变值；image 为已有 HTTP(S) URL 或 PNG/JPEG/WebP/GIF base64 数据 URL；css 为最多 6000 字符的 CSS 声明，仅允许背景属性和变量，不含选择器。自定义 CSS 禁止外部资源、url()/image-set()、CSS at-rule、动画和视口单位；颜色可用含 alpha 的字面量变量。'),
-      overlayType: enumeration('叠加纹理：none 为无纹理，dots 为波点，grid 为网格，stripes 为条纹。', ['none', 'dots', 'grid', 'stripes']),
-      overlayColor: string('纹理颜色，建议使用 #RRGGBB，配合 overlayOpacity 控制透明度。'),
-      overlayOpacity: numeric('叠加纹理透明度，0 为完全透明、1 为完全不透明。', 0, 1),
-      overlayScale: numeric('叠加纹理的尺寸与间距，单位为像素。', 1, 1000)
+      overlay: object('非 CSS 背景的叠加纹理设置；CSS 背景省略此对象。', {
+        type: enumeration('none 为无纹理，dots 为波点，grid 为网格，stripes 为条纹。', ['none', 'dots', 'grid', 'stripes']),
+        color: string('纹理颜色，建议使用 #RRGGBB。'),
+        opacity: numeric('纹理透明度，0 为完全透明、1 为完全不透明。', 0, 1),
+        scale: numeric('纹理尺寸与间距，单位为像素。', 1, 1000)
+      })
     })
   }, ['projectId']))
 ];

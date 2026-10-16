@@ -50,3 +50,29 @@ test('storage failures propagate rather than report success', async () => {
   assert.equal(stored.size, 0);
   assert.equal(bridge.getProject(), null);
 });
+
+test('project action contracts reject invalid fields before storage or UI side effects', async () => {
+  const { bridge, stored, signal, options } = setup();
+  await bridge.manageProjects({ action: 'create', title: 'Keep' }, signal);
+  const projectId = bridge.getProject()!.id;
+  const before = structuredClone(bridge.getProject());
+  let effects = 0;
+  options.storage.ensureReady = async () => { effects++; return true; };
+  options.onSearch = () => { effects++; };
+  const invalid = [
+    { action: 'list', projectId }, { action: 'list', title: 'Ignored' },
+    { action: 'list', page: 1.5 }, { action: 'list', query: ' ' },
+    { action: 'create', projectId }, { action: 'create', width: 0 },
+    { action: 'open' }, { action: 'rename', projectId },
+    { action: 'rename', projectId, title: ' ' },
+    { action: 'duplicate', projectId, width: 500 },
+    { action: 'delete', projectId, title: 'Ignored' },
+    { action: 'save', projectId, extra: true }
+  ];
+  for (const args of invalid) {
+    await assert.rejects(bridge.manageProjects(args, signal), Error, JSON.stringify(args));
+    assert.deepEqual(bridge.getProject(), before);
+    assert.deepEqual([...stored.values()], [before]);
+  }
+  assert.equal(effects, 0);
+});

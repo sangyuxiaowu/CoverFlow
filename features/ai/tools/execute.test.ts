@@ -6,6 +6,7 @@ import type { WorkspaceBridge } from '../types.ts';
 import { executeTool } from './execute.ts';
 import { layerPatch, safeImage } from './validation.ts';
 import { TOOL_DEFINITIONS } from './definitions.ts';
+import { ALIGN_MODES, DISTRIBUTE_MODES, EDIT_LAYER_RULES, PROJECT_RULES, fieldUsage, parseEditLayersRequest, parseManageProjectsRequest } from './requests.ts';
 
 function setup() {
   let current: ProjectState = { id: 'p1', title: 'Test', updatedAt: 0, selectedLayerId: null, layers: [], canvasConfig: { width: 800, height: 600, ratio: '4:3' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } };
@@ -30,10 +31,15 @@ test('tool schemas describe every parameter and nested field with valid required
   for (const definition of TOOL_DEFINITIONS) inspect(definition.function.parameters, definition.function.name);
   const add = TOOL_DEFINITIONS.find(definition => definition.function.name === 'add_layer')!.function;
   const edit = TOOL_DEFINITIONS.find(definition => definition.function.name === 'edit_layers')!.function;
+  const canvas = TOOL_DEFINITIONS.find(definition => definition.function.name === 'update_canvas')!.function;
   const addProperties = (add.parameters.properties as Record<string, Record<string, unknown>>).properties;
   const editProperties = (edit.parameters.properties as Record<string, Record<string, unknown>>).properties;
+  const canvasProperties = canvas.parameters.properties as Record<string, Record<string, unknown>>;
+  const backgroundProperties = (canvasProperties.background.properties as Record<string, Record<string, unknown>>);
+  const overlayProperties = backgroundProperties.overlay.properties as Record<string, unknown>;
   assert.deepEqual(addProperties.required, ['content']);
   assert.deepEqual(editProperties.required, []);
+  assert.deepEqual(Object.keys(overlayProperties), ['type', 'color', 'opacity', 'scale']);
   assert.equal(add.description.includes('6000'), false);
   assert.equal(add.description.includes('url()'), false);
   assert.ok(((addProperties.properties as Record<string, Record<string, unknown>>).content.description as string).includes('6000'));
@@ -68,9 +74,11 @@ test('unsafe image sources are rejected', () => {
 
 test('canvas and background edits are validated and committed', async () => {
   const { bridge, signal } = setup();
-  await executeTool('update_canvas', { projectId: 'p1', width: 1200, background: { type: 'gradient', value: 'linear-gradient(90deg,#000,#fff)' } }, bridge, signal);
+  await executeTool('update_canvas', { projectId: 'p1', width: 1200, background: { type: 'gradient', value: 'linear-gradient(90deg,#000,#fff)', overlay: { type: 'dots', color: '#fff', opacity: 0.3, scale: 24 } } }, bridge, signal);
   assert.equal(bridge.getProject()!.canvasConfig.width, 1200);
   assert.equal(bridge.getProject()!.background.type, 'gradient');
+  assert.equal(bridge.getProject()!.background.overlayType, 'dots');
+  assert.equal(bridge.getProject()!.background.overlayScale, 24);
   await assert.rejects(executeTool('update_canvas', { projectId: 'p1', width: -1 }, bridge, signal), /Invalid/);
 });
 
@@ -78,6 +86,10 @@ test('custom CSS backgrounds and HTML decorations use the shared validation', as
   const { bridge, signal } = setup();
   await executeTool('update_canvas', { projectId: 'p1', background: { type: 'css', value: 'background: linear-gradient(45deg, red, blue);' } }, bridge, signal);
   assert.equal(bridge.getProject()!.background.type, 'css');
+  await assert.rejects(executeTool('update_canvas', { projectId: 'p1', background: { overlay: { type: 'dots' } } }, bridge, signal), /Overlay textures are not supported/);
+  await assert.rejects(executeTool('update_canvas', { projectId: 'p1', background: { type: 'css', value: 'background: red;', overlay: { scale: 24 } } }, bridge, signal), /Overlay textures are not supported/);
+  await assert.rejects(executeTool('update_canvas', { projectId: 'p1', background: { overlayType: 'dots' } }, bridge, signal), /Unsupported background field/);
+  assert.equal(bridge.getProject()!.background.overlayType, 'none');
   await assert.rejects(executeTool('update_canvas', { projectId: 'p1', background: { value: 'position:fixed;' } }, bridge, signal));
   const source = '<style>:root{--accent:#38bdf8}.badge{color:var(--accent)}</style><div class="badge">Hello</div>';
   await executeTool('add_layer', { projectId: 'p1', type: 'decoration', properties: { content: source } }, bridge, signal);
@@ -106,4 +118,87 @@ test('decoration color fields fail without committing while variable edits prese
   assert.equal(bridge.getProject()!.layers.find(layer => layer.id === decorationId)!.decorationFormat, 'css');
   await executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [textId], properties: { color: '#22c55e' } }, bridge, signal);
   assert.equal(bridge.getProject()!.layers.find(layer => layer.id === textId)!.color, '#22c55e');
+});
+
+test('edit actions reject missing, empty and unrelated arguments without committing', async () => {
+  const { bridge, signal } = setup();
+  await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { content: 'Keep' } }, bridge, signal);
+  const before = structuredClone(bridge.getProject());
+  const layerIds = [before!.layers[0].id];
+  const invalid = [
+    { action: 'update' }, { action: 'update', properties: {} },
+    { action: 'update', properties: { opacity: 0.5 }, mode: 'left' },
+    { action: 'delete', properties: { opacity: 0.5 } },
+    { action: 'duplicate', name: 'Ignored' }, { action: 'front', mode: 'left' },
+    { action: 'back', extra: true }, { action: 'ungroup', properties: {} },
+    { action: 'group', properties: { name: 'Old contract' } },
+    { action: 'align' }, { action: 'align', mode: 'horizontal' },
+    { action: 'distribute' }, { action: 'distribute', mode: 'left' }
+  ];
+  let commits = 0;
+  const guarded = { ...bridge, commit: async () => { commits++; } };
+  for (const args of invalid) {
+    await assert.rejects(executeTool('edit_layers', { projectId: 'p1', layerIds, ...args }, guarded, signal), Error, JSON.stringify(args));
+    assert.deepEqual(bridge.getProject(), before);
+  }
+  assert.equal(commits, 0);
+});
+
+test('group uses a top-level name and alignment accepts its own modes', async () => {
+  const { bridge, signal } = setup();
+  for (const content of ['First', 'Second']) await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { content } }, bridge, signal);
+  const layerIds = bridge.getProject()!.layers.map(layer => layer.id);
+  await executeTool('edit_layers', { projectId: 'p1', action: 'group', layerIds, name: 'Named group' }, bridge, signal);
+  const group = bridge.getProject()!.layers.find(layer => layer.type === 'group')!;
+  assert.equal(group.name, 'Named group');
+  await executeTool('edit_layers', { projectId: 'p1', action: 'align', layerIds: [group.id], mode: 'left' }, bridge, signal);
+  assert.equal(bridge.getProject()!.layers.find(layer => layer.id === group.id)!.x, 0);
+});
+
+test('flat tool schemas and runtime action contracts stay aligned', () => {
+  for (const [name, rules] of [['edit_layers', EDIT_LAYER_RULES], ['manage_projects', PROJECT_RULES]] as const) {
+    const schema = TOOL_DEFINITIONS.find(definition => definition.function.name === name)!.function.parameters;
+    assert.equal(schema.type, 'object');
+    assert.equal(schema.oneOf, undefined);
+    assert.equal(schema.anyOf, undefined);
+    const fields = schema.properties as Record<string, Record<string, unknown>>;
+    assert.deepEqual(fields.action.enum, Object.keys(rules));
+    const contractFields = new Set(['action', ...Object.values(rules).flatMap(rule => [...rule.required, ...rule.optional])]);
+    assert.deepEqual(Object.keys(fields).sort(), [...contractFields].sort());
+    for (const [action, rule] of Object.entries(rules)) {
+      assert.deepEqual([...(schema.required as string[])].sort(), ['action', ...Object.keys(fields).filter(field => field !== 'action' && Object.values(rules).every(branch => (branch.required as readonly string[]).includes(field)))].sort());
+      for (const field of [...rule.required, ...rule.optional]) {
+        if (field === 'projectId' && name === 'edit_layers' || field === 'layerIds') continue;
+        assert.ok((fields[field].description as string).startsWith(fieldUsage(rules, field)), `${name}.${action}.${field}`);
+      }
+    }
+    if (name === 'edit_layers') {
+      assert.equal(fields.properties.minProperties, 1);
+      assert.deepEqual(fields.mode.enum, [...ALIGN_MODES, ...DISTRIBUTE_MODES]);
+    }
+  }
+});
+
+test('action parsers accept every valid action and reject every cross-action field', () => {
+  const layerSamples: Record<string, unknown> = { projectId: 'p1', layerIds: ['a', 'b', 'c'], properties: { opacity: 0.5 }, name: 'Group', mode: 'left' };
+  const projectSamples: Record<string, unknown> = { projectId: 'p1', title: 'Title', page: 1, pageSize: 20, query: 'Find', width: 800, height: 600 };
+  for (const [rules, samples, parse] of [[EDIT_LAYER_RULES, layerSamples, parseEditLayersRequest], [PROJECT_RULES, projectSamples, parseManageProjectsRequest]] as const) {
+    for (const [action, rule] of Object.entries(rules)) {
+      const allowed: readonly string[] = [...rule.required, ...rule.optional];
+      const args = { action, ...Object.fromEntries(allowed.map(field => [field, field === 'mode' && action === 'distribute' ? 'horizontal' : samples[field]])) };
+      assert.deepEqual(parse(args), args);
+      for (const field of Object.keys(samples).filter(field => !allowed.includes(field))) {
+        assert.throws(() => parse({ ...args, [field]: samples[field] }), /unsupported field/);
+      }
+      for (const field of rule.required) {
+        const missing: Record<string, unknown> = { ...args };
+        delete missing[field];
+        assert.throws(() => parse(missing), /missing required field/);
+        assert.throws(() => parse({ ...args, [field]: null }));
+      }
+    }
+    for (const invalid of [null, [], {}, { action: '__proto__' }, { action: 'unknown' }]) assert.throws(() => parse(invalid));
+  }
+  for (const mode of ALIGN_MODES) assert.equal(parseEditLayersRequest({ projectId: 'p1', action: 'align', layerIds: ['a'], mode }).action, 'align');
+  for (const mode of DISTRIBUTE_MODES) assert.equal(parseEditLayersRequest({ projectId: 'p1', action: 'distribute', layerIds: ['a', 'b', 'c'], mode }).action, 'distribute');
 });

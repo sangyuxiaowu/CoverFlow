@@ -1,7 +1,7 @@
 import type { ProjectState } from '../../../types.ts';
 import type { StorageAdapter } from '../../../storage/StorageAdapter.ts';
 import type { WorkspaceBridge } from '../types.ts';
-import { choice, number, text } from '../tools/validation.ts';
+import { parseManageProjectsRequest } from '../tools/requests.ts';
 
 export interface WorkspaceOptions {
   project: ProjectState | null;
@@ -80,40 +80,39 @@ export function createWorkspaceBridge(
       options.onCommit(project);
       await save(project, options.activeLocalPath || undefined);
     },
-    manageProjects: async (args, signal) => {
+    manageProjects: async (input, signal) => {
       signal.throwIfAborted();
-      const action = choice(args.action, 'action', ['list', 'create', 'open', 'rename', 'duplicate', 'delete', 'save']);
+      const args = parseManageProjectsRequest(input);
       const options = read();
-      if (action === 'list') {
-        const query = args.query === undefined ? '' : text(args.query, 'query');
-        const page = args.page === undefined ? 1 : number(args.page, 'page', 1, 100000);
-        const pageSize = args.pageSize === undefined ? 20 : number(args.pageSize, 'pageSize', 1, 50);
-        if (!Number.isInteger(page) || !Number.isInteger(pageSize)) throw new Error('Pagination must use integers.');
+      if (args.action === 'list') {
+        const query = args.query ?? '';
+        const page = args.page ?? 1;
+        const pageSize = args.pageSize ?? 20;
         await ready();
         const result = await options.storage.listProjects({ query, page, pageSize });
         options.onSearch(query);
         const summary = (project: ProjectState, source: string) => ({ id: project.id, title: project.title, updatedAt: project.updatedAt, canvas: project.canvasConfig, layerCount: project.layers.length, source });
         return { items: result.items.map(project => summary(current?.id === project.id ? current : project, 'storage')), total: result.total, page, pageSize, localItems: options.localProjects.filter(item => item.project.title.toLowerCase().includes(query.toLowerCase())).map(item => summary(item.project, 'local')) };
       }
-      if (action === 'create') {
-        const width = args.width === undefined ? 1200 : number(args.width, 'width', 10, 10000);
-        const height = args.height === undefined ? 630 : number(args.height, 'height', 10, 10000);
-        const project: ProjectState = { id: crypto.randomUUID(), title: args.title === undefined ? 'Untitled' : text(args.title, 'title'), layers: [], background: { type: 'color', value: '#18181b', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0.1, overlayScale: 20 }, canvasConfig: { width, height, ratio: `${width}x${height}` }, selectedLayerId: null, updatedAt: Date.now() };
+      if (args.action === 'create') {
+        const width = args.width ?? 1200;
+        const height = args.height ?? 630;
+        const project: ProjectState = { id: crypto.randomUUID(), title: args.title ?? 'Untitled', layers: [], background: { type: 'color', value: '#18181b', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0.1, overlayScale: 20 }, canvasConfig: { width, height, ratio: `${width}x${height}` }, selectedLayerId: null, updatedAt: Date.now() };
         await save(project);
         signal.throwIfAborted();
         options.onUpsert(project);
         await open(project);
         return { success: true, projectId: project.id, title: project.title };
       }
-      const id = text(args.projectId, 'projectId');
+      const id = args.projectId;
       const target = await find(id);
       signal.throwIfAborted();
-      if (action === 'open') {
+      if (args.action === 'open') {
         await open(target.project, target.localPath);
         return { success: true, projectId: id, title: target.project.title };
       }
-      if (action === 'save') { await save(target.project, target.localPath); return { success: true, projectId: id }; }
-      if (action === 'delete') {
+      if (args.action === 'save') { await save(target.project, target.localPath); return { success: true, projectId: id }; }
+      if (args.action === 'delete') {
         if (!await confirm(`删除项目「${target.project.title}」？${target.localPath ? '仅移除最近打开记录，不删除磁盘文件。' : '此操作不可撤销。'}`, signal)) throw new Error('User cancelled project deletion.');
         signal.throwIfAborted();
         const latest = await find(id);
@@ -122,8 +121,8 @@ export function createWorkspaceBridge(
         if (current?.id === id) current = null;
         return { success: true, projectId: id };
       }
-      if (action === 'rename') {
-        const project = { ...target.project, title: text(args.title, 'title'), updatedAt: Date.now() };
+      if (args.action === 'rename') {
+        const project = { ...target.project, title: args.title, updatedAt: Date.now() };
         if (current?.id === id) { current = project; options.onCommit(project); }
         await save(project, target.localPath);
         options.onUpsert(project);
@@ -132,7 +131,7 @@ export function createWorkspaceBridge(
       const project = structuredClone(target.project);
       const idMap = new Map(project.layers.map(layer => [layer.id, crypto.randomUUID()]));
       project.id = crypto.randomUUID();
-      project.title = args.title === undefined ? project.title + ' (copy)' : text(args.title, 'title');
+      project.title = args.title ?? project.title + ' (copy)';
       project.updatedAt = Date.now();
       project.selectedLayerId = null;
       project.layers = project.layers.map(layer => ({ ...layer, id: idMap.get(layer.id)!, parentId: layer.parentId ? idMap.get(layer.parentId) : undefined, ...(layer.children ? { children: layer.children.map(id => idMap.get(id)!).filter(Boolean) } : {}) }));

@@ -8,6 +8,7 @@ features/ai/
   domain/layerOperations.ts   纯图层规则、分组几何与批量操作
   domain/floatingGeometry.ts  浮窗位置与尺寸边界
   tools/definitions.ts        模型可见的 JSON Schema
+  tools/requests.ts           动作契约、派生联合类型与请求解析
   tools/validation.ts         运行时白名单、数值范围及内容安全校验
   tools/execute.ts            工具分发与当前项目 ID 校验
   services/config.ts          多接入点、多模型、思考参数及配置校验
@@ -70,6 +71,10 @@ chat/
 ## 工具能力
 
 工具采用分层 JSON Schema 描述：函数 `description` 只说明用途与整体行为；字段含义、单位、默认值、适用操作及内容限制写在对应参数的 `description` 中，包括嵌套属性、数组元素和联合类型分支。可执行约束用 `enum`、`required`、`minimum/maximum`、`minItems/maxItems` 等表达，执行器仍负责最终校验。新增图层的 `properties.content` 必填，更新图层的 `properties` 则是部分字段补丁。
+
+`edit_layers` 与 `manage_projects` 的动作字段规则集中在 `tools/requests.ts`，用于派生 TypeScript 可辨识联合类型、校验必填/白名单字段，并生成工具参数的条件说明。为兼容自定义模型端点，对外保留扁平对象 Schema 与 `strict:false`，不发送顶层 `oneOf`、OpenAPI `discriminator` 或文档引用；条件约束由运行时执行，不依赖模型遵守说明。所有请求先校验再产生存储或界面副作用。
+
+`edit_layers` 每个动作均要求 `projectId` 和非空 `layerIds`；仅 `update` 接受且必须提供非空 `properties`，仅 `group` 接受顶层可选 `name`，仅 `align/distribute` 接受且必须提供各自动作允许的 `mode`。不再接受通过 `group.properties.name` 命名组。`manage_projects` 的 `list/create` 禁止 `projectId`，其余动作必须提供；`rename.title` 必填，`create/duplicate.title` 可选，其余动作禁止。跨动作字段与未知字段均报错，不忽略。
 
 | 工具 | 功能 |
 | --- | --- |

@@ -3,11 +3,12 @@ import type { WorkspaceBridge } from '../types.ts';
 import { editLayers } from '../domain/layerOperations.ts';
 import { backgroundPatch, choice, ids, layerPatch, number, record, safeImage, text, validateContent } from './validation.ts';
 import { detectDecorationFormat, sanitizeBackgroundCss } from '../../../utils/customContent.ts';
+import { parseEditLayersRequest, parseManageProjectsRequest } from './requests.ts';
 
 export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal): Promise<unknown> {
   signal.throwIfAborted();
   const args = record(input);
-  if (name === 'manage_projects') return bridge.manageProjects(args, signal);
+  if (name === 'manage_projects') return bridge.manageProjects(parseManageProjectsRequest(args), signal);
   if (name === 'get_canvas_preview') {
     if (!bridge.getCanvasPreview) throw new Error('Canvas preview is unavailable.');
     return bridge.getCanvasPreview();
@@ -35,9 +36,9 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     const layer: Layer = { id: crypto.randomUUID(), name: type, type, content, x: 40, y: 40, width: 300, height: 100, rotation: 0, zIndex: Math.max(0, ...project.layers.map(item => item.zIndex)) + 1, visible: true, locked: false, opacity: 1, ...(type === 'text' ? { fontSize: 48, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: '#ffffff', textAlign: 'left' } : {}), ...patch };
     next = { ...project, layers: [...project.layers, layer], selectedLayerId: layer.id };
   } else if (name === 'edit_layers') {
-    const action = choice(args.action, 'action', ['update', 'delete', 'duplicate', 'group', 'ungroup', 'front', 'back', 'align', 'distribute']);
-    const selected = ids(args.layerIds);
-    const patch = args.properties === undefined ? {} : layerPatch(args.properties);
+    const request = parseEditLayersRequest(args);
+    const { action, layerIds: selected } = request;
+    const patch = request.action === 'update' ? request.properties : request.action === 'group' && request.name !== undefined ? { name: request.name } : {};
     if (action === 'update' && patch.color !== undefined && selected.some(id => project.layers.find(layer => layer.id === id)?.type === 'decoration')) {
       throw new Error('Decoration colors must be changed in content via CSS variables, not layer.color.');
     }
@@ -48,11 +49,15 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
         validateContent(target.type, patch.content ?? target.content, patch.decorationFormat ?? target.decorationFormat);
       });
     }
-    next = editLayers(project, action, selected, patch, args.mode === undefined ? undefined : text(args.mode, 'mode'));
+    next = editLayers(project, action, selected, patch, request.action === 'align' || request.action === 'distribute' ? request.mode : undefined);
   } else if (name === 'update_canvas') {
     const width = args.width === undefined ? project.canvasConfig.width : number(args.width, 'width', 10, 10000);
     const height = args.height === undefined ? project.canvasConfig.height : number(args.height, 'height', 10, 10000);
-    const background = { ...project.background, ...(args.background === undefined ? {} : backgroundPatch(args.background)) };
+    const backgroundUpdates = args.background === undefined ? {} : backgroundPatch(args.background);
+    const background = { ...project.background, ...backgroundUpdates };
+    if (background.type === 'css' && ['overlayType', 'overlayColor', 'overlayOpacity', 'overlayScale'].some(field => field in backgroundUpdates)) {
+      throw new Error('Overlay textures are not supported with CSS backgrounds.');
+    }
     if (background.type === 'image') safeImage(background.value);
     if (background.type === 'css') {
       const result = sanitizeBackgroundCss(background.value);

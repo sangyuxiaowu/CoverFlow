@@ -87,10 +87,16 @@ export function backgroundPatch(value: unknown): Partial<BackgroundConfig> {
   const output: Record<string, unknown> = {};
   for (const [field, raw] of Object.entries(record(value))) {
     if (field === 'type') output[field] = choice(raw, field, ['color', 'gradient', 'image', 'css']);
-    else if (field === 'overlayType') output[field] = choice(raw, field, ['none', 'dots', 'grid', 'stripes']);
-    else if (field === 'value' || field === 'overlayColor') output[field] = text(raw, field);
-    else if (field === 'overlayOpacity') output[field] = number(raw, field, 0, 1);
-    else if (field === 'overlayScale') output[field] = number(raw, field, 1, 1000);
+    else if (field === 'value') output[field] = text(raw, field);
+    else if (field === 'overlay') {
+      for (const [overlayField, overlayValue] of Object.entries(record(raw))) {
+        if (overlayField === 'type') output.overlayType = choice(overlayValue, overlayField, ['none', 'dots', 'grid', 'stripes']);
+        else if (overlayField === 'color') output.overlayColor = text(overlayValue, overlayField);
+        else if (overlayField === 'opacity') output.overlayOpacity = number(overlayValue, overlayField, 0, 1);
+        else if (overlayField === 'scale') output.overlayScale = number(overlayValue, overlayField, 1, 1000);
+        else throw new Error('Unsupported overlay field: ' + overlayField);
+      }
+    }
     else throw new Error('Unsupported background field: ' + field);
   }
   return output as Partial<BackgroundConfig>;

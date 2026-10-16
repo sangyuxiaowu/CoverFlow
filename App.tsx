@@ -2136,22 +2136,7 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setIsAiOpen(prev => !prev)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-              isAiOpen
-                ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-sm shadow-emerald-950/40'
-                : 'bg-slate-800/90 hover:bg-slate-700 text-slate-300 border-slate-700 hover:text-white hover:border-emerald-500/40'
-            }`}
-            title={lang === 'en' ? 'AI Assistant' : 'AI 助手'}
-            aria-label={lang === 'en' ? 'AI Assistant' : 'AI 助手'}
-            aria-expanded={isAiOpen}
-          >
-            <Bot className={`w-4 h-4 ${isAiOpen ? 'text-emerald-400' : 'text-emerald-500'}`} />
-            <span>{lang === 'en' ? 'AI Assistant' : 'AI 助手'}</span>
-            {aiBusy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />}
-          </button>
+          
           <div className="flex items-center gap-1 mr-4 bg-slate-800 p-1 rounded-lg">
             <button 
               onClick={handleUndo} 
@@ -2180,6 +2165,24 @@ const App: React.FC = () => {
               {t.save || 'Save'}
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={() => setIsAiOpen(prev => !prev)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+              isAiOpen
+                ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-sm shadow-emerald-950/40'
+                : 'bg-slate-800/90 hover:bg-slate-700 text-slate-300 border-slate-700 hover:text-white hover:border-emerald-500/40'
+            }`}
+            title={lang === 'en' ? 'AI Assistant' : 'AI 助手'}
+            aria-label={lang === 'en' ? 'AI Assistant' : 'AI 助手'}
+            aria-expanded={isAiOpen}
+          >
+            <Bot className={`w-4 h-4 ${isAiOpen ? 'text-emerald-400' : 'text-emerald-500'}`} />
+            <span>{lang === 'en' ? 'AI Assistant' : 'AI 助手'}</span>
+            {aiBusy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />}
+          </button>
+          
           <button onClick={() => handleExportJson(project)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300 border border-slate-700 transition-colors">
             <FileOutput className="w-4 h-4" />
             {t.exportJson}

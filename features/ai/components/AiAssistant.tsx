@@ -89,6 +89,7 @@ export default function AiAssistant({
   const [keyAlert, setKeyAlert] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [imageUploads, setImageUploads] = useState<ChatImageUpload[]>([]);
@@ -170,7 +171,11 @@ export default function AiAssistant({
   const activeSnippets = assistant.config.quickSnippets || DEFAULT_QUICK_SNIPPETS;
 
   useEffect(() => {
-    if (scrollRef.current) {
+    shouldAutoScrollRef.current = true;
+  }, [assistant.activeSessionId]);
+
+  useEffect(() => {
+    if (scrollRef.current && shouldAutoScrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [assistant.entries, assistant.confirmation, assistant.executionError]);
@@ -217,6 +222,7 @@ export default function AiAssistant({
 
     setKeyAlert(null);
     setShowSessions(false);
+    shouldAutoScrollRef.current = true;
     setPrompt('');
     const uploads = imageUploads;
     setImageUploads([]);
@@ -413,7 +419,16 @@ export default function AiAssistant({
             </div>
 
             {/* 消息区域 */}
-            <div className="cf-ai-messages" ref={scrollRef} role="log" aria-live="polite">
+            <div
+              className="cf-ai-messages"
+              ref={scrollRef}
+              onScroll={event => {
+                const element = event.currentTarget;
+                shouldAutoScrollRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 48;
+              }}
+              role="log"
+              aria-live="polite"
+            >
               {showSessions ? (
                 <SessionList
                   sessions={assistant.sessions}

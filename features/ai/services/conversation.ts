@@ -106,7 +106,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
   const input = structuredClone(options.input);
   const tools = [...TOOL_DEFINITIONS, ...(config.supportsVision ? VISION_TOOL_DEFINITIONS : [])];
   let previewCount = 0;
-  for (let round = 0; round < 12; round++) {
+  for (let round = 0; round < 24; round++) {
     signal.throwIfAborted();
     const requestController = new AbortController();
     const abortRequest = () => requestController.abort(signal.reason);

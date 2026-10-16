@@ -433,7 +433,6 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  scroll-behavior: smooth;
 }
 
 .cf-ai-messages::-webkit-scrollbar {

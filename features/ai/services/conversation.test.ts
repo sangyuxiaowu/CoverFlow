@@ -161,9 +161,9 @@ test('tool round limit signals that the conversation can continue', async () => 
       onTool: () => {},
       onLimit: () => { limitReached++; }
     });
-    assert.equal(requests, 12);
+    assert.equal(requests, 24);
     assert.equal(limitReached, 1);
-    assert.deepEqual(outputText, Array.from({ length: 12 }, (_, index) => `Step ${index + 1}`));
+    assert.deepEqual(outputText, Array.from({ length: 24 }, (_, index) => `Step ${index + 1}`));
   } finally { globalThis.fetch = originalFetch; }
 });
 

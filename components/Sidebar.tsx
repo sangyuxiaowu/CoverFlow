@@ -1145,7 +1145,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1"><div className="flex justify-between text-[9px] font-bold text-slate-500 uppercase"><span>{t.opacity}</span><span>{Math.round(background.overlayOpacity * 100)}%</span></div><input type="range" min="0" max="1" step="0.01" value={background.overlayOpacity} onChange={(e) => onUpdateBackground({ overlayOpacity: parseFloat(e.target.value) })} className="w-full accent-blue-600" /></div>
-              <div className="space-y-1"><div className="flex justify-between text-[9px] font-bold text-slate-500 uppercase"><span>{t.overlayScale}</span><span>{background.overlayScale}px</span></div><input type="range" min="5" max="100" step="1" value={background.overlayScale} onChange={(e) => onUpdateBackground({ overlayScale: parseInt(e.target.value) })} className="w-full accent-blue-600" /></div>
+              <div className="space-y-1"><div className="flex justify-between text-[9px] font-bold text-slate-500 uppercase"><span>{t.overlayScale}</span><span>{Math.max(20, background.overlayScale)}px</span></div><input type="range" min="20" max="100" step="1" value={Math.max(20, background.overlayScale)} onChange={(e) => onUpdateBackground({ overlayScale: parseInt(e.target.value) })} className="w-full accent-blue-600" /></div>
             </div>
           </div>
         )}

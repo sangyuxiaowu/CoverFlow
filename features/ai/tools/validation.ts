@@ -93,7 +93,7 @@ export function backgroundPatch(value: unknown): Partial<BackgroundConfig> {
         if (overlayField === 'type') output.overlayType = choice(overlayValue, overlayField, ['none', 'dots', 'grid', 'stripes']);
         else if (overlayField === 'color') output.overlayColor = text(overlayValue, overlayField);
         else if (overlayField === 'opacity') output.overlayOpacity = number(overlayValue, overlayField, 0, 1);
-        else if (overlayField === 'scale') output.overlayScale = number(overlayValue, overlayField, 1, 1000);
+        else if (overlayField === 'scale') output.overlayScale = number(overlayValue, overlayField, 20, 1000);
         else throw new Error('Unsupported overlay field: ' + overlayField);
       }
     }

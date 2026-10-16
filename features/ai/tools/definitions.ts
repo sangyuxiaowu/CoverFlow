@@ -99,7 +99,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         type: enumeration('none 为无纹理，dots 为波点，grid 为网格，stripes 为条纹。', ['none', 'dots', 'grid', 'stripes']),
         color: string('纹理颜色，建议使用 #RRGGBB。'),
         opacity: numeric('纹理透明度，0 为完全透明、1 为完全不透明。', 0, 1),
-        scale: numeric('纹理尺寸与间距，单位为像素。', 1, 1000)
+        scale: numeric('纹理尺寸与间距，单位为像素。', 20, 1000)
       })
     })
   }, ['projectId']))

@@ -26,7 +26,7 @@ export const buildBackgroundStyles = (
     Object.assign(styles, backgroundCssStyle(bg.value));
   }
 
-  let patternImage = '';
+  const patternImages: string[] = [];
   let patternSize = '';
   if (bg.type !== 'css' && bg.overlayType !== 'none') {
     const rgba = bg.overlayColor.startsWith('#')
@@ -34,14 +34,19 @@ export const buildBackgroundStyles = (
           .toString(16)
           .padStart(2, '0')}`
       : bg.overlayColor;
-    const scale = bg.overlayScale ?? 20;
+    const scale = Math.max(20, bg.overlayScale ?? 20);
 
     if (bg.overlayType === 'dots') {
-      patternImage = `radial-gradient(${rgba} 2px, transparent 2px)`;
+      patternImages.push(`radial-gradient(${rgba} 2px, transparent 2px)`);
     } else if (bg.overlayType === 'grid') {
-      patternImage = `linear-gradient(${rgba} 1px, transparent 1px), linear-gradient(90deg, ${rgba} 1px, transparent 1px)`;
+      const line = 0.5 * (options.patternScale ?? 1);
+      const edge = options.patternScale ?? 1;
+      patternImages.push(
+        `linear-gradient(${rgba} ${line}px, transparent ${edge}px)`,
+        `linear-gradient(90deg, ${rgba} ${line}px, transparent ${edge}px)`
+      );
     } else if (bg.overlayType === 'stripes') {
-      patternImage = `repeating-linear-gradient(45deg, ${rgba}, ${rgba} 2px, transparent 2px, transparent ${scale / 2}px)`;
+      patternImages.push(`repeating-linear-gradient(45deg, ${rgba}, ${rgba} 2px, transparent 2px, transparent ${scale / 2}px)`);
     }
 
     const size = scale * (options.patternScale ?? 1);
@@ -51,7 +56,7 @@ export const buildBackgroundStyles = (
   const backgroundImages: string[] = [];
   const backgroundSizes: string[] = [];
 
-  if (patternImage) {
+  for (const patternImage of patternImages) {
     backgroundImages.push(patternImage);
     backgroundSizes.push(patternSize);
   }

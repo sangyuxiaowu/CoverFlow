@@ -98,6 +98,10 @@ test('canvas and background edits are validated and committed', async () => {
   assert.equal(bridge.getProject()!.background.type, 'gradient');
   assert.equal(bridge.getProject()!.background.overlayType, 'dots');
   assert.equal(bridge.getProject()!.background.overlayScale, 24);
+  await assert.rejects(executeTool('update_canvas', { projectId: 'p1', background: { overlay: { scale: 19 } } }, bridge, signal), /Invalid/);
+  assert.equal(bridge.getProject()!.background.overlayScale, 24);
+  await executeTool('update_canvas', { projectId: 'p1', background: { overlay: { scale: 20 } } }, bridge, signal);
+  assert.equal(bridge.getProject()!.background.overlayScale, 20);
   await assert.rejects(executeTool('update_canvas', { projectId: 'p1', width: -1 }, bridge, signal), /Invalid/);
 });
 

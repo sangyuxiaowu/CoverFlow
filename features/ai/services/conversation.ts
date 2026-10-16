@@ -163,13 +163,25 @@ export async function runConversation(options: ConversationOptions): Promise<str
         signal.throwIfAborted();
         if (cancelled) throw new Error('User cancelled. Do not retry this operation without new approval.');
         if (!tools.some(tool => tool.function.name === call.name)) throw new Error('Unknown tool.');
-        const value = await executeTool(call.name, record(JSON.parse(call.arguments)), bridge, signal);
+        const value = await executeTool(call.name, record(JSON.parse(call.arguments)), bridge, signal, Boolean(config.supportsVision));
         if (call.name === 'get_canvas_preview' && value instanceof Blob) {
           if (!options.saveImage) throw new Error('Image storage is unavailable.');
           imageRef = await options.saveImage(value, `canvas-preview-${++previewCount}.webp`);
           options.onImage?.(imageRef);
           output = [{ type: 'input_image', image_url: `attachment://${imageRef.id}` }];
           result = JSON.stringify({ image: imageRef.name, widthLimit: 600, format: 'webp' });
+        } else if (call.name === 'get_selected_layers' && value && typeof value === 'object' && 'kind' in value && value.kind === 'selected_layers') {
+          const selected = value as unknown as { projectId: string; layers: unknown[]; images: { layerId: string; name: string; blob: Blob }[] };
+          result = JSON.stringify({ projectId: selected.projectId, layers: selected.layers });
+          const imageParts: { type: 'input_image'; image_url: string }[] = [];
+          for (const image of selected.images) {
+            if (!options.saveImage) throw new Error('Image storage is unavailable.');
+            const ref = await options.saveImage(image.blob, `layer-${image.layerId}.webp`);
+            imageRef ??= ref;
+            options.onImage?.(ref);
+            imageParts.push({ type: 'input_image', image_url: `attachment://${ref.id}` });
+          }
+          output = imageParts.length ? [{ type: 'input_text', text: result }, ...imageParts] : result;
         } else {
           result = JSON.stringify(value);
           output = result;

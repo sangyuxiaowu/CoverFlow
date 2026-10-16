@@ -5,7 +5,7 @@ import { backgroundPatch, choice, ids, layerPatch, number, record, safeImage, te
 import { detectDecorationFormat, sanitizeBackgroundCss } from '../../../utils/customContent.ts';
 import { parseEditLayersRequest, parseManageProjectsRequest } from './requests.ts';
 
-export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal): Promise<unknown> {
+export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false): Promise<unknown> {
   signal.throwIfAborted();
   const args = record(input);
   if (name === 'manage_projects') return bridge.manageProjects(parseManageProjectsRequest(args), signal);
@@ -20,6 +20,36 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     selectedLayerIds: bridge.getSelection(), layers: project.layers.map(({ content, ...layer }) => ({ ...layer, contentLength: content.length }))
   } : { projectId: null, message: 'No project open. Use manage_projects to list or create projects.' };
   if (!project) throw new Error('No project open.');
+  if (name === 'get_selected_layers') {
+    const selected = new Set(bridge.getSelection());
+    const layers: unknown[] = [];
+    const images: { layerId: string; name: string; blob: Blob }[] = [];
+    for (const layer of project.layers) {
+      if (!selected.has(layer.id)) continue;
+      if (layer.type !== 'image') {
+        layers.push(layer);
+        continue;
+      }
+      const { content, ...properties } = layer;
+      const imageInfo: Record<string, unknown> = {
+        sourceType: content.startsWith('data:') ? 'embedded' : 'url',
+        sourceLength: content.length,
+        previewStatus: supportsVision ? 'unavailable' : 'not_requested'
+      };
+      if (supportsVision && bridge.getLayerPreview) {
+        try {
+          const blob = await bridge.getLayerPreview(layer.id);
+          signal.throwIfAborted();
+          imageInfo.previewStatus = 'available';
+          images.push({ layerId: layer.id, name: layer.name, blob });
+        } catch {
+          signal.throwIfAborted();
+        }
+      }
+      layers.push({ ...properties, imageInfo });
+    }
+    return { kind: 'selected_layers', projectId: project.id, layers, images };
+  }
   if (text(args.projectId, 'projectId') !== project.id) throw new Error('The active project changed. Read get_context again.');
   if (name === 'read_layers') {
     const selected = args.layerIds === undefined ? null : ids(args.layerIds);

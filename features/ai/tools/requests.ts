@@ -38,6 +38,8 @@ export const EDIT_LAYER_RULES = {
   ungroup: { required: ['projectId', 'layerIds'], optional: [] },
   front: { required: ['projectId', 'layerIds'], optional: [] },
   back: { required: ['projectId', 'layerIds'], optional: [] },
+  forward: { required: ['projectId', 'layerIds'], optional: [] },
+  backward: { required: ['projectId', 'layerIds'], optional: [] },
   align: { required: ['projectId', 'layerIds', 'mode'], optional: [] },
   distribute: { required: ['projectId', 'layerIds', 'mode'], optional: [] }
 } as const satisfies Record<LayerAction, { required: readonly (keyof EditLayerFields)[]; optional: readonly (keyof EditLayerFields)[] }>;

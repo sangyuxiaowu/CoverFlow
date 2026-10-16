@@ -76,3 +76,55 @@ test('invalid saved float geometry and minimized header positions are bounded', 
   const minimized = clampFloatingRect({ x: 10, y: 1000, width: 520, height: 640 }, { width: 800, height: 900 }, true);
   assert.equal(minimized.y, 826);
 });
+
+test('one-step ordering swaps neighbors rather than incrementing sparse z-index values', () => {
+  const original = project();
+  original.layers.reverse();
+  const snapshot = structuredClone(original);
+  const forward = editLayers(original, 'forward', ['a']);
+  assert.deepEqual(forward.layers.map(item => item.id), ['b', 'a', 'c']);
+  assert.deepEqual(forward.layers.map(item => item.zIndex), [1, 2, 3]);
+  const backward = editLayers(original, 'backward', ['c']);
+  assert.deepEqual(backward.layers.map(item => item.id), ['a', 'c', 'b']);
+  assert.deepEqual(original, snapshot);
+  for (const [action, target] of [['forward', 'c'], ['backward', 'a']] as const) {
+    assert.deepEqual(editLayers(original, action, [target]).layers.map(item => item.id), ['a', 'b', 'c']);
+  }
+});
+
+test('one-step multi-selection preserves relative order and stops at the boundaries', () => {
+  const original = project();
+  original.layers = ['a', 'b', 'c', 'd', 'e'].map((id, index) => layer(id, index * 100));
+  const cases = [
+    ['forward', ['b', 'a'], ['c', 'a', 'b', 'd', 'e']],
+    ['backward', ['e', 'd'], ['a', 'b', 'd', 'e', 'c']],
+    ['forward', ['a', 'c'], ['b', 'a', 'd', 'c', 'e']],
+    ['backward', ['b', 'd'], ['b', 'a', 'd', 'c', 'e']],
+    ['forward', ['d', 'e'], ['a', 'b', 'c', 'd', 'e']],
+    ['backward', ['a', 'b'], ['a', 'b', 'c', 'd', 'e']],
+    ['forward', ['a', 'b', 'c', 'd', 'e'], ['a', 'b', 'c', 'd', 'e']]
+  ] as const;
+  for (const [action, selected, expected] of cases) {
+    const next = editLayers(original, action, [...selected]);
+    assert.deepEqual(next.layers.map(item => item.id), expected);
+    assert.equal(next.selectedLayerId, original.selectedLayerId);
+  }
+});
+
+test('one-step ordering includes group children and enforces locks', () => {
+  const original = project();
+  const group: Layer = { ...layer('group', 250), type: 'group', content: '', children: ['a', 'b'] };
+  original.layers = [original.layers[0], original.layers[1], group, original.layers[2]];
+  original.layers[0].parentId = group.id;
+  original.layers[1].parentId = group.id;
+  const forward = editLayers(original, 'forward', [group.id, 'a']);
+  assert.deepEqual(forward.layers.map(item => item.id), ['c', 'a', 'b', 'group']);
+  assert.deepEqual(forward.layers.find(item => item.id === group.id)!.children, ['a', 'b']);
+  assert.deepEqual(editLayers(forward, 'backward', [group.id]).layers.map(item => item.id), ['a', 'b', 'group', 'c']);
+  original.layers[0].locked = true;
+  for (const action of ['forward', 'backward'] as const) {
+    assert.throws(() => editLayers(original, action, [group.id]), /Unlock/);
+    assert.throws(() => editLayers(original, action, ['a']), /Unlock/);
+    assert.throws(() => editLayers(original, action, ['missing']), /not found/);
+  }
+});

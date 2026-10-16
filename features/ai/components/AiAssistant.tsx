@@ -53,6 +53,7 @@ const toolLabels: Record<string, [string, string]> = {
   get_context: ['读取画布', 'Read Canvas'],
   manage_projects: ['项目管理', 'Manage Projects'],
   read_layers: ['读取图层', 'Read Layers'],
+  get_selected_layers: ['读取选中图层', 'Read Selected Layers'],
   add_layer: ['新建图层', 'Add Layer'],
   edit_layers: ['编辑图层', 'Edit Layers'],
   update_canvas: ['调整画布', 'Update Canvas'],
@@ -834,6 +835,7 @@ export default function AiAssistant({
                         event.currentTarget.value = '';
                       }}
                     />
+                    {/* 图片上传按钮，暂时隐藏，已经有自动获取了，用户自己上传没意义，保留用于后期跟多能力
                     <button
                       type="button"
                       onClick={() => imageInputRef.current?.click()}
@@ -844,6 +846,7 @@ export default function AiAssistant({
                     >
                       <ImagePlus size={14} />
                     </button>
+                    */}
                     <TokenUsageBar
                       session={assistant.sessions.find(session => session.id === assistant.activeSessionId)}
                       config={assistant.config}

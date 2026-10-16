@@ -8,12 +8,31 @@ import { layerPatch, safeImage } from './validation.ts';
 import { TOOL_DEFINITIONS } from './definitions.ts';
 import { ALIGN_MODES, DISTRIBUTE_MODES, EDIT_LAYER_RULES, PROJECT_RULES, fieldUsage, parseEditLayersRequest, parseManageProjectsRequest } from './requests.ts';
 
-function setup() {
-  let current: ProjectState = { id: 'p1', title: 'Test', updatedAt: 0, selectedLayerId: null, layers: [], canvasConfig: { width: 800, height: 600, ratio: '4:3' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } };
-  const bridge: WorkspaceBridge = { getProject: () => current, getSelection: () => [], commit: async project => { current = project; }, manageProjects: async args => args };
+function setup(layers: ProjectState['layers'] = [], selectedLayerIds: string[] = []) {
+  let current: ProjectState = { id: 'p1', title: 'Test', updatedAt: 0, selectedLayerId: null, layers, canvasConfig: { width: 800, height: 600, ratio: '4:3' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } };
+  const bridge: WorkspaceBridge = { getProject: () => current, getSelection: () => selectedLayerIds, commit: async project => { current = project; }, manageProjects: async args => args };
   const signal = new AbortController().signal;
   return { bridge, signal };
 }
+
+test('selected image layers expose metadata and only request a preview for vision models', async () => {
+  const imageLayer: ProjectState['layers'][number] = { id: 'image-1', name: 'Photo', type: 'image', content: 'data:image/png;base64,abc', x: 10, y: 20, width: 300, height: 200, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 };
+  const { bridge, signal } = setup([imageLayer], ['image-1']);
+  let previewRequests = 0;
+  const preview = new Blob(['webp'], { type: 'image/webp' });
+  bridge.getLayerPreview = async () => { previewRequests++; return preview; };
+
+  const textOnly = await executeTool('get_selected_layers', {}, bridge, signal) as { layers: Record<string, any>[]; images: unknown[] };
+  assert.equal(previewRequests, 0);
+  assert.equal(textOnly.layers[0].content, undefined);
+  assert.deepEqual(textOnly.layers[0].imageInfo, { sourceType: 'embedded', sourceLength: imageLayer.content.length, previewStatus: 'not_requested' });
+  assert.deepEqual(textOnly.images, []);
+
+  const visual = await executeTool('get_selected_layers', {}, bridge, signal, true) as { layers: Record<string, any>[]; images: { blob: Blob }[] };
+  assert.equal(previewRequests, 1);
+  assert.equal(visual.layers[0].imageInfo.previewStatus, 'available');
+  assert.equal(visual.images[0].blob, preview);
+});
 
 test('tool schemas describe every parameter and nested field with valid required keys', () => {
   const inspect = (schema: Record<string, unknown>, path: string) => {
@@ -201,4 +220,19 @@ test('action parsers accept every valid action and reject every cross-action fie
   }
   for (const mode of ALIGN_MODES) assert.equal(parseEditLayersRequest({ projectId: 'p1', action: 'align', layerIds: ['a'], mode }).action, 'align');
   for (const mode of DISTRIBUTE_MODES) assert.equal(parseEditLayersRequest({ projectId: 'p1', action: 'distribute', layerIds: ['a', 'b', 'c'], mode }).action, 'distribute');
+});
+
+test('forward and backward execute through the tool without extra parameters', async () => {
+  const { bridge, signal } = setup();
+  for (const content of ['First', 'Second', 'Third']) await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { content } }, bridge, signal);
+  const [first, second, third] = bridge.getProject()!.layers.map(layer => layer.id);
+  const args = { projectId: 'p1', layerIds: [first] };
+  await executeTool('edit_layers', { ...args, action: 'forward' }, bridge, signal);
+  assert.deepEqual(bridge.getProject()!.layers.map(layer => layer.id), [second, first, third]);
+  await executeTool('edit_layers', { ...args, action: 'backward' }, bridge, signal);
+  assert.deepEqual(bridge.getProject()!.layers.map(layer => layer.id), [first, second, third]);
+  const before = structuredClone(bridge.getProject());
+  await assert.rejects(executeTool('edit_layers', { ...args, action: 'forward', mode: 'left' }, bridge, signal), /unsupported field/);
+  await assert.rejects(executeTool('edit_layers', { ...args, action: 'backward', properties: { zIndex: 1 } }, bridge, signal), /unsupported field/);
+  assert.deepEqual(bridge.getProject(), before);
 });

@@ -6,6 +6,7 @@ import { parseManageProjectsRequest } from '../tools/requests.ts';
 export interface WorkspaceOptions {
   project: ProjectState | null;
   getCanvasPreview?: () => Promise<Blob>;
+  getLayerPreview?: (layerId: string) => Promise<Blob>;
   selectedLayerIds: string[];
   storage: StorageAdapter;
   localProjects: { project: ProjectState; localPath?: string }[];
@@ -71,6 +72,12 @@ export function createWorkspaceBridge(
       if (!current) throw new Error('No project open.');
       if (!options.getCanvasPreview) throw new Error('Canvas preview is unavailable.');
       return options.getCanvasPreview();
+    },
+    getLayerPreview: async layerId => {
+      const options = read();
+      if (!current) throw new Error('No project open.');
+      if (!options.getLayerPreview) throw new Error('Layer preview is unavailable.');
+      return options.getLayerPreview(layerId);
     },
     getSelection: () => read().selectedLayerIds,
     commit: async project => {

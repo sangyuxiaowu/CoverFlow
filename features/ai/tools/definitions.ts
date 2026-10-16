@@ -33,7 +33,7 @@ const patch = object('图层属性的部分更新；省略字段保持原值。�
   width: numeric('图层宽度，单位为画布像素；等比锁定时只改宽度会同步高度。', 1),
   height: numeric('图层高度，单位为画布像素；等比锁定时只改高度会同步宽度。', 1),
   rotation: numeric('图层旋转角度，单位为度。'),
-  zIndex: numeric('图层堆叠顺序，值越大越靠前；也可使用 front/back 操作。'),
+  zIndex: numeric('图层堆叠顺序，值越大越靠前；置顶/置底用 front/back，上移/下移一层用 forward/backward。'),
   opacity: numeric('整层透明度，0 为完全透明、1 为完全不透明；与颜色 alpha 叠加。', 0, 1),
   fontSize: numeric('仅用于文字：字号，单位为像素。', 1),
   visible: boolean('是否显示图层。'),
@@ -74,6 +74,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     layerIds: layerIds('可选图层 ID 列表；省略时读取所有匹配图层。'),
     query: string('可选名称或内容关键词，不区分大小写；省略时不过滤，提供时不得为空白。')
   }, ['projectId'])),
+  tool('get_selected_layers', '读取当前选中图层的属性；视觉模型还会收到选中图片图层的预览。', object('无需参数', {})),
   tool('add_layer', '在当前项目添加一个图层并选中；不会自动编组，多图层组合请使用 edit_layers。', object('新图层创建参数。', {
     projectId,
     type: enumeration('图层类型：text 为纯文本，svg 为矢量标记，image 为已有位图，decoration 为 CSS/HTML 装饰。', ['text', 'svg', 'image', 'decoration']),
@@ -81,7 +82,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   }, ['projectId', 'type', 'properties'])),
   tool('edit_layers', '批量修改或组织图层。组合变换会传递到子图层；除单独解锁操作外，锁定图层须先解锁。', object('对当前项目的一组图层执行同一个操作。', {
     projectId,
-    action: enumeration('update 更新属性；delete 删除；duplicate 复制；group 编组（至少两个未编组图层，不可嵌套）；ungroup 拆组；front/back 置顶/置底；align 对齐画布；distribute 等间距分布（至少三个独立图层）。', Object.keys(EDIT_LAYER_RULES)),
+    action: enumeration('update 更新属性；delete 删除；duplicate 复制；group 编组（至少两个未编组图层，不可嵌套）；ungroup 拆组；front/back 置顶/置底；forward/backward 上移/下移一层，跨过相邻的一个未选中图层，保持选中图层相对顺序，边界不再移动，选择组合时包含子图层；align 对齐画布；distribute 等间距分布（至少三个独立图层）。', Object.keys(EDIT_LAYER_RULES)),
     layerIds: layerIds('操作目标 ID 列表；同一 properties 会应用于全部目标，不应混合需要不同属性的图层。'),
     properties: conditional(EDIT_LAYER_RULES, 'properties', { ...patch, minProperties: 1, description: '待修改字段，至少提供一个；省略的属性保持原值。' }),
     name: conditional(EDIT_LAYER_RULES, 'name', string('组名，不得为空白；省略为 Group。')),

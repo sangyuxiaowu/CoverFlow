@@ -1836,6 +1836,13 @@ const App: React.FC = () => {
       if (!preview) throw new Error('No project is open.');
       return preview;
     },
+    getLayerPreview: async layerId => {
+      const layer = project?.layers.find(item => item.id === layerId);
+      if (!layer || layer.type !== 'image') throw new Error('Image layer is unavailable.');
+      const response = await fetch(layer.content);
+      if (!response.ok) throw new Error('Image could not be loaded for preview.');
+      return encodeWebp(await response.blob());
+    },
     selectedLayerIds,
     storage: storageAdapter,
     localProjects: localRecentItems,

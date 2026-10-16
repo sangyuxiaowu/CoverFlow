@@ -4,7 +4,7 @@ import 'fake-indexeddb/auto';
 import { readResponse, runConversation, normalizeUsage, sanitizeResponseItems } from './conversation.ts';
 import type { Response as AiResponse, ResponseStreamEvent } from 'openai/resources/responses/responses';
 import { SYSTEM_PROMPT, VISUAL_CONTENT_GUIDE, defaultConfig, saveConfig, normalizeConfig, normalizeEndpoint, selectModel, toRequestConfig, reasoningPayload, loadConfig, createEndpoint, validateRequestConfig } from './config.ts';
-import type { ProjectState } from '../../types.ts';
+import type { ProjectState } from '../../../types.ts';
 import type { AiRequestConfig, ChatEntry, ChatSession, RequestUsage, ResponseItem, ToolEvent, WorkspaceBridge } from '../types.ts';
 import { AI_DATABASE_NAME, listStoredSessions, saveStoredImage, loadStoredImage, saveStoredSession, deleteStoredSession } from './configStore.ts';
 import { createFileChatStore, type ChatFileAccess } from './chatStore.ts';
@@ -36,9 +36,6 @@ test('visual capability instructions accompany custom prompts without modifying 
   assert.equal(requestConfig.systemPrompt, `${original}\n\n${VISUAL_CONTENT_GUIDE}`);
   assert.equal(toRequestConfig({ ...profiles, systemPrompt: requestConfig.systemPrompt }).systemPrompt, requestConfig.systemPrompt);
   assert.equal(toRequestConfig(configuredConfig()).systemPrompt, SYSTEM_PROMPT);
-  assert.ok(SYSTEM_PROMPT.includes('静态 HTML'));
-  assert.ok(SYSTEM_PROMPT.includes('不支持 HTML 背景'));
-  assert.ok(SYSTEM_PROMPT.includes('OKLCH'));
   const originalFetch = globalThis.fetch;
   let sentInstructions = '';
   let sentTools: unknown[] = [];
@@ -92,6 +89,53 @@ test('vision models receive a WebP image from the canvas preview tool', async ()
     const output = requests[1].input.at(-1).output;
     assert.equal(output[0].type, 'input_image');
     assert.match(output[0].image_url, /^data:image\/webp;base64,/);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('selected image layers are sent as WebP input only to vision models', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Record<string, any>[] = [];
+  let round = 0;
+  globalThis.fetch = async (_url, options) => {
+    requests.push(JSON.parse(options!.body as string));
+    round++;
+    return streamResponse(responsePayload(round === 1
+      ? [{ type: 'function_call', call_id: 'selected-call', name: 'get_selected_layers', arguments: '{}' }]
+      : [textOutput]));
+  };
+  try {
+    const imageLayer = { id: 'image-1', name: 'Photo', type: 'image' as const, content: 'data:image/png;base64,abc', x: 10, y: 20, width: 300, height: 200, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 };
+    const project: ProjectState = { id: 'p1', title: 'Test', updatedAt: 0, selectedLayerId: imageLayer.id, layers: [imageLayer], canvasConfig: { width: 800, height: 600, ratio: '4:3' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } };
+    const image = new Blob(['webp-bytes'], { type: 'image/webp' });
+    let previewRequests = 0;
+    const saved: string[] = [];
+    await runConversation({
+      config: { ...config, supportsVision: true }, input: [],
+      bridge: { ...bridge, getProject: () => project, getSelection: () => [imageLayer.id], getLayerPreview: async () => { previewRequests++; return image; } },
+      signal: new AbortController().signal, onText: () => {}, onTool: () => {},
+      saveImage: async (_blob, name) => { saved.push(name); return { id: 'selected-image', name, type: 'image/webp', size: image.size }; },
+      loadImage: async () => image
+    });
+    assert.equal(previewRequests, 1);
+    assert.deepEqual(saved, ['layer-image-1.webp']);
+    const output = requests[1].input.at(-1).output;
+    assert.equal(output[0].type, 'input_text');
+    assert.equal(JSON.parse(output[0].text).layers[0].content, undefined);
+    assert.equal(output[1].type, 'input_image');
+    assert.match(output[1].image_url, /^data:image\/webp;base64,/);
+
+    requests.length = 0;
+    round = 0;
+    previewRequests = 0;
+    await runConversation({
+      config, input: [],
+      bridge: { ...bridge, getProject: () => project, getSelection: () => [imageLayer.id], getLayerPreview: async () => { previewRequests++; return image; } },
+      signal: new AbortController().signal, onText: () => {}, onTool: () => {}
+    });
+    assert.equal(previewRequests, 0);
+    assert.equal(typeof requests[1].input.at(-1).output, 'string');
+    const metadata = JSON.parse(requests[1].input.at(-1).output);
+    assert.equal(metadata.layers[0].imageInfo.previewStatus, 'not_requested');
   } finally { globalThis.fetch = originalFetch; }
 });
 

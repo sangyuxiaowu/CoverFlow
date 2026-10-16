@@ -1,6 +1,6 @@
 import type { Layer, ProjectState } from '../../../types.ts';
 
-export type LayerAction = 'update' | 'delete' | 'duplicate' | 'group' | 'ungroup' | 'front' | 'back' | 'align' | 'distribute';
+export type LayerAction = 'update' | 'delete' | 'duplicate' | 'group' | 'ungroup' | 'front' | 'back' | 'forward' | 'backward' | 'align' | 'distribute';
 
 export function groupBounds(layers: Layer[], ids: string[]) {
   const children = layers.filter(layer => ids.includes(layer.id));
@@ -105,6 +105,17 @@ export function editLayers(project: ProjectState, action: LayerAction, ids: stri
     const moving = ordered.filter(layer => expanded.has(layer.id));
     const staying = ordered.filter(layer => !expanded.has(layer.id));
     result.layers = (action === 'front' ? [...staying, ...moving] : [...moving, ...staying]).map((layer, index) => ({ ...layer, zIndex: index + 1 }));
+  } else if (action === 'forward' || action === 'backward') {
+    const ordered = [...result.layers].sort((left, right) => left.zIndex - right.zIndex);
+    const step = action === 'forward' ? 1 : -1;
+    const start = step === 1 ? ordered.length - 2 : 1;
+    for (let index = start; index >= 0 && index < ordered.length; index -= step) {
+      const neighbor = index + step;
+      if (neighbor >= 0 && neighbor < ordered.length && expanded.has(ordered[index].id) && !expanded.has(ordered[neighbor].id)) {
+        [ordered[index], ordered[neighbor]] = [ordered[neighbor], ordered[index]];
+      }
+    }
+    result.layers = ordered.map((layer, index) => ({ ...layer, zIndex: index + 1 }));
   } else if (action === 'align') {
     if (!['left', 'center', 'right', 'top', 'middle', 'bottom'].includes(mode || '')) throw new Error('Invalid alignment.');
     selected.filter(layer => !layer.parentId || !expanded.has(layer.parentId)).forEach(layer => {

@@ -82,10 +82,12 @@ chat/
 | manage_projects | list/create/open/rename/duplicate/delete/save |
 | read_layers | 按 ID 或名称/内容关键词读取图层 |
 | add_layer | text/svg/image/decoration；装饰支持 CSS 声明或静态 HTML |
-| edit_layers | update/delete/duplicate/group/ungroup/front/back/align/distribute |
+| edit_layers | update/delete/duplicate/group/ungroup/front/back/forward/backward/align/distribute |
 | update_canvas | 画布尺寸及纯色/渐变/图片/自定义 CSS 背景、纹理 |
 
 图层更新支持位置、宽高、旋转、层级、透明度、锁定、显隐、比例锁定、名称、内容、文字颜色/字体/字号/字重/对齐/书写方向/渐变/阴影。结构字段 id/type/parentId/children 不允许直接修改，分组操作负责维护关系。不允许嵌套分组。组合图层变换传递到子图层，子图层变化会刷新组合边界。App 手动图层更新和 AI 更新共用 updateProjectLayer，保持变换规则一致。
+
+层级微调使用 `edit_layers` 的 `action: forward/backward`，分别上移/下移一层，仅需 `projectId` 和 `layerIds`，不接受 `properties/mode/name`。按实际堆叠顺序跨过相邻的一个未选中图层，不是简单增减 `zIndex`；多选保持相对顺序，到达顶层/底层不再移动。选中组合时包含子图层，沿用现有锁定校验；`front/back` 仍表示直接置顶/置底。
 
 装饰使用 `decorationFormat: css/html`，切换格式时同时提交完整 `content`。调色前通过 `read_layers` 读取源码，再用 `edit_layers/update` 更新相应 CSS 变量，保留其他样式和 alpha；不接受装饰的 `color` 字段，避免无效调色返回成功。文字与 SVG 继续使用 `color`。变量颜色支持 HEX（含透明度）、RGB/RGBA、HSL/HSLA、OKLCH 与命名颜色，人工拾色器不是 AI 操作目标，不需要新增界面控制工具。背景自定义 CSS 使用 `background: {type: css, value: 声明文本}`，不支持 HTML 背景。
 

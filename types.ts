@@ -6,6 +6,7 @@ export interface DecorationElement {
   name: string;
   nameZh?: string;
   cssText: string;
+  format?: 'css' | 'html';
   width: number;
   height: number;
   createdAt?: number;
@@ -31,7 +32,8 @@ export interface Layer {
   id: string;
   name: string;
   type: LayerType;
-  content: string; // SVG 代码、文字内容、图片 URL 或装饰 CSS
+  content: string; // SVG 代码、文字内容、图片 URL 或装饰 CSS/HTML
+  decorationFormat?: 'css' | 'html';
   x: number;
   y: number;
   width: number;
@@ -72,7 +74,7 @@ export interface CanvasConfig {
 }
 
 export interface BackgroundConfig {
-  type: 'color' | 'gradient' | 'image';
+  type: 'color' | 'gradient' | 'image' | 'css';
   value: string; // 颜色值、CSS 渐变或 URL
   overlayType: 'none' | 'dots' | 'grid' | 'stripes';
   overlayColor: string;

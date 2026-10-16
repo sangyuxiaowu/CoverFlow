@@ -84,7 +84,7 @@ export const PRESET_DECORATIONS: DecorationElement[] = [
     nameZh: '极光边框',
     width: 320,
     height: 180,
-    cssText: 'background: linear-gradient(135deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.02) 48%), linear-gradient(135deg, currentColor 0%, rgba(15,23,42,0.06) 100%); border: 1px solid rgba(255,255,255,0.24); border-radius: 28px;'
+    cssText: '--accent: #38bdf8; background: linear-gradient(135deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.02) 48%), linear-gradient(135deg, var(--accent) 0%, rgba(15,23,42,0.06) 100%); border: 1px solid rgba(255,255,255,0.24); border-radius: 28px;'
   },
   {
     id: 'builtin-ribbon-tag',
@@ -92,7 +92,7 @@ export const PRESET_DECORATIONS: DecorationElement[] = [
     nameZh: '丝带标签',
     width: 300,
     height: 96,
-    cssText: 'background: linear-gradient(90deg, currentColor 0%, rgba(255,255,255,0.18) 100%); border-radius: 18px; clip-path: polygon(0 0, 88% 0, 100% 50%, 88% 100%, 0 100%, 8% 50%); box-shadow: 0 12px 26px rgba(15,23,42,0.24);'
+    cssText: '--accent: #38bdf8; background: linear-gradient(90deg, var(--accent) 0%, rgba(255,255,255,0.18) 100%); border-radius: 18px; clip-path: polygon(0 0, 88% 0, 100% 50%, 88% 100%, 0 100%, 8% 50%); box-shadow: 0 12px 26px rgba(15,23,42,0.24);'
   },
   {
     id: 'builtin-halo-disc',
@@ -100,7 +100,7 @@ export const PRESET_DECORATIONS: DecorationElement[] = [
     nameZh: '光晕圆盘',
     width: 220,
     height: 220,
-    cssText: 'background: radial-gradient(circle at center, currentColor 0%, rgba(255,255,255,0.2) 42%, transparent 74%); border-radius: 999px;'
+    cssText: '--accent: #38bdf8; background: radial-gradient(circle at center, var(--accent) 0%, rgba(255,255,255,0.2) 42%, transparent 74%); border-radius: 999px;'
   },
   {
     id: 'builtin-glass-card',
@@ -108,7 +108,7 @@ export const PRESET_DECORATIONS: DecorationElement[] = [
     nameZh: '玻璃片',
     width: 280,
     height: 150,
-    cssText: 'background: linear-gradient(135deg, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.04) 100%); border: 1px solid rgba(255,255,255,0.3); border-radius: 24px; outline: 2px solid currentColor; outline-offset: -10px; backdrop-filter: blur(10px);'
+    cssText: '--accent: #38bdf8; background: linear-gradient(135deg, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.04) 100%); border: 1px solid rgba(255,255,255,0.3); border-radius: 24px; outline: 2px solid var(--accent); outline-offset: -10px; backdrop-filter: blur(10px);'
   },
   {
     id: 'builtin-glass-card2',
@@ -124,7 +124,7 @@ export const PRESET_DECORATIONS: DecorationElement[] = [
     nameZh: '条纹片',
     width: 280,
     height: 140,
-    cssText: 'background: repeating-linear-gradient(135deg, currentColor 0px, currentColor 12px, rgba(255,255,255,0.08) 12px, rgba(255,255,255,0.08) 24px); border-radius: 22px; border: 1px solid rgba(255,255,255,0.22);'
+    cssText: '--accent: #38bdf8; background: repeating-linear-gradient(135deg, var(--accent) 0px, var(--accent) 12px, rgba(255,255,255,0.08) 12px, rgba(255,255,255,0.08) 24px); border-radius: 22px; border: 1px solid rgba(255,255,255,0.22);'
   },
   {
     id: 'builtin-signal-pill',
@@ -132,6 +132,15 @@ export const PRESET_DECORATIONS: DecorationElement[] = [
     nameZh: '信号胶囊',
     width: 320,
     height: 90,
-    cssText: 'background: linear-gradient(90deg, currentColor 0%, rgba(255,255,255,0.14) 100%); border: 1px solid rgba(255,255,255,0.24); border-radius: 999px;'
+    cssText: '--accent: #38bdf8; background: linear-gradient(90deg, var(--accent) 0%, rgba(255,255,255,0.14) 100%); border: 1px solid rgba(255,255,255,0.24); border-radius: 999px;'
+  },
+  {
+    id: 'builtin-html-badge',
+    name: 'Editorial Badge',
+    nameZh: '编辑徽章',
+    width: 300,
+    height: 160,
+    format: 'html',
+    cssText: '<style>:root{--accent:#38bdf8;--paper:#f4f7f5}.badge{box-sizing:border-box;width:100%;height:100%;padding:24px;background:var(--paper);border-left:8px solid var(--accent);color:#162a2a;display:flex;flex-direction:column;justify-content:space-between}.label{font:700 12px sans-serif;color:var(--accent)}.title{font:700 30px Georgia,serif;margin:0}.rule{height:2px;background:var(--accent);width:48px}</style><div class="badge"><span class="label">COVER / 01</span><p class="title">New perspectives</p><div class="rule"></div></div>'
   }
 ];

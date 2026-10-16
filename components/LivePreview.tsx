@@ -1,7 +1,7 @@
 import React, { useLayoutEffect, useRef, useState } from 'react';
 import { ProjectState } from '../types.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
-import { buildDecorationLayerStyle } from '../utils/decorationStyles.ts';
+import DecorationContent from './DecorationContent.tsx';
 import { applySvgAspectRatio } from '../utils/helpers.ts';
 
 // 实时缩放预览组件。
@@ -138,7 +138,7 @@ const LivePreview: React.FC<{
                   </div>
                 ) : layer.type === 'decoration' ? (
                   <div className="w-full h-full overflow-hidden" style={{ opacity: layer.opacity }}>
-                    <div className="w-full h-full" style={buildDecorationLayerStyle(layer.content, layer.color || '#38bdf8')} />
+                    <DecorationContent content={layer.content} format={layer.decorationFormat} />
                   </div>
                 ) : layer.type === 'image' ? (
                   <img

@@ -3,7 +3,7 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Layer, ProjectState } from '../types.ts';
 import { applySvgAspectRatio } from '../utils/helpers.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
-import { buildDecorationLayerStyle } from '../utils/decorationStyles.ts';
+import DecorationContent from './DecorationContent.tsx';
 import { translations, Language } from '../translations.ts';
 import { RotateCw } from 'lucide-react';
 
@@ -411,10 +411,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                       )
                     ) : layer.type === 'decoration' ? (
                       <div className="w-full h-full pointer-events-none overflow-hidden" style={{ opacity: layer.opacity }}>
-                        <div
-                          className="w-full h-full"
-                          style={buildDecorationLayerStyle(layer.content, layer.color || '#38bdf8')}
-                        />
+                        <DecorationContent content={layer.content} format={layer.decorationFormat} />
                       </div>
                     ) : (
                       <img

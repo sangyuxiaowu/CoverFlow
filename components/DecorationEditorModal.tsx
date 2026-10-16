@@ -1,11 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 import { Plus, Save, X } from 'lucide-react';
 import { translations, Language } from '../translations.ts';
-import {
-  buildDecorationLayerStyle,
-  compactDecorationCssForStorage,
-  formatDecorationCssForEditor
-} from '../utils/decorationStyles.ts';
+import DecorationContent from './DecorationContent.tsx';
+import DecorationCodeEditor from './DecorationCodeEditor.tsx';
+import type { ContentFormat } from '../utils/customContent.ts';
 
 interface DecorationEditorModalProps {
   lang: Language;
@@ -15,6 +13,8 @@ interface DecorationEditorModalProps {
   width: number;
   height: number;
   cssText: string;
+  format: ContentFormat;
+  onChangeFormat: (format: ContentFormat) => void;
   previewCssText: string;
   issueMessages: string[];
   disabled: boolean;
@@ -35,6 +35,8 @@ const DecorationEditorModal: React.FC<DecorationEditorModalProps> = ({
   width,
   height,
   cssText,
+  format,
+  onChangeFormat,
   previewCssText,
   issueMessages,
   disabled,
@@ -47,57 +49,17 @@ const DecorationEditorModal: React.FC<DecorationEditorModalProps> = ({
   onApply
 }) => {
   const t = translations[lang];
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const [editorCssText, setEditorCssText] = useState(() => formatDecorationCssForEditor(cssText));
-
-  useEffect(() => {
-    if (isOpen) {
-      setEditorCssText(formatDecorationCssForEditor(cssText));
-    }
-  }, [cssText, isOpen]);
 
   if (!isOpen) return null;
 
   const previewScale = Math.min(1, 180 / Math.max(width, height, 1));
 
-  const syncCssText = (nextEditorValue: string) => {
-    setEditorCssText(nextEditorValue);
-    onChangeCssText(compactDecorationCssForStorage(nextEditorValue));
-  };
-
-  const handleCssKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== ';' || event.ctrlKey || event.metaKey || event.altKey) {
-      return;
-    }
-
-    event.preventDefault();
-    const target = event.currentTarget;
-    const start = target.selectionStart;
-    const end = target.selectionEnd;
-    const afterSelection = editorCssText.slice(end);
-    const insertion = afterSelection.startsWith('\n') ? ';' : ';\n';
-    const nextEditorValue = `${editorCssText.slice(0, start)}${insertion}${afterSelection}`;
-
-    syncCssText(nextEditorValue);
-    requestAnimationFrame(() => {
-      const nextCaretPosition = start + insertion.length;
-      textareaRef.current?.setSelectionRange(nextCaretPosition, nextCaretPosition);
-    });
-  };
-
-  const handleCssBlur = () => {
-    const formatted = formatDecorationCssForEditor(editorCssText);
-    setEditorCssText(formatted);
-    onChangeCssText(compactDecorationCssForStorage(formatted));
-  };
-
   return (
     <div className="fixed inset-0 z-[150] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-4xl rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label={mode === 'edit' ? t.decorationEditorEditTitle : t.decorationEditorCreateTitle} className="w-full max-w-4xl max-h-[90dvh] rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
           <div>
             <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">{mode === 'edit' ? t.decorationEditorEditTitle : t.decorationEditorCreateTitle}</div>
-            <div className="text-[11px] text-slate-500 mt-1">{t.decorationSingleCssHint}</div>
           </div>
           <button
             type="button"
@@ -137,15 +99,7 @@ const DecorationEditorModal: React.FC<DecorationEditorModalProps> = ({
               />
             </div>
 
-            <textarea
-              ref={textareaRef}
-              value={editorCssText}
-              placeholder={t.decorationDraftPlaceholder}
-              onChange={(e) => syncCssText(e.target.value)}
-              onKeyDown={handleCssKeyDown}
-              onBlur={handleCssBlur}
-              className="w-full min-h-[320px] bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs leading-6 text-slate-200 font-mono resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
+            <DecorationCodeEditor lang={lang} content={cssText} format={format} onChange={onChangeCssText} onChangeFormat={onChangeFormat} />
           </div>
 
           <div className="p-5 space-y-4 bg-slate-950/30">
@@ -160,18 +114,15 @@ const DecorationEditorModal: React.FC<DecorationEditorModalProps> = ({
                     transformOrigin: 'center center'
                   }}
                 >
-                  <div className="w-full h-full" style={buildDecorationLayerStyle(previewCssText, '#38bdf8')} />
+                  <DecorationContent content={previewCssText} format={format} />
                 </div>
               </div>
-              <div className="text-[10px] text-slate-600 leading-relaxed mt-2">{t.decorationPreviewSafeHint}</div>
             </div>
 
             <div className="space-y-1.5 min-h-[72px]">
-              {issueMessages.length > 0 ? issueMessages.map((message) => (
+              {issueMessages.map((message) => (
                 <div key={message} className="text-[10px] text-amber-400 leading-relaxed">{message}</div>
-              )) : (
-                <div className="text-[10px] text-slate-500 leading-relaxed">{t.decorationUseCurrentColorHint}</div>
-              )}
+              ))}
             </div>
 
             <div className="flex items-center gap-2 pt-2">

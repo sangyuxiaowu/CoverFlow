@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import type { ProjectState } from '../../../types.ts';
@@ -45,4 +46,19 @@ test('canvas and background edits are validated and committed', async () => {
   assert.equal(bridge.getProject()!.canvasConfig.width, 1200);
   assert.equal(bridge.getProject()!.background.type, 'gradient');
   await assert.rejects(executeTool('update_canvas', { projectId: 'p1', width: -1 }, bridge, signal), /Invalid/);
+});
+
+test('custom CSS backgrounds and HTML decorations use the shared validation', async () => {
+  const { bridge, signal } = setup();
+  await executeTool('update_canvas', { projectId: 'p1', background: { type: 'css', value: 'background: linear-gradient(45deg, red, blue);' } }, bridge, signal);
+  assert.equal(bridge.getProject()!.background.type, 'css');
+  await assert.rejects(executeTool('update_canvas', { projectId: 'p1', background: { value: 'position:fixed;' } }, bridge, signal));
+  const source = '<style>.badge {color:currentColor}</style><div class="badge">Hello</div>';
+  await executeTool('add_layer', { projectId: 'p1', type: 'decoration', properties: { content: source } }, bridge, signal);
+  const layer = bridge.getProject()!.layers[0];
+  assert.equal(layer.decorationFormat, 'html');
+  assert.equal(layer.content, source);
+  await assert.rejects(executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [layer.id], properties: { content: '<div onclick="alert(1)">Bad</div>' } }, bridge, signal));
+  assert.equal(bridge.getProject()!.layers[0].content, source);
+  await assert.rejects(executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [layer.id], properties: { decorationFormat: 'css' } }, bridge, signal));
 });

@@ -1,4 +1,5 @@
 import type { BackgroundConfig, Layer } from '../../../types.ts';
+import { sanitizeDecorationContent } from '../../../utils/decorationStyles.ts';
 
 export function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected an object.');
@@ -52,6 +53,7 @@ export function layerPatch(value: unknown): Partial<Layer> {
     else if (field === 'fontWeight') output[field] = typeof raw === 'string' ? text(raw, field) : number(raw, field, 1, 1000);
     else if (field === 'textAlign') output[field] = choice(raw, field, ['left', 'center', 'right']);
     else if (field === 'writingMode') output[field] = choice(raw, field, ['horizontal', 'vertical']);
+    else if (field === 'decorationFormat') output[field] = choice(raw, field, ['css', 'html']);
     else if (field === 'textGradient' || field === 'textShadow') {
       const nested = record(raw);
       const allowed = field === 'textGradient' ? ['enabled', 'from', 'to', 'angle'] : ['enabled', 'color', 'blur', 'offsetX', 'offsetY'];
@@ -62,7 +64,7 @@ export function layerPatch(value: unknown): Partial<Layer> {
   return output as Partial<Layer>;
 }
 
-export function validateContent(type: Layer['type'], content: string): string {
+export function validateContent(type: Layer['type'], content: string, format?: Layer['decorationFormat']): string {
   if (type === 'image') return safeImage(content);
   if (type === 'svg') {
     const document = new DOMParser().parseFromString(content, 'image/svg+xml');
@@ -74,14 +76,17 @@ export function validateContent(type: Layer['type'], content: string): string {
       }
     }
   }
-  if (type === 'decoration' && /@import|url\s*\(|expression\s*\(|<\/?[a-z]/i.test(content)) throw new Error('Decoration CSS cannot load external resources or contain HTML.');
+  if (type === 'decoration') {
+    const result = sanitizeDecorationContent(content, format);
+    if (result.issues.length) throw new Error(result.issues.map((issue) => issue.detail || issue.code).join('; '));
+  }
   return content;
 }
 
 export function backgroundPatch(value: unknown): Partial<BackgroundConfig> {
   const output: Record<string, unknown> = {};
   for (const [field, raw] of Object.entries(record(value))) {
-    if (field === 'type') output[field] = choice(raw, field, ['color', 'gradient', 'image']);
+    if (field === 'type') output[field] = choice(raw, field, ['color', 'gradient', 'image', 'css']);
     else if (field === 'overlayType') output[field] = choice(raw, field, ['none', 'dots', 'grid', 'stripes']);
     else if (field === 'value' || field === 'overlayColor') output[field] = text(raw, field);
     else if (field === 'overlayOpacity') output[field] = number(raw, field, 0, 1);

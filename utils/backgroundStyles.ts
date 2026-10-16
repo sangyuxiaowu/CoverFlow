@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { BackgroundConfig } from '../types.ts';
+import { backgroundCssStyle } from './customContent.ts';
 
 export type BackgroundStyleOptions = {
   patternScale?: number;
@@ -21,6 +22,8 @@ export const buildBackgroundStyles = (
     baseBackground = `url(${bg.value})`;
     styles.backgroundSize = 'cover';
     styles.backgroundPosition = 'center';
+  } else if (bg.type === 'css') {
+    Object.assign(styles, backgroundCssStyle(bg.value));
   }
 
   let patternImage = '';
@@ -59,6 +62,10 @@ export const buildBackgroundStyles = (
   }
 
   if (backgroundImages.length > 0) {
+    if (bg.type === 'css' && styles.backgroundImage) {
+      backgroundImages.push(styles.backgroundImage);
+      backgroundSizes.push(String(styles.backgroundSize || 'auto'));
+    }
     styles.backgroundImage = backgroundImages.join(', ');
     styles.backgroundSize = backgroundSizes.join(', ');
   }

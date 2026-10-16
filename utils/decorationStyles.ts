@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
+import { detectDecorationFormat, sanitizeDecorationHtml, sanitizeStaticCss, type ContentFormat, type DecorationFormat } from './customContent.ts';
 
-export const MAX_DECORATION_CSS_LENGTH = 1200;
+export const MAX_DECORATION_CSS_LENGTH = 6000;
 export const MIN_DECORATION_SIZE = 24;
 export const MAX_DECORATION_SIZE = 640;
 
@@ -55,7 +56,19 @@ export interface DecorationSanitizeResult {
   issues: DecorationIssue[];
 }
 
-const toCamelCase = (value: string) => value.replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+export const sanitizeDecorationContent = (source: string, format: ContentFormat = 'auto'): DecorationSanitizeResult & { format: DecorationFormat } => {
+  const resolved = format === 'auto' ? detectDecorationFormat(source) : format;
+  if (resolved === 'css') return { ...sanitizeDecorationCss(source), format: resolved };
+  const result = sanitizeDecorationHtml(source);
+  return {
+    cssText: source.trim(),
+    style: {},
+    format: resolved,
+    issues: result.issues.map((detail) => ({ code: 'unsafeValue', detail }))
+  };
+};
+
+const toCamelCase = (value: string) => value.startsWith('--') ? value : value.replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase());
 
 const clampPxValues = (value: string) => value.replace(/(-?\d+(?:\.\d+)?)px/gi, (_match, numberValue: string) => {
   const parsed = Number.parseFloat(numberValue);
@@ -142,6 +155,11 @@ export const sanitizeDecorationCss = (cssText: string): DecorationSanitizeResult
     return { cssText: '', style: {}, issues };
   }
 
+  const parsed = sanitizeStaticCss(cssText);
+  if (parsed.issues.length) {
+    return { cssText: '', style: {}, issues: parsed.issues.map((detail) => ({ code: 'unsafeValue', detail })) };
+  }
+
   if (trimmed.length > MAX_DECORATION_CSS_LENGTH) {
     issues.push({ code: 'tooLong' });
   }
@@ -171,10 +189,11 @@ export const sanitizeDecorationCss = (cssText: string): DecorationSanitizeResult
       return;
     }
 
-    const property = declaration.slice(0, separatorIndex).trim().toLowerCase();
+    const rawProperty = declaration.slice(0, separatorIndex).trim();
+    const property = rawProperty.startsWith('--') ? rawProperty : rawProperty.toLowerCase();
     const value = declaration.slice(separatorIndex + 1).trim();
 
-    if (!ALLOWED_SET.has(property)) {
+    if (!ALLOWED_SET.has(property) && !/^--[a-z0-9-]+$/i.test(property)) {
       issues.push({ code: 'unsupportedProperty', detail: property });
       return;
     }
@@ -195,7 +214,7 @@ export const sanitizeDecorationCss = (cssText: string): DecorationSanitizeResult
 
   const nextStyle: CSSProperties = {};
   if (style) {
-    ALLOWED_PROPERTIES.forEach((property) => {
+    [...ALLOWED_PROPERTIES, ...Array.from(style).filter((property) => property.startsWith('--'))].forEach((property) => {
       const value = style.getPropertyValue(property);
       if (!value) return;
       (nextStyle as Record<string, string>)[toCamelCase(property)] = value;
@@ -213,13 +232,12 @@ export const hasBlockingDecorationIssues = (issues: DecorationIssue[]) => {
   return issues.length > 0;
 };
 
-export const buildDecorationLayerStyle = (cssText: string, color = '#38bdf8'): CSSProperties => {
+export const buildDecorationLayerStyle = (cssText: string): CSSProperties => {
   const { style } = sanitizeDecorationCss(cssText);
   return {
     width: '100%',
     height: '100%',
     boxSizing: 'border-box',
-    color,
     ...style
   };
 };

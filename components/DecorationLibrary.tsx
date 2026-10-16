@@ -15,13 +15,14 @@ import {
   writeDecorationPresetsFile
 } from '../storage/storage.ts';
 import {
-  buildDecorationLayerStyle,
   clampDecorationSize,
   hasBlockingDecorationIssues,
-  sanitizeDecorationCss
+  sanitizeDecorationContent
 } from '../utils/decorationStyles.ts';
 import { applySvgAspectRatio, generateId } from '../utils/helpers.ts';
 import DecorationEditorModal from './DecorationEditorModal.tsx';
+import DecorationContent from './DecorationContent.tsx';
+import type { ContentFormat } from '../utils/customContent.ts';
 
 interface DecorationLibraryProps {
   lang: Language;
@@ -39,9 +40,9 @@ type DraftDecoration = {
   width: number;
   height: number;
   cssText: string;
+  format: ContentFormat;
 };
 
-const DEFAULT_COLOR = '#38bdf8';
 const PREVIEW_SAFE_PADDING = 16;
 
 const createDraft = (element?: Partial<DecorationElement>): DraftDecoration => {
@@ -50,7 +51,8 @@ const createDraft = (element?: Partial<DecorationElement>): DraftDecoration => {
     name: element?.name || fallback.name,
     width: clampDecorationSize(element?.width ?? fallback.width, fallback.width),
     height: clampDecorationSize(element?.height ?? fallback.height, fallback.height),
-    cssText: element?.cssText || fallback.cssText
+    cssText: element?.cssText || fallback.cssText,
+    format: element?.format || 'auto'
   };
 };
 
@@ -126,7 +128,7 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [storageError, setStorageError] = useState('');
 
-  const draftResult = useMemo(() => sanitizeDecorationCss(draft.cssText), [draft.cssText]);
+  const draftResult = useMemo(() => sanitizeDecorationContent(draft.cssText, draft.format), [draft.cssText, draft.format]);
 
   const issueMessages = useMemo(() => {
     const messages = new Set<string>();
@@ -232,13 +234,14 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
       name: draft.name.trim() || t.decorations,
       width: clampDecorationSize(draft.width, PRESET_DECORATIONS[0].width),
       height: clampDecorationSize(draft.height, PRESET_DECORATIONS[0].height),
-      cssText: draftResult.cssText
+      cssText: draftResult.cssText,
+      format: draftResult.format
     };
-  }, [draft.height, draft.name, draft.width, draftResult.cssText, t.decorations]);
+  }, [draft.height, draft.name, draft.width, draftResult.cssText, draftResult.format, t.decorations]);
 
   const handleApplyElement = useCallback((element?: DecorationElement) => {
     const source = element || buildElementFromDraft();
-    const result = sanitizeDecorationCss(source.cssText);
+    const result = sanitizeDecorationContent(source.cssText, source.format);
     if (hasBlockingDecorationIssues(result.issues)) {
       return;
     }
@@ -247,9 +250,9 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
       name: source.name,
       type: 'decoration',
       content: result.cssText,
+      decorationFormat: result.format,
       width: source.width,
-      height: source.height,
-      color: DEFAULT_COLOR
+      height: source.height
     });
     if (!element) setIsEditorOpen(false);
   }, [buildElementFromDraft, onAddLayer]);
@@ -264,6 +267,7 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
       width: nextBase.width,
       height: nextBase.height,
       cssText: nextBase.cssText,
+      format: nextBase.format,
       createdAt: existing?.createdAt || Date.now(),
       updatedAt: Date.now()
     };
@@ -359,7 +363,7 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
                 height: element.height
               }}
             >
-              <div className="w-full h-full" style={buildDecorationLayerStyle(element.cssText, DEFAULT_COLOR)} />
+              <DecorationContent content={element.cssText} format={element.format} />
             </div>
           </div>
         </div>
@@ -393,7 +397,7 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
                   ) : layer.type === 'text' ? (
                     <div className="w-full h-full" style={textStyle}>{layer.content}</div>
                   ) : layer.type === 'decoration' ? (
-                    <div className="w-full h-full" style={{ ...buildDecorationLayerStyle(layer.content, layer.color || DEFAULT_COLOR), opacity: layer.opacity }} />
+                    <div className="w-full h-full" style={{ opacity: layer.opacity }}><DecorationContent content={layer.content} format={layer.decorationFormat} /></div>
                   ) : null}
                 </div>
               );
@@ -517,6 +521,8 @@ const DecorationLibrary: React.FC<DecorationLibraryProps> = ({
         width={draft.width}
         height={draft.height}
         cssText={draft.cssText}
+        format={draft.format}
+        onChangeFormat={(format) => setDraft((prev) => ({ ...prev, format }))}
         previewCssText={draftResult.cssText || draft.cssText}
         issueMessages={issueMessages}
         disabled={hasBlockingDecorationIssues(draftResult.issues)}

@@ -7,6 +7,7 @@ import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Sa
 import * as yaml from 'js-yaml';
 import { normalizeSVG } from '../utils/helpers.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
+import { backgroundCssStyle, sanitizeBackgroundCss } from '../utils/customContent.ts';
 import DecorationLibrary from './DecorationLibrary.tsx';
 import {
   clearFaCache,
@@ -732,8 +733,12 @@ const Sidebar: React.FC<SidebarProps> = ({
     setDeletingIndex(null);
   };
 
-  const handleTypeChange = (newType: 'color' | 'gradient' | 'image') => {
+  const handleTypeChange = (newType: BackgroundConfig['type']) => {
     let newValue = background.value;
+    if (background.type === 'css' && newType !== 'css') {
+      const style = backgroundCssStyle(background.value);
+      newValue = String(newType === 'gradient' && style.backgroundImage ? style.backgroundImage : style.backgroundColor || '#1e293b');
+    }
     const hexMatch = newValue.match(/#[a-fA-F0-9]{3,6}/gi) || [];
     const isGradient = newValue.includes('gradient');
     const isImage = newValue.startsWith('http') || newValue.startsWith('data:');
@@ -749,6 +754,8 @@ const Sidebar: React.FC<SidebarProps> = ({
       }
     } else if (newType === 'image') {
       if (!isImage) newValue = '';
+    } else if (newType === 'css' && background.type !== 'css') {
+      newValue = `background: ${background.type === 'image' ? '#101820' : background.value};`;
     }
     onUpdateBackground({ type: newType, value: newValue });
   };
@@ -1004,7 +1011,8 @@ const Sidebar: React.FC<SidebarProps> = ({
           {[
             { id: 'color', icon: PaintBucket, title: t.bgTypeColor },
             { id: 'gradient', icon: Palette, title: t.bgTypeGradient },
-            { id: 'image', icon: ImageIcon, title: t.bgTypeImage }
+            { id: 'image', icon: ImageIcon, title: t.bgTypeImage },
+            { id: 'css', icon: Sliders, title: t.bgTypeCss }
           ].map(item => (
             <button
               key={item.id}
@@ -1020,6 +1028,22 @@ const Sidebar: React.FC<SidebarProps> = ({
           ))}
         </div>
         <div className="space-y-2.5 pt-1.5">
+          {background.type === 'css' && (
+            <div className="space-y-3">
+              <label className="text-[10px] text-slate-400" htmlFor="background-css">{t.bgTypeCss}</label>
+              <textarea id="background-css" aria-label={t.bgTypeCss} value={background.value} onChange={(event) => onUpdateBackground({ value: event.target.value })} spellCheck={false}
+                className="w-full min-h-[180px] bg-slate-950 border border-slate-700 rounded-lg p-3 text-xs leading-5 font-mono text-slate-200 outline-none focus:border-blue-500 resize-y" />
+              {sanitizeBackgroundCss(background.value).issues.map((issue) => <div role="status" key={issue} className="text-[10px] text-amber-400 break-words">{issue}</div>)}
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  'background-color: #142029; background-image: radial-gradient(#6b9296 1px, transparent 1px); background-size: 18px 18px;',
+                  'background-color: #f5f5f0; background-image: linear-gradient(#bdc9c9 1px, transparent 1px), linear-gradient(90deg, #bdc9c9 1px, transparent 1px); background-size: 32px 32px;',
+                  'background-color: #123c39; background-image: radial-gradient(ellipse at 10% 15%, #72bfb0, transparent 60%), linear-gradient(135deg, transparent, #1c222b);'
+                ].map((source, index) => <button key={source} type="button" aria-label={`${t.bgTypeCss} ${index + 1}`} title={`${t.bgTypeCss} ${index + 1}`} onClick={() => onUpdateBackground({ value: source })}
+                  className="h-12 rounded-md border border-slate-700 hover:border-sky-400" style={buildBackgroundStyles({ ...background, value: source, overlayType: 'none' })} />)}
+              </div>
+            </div>
+          )}
           {background.type === 'color' && (
             <div className="space-y-2.5 animate-in fade-in zoom-in-95 duration-200">
               <div className="flex gap-2">

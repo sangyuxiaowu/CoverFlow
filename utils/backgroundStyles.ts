@@ -28,7 +28,7 @@ export const buildBackgroundStyles = (
 
   let patternImage = '';
   let patternSize = '';
-  if (bg.overlayType !== 'none') {
+  if (bg.type !== 'css' && bg.overlayType !== 'none') {
     const rgba = bg.overlayColor.startsWith('#')
       ? `${bg.overlayColor}${Math.round(bg.overlayOpacity * 255)
           .toString(16)

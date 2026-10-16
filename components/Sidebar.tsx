@@ -1115,7 +1115,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
       </section>
-      <section className="space-y-2.5 pt-3 border-t border-slate-800">
+      {background.type !== 'css' && <section className="space-y-2.5 pt-3 border-t border-slate-800">
         <div className="flex items-center justify-between">
           <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-widest">{t.overlayType}</h3>
         </div>
@@ -1149,7 +1149,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
         )}
-      </section>
+      </section>}
     </div>
   );
 

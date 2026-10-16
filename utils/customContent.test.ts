@@ -15,9 +15,10 @@ describe('custom backgrounds', () => {
     expect(sanitizeBackgroundCss(source).issues.length).toBeGreaterThan(0);
     expect(backgroundCssStyle(source)).toEqual({});
   });
-  it('composes custom backgrounds below existing textures', () => {
-    const style = buildBackgroundStyles({ type: 'css', value: 'background-image: linear-gradient(red,blue); background-size: 100% 100%;', overlayType: 'dots', overlayColor: '#ffffff', overlayOpacity: 0.3, overlayScale: 20 });
-    expect(style.backgroundImage).toContain('radial-gradient');
+  it('does not apply overlay textures to custom CSS backgrounds', () => {
+    const style = buildBackgroundStyles({ type: 'css', value: 'background: linear-gradient(red,blue);', overlayType: 'dots', overlayColor: '#ffffff', overlayOpacity: 0.3, overlayScale: 20 });
+    expect(style.background).toBeTruthy();
+    expect(style.backgroundImage).not.toContain('radial-gradient');
     expect(style.backgroundImage).toContain('linear-gradient');
   });
 });

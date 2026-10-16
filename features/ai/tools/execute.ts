@@ -25,6 +25,7 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
   if (name === 'add_layer') {
     const type = choice(args.type, 'type', ['text', 'svg', 'image', 'decoration']);
     const patch = layerPatch(args.properties);
+    if (type === 'decoration' && patch.color !== undefined) throw new Error('Decoration colors must be changed in content via CSS variables, not layer.color.');
     const content = validateContent(type, text(patch.content, 'content'), patch.decorationFormat);
     if (type === 'decoration') patch.decorationFormat ??= detectDecorationFormat(content);
     const layer: Layer = { id: crypto.randomUUID(), name: type, type, content, x: 40, y: 40, width: 300, height: 100, rotation: 0, zIndex: Math.max(0, ...project.layers.map(item => item.zIndex)) + 1, visible: true, locked: false, opacity: 1, ...(type === 'text' ? { fontSize: 48, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: '#ffffff', textAlign: 'left' } : {}), ...patch };
@@ -33,6 +34,9 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     const action = choice(args.action, 'action', ['update', 'delete', 'duplicate', 'group', 'ungroup', 'front', 'back', 'align', 'distribute']);
     const selected = ids(args.layerIds);
     const patch = args.properties === undefined ? {} : layerPatch(args.properties);
+    if (action === 'update' && patch.color !== undefined && selected.some(id => project.layers.find(layer => layer.id === id)?.type === 'decoration')) {
+      throw new Error('Decoration colors must be changed in content via CSS variables, not layer.color.');
+    }
     if (patch.content !== undefined || patch.decorationFormat !== undefined) {
       selected.forEach(id => {
         const target = project.layers.find(layer => layer.id === id);

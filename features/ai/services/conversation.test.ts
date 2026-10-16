@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
 import { readResponse, runConversation, normalizeUsage, sanitizeResponseItems } from './conversation.ts';
 import type { Response as AiResponse, ResponseStreamEvent } from 'openai/resources/responses/responses';
-import { SYSTEM_PROMPT, defaultConfig, saveConfig, normalizeConfig, normalizeEndpoint, selectModel, toRequestConfig, reasoningPayload, loadConfig, createEndpoint, validateRequestConfig } from './config.ts';
+import { SYSTEM_PROMPT, VISUAL_CONTENT_GUIDE, defaultConfig, saveConfig, normalizeConfig, normalizeEndpoint, selectModel, toRequestConfig, reasoningPayload, loadConfig, createEndpoint, validateRequestConfig } from './config.ts';
 import type { ProjectState } from '../../types.ts';
 import type { AiRequestConfig, ChatEntry, ChatSession, RequestUsage, ResponseItem, ToolEvent, WorkspaceBridge } from '../types.ts';
 import { AI_DATABASE_NAME, listStoredSessions, saveStoredSession, deleteStoredSession } from './configStore.ts';
 import { createFileChatStore, type ChatFileAccess } from './chatStore.ts';
-import { sessionUsage, sumUsage } from './usage.ts';
+import { estimateInput, sessionUsage, sumUsage } from './usage.ts';
 import { parseMarkdown } from './markdown.ts';
+import { TOOL_DEFINITIONS } from '../tools/definitions.ts';
 
 
 const config: AiRequestConfig = { endpoint: 'https://example.com/v1', model: 'test', apiKey: 'secret', maxTokens: 4096, systemPrompt: SYSTEM_PROMPT };
@@ -25,6 +26,37 @@ const responsePayload = (output: unknown[], overrides = {}) => ({ id: 'resp-test
 const textOutput = { type: 'message', id: 'msg-test', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] };
 async function* eventsFrom(events: unknown[]) { for (const event of events) yield event as ResponseStreamEvent; }
 const streamResponse = (payload: ReturnType<typeof responsePayload>) => new Response(`event: response.${payload.status}\ndata: ${JSON.stringify({ type: `response.${payload.status}`, response: payload })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+
+test('visual capability instructions accompany custom prompts without modifying stored settings', async () => {
+  const profiles = configuredConfig();
+  const original = '请保持我的品牌配色，并使用简洁中文回复。';
+  profiles.systemPrompt = original;
+  const requestConfig = toRequestConfig(profiles);
+  assert.equal(profiles.systemPrompt, original);
+  assert.equal(requestConfig.systemPrompt, `${original}\n\n${VISUAL_CONTENT_GUIDE}`);
+  assert.equal(toRequestConfig({ ...profiles, systemPrompt: requestConfig.systemPrompt }).systemPrompt, requestConfig.systemPrompt);
+  assert.equal(toRequestConfig(configuredConfig()).systemPrompt, SYSTEM_PROMPT);
+  assert.ok(SYSTEM_PROMPT.includes('静态 HTML'));
+  assert.ok(SYSTEM_PROMPT.includes('不支持 HTML 背景'));
+  assert.ok(SYSTEM_PROMPT.includes('OKLCH'));
+  const originalFetch = globalThis.fetch;
+  let sentInstructions = '';
+  let sentTools: unknown[] = [];
+  let inputEstimate = 0;
+  globalThis.fetch = async (_url, options) => {
+    const request = JSON.parse(options!.body as string);
+    sentInstructions = request.instructions;
+    sentTools = request.tools;
+    return streamResponse(responsePayload([textOutput]));
+  };
+  try {
+    await runConversation({ config: requestConfig, input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}, onUsage: usage => { inputEstimate = usage.inputEstimate ?? 0; } });
+    assert.equal(sentInstructions, requestConfig.systemPrompt);
+    assert.deepEqual(sentTools, TOOL_DEFINITIONS.map(definition => ({ type: 'function', ...definition.function, strict: false })));
+    assert.equal(inputEstimate, estimateInput([], requestConfig.systemPrompt));
+    assert.ok(inputEstimate > estimateInput([], original));
+  } finally { globalThis.fetch = originalFetch; }
+});
 
 test('Responses text deltas and final output are returned', async () => {
   const events = eventsFrom([{ type: 'response.output_text.delta', delta: '你好' }, { type: 'response.completed', response: responsePayload([textOutput]) }]);

@@ -1,38 +1,100 @@
 import type { ToolDefinition } from '../types.ts';
 
-const string = { type: 'string' };
-const numeric = { type: 'number' };
-const boolean = { type: 'boolean' };
-const enumeration = (values: string[]) => ({ type: 'string', enum: values });
-const object = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required, additionalProperties: false });
+const string = (description: string) => ({ type: 'string', description, maxLength: 200000 });
+const numeric = (description: string, minimum = -100000, maximum = 100000) => ({ type: 'number', description, minimum, maximum });
+const boolean = (description: string) => ({ type: 'boolean', description });
+const enumeration = (description: string, values: string[]) => ({ type: 'string', description, enum: values });
+const object = (description: string, properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', description, properties, required, additionalProperties: false });
+const layerIds = (description: string) => ({ type: 'array', description, items: string('来自 get_context 或 read_layers 的图层 ID，不可编造。'), minItems: 1, maxItems: 500 });
 const tool = (name: string, description: string, parameters: Record<string, unknown>): ToolDefinition => ({ type: 'function', function: { name, description, parameters } });
+const projectId = string('当前活动项目 ID，来自 get_context；活动项目改变后应重新读取。');
 
-const patch = object({
-  name: string, content: string, color: string, fontFamily: string, fontWeight: { anyOf: [string, numeric] },
-  x: numeric, y: numeric, width: numeric, height: numeric, rotation: numeric, zIndex: numeric,
-  opacity: { type: 'number', minimum: 0, maximum: 1 }, fontSize: numeric,
-  visible: boolean, locked: boolean, ratioLocked: boolean,
-  textAlign: enumeration(['left', 'center', 'right']), writingMode: enumeration(['horizontal', 'vertical']),
-  decorationFormat: enumeration(['css', 'html']),
-  textGradient: object({ enabled: boolean, from: string, to: string, angle: numeric }, ['enabled', 'from', 'to', 'angle']),
-  textShadow: object({ enabled: boolean, color: string, blur: numeric, offsetX: numeric, offsetY: numeric }, ['enabled', 'color', 'blur', 'offsetX', 'offsetY'])
+const patch = object('图层属性的部分更新；省略字段保持原值。不要提交 id、type、parentId 或 children 等结构字段。', {
+  name: string('图层名称，用于图层列表与搜索。'),
+  content: string([
+    '图层完整内容；修改前先 read_layers，保留无关结构与样式，不接受差异补丁。',
+    'text：纯文本。image：已有 HTTP(S) URL 或 PNG/JPEG/WebP/GIF 的 base64 数据 URL。',
+    'svg：完整 SVG 标记，禁止脚本、事件、foreignObject、style、动画和外部引用。',
+    'decoration：按 decorationFormat 提供 CSS 声明或静态 HTML。CSS 仅支持背景、边框、圆角、阴影、轮廓、裁切、滤镜、混合、透明度和变量；最多 6000 字符、24 条声明（含变量），像素值限制在 -240px 到 240px。布局和尺寸使用图层字段；需要文字、flex/grid 或多节点时使用 HTML。',
+    'HTML 最多 24000 字符、300 个元素，允许行内样式及自动隔离的 style 选择器；图片仅允许嵌入位图，不要生成 JSX、Tailwind/CDN 依赖或 data-cf-fragment 标识。',
+    '装饰禁止脚本、事件、外部资源、url()/image-set()、CSS at-rule、动画/transition、fixed/sticky、pointer-events 和视口单位；使用百分比或像素。',
+    '装饰颜色定义为具体 CSS 变量后用 var() 引用，例如 --accent:#38bdf8; --surface:rgba(255,255,255,0.24)。支持 HEX、RGBA、HSL、OKLCH 和命名颜色。调色时更新相应变量并保留 alpha，不使用图层 color 或 currentColor 主色绑定。'
+  ].join('\n')),
+  color: string('仅用于文字和 SVG 的主色。装饰图层禁止此字段，必须修改 content 中的颜色变量。'),
+  fontFamily: string('仅用于文字：CSS font-family 值，可包含字体族及回退字体，例如 "Microsoft YaHei", sans-serif。'),
+  fontWeight: {
+    description: '仅用于文字：CSS 字重，可使用数字或字符串。',
+    anyOf: [string('CSS 字重关键字，例如 normal、bold。'), numeric('数字字重，例如 400 或 700。', 1, 1000)]
+  },
+  x: numeric('图层左上角水平位置，单位为画布像素。'),
+  y: numeric('图层左上角垂直位置，单位为画布像素。'),
+  width: numeric('图层宽度，单位为画布像素；等比锁定时只改宽度会同步高度。', 1),
+  height: numeric('图层高度，单位为画布像素；等比锁定时只改高度会同步宽度。', 1),
+  rotation: numeric('图层旋转角度，单位为度。'),
+  zIndex: numeric('图层堆叠顺序，值越大越靠前；也可使用 front/back 操作。'),
+  opacity: numeric('整层透明度，0 为完全透明、1 为完全不透明；与颜色 alpha 叠加。', 0, 1),
+  fontSize: numeric('仅用于文字：字号，单位为像素。', 1),
+  visible: boolean('是否显示图层。'),
+  locked: boolean('是否锁定图层；编辑锁定图层前须获用户许可并单独提交 locked:false 解锁。'),
+  ratioLocked: boolean('是否锁定宽高比例。'),
+  textAlign: enumeration('仅用于文字：水平文本对齐方式。', ['left', 'center', 'right']),
+  writingMode: enumeration('仅用于文字：horizontal 为横排，vertical 为竖排。', ['horizontal', 'vertical']),
+  decorationFormat: enumeration('仅用于装饰：css 是单元素外观声明，html 是静态多节点标记。新增时省略则自动识别；更新时保留原格式。切换格式须同时提交完整 content。', ['css', 'html']),
+  textGradient: object('仅用于文字：完整渐变配置，提交时必须包含全部子字段。', {
+    enabled: boolean('是否启用文字渐变；关闭时恢复 color 主色。'),
+    from: string('渐变起始颜色，使用 CSS 颜色值。'),
+    to: string('渐变结束颜色，使用 CSS 颜色值。'),
+    angle: numeric('线性渐变方向，单位为度。')
+  }, ['enabled', 'from', 'to', 'angle']),
+  textShadow: object('仅用于文字：完整阴影配置，提交时必须包含全部子字段。', {
+    enabled: boolean('是否启用文字阴影。'),
+    color: string('阴影的 CSS 颜色值，可含透明度。'),
+    blur: numeric('阴影模糊半径，单位为像素，不得为负。', 0),
+    offsetX: numeric('阴影水平偏移，单位为像素，负值向左。'),
+    offsetY: numeric('阴影垂直偏移，单位为像素，负值向上。')
+  }, ['enabled', 'color', 'blur', 'offsetX', 'offsetY'])
 });
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
-  tool('get_context', '读取当前项目 ID、画布、背景、选中 ID 和图层元数据。此处不包含图层内容；需要内容时请调用 read_layers。', object({})),
-  tool('manage_projects', '搜索或分页列出已存储项目，也可创建、打开、重命名、复制、删除或保存项目。ID 应来自 list 或 get_context。删除前必须获得用户确认。新建项目会自动打开。删除本地文件项目只会移除其最近项目记录。', object({
-    action: enumeration(['list', 'create', 'open', 'rename', 'duplicate', 'delete', 'save']), projectId: string, query: string, title: string,
-    page: { type: 'integer', minimum: 1 }, pageSize: { type: 'integer', minimum: 1, maximum: 50 }, width: numeric, height: numeric
+  tool('get_context', '读取当前项目、画布、背景、选区及图层元数据；不含图层源码，源码请用 read_layers 读取。', object('无需参数。', {})),
+  tool('manage_projects', '搜索和管理项目。新建会自动打开；删除需用户确认，本地文件项目只移除最近记录而不删除磁盘文件。', object('项目管理请求；除 action 外的字段是否需要取决于所选操作。', {
+    action: enumeration('list 为分页搜索；create 为新建；open 为打开；rename 为重命名；duplicate 为复制；delete 为删除；save 为保存。', ['list', 'create', 'open', 'rename', 'duplicate', 'delete', 'save']),
+    projectId: string('open/rename/duplicate/delete/save 时必填；来自 manage_projects/list 或 get_context，不可编造。'),
+    query: string('仅 list 使用：按项目名称搜索；省略表示不过滤，提供时不得为空白。'),
+    title: string('rename 时必填；create 可指定名称，省略为 Untitled；duplicate 可指定副本名称，省略自动追加 (copy)。不得为空白。'),
+    page: { type: 'integer', description: '仅 list 使用：页码，从 1 开始，省略为 1。', minimum: 1, maximum: 100000 },
+    pageSize: { type: 'integer', description: '仅 list 使用：每页项目数量，省略为 20。', minimum: 1, maximum: 50 },
+    width: numeric('仅 create 使用：画布宽度，单位为像素，省略为 1200。', 10, 10000),
+    height: numeric('仅 create 使用：画布高度，单位为像素，省略为 630。', 10, 10000)
   }, ['action'])),
-  tool('read_layers', '读取指定图层的完整内容和属性，可按 ID 或名称/内容关键词筛选。必须提供当前项目 ID。', object({ projectId: string, layerIds: { type: 'array', items: string }, query: string }, ['projectId'])),
-  tool('add_layer', '添加文本、SVG、位图或装饰图层。装饰图层支持 CSS 声明，或包含行内样式和局部作用域 style 标签的静态 HTML；请将 decorationFormat 设为 css 或 html。禁止脚本、外部资源、CSS at-rule、动画、固定定位和视口单位；尺寸请使用百分比或像素。装饰颜色请用 CSS 变量定义（如 --accent:#38bdf8; background:var(--accent)），不要使用图层 color 字段。SVG 禁止脚本、foreignObject、动画和外部链接。位图 URL 必须是 HTTP(S) 或 data:image/png、jpeg、webp、gif。', object({ projectId: string, type: enumeration(['text', 'svg', 'image', 'decoration']), properties: patch }, ['projectId', 'type', 'properties'])),
-  tool('edit_layers', '批量更新、删除、复制、编组、取消编组、置于顶层/底层、对齐画布或按等间距分布图层。编组变换会传递到子图层。锁定图层必须先解锁。不能通过此工具修改 ID 或父子关系。对齐 mode 使用 left/center/right/top/middle/bottom；分布 mode 使用 horizontal/vertical。', object({
-    projectId: string, action: enumeration(['update', 'delete', 'duplicate', 'group', 'ungroup', 'front', 'back', 'align', 'distribute']),
-    layerIds: { type: 'array', items: string, minItems: 1 }, properties: patch,
-    mode: enumeration(['left', 'center', 'right', 'top', 'middle', 'bottom', 'horizontal', 'vertical'])
+  tool('read_layers', '读取图层源码及属性，可按 ID 或名称/内容关键词筛选。修改已有源码前先调用此工具。', object('读取当前活动项目内的图层；ID 与关键词过滤同时提供时取交集。', {
+    projectId,
+    layerIds: layerIds('可选图层 ID 列表；省略时读取所有匹配图层。'),
+    query: string('可选名称或内容关键词，不区分大小写；省略时不过滤，提供时不得为空白。')
+  }, ['projectId'])),
+  tool('add_layer', '在当前项目添加一个图层并选中；不会自动编组，多图层组合请使用 edit_layers。', object('新图层创建参数。', {
+    projectId,
+    type: enumeration('图层类型：text 为纯文本，svg 为矢量标记，image 为已有位图，decoration 为 CSS/HTML 装饰。', ['text', 'svg', 'image', 'decoration']),
+    properties: { ...patch, description: '新图层属性，content 必填；省略的位置默认为 (40,40)，宽高为 300×100，透明度为 1。', required: ['content'] }
+  }, ['projectId', 'type', 'properties'])),
+  tool('edit_layers', '批量修改或组织图层。组合变换会传递到子图层；除单独解锁操作外，锁定图层须先解锁。', object('对当前项目的一组图层执行同一个操作。', {
+    projectId,
+    action: enumeration('update 更新属性；delete 删除；duplicate 复制；group 编组（至少两个未编组图层，不可嵌套）；ungroup 拆组；front/back 置顶/置底；align 对齐画布；distribute 等间距分布（至少三个独立图层）。', ['update', 'delete', 'duplicate', 'group', 'ungroup', 'front', 'back', 'align', 'distribute']),
+    layerIds: layerIds('操作目标 ID 列表；同一 properties 会应用于全部目标，不应混合需要不同属性的图层。'),
+    properties: { ...patch, description: 'update 时提供待修改字段；group 时可用 name 指定组名。其余操作无需此参数。' },
+    mode: enumeration('align 时必填：left/center/right 为水平对齐，top/middle/bottom 为垂直对齐；distribute 时必填：horizontal/vertical。其他操作省略。', ['left', 'center', 'right', 'top', 'middle', 'bottom', 'horizontal', 'vertical'])
   }, ['projectId', 'action', 'layerIds'])),
-  tool('update_canvas', '更新画布尺寸或背景。CSS 背景只允许背景相关声明和 CSS 变量；禁止选择器、url()、外部资源和视口单位。调整画布尺寸不会缩放图层。宽高必须是 10 到 10000 之间的正数，单位为像素。', object({
-    projectId: string, width: numeric, height: numeric,
-    background: object({ type: enumeration(['color', 'gradient', 'image', 'css']), value: string, overlayType: enumeration(['none', 'dots', 'grid', 'stripes']), overlayColor: string, overlayOpacity: numeric, overlayScale: numeric })
+  tool('update_canvas', '更新当前画布及背景。调整画布尺寸不会缩放已有图层。', object('画布与背景的部分更新；省略的字段保持不变。', {
+    projectId,
+    width: numeric('画布宽度，单位为像素。', 10, 10000),
+    height: numeric('画布高度，单位为像素。', 10, 10000),
+    background: object('背景部分更新。切换 type 时应同时提供对应格式的 value；不支持 HTML 背景。', {
+      type: enumeration('color 为纯色，gradient 为 CSS 渐变值，image 为已有图片，css 为自定义背景声明。', ['color', 'gradient', 'image', 'css']),
+      value: string('随 type 变化：color 为 CSS 颜色；gradient 为渐变值；image 为已有 HTTP(S) URL 或 PNG/JPEG/WebP/GIF base64 数据 URL；css 为最多 6000 字符的 CSS 声明，仅允许背景属性和变量，不含选择器。自定义 CSS 禁止外部资源、url()/image-set()、CSS at-rule、动画和视口单位；颜色可用含 alpha 的字面量变量。'),
+      overlayType: enumeration('叠加纹理：none 为无纹理，dots 为波点，grid 为网格，stripes 为条纹。', ['none', 'dots', 'grid', 'stripes']),
+      overlayColor: string('纹理颜色，建议使用 #RRGGBB，配合 overlayOpacity 控制透明度。'),
+      overlayOpacity: numeric('叠加纹理透明度，0 为完全透明、1 为完全不透明。', 0, 1),
+      overlayScale: numeric('叠加纹理的尺寸与间距，单位为像素。', 1, 1000)
+    })
   }, ['projectId']))
 ];

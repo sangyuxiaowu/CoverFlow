@@ -69,16 +69,22 @@ chat/
 
 ## 工具能力
 
+工具采用分层 JSON Schema 描述：函数 `description` 只说明用途与整体行为；字段含义、单位、默认值、适用操作及内容限制写在对应参数的 `description` 中，包括嵌套属性、数组元素和联合类型分支。可执行约束用 `enum`、`required`、`minimum/maximum`、`minItems/maxItems` 等表达，执行器仍负责最终校验。新增图层的 `properties.content` 必填，更新图层的 `properties` 则是部分字段补丁。
+
 | 工具 | 功能 |
 | --- | --- |
 | get_context | 当前项目、画布、背景、选区及图层元数据 |
 | manage_projects | list/create/open/rename/duplicate/delete/save |
 | read_layers | 按 ID 或名称/内容关键词读取图层 |
-| add_layer | text/svg/image/decoration |
+| add_layer | text/svg/image/decoration；装饰支持 CSS 声明或静态 HTML |
 | edit_layers | update/delete/duplicate/group/ungroup/front/back/align/distribute |
-| update_canvas | 画布尺寸及背景、纹理 |
+| update_canvas | 画布尺寸及纯色/渐变/图片/自定义 CSS 背景、纹理 |
 
 图层更新支持位置、宽高、旋转、层级、透明度、锁定、显隐、比例锁定、名称、内容、文字颜色/字体/字号/字重/对齐/书写方向/渐变/阴影。结构字段 id/type/parentId/children 不允许直接修改，分组操作负责维护关系。不允许嵌套分组。组合图层变换传递到子图层，子图层变化会刷新组合边界。App 手动图层更新和 AI 更新共用 updateProjectLayer，保持变换规则一致。
+
+装饰使用 `decorationFormat: css/html`，切换格式时同时提交完整 `content`。调色前通过 `read_layers` 读取源码，再用 `edit_layers/update` 更新相应 CSS 变量，保留其他样式和 alpha；不接受装饰的 `color` 字段，避免无效调色返回成功。文字与 SVG 继续使用 `color`。变量颜色支持 HEX（含透明度）、RGB/RGBA、HSL/HSLA、OKLCH 与命名颜色，人工拾色器不是 AI 操作目标，不需要新增界面控制工具。背景自定义 CSS 使用 `background: {type: css, value: 声明文本}`，不支持 HTML 背景。
+
+`config.ts` 的 `VISUAL_CONTENT_GUIDE` 记录当前能力和约束，默认系统提示词包含该说明。`toRequestConfig` 在实际请求中为缺少说明的自定义提示词追加一次，不覆盖已保存的用户文本；实际请求和上下文预算使用同一个合成提示词。
 
 ## 安全边界
 
@@ -89,7 +95,7 @@ chat/
 - HTTP 仅允许回环地址；其余端点必须 HTTPS。端点拒绝 URL 内的用户名、密码、查询参数与片段。
 - 项目删除由用户确认。拒绝后立即结束本轮，不让模型自动再次申请删除。
 - AI 执行期间主工作区 inert，同时拦截全局编辑快捷键和粘贴。停止按钮仍可使用。
-- SVG 通过 DOMParser 检查结构，拒绝脚本、事件、foreignObject、嵌入样式、动画和外部引用。装饰 CSS 拒绝 HTML 和外部资源加载。
+- SVG 通过 DOMParser 检查结构，拒绝脚本、事件、foreignObject、嵌入样式、动画和外部引用。装饰 CSS/HTML 与人工编辑共用清洗校验：CSS 为单元素外观声明（6000 字符、24 条声明含变量），HTML 为静态标记（24000 字符、300 个元素），支持局部 `<style>` 和行内样式。禁止脚本、事件、外部资源、CSS at-rule、动画/transition、fixed/sticky、pointer-events 和视口单位；HTML 只允许嵌入位图。选择器隔离仅在渲染时生成，不写入源码。背景 CSS 仅支持背景属性和变量，最多 6000 字符。
 - 图片只允许 HTTP(S) 或 PNG/JPEG/WebP/GIF 数据 URL。数据 URL 在 AI 读取结果中隐藏；云端 URL 仍可能由浏览器加载。
 - 所有服务请求由用户指定的端点直接处理，必须考虑服务商的数据合规和 CORS。项目内容不属于可信指令。
 - 请求超时 120 秒，最多 12 轮、每轮最多 30 个工具调用。SDK 自动重试关闭，保留用户中止信号。网络断流或输出截断时不执行不完整调用；工具中断或用户拒绝时配对剩余调用的错误结果，不自动重试已完成操作。

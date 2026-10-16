@@ -2,15 +2,15 @@
 import { DecorationElement, PresetRatio } from './types.ts';
 import logoSvg from './doc/logo.svg?raw';
 
-export const PRESET_RATIOS: (PresetRatio & { nameZh?: string })[] = [
-  { name: 'WeChat 2.35:1', nameZh: '微信封面 2.35:1', ratio: '2.35:1', width: 900, height: 383 },
-  { name: 'Square 1:1', nameZh: '正方形 1:1', ratio: '1:1', width: 900, height: 900 },
-  { name: 'Mini 16:9', nameZh: '小巧 16:9', ratio: '16:9', width: 720, height: 405 },
-  { name: 'HD 16:9', nameZh: '高清视频 16:9', ratio: '16:9', width: 1280, height: 720 },
-  { name: 'Vertical 9:16', nameZh: '手机竖屏 9:16', ratio: '9:16', width: 720, height: 1280 },
-  { name: 'Classic 4:3', nameZh: '经典比例 4:3', ratio: '4:3', width: 1024, height: 768 },
-  { name: 'Portrait 3:4', nameZh: '竖版 3:4', ratio: '3:4', width: 900, height: 1200 },
-  { name: 'Photo 3:2', nameZh: '照片比例 3:2', ratio: '3:2', width: 900, height: 600 }
+export const PRESET_RATIOS: (PresetRatio & { description: string })[] = [
+  { name: 'WeChat 2.35:1', nameZh: '微信封面 2.35:1', ratio: '2.35:1', width: 900, height: 383, description: '适合微信公众号头条文章等超宽横版封面' },
+  { name: 'Square 1:1', nameZh: '正方形 1:1', ratio: '1:1', width: 900, height: 900, description: '适合社交动态、播客、专辑及方形内容卡片封面' },
+  { name: 'Mini 16:9', nameZh: '小巧 16:9', ratio: '16:9', width: 720, height: 405, description: '适合网页文章缩略图、轻量横版内容卡片与小尺寸视频预览封面' },
+  { name: 'HD 16:9', nameZh: '高清视频 16:9', ratio: '16:9', width: 1280, height: 720, description: '适合横屏视频、教程、课程与演示文稿封面。未指定平台的横屏视频封面可优先选用' },
+  { name: 'Vertical 9:16', nameZh: '手机竖屏 9:16', ratio: '9:16', width: 720, height: 1280, description: '适合短视频、手机全屏内容与竖屏故事封面' },
+  { name: 'Classic 4:3', nameZh: '经典比例 4:3', ratio: '4:3', width: 1024, height: 768, description: '适合传统课件、知识讲解、图文介绍与较紧凑的横版封面' },
+  { name: 'Portrait 3:4', nameZh: '竖版 3:4', ratio: '3:4', width: 900, height: 1200, description: '适合微信贴图、小红书等竖版图文笔记、书籍与人物主题封面。未指定平台的竖版图文封面可优先选用' },
+  { name: 'Photo 3:2', nameZh: '照片比例 3:2', ratio: '3:2', width: 900, height: 600, description: '适合摄影作品、旅行记录、产品展示与照片主导的横版封面' }
 ];
 
 export const CATEGORIZED_ASSETS = [

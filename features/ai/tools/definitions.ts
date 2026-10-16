@@ -59,6 +59,7 @@ const patch = object('图层属性的部分更新；省略字段保持原值。�
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   tool('get_context', '读取当前项目、画布、背景、选区及图层元数据；不含图层源码，源码请用 read_layers 读取。', object('无需参数。', {})),
+  tool('get_cover_size_recommendations', '获取常见封面尺寸、比例及适配建议，供新建封面或选择画布尺寸时参考。', object('无需参数。', {})),
   tool('manage_projects', '搜索和管理项目。新建会自动打开；删除需用户确认，本地文件项目只移除最近记录而不删除磁盘文件。', object('项目管理请求；除 action 外的字段是否需要取决于所选操作。', {
     action: enumeration('list 为分页搜索；create 为新建；open 为打开；rename 为重命名；duplicate 为复制；delete 为删除；save 为保存。', Object.keys(PROJECT_RULES)),
     projectId: conditional(PROJECT_RULES, 'projectId', string('来自 manage_projects/list 或 get_context，不可编造。')),

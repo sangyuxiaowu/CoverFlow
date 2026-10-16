@@ -1,5 +1,6 @@
 import type { Layer } from '../../../types.ts';
 import type { WorkspaceBridge } from '../types.ts';
+import { PRESET_RATIOS } from '../../../constants.ts';
 import { editLayers } from '../domain/layerOperations.ts';
 import { backgroundPatch, choice, ids, layerPatch, number, record, safeImage, text, validateContent } from './validation.ts';
 import { detectDecorationFormat, sanitizeBackgroundCss } from '../../../utils/customContent.ts';
@@ -8,6 +9,10 @@ import { parseEditLayersRequest, parseManageProjectsRequest } from './requests.t
 export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false): Promise<unknown> {
   signal.throwIfAborted();
   const args = record(input);
+  if (name === 'get_cover_size_recommendations') return {
+    note: '以下为常见用途的设计建议，不是平台强制规格。用户明确指定的尺寸优先；调整已有画布尺寸前应确认需求，图层不会自动缩放。',
+    presets: PRESET_RATIOS
+  };
   if (name === 'manage_projects') return bridge.manageProjects(parseManageProjectsRequest(args), signal);
   if (name === 'get_canvas_preview') {
     if (!bridge.getCanvasPreview) throw new Error('Canvas preview is unavailable.');
@@ -18,7 +23,7 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     projectId: project.id, title: project.title, canvas: project.canvasConfig,
     background: { ...project.background, value: project.background.value.startsWith('data:') ? '[embedded image]' : project.background.value },
     selectedLayerIds: bridge.getSelection(), layers: project.layers.map(({ content, ...layer }) => ({ ...layer, contentLength: content.length }))
-  } : { projectId: null, message: 'No project open. Use manage_projects to list or create projects.' };
+  } : { projectId: null, message: '当前未打开项目。请区分修改和新建，然后使用 manage_projects 列出或创建新项目；新建前建议调用 get_cover_size_recommendations 获取常见封面尺寸及适配建议。' };
   if (!project) throw new Error('No project open.');
   if (name === 'get_selected_layers') {
     const selected = new Set(bridge.getSelection());

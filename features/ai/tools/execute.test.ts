@@ -6,6 +6,7 @@ import type { WorkspaceBridge } from '../types.ts';
 import { executeTool } from './execute.ts';
 import { layerPatch, safeImage } from './validation.ts';
 import { TOOL_DEFINITIONS } from './definitions.ts';
+import { PRESET_RATIOS } from '../../../constants.ts';
 import { ALIGN_MODES, DISTRIBUTE_MODES, EDIT_LAYER_RULES, PROJECT_RULES, fieldUsage, parseEditLayersRequest, parseManageProjectsRequest } from './requests.ts';
 
 function setup(layers: ProjectState['layers'] = [], selectedLayerIds: string[] = []) {
@@ -14,6 +15,25 @@ function setup(layers: ProjectState['layers'] = [], selectedLayerIds: string[] =
   const signal = new AbortController().signal;
   return { bridge, signal };
 }
+
+test('dedicated tool provides cover size recommendations with and without an open project', async () => {
+  const { bridge, signal } = setup();
+  for (const getProject of [bridge.getProject, () => null]) {
+    const recommendations = await executeTool('get_cover_size_recommendations', {}, { ...bridge, getProject }, signal) as {
+      note: string; presets: typeof PRESET_RATIOS;
+    };
+    assert.deepEqual(recommendations.presets, PRESET_RATIOS);
+    assert.match(recommendations.note, /不是平台强制规格/);
+    assert.ok(recommendations.presets.every(preset => preset.description.length > 0));
+    const context = await executeTool('get_context', {}, { ...bridge, getProject }, signal) as Record<string, unknown>;
+    assert.equal('coverSizeRecommendations' in context, false);
+    assert.equal('presets' in context, false);
+    if (context.projectId === null) assert.match(String(context.message), /get_cover_size_recommendations/);
+  }
+  const definition = TOOL_DEFINITIONS.find(item => item.function.name === 'get_cover_size_recommendations');
+  assert.ok(definition);
+  assert.deepEqual(definition.function.parameters.required, []);
+});
 
 test('selected image layers expose metadata and only request a preview for vision models', async () => {
   const imageLayer: ProjectState['layers'][number] = { id: 'image-1', name: 'Photo', type: 'image', content: 'data:image/png;base64,abc', x: 10, y: 20, width: 300, height: 200, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 };

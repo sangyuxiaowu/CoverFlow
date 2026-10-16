@@ -1,5 +1,5 @@
 // 模块：画布渲染与交互（拖拽、缩放、对齐）
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Layer, ProjectState } from '../types.ts';
 import { applySvgAspectRatio } from '../utils/helpers.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
@@ -25,6 +25,7 @@ const SNAP_THRESHOLD = 8;
 // 画布交互与渲染组件。
 const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLayer, onCommit }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const fittedProjectIdRef = useRef<string | null>(null);
   const [zoom, setZoom] = useState(0.8);
   const [guidelines, setGuidelines] = useState<Guideline[]>([]);
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
@@ -42,6 +43,25 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
     initialData: { x: number; y: number; w: number; h: number; rotation: number };
     handle?: string;
   } | null>(null);
+
+  const fitCanvas = useCallback(() => {
+    const container = scrollContainerRef.current;
+    const content = container?.firstElementChild;
+    if (!container || !content) return false;
+    const padding = getComputedStyle(content);
+    const availableWidth = container.clientWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight);
+    const availableHeight = container.clientHeight - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom);
+    if (availableWidth <= 0 || availableHeight <= 0 || project.canvasConfig.width <= 0 || project.canvasConfig.height <= 0) return false;
+    setZoom(Math.max(0.05, Math.min(5, availableWidth / project.canvasConfig.width, availableHeight / project.canvasConfig.height)));
+    container.scrollLeft = 0;
+    container.scrollTop = 0;
+    return true;
+  }, [project.canvasConfig.width, project.canvasConfig.height]);
+
+  useLayoutEffect(() => {
+    if (fittedProjectIdRef.current === project.id) return;
+    if (fitCanvas()) fittedProjectIdRef.current = project.id;
+  }, [project.id, fitCanvas]);
 
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
@@ -526,7 +546,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
         <span className="w-12 text-center font-mono text-xs tracking-tight">{Math.round(zoom * 100)}%</span>
         <button onClick={() => setZoom(z => Math.min(5, z + 0.1))} className="hover:text-blue-400 font-black w-7 h-7 flex items-center justify-center rounded-md bg-slate-800 border border-slate-700 transition-all active:scale-95">＋</button>
         <div className="w-px h-4 bg-slate-700" />
-        <button onClick={() => setZoom(0.8)} className="hover:text-blue-400 text-slate-400 transition-colors uppercase tracking-widest text-[9px]">{t.resetZoom}</button>
+        <button onClick={fitCanvas} className="hover:text-blue-400 text-slate-400 transition-colors uppercase tracking-widest text-[9px]">{t.fitCanvas}</button>
       </div>
     </div>
   );

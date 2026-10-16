@@ -23,11 +23,16 @@ jobs:
         with:
           node-version: 20
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
       - name: Install dependencies
-        run: npm install
+        run: bun install --frozen-lockfile
 
       - name: Build web app
-        run: npm run build
+        run: bun run build
         env:
           VITE_BASE: /${{ github.event.repository.name }}/
 

@@ -30,6 +30,11 @@ jobs:
         with:
           node-version: 20
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -49,7 +54,7 @@ jobs:
             libssl-dev
 
       - name: Install dependencies
-        run: npm install
+        run: bun install --frozen-lockfile
 
       - name: Sync Tauri version
         run: node scripts/sync-tauri-version.cjs
@@ -59,6 +64,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          tauriScript: bun run tauri
           tagName: ${{ github.ref_name }}
           releaseName: "CoverFlow ${{ github.ref_name }}"
           releaseBody: "See attached assets for installers."

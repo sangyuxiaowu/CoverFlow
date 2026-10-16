@@ -463,6 +463,9 @@ export default function AiAssistant({
                                       : label('完成', 'Done')}
                                 </span>
                               </summary>
+                              <div className="cf-ai-tool-section-label">{label('请求参数', 'Request Arguments')}</div>
+                              <pre>{tool.arguments}</pre>
+                              <div className="cf-ai-tool-section-label">{label('执行结果', 'Execution Result')}</div>
                               <pre>{tool.result || label('等待执行结果...', 'Waiting for result...')}</pre>
                             </details>
                           ))}

@@ -5,7 +5,7 @@ import { readResponse, runConversation, normalizeUsage, sanitizeResponseItems } 
 import type { Response as AiResponse, ResponseStreamEvent } from 'openai/resources/responses/responses';
 import { SYSTEM_PROMPT, defaultConfig, saveConfig, normalizeConfig, normalizeEndpoint, selectModel, toRequestConfig, reasoningPayload, loadConfig, createEndpoint, validateRequestConfig } from './config.ts';
 import type { ProjectState } from '../../types.ts';
-import type { AiRequestConfig, ChatEntry, ChatSession, RequestUsage, ResponseItem, WorkspaceBridge } from '../types.ts';
+import type { AiRequestConfig, ChatEntry, ChatSession, RequestUsage, ResponseItem, ToolEvent, WorkspaceBridge } from '../types.ts';
 import { AI_DATABASE_NAME, listStoredSessions, saveStoredSession, deleteStoredSession } from './configStore.ts';
 import { createFileChatStore, type ChatFileAccess } from './chatStore.ts';
 import { sessionUsage, sumUsage } from './usage.ts';
@@ -67,6 +67,26 @@ test('tool results and assistant calls are preserved for the next round', async 
     assert.equal(requests[1].input[1].type, 'reasoning');
     assert.equal(usages.length, 2);
     assert.equal(result, 'Done');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test.each([
+  { arguments: '{"action":"list"}', status: 'success' },
+  { arguments: '{"action":', status: 'error' }
+])('tool events preserve request arguments while running and after $status', async ({ arguments: args, status }) => {
+  const originalFetch = globalThis.fetch;
+  const tools: ToolEvent[] = [];
+  let count = 0;
+  globalThis.fetch = async () => {
+    count++;
+    return streamResponse(responsePayload(count === 1 ? [{ type: 'function_call', call_id: 'call', name: 'manage_projects', arguments: args }] : [textOutput]));
+  };
+  try {
+    await runConversation({ config, input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: event => { tools.push(event); } });
+    assert.equal(tools.length, 2);
+    assert.deepEqual(tools[0], { id: 'call', name: 'manage_projects', arguments: args, status: 'running' });
+    assert.deepEqual(tools[1], { id: 'call', name: 'manage_projects', arguments: args, status, result: tools[1].result });
+    assert.ok(tools[1].result);
   } finally { globalThis.fetch = originalFetch; }
 });
 

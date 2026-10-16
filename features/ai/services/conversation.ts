@@ -123,7 +123,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
     input.push(...output);
     let cancelled = false;
     for (const call of calls) {
-      onTool({ id: call.call_id, name: call.name, status: 'running' });
+      onTool({ id: call.call_id, name: call.name, arguments: call.arguments, status: 'running' });
       let result: string;
       let status: 'success' | 'error' = 'success';
       try {
@@ -136,7 +136,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
         result = JSON.stringify({ error: signal.aborted ? 'Operation interrupted. Do not retry without explicit user approval.' : error instanceof Error ? error.message : 'Tool failed.' });
       }
       input.push({ type: 'function_call_output', call_id: call.call_id, output: result });
-      onTool({ id: call.call_id, name: call.name, status, result });
+      onTool({ id: call.call_id, name: call.name, arguments: call.arguments, status, result });
       if (status === 'error' && result.includes('User cancelled')) cancelled = true;
     }
     if (cancelled) {

@@ -85,6 +85,7 @@ export interface WorkspaceBridge {
 export interface ToolEvent {
   id: string;
   name: string;
+  arguments: string;
   status: 'running' | 'success' | 'error';
   result?: string;
 }

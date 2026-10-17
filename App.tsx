@@ -26,7 +26,13 @@ import {
   getStoredStorageType,
   setStoredLanguage,
   setStoredStorageType,
-  StorageAdapterType
+  StorageAdapterType,
+  getStoredTimeGroupingMode,
+  setStoredTimeGroupingMode,
+  getStoredProjectViewLayout,
+  setStoredProjectViewLayout,
+  TimeGroupingMode,
+  ProjectViewLayout
 } from './storage/storage.ts';
 import { translations, Language } from './translations.ts';
 import { PRESET_RATIOS } from './constants.ts';
@@ -37,7 +43,7 @@ import { encodeWebp, MAX_IMAGE_EDGE } from './features/ai/services/imageAttachme
 import { type Area } from 'react-easy-crop';
 import { 
   Download, Trash2, Plus, ArrowLeft, Clock, 
-  LayoutGrid,
+  LayoutGrid, CalendarDays, List, Layers,
   Upload, FolderOpen, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, Search, X,
   FileJson, ImageIcon as ImageIconLucide, Copy, Settings, Save, Bot
 } from 'lucide-react';
@@ -53,7 +59,24 @@ const CLOUD_PAGE_SIZE = 9;
 type ExportFormat = 'png' | 'jpeg' | 'webp';
 type ExportCompression = 'lossless' | 'balanced' | 'small';
 
-// 项目卡片组件
+// 格式化项目更新时间
+const formatProjectTime = (timestamp: number, lang: Language, showFullDate = false) => {
+  const d = new Date(timestamp);
+  if (isNaN(d.getTime())) return '';
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (!showFullDate && isToday) {
+    return timeStr;
+  }
+  const isThisYear = d.getFullYear() === now.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const dateStr = isThisYear ? `${month}-${day}` : `${d.getFullYear()}-${month}-${day}`;
+  return `${dateStr} ${timeStr}`;
+};
+
+// 项目卡片组件（网格视图）
 const ProjectCard = ({
   project,
   lang,
@@ -62,7 +85,8 @@ const ProjectCard = ({
   onDownloadJson,
   onDownloadImage,
   onDuplicate,
-  sourceLabel
+  sourceLabel,
+  showFullDate = false
 }: {
   project: ProjectState;
   lang: Language;
@@ -72,6 +96,7 @@ const ProjectCard = ({
   onDownloadImage: (previewNode: HTMLDivElement | null, e: React.MouseEvent) => void;
   onDuplicate: (e: React.MouseEvent) => void;
   sourceLabel?: string;
+  showFullDate?: boolean;
 }) => {
   const t = translations[lang];
   const [isVisible, setIsVisible] = useState(false);
@@ -139,7 +164,7 @@ const ProjectCard = ({
         
         <div className="flex items-center justify-between gap-3">
           <p className="text-[10px] flex items-center gap-1.5 uppercase font-bold tracking-widest text-slate-600">
-            <Clock className="w-3 h-3" /> {new Date(project.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            <Clock className="w-3 h-3 text-slate-600" /> {formatProjectTime(project.updatedAt, lang, showFullDate)}
           </p>
           <div className="flex items-center gap-1">
             <button 
@@ -165,6 +190,129 @@ const ProjectCard = ({
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+};
+
+// 项目列表项组件（列表视图）
+const ProjectListItem = ({
+  project,
+  lang,
+  onClick,
+  onDelete,
+  onDownloadJson,
+  onDownloadImage,
+  onDuplicate,
+  sourceLabel,
+  showFullDate = false
+}: {
+  project: ProjectState;
+  lang: Language;
+  onClick: () => void;
+  onDelete: (e: React.MouseEvent) => void;
+  onDownloadJson: (e: React.MouseEvent) => void;
+  onDownloadImage: (previewNode: HTMLDivElement | null, e: React.MouseEvent) => void;
+  onDuplicate: (e: React.MouseEvent) => void;
+  sourceLabel?: string;
+  showFullDate?: boolean;
+}) => {
+  const t = translations[lang];
+  const [isVisible, setIsVisible] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const previewNodeRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setIsVisible(true);
+        observer.disconnect();
+      }
+    }, { threshold: 0.05 });
+
+    if (rowRef.current) observer.observe(rowRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div 
+      ref={rowRef}
+      onClick={onClick} 
+      className="group bg-slate-900/40 border border-slate-800 rounded-2xl p-3 flex items-center justify-between gap-4 hover:border-blue-500/50 transition-all cursor-pointer shadow-lg hover:shadow-blue-900/10 hover:bg-slate-900/70"
+    >
+      <div className="flex items-center gap-4 min-w-0 flex-1">
+        {/* 缩略图预览 */}
+        <div className="w-24 h-16 bg-[#0c0c0e] rounded-xl overflow-hidden border border-slate-800/80 flex items-center justify-center flex-shrink-0 relative">
+          {isVisible ? (
+            <LivePreview project={project} previewRef={previewNodeRef} />
+          ) : (
+            <div className="w-5 h-5 rounded-full border border-slate-800 border-t-slate-600 animate-spin opacity-20" />
+          )}
+        </div>
+
+        {/* 项目标题及信息 */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+            <h3 className="text-sm font-bold text-slate-100 group-hover:text-blue-400 transition-colors truncate max-w-md">
+              {project.title}
+            </h3>
+            {sourceLabel && (
+              <span className="text-[9px] px-1.5 py-0.5 bg-emerald-600/20 text-emerald-300 font-black rounded-md border border-emerald-500/40 uppercase tracking-tight flex-shrink-0">
+                {sourceLabel}
+              </span>
+            )}
+            <span className="text-[9px] px-1.5 py-0.5 bg-slate-800 text-slate-400 font-black rounded-md border border-slate-700 uppercase tracking-tight flex-shrink-0">
+              {project.canvasConfig.ratio}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3 text-[10px] font-bold text-slate-500">
+            <span className="flex items-center gap-1.5 uppercase tracking-wider text-slate-500">
+              <Clock className="w-3 h-3 text-slate-600" />
+              {formatProjectTime(project.updatedAt, lang, showFullDate)}
+            </span>
+            <span className="text-slate-700">•</span>
+            <span className="text-slate-500">
+              {project.layers.length} {lang === 'zh' ? '个图层' : 'layers'}
+            </span>
+            <span className="text-slate-700">•</span>
+            <span className="text-slate-500">
+              {project.canvasConfig.width} × {project.canvasConfig.height} px
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 操作按钮 */}
+      <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+        <button 
+          onClick={(e) => onDuplicate(e)}
+          className="p-2 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
+          title={t.duplicateProject || t.importedCopySuffix}
+        >
+          <Copy className="w-3.5 h-3.5" />
+        </button>
+        <button 
+          onClick={(e) => onDownloadJson(e)} 
+          className="p-2 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
+          title={t.exportJson}
+        >
+          <FileJson className="w-3.5 h-3.5" />
+        </button>
+        <button 
+          onClick={(e) => onDownloadImage(previewNodeRef.current, e)} 
+          className="p-2 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
+          title={t.export}
+        >
+          <ImageIconLucide className="w-3.5 h-3.5" />
+        </button>
+        <button 
+          onClick={onDelete} 
+          className="p-2 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-red-600 rounded-xl transition-all shadow-sm active:scale-90"
+          title={t.deleteProject}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
       </div>
     </div>
   );
@@ -205,6 +353,23 @@ const App: React.FC = () => {
   const [confirmDialog, setConfirmDialog] = useState<{ message: string, onConfirm: () => void } | null>(null);
   const [isStorageSettingsOpen, setIsStorageSettingsOpen] = useState(false);
   const [projectSearchTerm, setProjectSearchTerm] = useState('');
+  const [timeGroupingMode, setTimeGroupingMode] = useState<TimeGroupingMode>(() => (
+    getStoredTimeGroupingMode('grouped')
+  ));
+  const [viewLayoutMode, setViewLayoutMode] = useState<ProjectViewLayout>(() => (
+    getStoredProjectViewLayout('grid')
+  ));
+
+  const handleTimeGroupingChange = useCallback((mode: TimeGroupingMode) => {
+    setTimeGroupingMode(mode);
+    setStoredTimeGroupingMode(mode);
+  }, []);
+
+  const handleViewLayoutChange = useCallback((layout: ProjectViewLayout) => {
+    setViewLayoutMode(layout);
+    setStoredProjectViewLayout(layout);
+  }, []);
+
   const [cloudPage, setCloudPage] = useState(1);
   const [cloudHasMore, setCloudHasMore] = useState(true);
   const [cloudLoading, setCloudLoading] = useState(false);
@@ -1679,7 +1844,7 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [project, handleUndo, handleRedo, updateLayer, lang, selectedLayerIds, handleDeleteLayers, handleCloneLayers, handleGroupLayers, performAutoSave, aiBusy]);
 
-  const groupedProjects = useMemo(() => {
+  const allFilteredProjects = useMemo(() => {
     const search = projectSearchTerm.toLowerCase();
     const storageItems: RecentProjectItem[] = (isCloudMode
       ? projects
@@ -1687,6 +1852,11 @@ const App: React.FC = () => {
       .map(project => ({ project, source: 'storage' }));
     const localItems = localRecentItems.filter(item => !search || item.project.title.toLowerCase().includes(search));
     const filtered = [...storageItems, ...localItems];
+    filtered.sort((a, b) => (b.project.updatedAt || 0) - (a.project.updatedAt || 0));
+    return filtered;
+  }, [projects, localRecentItems, projectSearchTerm, isCloudMode]);
+
+  const groupedProjects = useMemo(() => {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const startOfYesterday = startOfToday - 86400000;
@@ -1703,7 +1873,7 @@ const App: React.FC = () => {
       { label: t.dateGroups.older, key: 'older', items: [] }
     ];
 
-    filtered.forEach(item => {
+    allFilteredProjects.forEach(item => {
       const time = item.project.updatedAt;
       if (time >= startOfToday) groups[0].items.push(item);
       else if (time >= startOfYesterday) groups[1].items.push(item);
@@ -1714,7 +1884,7 @@ const App: React.FC = () => {
     });
 
     return groups.filter(g => g.items.length > 0);
-  }, [projects, localRecentItems, projectSearchTerm, t.dateGroups, isCloudMode]);
+  }, [allFilteredProjects, t.dateGroups]);
 
   const renderStorageSettingsModal = () => {
     if (!isStorageSettingsOpen) return null;
@@ -1904,6 +2074,58 @@ const App: React.FC = () => {
     return { width: Math.round(width), height: Math.round(height) };
   })();
 
+  const renderProjectItem = (item: RecentProjectItem) => {
+    const isUngrouped = timeGroupingMode === 'ungrouped';
+    const itemKey = `${item.source}-${item.localPath || item.project.id}`;
+    const commonProps = {
+      project: item.project,
+      lang: lang,
+      sourceLabel: item.source === 'local' ? t.localProjectTag : undefined,
+      showFullDate: isUngrouped,
+      onClick: () => {
+        if (item.source === 'local' && item.localPath) {
+          openLocalProjectFromPath(item.localPath);
+          return;
+        }
+        setProject(JSON.parse(JSON.stringify(item.project)));
+        setView('editor');
+        initProjectHistory(item.project);
+        clearActiveLocalFilePath();
+      },
+      onDelete: (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (item.source === 'local' && item.localPath) {
+          setConfirmDialog({
+            message: t.confirmRemoveLocalProject,
+            onConfirm: () => removeLocalRecentByPath(item.localPath as string)
+          });
+          return;
+        }
+        setConfirmDialog({
+          message: t.confirmDeleteProject,
+          onConfirm: () => deleteProjectById(item.project.id)
+        });
+      },
+      onDuplicate: (e: React.MouseEvent) => {
+        e.stopPropagation();
+        handleDuplicateProject(item.project);
+      },
+      onDownloadJson: (e: React.MouseEvent) => {
+        e.stopPropagation();
+        handleExportJson(item.project);
+      },
+      onDownloadImage: (node: HTMLDivElement | null, e: React.MouseEvent) => {
+        e.stopPropagation();
+        handleExportImage(node, item.project);
+      }
+    };
+
+    if (viewLayoutMode === 'list') {
+      return <ProjectListItem key={itemKey} {...commonProps} />;
+    }
+    return <ProjectCard key={itemKey} {...commonProps} />;
+  };
+
   return (
     <>
       {view === 'landing' ? (
@@ -1992,82 +2214,122 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="flex-1 min-h-0 flex flex-col gap-6 overflow-hidden">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 flex-shrink-0">
-            <h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Clock className="w-4 h-4" /> {t.recentProjects}</h2>
-            <div className="relative w-full md:w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-              <input 
-                type="text" 
-                placeholder={t.searchProjects}
-                value={projectSearchTerm}
-                onChange={(e) => setProjectSearchTerm(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl py-2 pl-12 pr-4 text-xs font-medium text-slate-200 placeholder-slate-600 outline-none focus:border-blue-500 transition-all"
-              />
-              {projectSearchTerm && (
-                <button 
-                  onClick={() => setProjectSearchTerm('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 hover:text-slate-300"
-                >
-                  <X className="w-3 h-3" />
-                </button>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <Clock className="w-4 h-4 text-blue-500" />
+                <span>{t.recentProjects}</span>
+              </h2>
+              {allFilteredProjects.length > 0 && (
+                <span className="text-[11px] font-bold text-slate-400 bg-slate-900/80 px-2.5 py-0.5 rounded-full border border-slate-800">
+                  {allFilteredProjects.length}
+                </span>
               )}
+            </div>
+
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* 整合控制组：排列方式与视图切换 */}
+              <div className="flex items-center bg-slate-900 border border-slate-800 p-1 rounded-xl shadow-inner gap-0.5">
+                {/* 按时间分组切换：单图标开关，点亮时按时间分组，熄灭时平铺展示 */}
+                <button
+                  type="button"
+                  onClick={() => handleTimeGroupingChange(timeGroupingMode === 'grouped' ? 'ungrouped' : 'grouped')}
+                  className={`p-1.5 rounded-lg transition-all ${
+                    timeGroupingMode === 'grouped'
+                      ? 'bg-slate-800 text-blue-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/60'
+                  }`}
+                  title={
+                    timeGroupingMode === 'grouped'
+                      ? (lang === 'zh' ? '按时间分组：已开启（点击平铺全部）' : 'Group by date: On (click to show all)')
+                      : (lang === 'zh' ? '按时间分组：已关闭（点击按时间分组）' : 'Group by date: Off (click to group by date)')
+                  }
+                  aria-label={lang === 'zh' ? '按时间分组' : 'Group by date'}
+                  aria-pressed={timeGroupingMode === 'grouped'}
+                >
+                  <Layers className="w-4 h-4" />
+                </button>
+
+                <div className="w-px h-4 bg-slate-800 mx-1 self-center" />
+
+                {/* 视图切换：网格 / 列表 */}
+                <button
+                  type="button"
+                  onClick={() => handleViewLayoutChange('grid')}
+                  className={`p-1.5 rounded-lg transition-all ${
+                    viewLayoutMode === 'grid'
+                      ? 'bg-slate-800 text-blue-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/60'
+                  }`}
+                  title={t.viewGrid}
+                  aria-label={t.viewGrid}
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleViewLayoutChange('list')}
+                  className={`p-1.5 rounded-lg transition-all ${
+                    viewLayoutMode === 'list'
+                      ? 'bg-slate-800 text-blue-400 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/60'
+                  }`}
+                  title={t.viewList}
+                  aria-label={t.viewList}
+                >
+                  <List className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* 搜索框 */}
+              <div className="relative w-full sm:w-56">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+                <input 
+                  type="text" 
+                  placeholder={t.searchProjects}
+                  value={projectSearchTerm}
+                  onChange={(e) => setProjectSearchTerm(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl py-2 pl-9 pr-8 text-xs font-medium text-slate-200 placeholder-slate-600 outline-none focus:border-blue-500 transition-all"
+                />
+                {projectSearchTerm && (
+                  <button 
+                    type="button"
+                    onClick={() => setProjectSearchTerm('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 hover:text-slate-300"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
           
           <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar space-y-10 pb-16" onScroll={handleProjectsScroll}>
             {projects.length === 0 && localRecentItems.length === 0 ? (
               <div className="bg-slate-900/50 border-2 border-dashed border-slate-800 rounded-3xl h-80 flex flex-col items-center justify-center text-slate-600 gap-4"><LayoutGrid className="w-12 h-12 opacity-20" /><p className="text-sm font-medium">{t.noProjects}</p></div>
-            ) : groupedProjects.length === 0 ? (
+            ) : allFilteredProjects.length === 0 ? (
               <div className="h-64 flex flex-col items-center justify-center text-slate-600 opacity-50 italic">
                 <p className="text-sm">{t.noMatchingProjects}</p>
               </div>
-            ) : (
+            ) : timeGroupingMode === 'grouped' ? (
               groupedProjects.map(group => (
-                <div key={group.key} className="space-y-6">
+                <div key={group.key} className="space-y-4">
                   <h3 className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em] flex items-center gap-4">
                     <span>{group.label}</span>
+                    <span className="text-[10px] font-bold text-slate-700 tracking-normal">({group.items.length})</span>
                     <div className="flex-1 h-px bg-slate-900"></div>
                   </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
-                    {group.items.map(item => (
-                      <ProjectCard 
-                        key={`${item.source}-${item.localPath || item.project.id}`} 
-                        project={item.project} 
-                        lang={lang} 
-                        sourceLabel={item.source === 'local' ? t.localProjectTag : undefined}
-                        onClick={() => { 
-                          if (item.source === 'local' && item.localPath) {
-                            openLocalProjectFromPath(item.localPath);
-                            return;
-                          }
-                          setProject(JSON.parse(JSON.stringify(item.project))); 
-                          setView('editor'); 
-                          initProjectHistory(item.project); 
-                          clearActiveLocalFilePath();
-                        }} 
-                        onDelete={(e) => { 
-                          e.stopPropagation(); 
-                          // 本地项目删除时，仅删除打开记录信息
-                          if (item.source === 'local' && item.localPath) {
-                            setConfirmDialog({
-                              message: t.confirmRemoveLocalProject,
-                              onConfirm: () => removeLocalRecentByPath(item.localPath as string)
-                            });
-                            return;
-                          }
-                          setConfirmDialog({ 
-                            message: t.confirmDeleteProject, 
-                            onConfirm: () => deleteProjectById(item.project.id)
-                          }); 
-                        }} 
-                        onDuplicate={(e) => { e.stopPropagation(); handleDuplicateProject(item.project); }}
-                        onDownloadJson={(e) => { e.stopPropagation(); handleExportJson(item.project); }}
-                        onDownloadImage={(node, e) => { e.stopPropagation(); handleExportImage(node, item.project); }}
-                      />
-                    ))}
+                  <div className={viewLayoutMode === 'list' ? 'flex flex-col gap-3' : 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6'}>
+                    {group.items.map(renderProjectItem)}
                   </div>
                 </div>
               ))
+            ) : (
+              <div className="space-y-4">
+                <div className={viewLayoutMode === 'list' ? 'flex flex-col gap-3' : 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6'}>
+                  {allFilteredProjects.map(renderProjectItem)}
+                </div>
+              </div>
             )}
             {isCloudMode && cloudLoading && (
               <div className="flex items-center justify-center py-6 text-xs text-slate-500">{t.loading || 'Loading...'}</div>

@@ -68,6 +68,31 @@ export const setStoredDecorationPresets = (presets: DecorationTemplate[]) => {
   localStorage.setItem(DECORATION_PRESETS_KEY, JSON.stringify(presets));
 };
 
+export type TimeGroupingMode = 'grouped' | 'ungrouped';
+export type ProjectViewLayout = 'grid' | 'list';
+
+const TIME_GROUPING_KEY = 'coverflow_time_grouping_mode';
+const PROJECT_VIEW_LAYOUT_KEY = 'coverflow_project_view_layout';
+
+export const getStoredTimeGroupingMode = (fallback: TimeGroupingMode = 'grouped'): TimeGroupingMode => {
+  const val = localStorage.getItem(TIME_GROUPING_KEY);
+  return val === 'grouped' || val === 'ungrouped' ? val : fallback;
+};
+
+export const setStoredTimeGroupingMode = (mode: TimeGroupingMode) => {
+  localStorage.setItem(TIME_GROUPING_KEY, mode);
+};
+
+export const getStoredProjectViewLayout = (fallback: ProjectViewLayout = 'grid'): ProjectViewLayout => {
+  const val = localStorage.getItem(PROJECT_VIEW_LAYOUT_KEY);
+  return val === 'grid' || val === 'list' ? val : fallback;
+};
+
+export const setStoredProjectViewLayout = (layout: ProjectViewLayout) => {
+  localStorage.setItem(PROJECT_VIEW_LAYOUT_KEY, layout);
+};
+
+
 const FA_DB_NAME = 'coverflow_fa_cache_v1';
 const FA_STORE_NAME = 'fa_cache';
 const FA_KEY_ICONS = 'icons';

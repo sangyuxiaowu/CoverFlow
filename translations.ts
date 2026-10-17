@@ -22,6 +22,8 @@ export const translations = {
     landingHeader: "开始创作你的封面",
     recentProjects: "最近项目",
     searchProjects: "搜索项目名称...",
+    duplicateProject: "复制项目",
+    loading: "加载中...",
     dateGroups: {
       today: "今天",
       yesterday: "昨天",
@@ -323,6 +325,8 @@ export const translations = {
     landingHeader: "Start Your Design",
     recentProjects: "Recent Projects",
     searchProjects: "Search project name...",
+    duplicateProject: "Duplicate Project",
+    loading: "Loading...",
     dateGroups: {
       today: "Today",
       yesterday: "Yesterday",

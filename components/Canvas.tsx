@@ -430,7 +430,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                         </div>
                       )
                     ) : layer.type === 'decoration' ? (
-                      <div className="w-full h-full pointer-events-none overflow-hidden" style={{ opacity: layer.opacity }}>
+                      <div className="w-full h-full pointer-events-none" style={{ opacity: layer.opacity }}>
                         <DecorationContent content={layer.content} format={layer.decorationFormat} />
                       </div>
                     ) : (

@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import Canvas from '../components/Canvas.tsx';
+import LivePreview from '../components/LivePreview.tsx';
+import type { ProjectState } from '../types.ts';
 import { backgroundCssStyle, detectDecorationFormat, sanitizeBackgroundCss, sanitizeDecorationHtml } from './customContent.ts';
 import { PRESET_DECORATIONS } from '../constants.ts';
 import { buildDecorationLayerStyle, sanitizeDecorationContent } from './decorationStyles.ts';
@@ -20,6 +25,58 @@ describe('custom backgrounds', () => {
     expect(style.background).toBeTruthy();
     expect(style.backgroundImage).not.toContain('radial-gradient');
     expect(style.backgroundImage).toContain('linear-gradient');
+  });
+});
+
+describe('decoration rendering boundaries', () => {
+  const shadow = '0 0 54px 12px rgba(255,216,146,0.32), 0 0 160px 64px rgba(255,180,104,0.15)';
+  const project: ProjectState = {
+    id: 'shadow-regression', title: 'Moon', updatedAt: 0, selectedLayerId: null,
+    canvasConfig: { width: 800, height: 600, ratio: '4:3' },
+    background: { type: 'color', value: '#000000', overlayType: 'none', overlayColor: '#ffffff', overlayOpacity: 0, overlayScale: 20 },
+    layers: [{
+      id: 'moon', name: 'Moon', type: 'decoration', decorationFormat: 'css',
+      content: `background: #fbeec9; border-radius: 50%; box-shadow: ${shadow};`,
+      x: 200, y: 100, width: 300, height: 300, rotation: 0, zIndex: 1,
+      visible: true, locked: false, opacity: 0.6
+    }]
+  };
+  const renderers = [
+    { name: 'canvas', render: (state: ProjectState) => createElement(Canvas, { project: state, lang: 'zh', onSelectLayer: () => {}, updateLayer: () => {}, onCommit: () => {} }) },
+    { name: 'live preview', render: (state: ProjectState) => createElement(LivePreview, { project: state }) }
+  ];
+
+  it.each(renderers)('$name lets CSS shadows extend beyond the layer but clips at the canvas', ({ render }) => {
+    const container = document.createElement('div');
+    container.innerHTML = renderToStaticMarkup(render(project));
+    const decoration = Array.from(container.querySelectorAll('div')).find(element => element.style.boxShadow.includes('160px'));
+    expect(decoration).toBeDefined();
+    expect(decoration!.style.boxShadow).toBe(shadow);
+    expect(decoration!.style.borderRadius).toBe('50%');
+    expect(decoration!.parentElement!.style.opacity).toBe('0.6');
+    const canvas = Array.from(container.querySelectorAll('div')).find(element => element.style.width === '800px' && element.style.height === '600px');
+    expect(canvas).toBeDefined();
+    expect(canvas!.contains(decoration!)).toBe(true);
+    for (let ancestor = decoration!.parentElement; ancestor && ancestor !== canvas; ancestor = ancestor.parentElement) {
+      expect(ancestor.className).not.toMatch(/\boverflow(?:-[xy])?-(?:hidden|clip|auto|scroll)\b/);
+      for (const overflow of [ancestor.style.overflow, ancestor.style.overflowX, ancestor.style.overflowY]) {
+        expect(overflow).not.toMatch(/hidden|clip|auto|scroll/);
+      }
+      expect(ancestor.style.contain).not.toMatch(/paint|strict|content/);
+    }
+    expect(canvas!.classList.contains('overflow-hidden') || canvas!.style.overflow === 'hidden').toBe(true);
+  });
+
+  it.each(renderers)('$name preserves HTML fragment clipping and isolation', ({ render }) => {
+    const container = document.createElement('div');
+    const htmlProject: ProjectState = { ...project, layers: [{ ...project.layers[0], decorationFormat: 'html', content: `<div style="width:100%;height:100%;box-shadow:${shadow}">Moon</div>` }] };
+    container.innerHTML = renderToStaticMarkup(render(htmlProject));
+    const boundary = container.querySelector('[data-cf-fragment]')?.parentElement;
+    expect(boundary).toBeTruthy();
+    expect(boundary!.style.overflow).toBe('hidden');
+    expect(boundary!.style.isolation).toBe('isolate');
+    expect(boundary!.style.contain).toBe('layout paint style');
+    expect(boundary!.style.pointerEvents).toBe('none');
   });
 });
 

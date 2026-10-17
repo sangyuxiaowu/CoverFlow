@@ -137,7 +137,7 @@ const LivePreview: React.FC<{
                     {layer.content}
                   </div>
                 ) : layer.type === 'decoration' ? (
-                  <div className="w-full h-full overflow-hidden" style={{ opacity: layer.opacity }}>
+                  <div className="w-full h-full" style={{ opacity: layer.opacity }}>
                     <DecorationContent content={layer.content} format={layer.decorationFormat} />
                   </div>
                 ) : layer.type === 'image' ? (

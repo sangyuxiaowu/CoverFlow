@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
 import { readResponse, runConversation, normalizeUsage, sanitizeResponseItems } from './conversation.ts';
 import type { Response as AiResponse, ResponseStreamEvent } from 'openai/resources/responses/responses';
-import { SYSTEM_PROMPT, VISUAL_CONTENT_GUIDE, defaultConfig, saveConfig, normalizeConfig, normalizeEndpoint, selectModel, toRequestConfig, reasoningPayload, loadConfig, createEndpoint, validateRequestConfig } from './config.ts';
+import { DEFAULT_IMAGE_TOOL_PROMPT, SYSTEM_PROMPT, VISUAL_CONTENT_GUIDE, defaultConfig, saveConfig, normalizeConfig, normalizeEndpoint, selectModel, toRequestConfig, reasoningPayload, loadConfig, createEndpoint, validateRequestConfig } from './config.ts';
 import type { ProjectState } from '../../../types.ts';
 import type { AiRequestConfig, ChatEntry, ChatSession, RequestUsage, ResponseItem, ToolEvent, WorkspaceBridge } from '../types.ts';
 import { AI_DATABASE_NAME, listStoredSessions, saveStoredImage, loadStoredImage, saveStoredSession, deleteStoredSession } from './configStore.ts';
@@ -27,15 +27,19 @@ const textOutput = { type: 'message', id: 'msg-test', role: 'assistant', status:
 async function* eventsFrom(events: unknown[]) { for (const event of events) yield event as ResponseStreamEvent; }
 const streamResponse = (payload: ReturnType<typeof responsePayload>) => new Response(`event: response.${payload.status}\ndata: ${JSON.stringify({ type: `response.${payload.status}`, response: payload })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
 
-test('visual capability instructions accompany custom prompts without modifying stored settings', async () => {
+test('custom prompts are not silently extended with visual capability instructions', async () => {
   const profiles = configuredConfig();
+  profiles.imageModels = profiles.imageModels?.map(model => ({ ...model, enabled: true, endpointId: profiles.endpoints[0].id }));
   const original = '请保持我的品牌配色，并使用简洁中文回复。';
   profiles.systemPrompt = original;
   const requestConfig = toRequestConfig(profiles);
   assert.equal(profiles.systemPrompt, original);
-  assert.equal(requestConfig.systemPrompt, `${original}\n\n${VISUAL_CONTENT_GUIDE}`);
+  assert.equal(requestConfig.systemPrompt, `${original}\n\n${DEFAULT_IMAGE_TOOL_PROMPT}`);
   assert.equal(toRequestConfig({ ...profiles, systemPrompt: requestConfig.systemPrompt }).systemPrompt, requestConfig.systemPrompt);
-  assert.equal(toRequestConfig(configuredConfig()).systemPrompt, SYSTEM_PROMPT);
+  assert.equal(toRequestConfig({ ...configuredConfig(), imageModels: [] }).systemPrompt, SYSTEM_PROMPT);
+  assert.equal(toRequestConfig({ ...profiles, systemPrompt: SYSTEM_PROMPT, imageToolPrompt: '自定义生图规则' }).systemPrompt, `${SYSTEM_PROMPT}\n\n自定义生图规则`);
+  assert.equal(toRequestConfig({ ...configuredConfig(), imageModels: [], imageToolPrompt: '自定义生图规则' }).systemPrompt, SYSTEM_PROMPT);
+  assert.ok(SYSTEM_PROMPT.includes(VISUAL_CONTENT_GUIDE));
   const originalFetch = globalThis.fetch;
   let sentInstructions = '';
   let sentTools: unknown[] = [];

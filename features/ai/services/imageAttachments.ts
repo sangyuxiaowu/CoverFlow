@@ -1,8 +1,22 @@
-import type { ChatImageUpload } from '../types.ts';
+import type { ChatImageRef, ChatImageUpload } from '../types.ts';
+import { generateId } from '../../../utils/helpers.ts';
 
 export const MAX_IMAGE_EDGE = 600;
 
-export async function encodeWebp(source: Blob | HTMLCanvasElement): Promise<Blob> {
+export const IMAGE_FORMATS = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' } as const;
+
+export function imageMimeType(type: string): ChatImageRef['type'] {
+  if (type !== 'image/png' && type !== 'image/jpeg' && type !== 'image/webp') throw new Error('Unsupported image MIME type.');
+  return type;
+}
+
+export function imageMimeTypeFromPath(path: string): ChatImageRef['type'] {
+  const format = Object.entries(IMAGE_FORMATS).find(([, extension]) => path.endsWith(`.${extension}`));
+  if (!format) throw new Error('Unsupported image file extension.');
+  return imageMimeType(format[0]);
+}
+
+export async function encodeWebp(source: Blob | HTMLCanvasElement, maxEdge = MAX_IMAGE_EDGE, quality = 0.82): Promise<Blob> {
   let bitmap: ImageBitmap | null = null;
   let sourceWidth: number;
   let sourceHeight: number;
@@ -17,7 +31,8 @@ export async function encodeWebp(source: Blob | HTMLCanvasElement): Promise<Blob
     sourceHeight = bitmap.height;
   }
   if (!sourceWidth || !sourceHeight) throw new Error('Image has invalid dimensions.');
-  const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(sourceWidth, sourceHeight));
+  if (sourceWidth * sourceHeight > 67108864) { bitmap?.close(); throw new Error('Image exceeds the 64 megapixel limit.'); }
+  const scale = Math.min(1, maxEdge / Math.max(sourceWidth, sourceHeight));
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(sourceWidth * scale));
   canvas.height = Math.max(1, Math.round(sourceHeight * scale));
@@ -25,19 +40,19 @@ export async function encodeWebp(source: Blob | HTMLCanvasElement): Promise<Blob
   if (!context) { bitmap?.close(); throw new Error('Canvas context not available.'); }
   context.drawImage(bitmap || source as HTMLCanvasElement, 0, 0, canvas.width, canvas.height);
   bitmap?.close();
-  const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', 0.82));
+  const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', quality));
   if (!blob || blob.type !== 'image/webp') throw new Error('WebP encoding is not supported by this browser.');
   return blob;
 }
 
-export async function createImageUpload(file: File): Promise<ChatImageUpload> {
+export async function createImageUpload(file: File, preserveResolution = false): Promise<ChatImageUpload> {
   if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
     throw new Error('Choose a PNG, JPEG, WebP or GIF image.');
   }
-  const blob = await encodeWebp(file);
+  const blob = await encodeWebp(file, preserveResolution ? Infinity : MAX_IMAGE_EDGE, preserveResolution ? 0.95 : 0.82);
   return {
     blob,
-    image: { id: crypto.randomUUID(), name: file.name.slice(0, 160) || 'image.webp', type: 'image/webp', size: blob.size }
+    image: { id: generateId(), name: file.name.slice(0, 160) || 'image.webp', type: 'image/webp', size: blob.size }
   };
 }
 

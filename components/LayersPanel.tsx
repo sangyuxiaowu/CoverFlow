@@ -561,6 +561,19 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                 </div>
               </div>
 
+              {selectedLayer.type === 'image' && (
+                <div className="space-y-2 pt-2 border-t border-slate-800/80">
+                  <div className="space-y-1">
+                    <label htmlFor={`image-source-${selectedLayer.id}`} className="block text-[9px] text-slate-500 font-bold">{t.imageSource}</label>
+                    <input id={`image-source-${selectedLayer.id}`} type="text" maxLength={200} value={selectedLayer.imageSource || ''} onChange={event => onUpdateLayer(selectedLayer.id, { imageSource: event.target.value })} onBlur={onCommit} className="w-full min-w-0 bg-slate-800/50 rounded-md px-2 py-1 text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none" />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor={`image-description-${selectedLayer.id}`} className="block text-[9px] text-slate-500 font-bold">{t.imageDescription}</label>
+                    <textarea id={`image-description-${selectedLayer.id}`} rows={4} maxLength={10000} value={selectedLayer.imageDescription || ''} onChange={event => onUpdateLayer(selectedLayer.id, { imageDescription: event.target.value })} onBlur={onCommit} className="block w-full min-w-0 resize-y bg-slate-800/50 rounded-md px-2 py-1 text-[11px] leading-relaxed text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none" />
+                  </div>
+                </div>
+              )}
+
               {/* 文本专属属性区 */}
               {selectedLayer.type === 'text' && (
                 <div className="space-y-3 pt-2 border-t border-slate-800/80">

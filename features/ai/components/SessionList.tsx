@@ -27,6 +27,21 @@ export default function SessionList({
   const [title, setTitle] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const label = (zh: string, en: string) => (english ? en : zh);
+  const imageSizes = new Map<string, number>();
+  sessions.forEach(session => session.entries.forEach(entry => {
+    entry.images?.forEach(image => imageSizes.set(`${session.id}:${image.id}`, image.size));
+  }));
+  const imageStorageBytes = [...imageSizes.values()].reduce((total, size) => total + size, 0);
+  const formatBytes = (bytes: number) => {
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit += 1;
+    }
+    return `${value.toLocaleString(english ? 'en-US' : 'zh-CN', { maximumFractionDigits: unit ? 1 : 0 })} ${units[unit]}`;
+  };
 
   return (
     <section className="cf-ai-session-list" aria-label={label('聊天会话', 'Chat Sessions')}>
@@ -44,13 +59,21 @@ export default function SessionList({
           <Plus size={16} />
         </button>
       </div>
+      <div className="cf-ai-session-storage">
+        <ImageIcon size={12} />
+        <span>{label('图片存储占用', 'Image storage')}</span>
+        <strong>{formatBytes(imageStorageBytes)}</strong>
+      </div>
       {sessions.length === 0 && (
         <div className="text-center py-6 text-slate-500 text-xs">
           {label('暂无历史会话', 'No history sessions')}
         </div>
       )}
       {sessions.map(session => {
-        const imageCount = session.entries.reduce((count, entry) => count + (entry.images?.length || 0), 0);
+        const sessionImageSizes = new Map<string, number>();
+        session.entries.forEach(entry => entry.images?.forEach(image => sessionImageSizes.set(image.id, image.size)));
+        const imageCount = sessionImageSizes.size;
+        const sessionImageBytes = [...sessionImageSizes.values()].reduce((total, size) => total + size, 0);
         return (
         <div
           key={session.id}
@@ -103,14 +126,20 @@ export default function SessionList({
                 <span>
                   <strong>{session.title}</strong>
                   <small>
-                    {new Date(session.updatedAt).toLocaleDateString(english ? 'en' : 'zh-CN', {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}{' '}
-                    · {session.entries.length} {label('条对话', 'messages')}
-                    {imageCount > 0 && <span className="inline-flex items-center gap-1 ml-1"><ImageIcon size={11} />{imageCount}</span>}
+                    <span>
+                      {new Date(session.updatedAt).toLocaleDateString(english ? 'en' : 'zh-CN', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}{' '}
+                      · {session.entries.length} {label('条对话', 'messages')}
+                    </span>
+                    {imageCount > 0 && (
+                      <span className="cf-ai-session-image-count">
+                        <ImageIcon size={11} />{imageCount} · {formatBytes(sessionImageBytes)}
+                      </span>
+                    )}
                   </small>
                 </span>
               </button>

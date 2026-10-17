@@ -1330,6 +1330,26 @@
   margin-bottom: 8px;
 }
 
+.cf-ai-session-storage {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 2px 10px;
+  color: var(--ai-muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.cf-ai-session-storage svg {
+  flex-shrink: 0;
+}
+
+.cf-ai-session-storage strong {
+  margin-left: auto;
+  color: #cbd5e1;
+  font-variant-numeric: tabular-nums;
+}
+
 .cf-ai-session-row {
   display: flex;
   flex-wrap: wrap;
@@ -1391,8 +1411,20 @@
 }
 
 .cf-ai-session-select small {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  column-gap: 6px;
+  row-gap: 2px;
   font-size: 10px;
   color: var(--ai-muted);
+}
+
+.cf-ai-session-image-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
 }
 
 .cf-ai-session-edit, .cf-ai-session-delete {

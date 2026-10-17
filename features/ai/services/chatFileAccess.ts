@@ -1,4 +1,5 @@
 import type { ChatFileAccess } from './chatStore.ts';
+import { imageMimeTypeFromPath } from './imageAttachments.ts';
 
 type DirectoryEntries = FileSystemDirectoryHandle & { entries: () => AsyncIterableIterator<[string, FileSystemHandle]> };
 
@@ -28,7 +29,7 @@ export function createDirectoryChatAccess(root: () => Promise<FileSystemDirector
       try {
         const { parent, name } = await locate(path, false);
         const file = await (await parent.getFileHandle(name)).getFile();
-        return file.slice(0, file.size, 'image/webp');
+        return file.slice(0, file.size, imageMimeTypeFromPath(path));
       }
       catch (error) { if ((error as DOMException).name === 'NotFoundError') return null; throw error; }
     },
@@ -80,7 +81,7 @@ export function createTauriChatAccess(projectPath: string): ChatFileAccess {
     readBinary: async relative => {
       const fs = await import('@tauri-apps/plugin-fs');
       const target = await path(relative);
-      return await fs.exists(target) ? new Blob([await fs.readFile(target)], { type: 'image/webp' }) : null;
+      return await fs.exists(target) ? new Blob([await fs.readFile(target)], { type: imageMimeTypeFromPath(relative) }) : null;
     },
     writeBinary: async (relative, content) => {
       const fs = await import('@tauri-apps/plugin-fs');

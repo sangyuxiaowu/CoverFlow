@@ -1,0 +1,528 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AiConfig, ChatImageRef, WorkspaceBridge } from '../types.ts';
+import type { ProjectState } from '../../../types.ts';
+import { availableImageModels, createImageModel, DEFAULT_REFERENCE_IMAGE_PROMPT, DEFAULT_TEXT_IMAGE_PROMPT, generateImage, imageModelToolId, imageRequestUrl, validateImageModel } from './imageGeneration.ts';
+import { imageToolDefinitions } from '../tools/definitions.ts';
+import { executeImageTool, type ImageToolContext } from '../tools/imageTools.ts';
+import { executeTool } from '../tools/execute.ts';
+import { runConversation } from './conversation.ts';
+import { defaultConfig, toRequestConfig, validateConfig } from './config.ts';
+import { createFileChatStore } from './chatStore.ts';
+import { imageMimeType } from './imageAttachments.ts';
+
+const reference = 'data:image/png;base64,iVBORw0KGgo=';
+function setup(adapter: 'kolors' | 'agnes') {
+  const model = { ...createImageModel(adapter), endpointId: 'endpoint', enabled: true };
+  const config = { endpoints: [{ id: 'endpoint', endpoint: 'https://example.com/v1', apiKey: 'secret' }], imageModels: [model] } as AiConfig;
+  return { model, config };
+}
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
+
+describe('image generation adapters', () => {
+  it('creates short model identifiers using the existing application convention', () => {
+    expect(createImageModel('agnes').id).toMatch(/^[a-z0-9]{1,9}$/);
+  });
+  it('uses the provided templates by default and isolates per-model prompt descriptions', () => {
+    const first = createImageModel('kolors');
+    const second = createImageModel('agnes');
+    expect(first.textPromptDescription).toBe(DEFAULT_TEXT_IMAGE_PROMPT);
+    expect(first.referencePromptDescription).toBe(DEFAULT_REFERENCE_IMAGE_PROMPT);
+    first.textPromptDescription = 'Kolors custom text guide';
+    second.referencePromptDescription = 'Agnes custom reference guide';
+    const multiple = imageToolDefinitions([first, second]);
+    const definition = multiple.find(tool => tool.function.name === 'generate_image')!;
+    const prompt = (definition.function.parameters.properties as Record<string, { description: string }>).prompt.description;
+    expect(prompt).toBe('生图提示词');
+    expect(JSON.stringify(multiple)).not.toContain('Kolors custom text guide');
+    expect(JSON.stringify(multiple)).not.toContain('Agnes custom reference guide');
+    const single = imageToolDefinitions([first]);
+    expect(single.map(tool => tool.function.name)).toEqual(['generate_image']);
+    const parameters = single.find(tool => tool.function.name === 'generate_image')!.function.parameters;
+    const properties = parameters.properties as Record<string, Record<string, unknown>>;
+    expect(properties.prompt.description).toContain('Kolors custom text guide');
+    expect(properties.prompt.description).toContain(DEFAULT_REFERENCE_IMAGE_PROMPT);
+    expect(properties.size.enum).toEqual(['1024x1024', '960x1280', '768x1024', '720x1440', '720x1280']);
+    expect(properties).not.toHaveProperty('modelConfigId');
+    expect(properties).not.toHaveProperty('ratio');
+    expect(parameters.required).toEqual(['projectId', 'prompt']);
+    expect(createImageModel('kolors').textPromptDescription).toBe(DEFAULT_TEXT_IMAGE_PROMPT);
+  });
+  it('resolves root and versioned bases without duplicate v1', () => {
+    expect(imageRequestUrl('https://example.com')).toBe('https://example.com/v1/images/generations');
+    expect(imageRequestUrl('https://example.com/v1/')).toBe('https://example.com/v1/images/generations');
+    expect(imageRequestUrl('https://example.com/proxy/v1')).toBe('https://example.com/proxy/v1/images/generations');
+  });
+  for (const adapter of ['kolors', 'agnes'] as const) it(`${adapter}: downloads signed temporary URLs without changing their query or forwarding API credentials`, async () => {
+    const { model, config } = setup(adapter);
+    const url = 'https://cdn.example.com/result.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=test%2F20261017%2Fregion%2Fs3%2Faws4_request&X-Amz-Security-Token=token%2Bvalue%3D&X-Amz-Expires=3600&X-Amz-Signature=example';
+    const original = new Blob([Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10])], { type: 'image/png' });
+    const mock = vi.fn().mockResolvedValueOnce(Response.json(adapter === 'kolors' ? { images: [{ url }] } : { data: [{ url }] })).mockResolvedValueOnce(new Response(original));
+    vi.stubGlobal('fetch', mock);
+    const result = await generateImage(config, { modelConfigId: model.id, prompt: 'City' }, new AbortController().signal);
+    expect(mock).toHaveBeenCalledTimes(2);
+    expect(mock.mock.calls[1][0].href).toBe(url);
+    expect(mock.mock.calls[1][1]).toMatchObject({ credentials: 'omit', referrerPolicy: 'no-referrer' });
+    expect(mock.mock.calls[1][1].headers).toBeUndefined();
+    expect(result.type).toBe('image/png');
+    expect(await result.arrayBuffer()).toEqual(await original.arrayBuffer());
+    expect(() => imageRequestUrl('https://example.com/v1?api_key=secret')).toThrow('query parameters');
+    expect(() => imageRequestUrl('https://example.com/v1', url)).toThrow('query parameters');
+  });
+  for (const url of ['javascript:alert(1)', 'http://cdn.example.com/image.png?signature=test', 'https://user:password@cdn.example.com/image.png?signature=test', 'https://cdn.example.com/image.png?signature=test#fragment']) {
+    it('rejects unsafe result URL protocols, embedded credentials and fragments before download', async () => {
+      const { model, config } = setup('kolors');
+      const mock = vi.fn().mockResolvedValueOnce(Response.json({ images: [{ url }] }));
+      vi.stubGlobal('fetch', mock);
+      await expect(generateImage(config, { modelConfigId: model.id, prompt: 'City' }, new AbortController().signal)).rejects.toThrow();
+      expect(mock).toHaveBeenCalledTimes(1);
+    });
+  }
+  for (const adapter of ['kolors', 'agnes'] as const) for (const withReference of [false, true]) {
+    it(`${adapter}: ${withReference ? 'single reference' : 'text to image'}`, async () => {
+      const { model, config } = setup(adapter);
+      const mock = vi.fn().mockResolvedValueOnce(Response.json(adapter === 'kolors' ? { images: [{ url: 'https://cdn.example.com/result.png' }] } : { data: [{ b64_json: 'iVBORw0KGgo=' }] })).mockResolvedValueOnce(new Response(new Blob([Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10])], { type: 'image/png' })));
+      vi.stubGlobal('fetch', mock);
+      const blob = await generateImage(config, { modelConfigId: model.id, prompt: 'A city' }, new AbortController().signal, withReference ? reference : undefined);
+      expect(blob.type).toBe('image/png');
+      const [url, request] = mock.mock.calls[0];
+      expect(url).toBe('https://example.com/v1/images/generations');
+      expect(request.headers.Authorization).toBe('Bearer secret');
+      const body = JSON.parse(request.body);
+      expect(body).toEqual(adapter === 'kolors'
+        ? { model: model.modelId, prompt: 'A city', image_size: '1024x1024', num_inference_steps: 20, guidance_scale: 7.5, ...(withReference ? { image: reference } : {}) }
+        : { model: model.modelId, prompt: 'A city', size: '1K', ratio: '1:1', ...(withReference ? { extra_body: { image: [reference], response_format: 'b64_json' } } : { return_base64: true }) });
+      if (adapter === 'kolors') {
+        expect(request.headers['X-Enable-Watermark']).toBe('0');
+        expect(mock.mock.calls[1][1].headers).toBeUndefined();
+      }
+    });
+  }
+  for (const [mime, encoded] of [
+    ['image/png', 'iVBORw0KGgo='], ['image/jpeg', '/9j/2Q=='], ['image/webp', 'UklGRgAAAABXRUJQ']
+  ] as const) for (const reported of ['application/octet-stream', '', 'image/png', 'image/jpeg; charset=utf-8']) {
+    it(`recognizes ${mime} bytes when the download reports ${reported || 'no Content-Type'}`, async () => {
+      const { model, config } = setup('kolors');
+      const original = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
+      const mock = vi.fn().mockResolvedValueOnce(Response.json({ images: [{ url: 'https://cdn.example.com/result.png?signature=test' }] })).mockResolvedValueOnce(new Response(new Blob([original], { type: reported })));
+      vi.stubGlobal('fetch', mock);
+      const image = await generateImage(config, { modelConfigId: model.id, prompt: 'City' }, new AbortController().signal);
+      expect(image.type).toBe(mime);
+      expect(new Uint8Array(await image.arrayBuffer())).toEqual(original);
+      expect(mock).toHaveBeenCalledTimes(2);
+    });
+  }
+  for (const [content, type] of [['<Error>ExpiredToken</Error>', 'application/xml'], ['<html>Forbidden</html>', 'image/png'], ['not an image', 'application/octet-stream']]) {
+    it('rejects non-image download bodies even when the server advertises an image MIME', async () => {
+      const { model, config } = setup('kolors');
+      const mock = vi.fn().mockResolvedValueOnce(Response.json({ images: [{ url: 'https://cdn.example.com/result.png?signature=test' }] })).mockResolvedValueOnce(new Response(new Blob([content], { type })));
+      vi.stubGlobal('fetch', mock);
+      await expect(generateImage(config, { modelConfigId: model.id, prompt: 'City' }, new AbortController().signal)).rejects.toThrow('not PNG, JPEG or WebP');
+      expect(mock).toHaveBeenCalledTimes(2);
+    });
+  }
+  it('distinguishes empty image downloads from oversized images', async () => {
+    const { model, config } = setup('kolors');
+    for (const [blob, message] of [[new Blob([]), 'empty'], [new Blob([new Uint8Array(25 * 1024 * 1024 + 1)]), 'exceeds 25 MB']] as const) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(Response.json({ images: [{ url: 'https://cdn.example.com/result.png' }] })).mockResolvedValueOnce(new Response(blob)));
+      await expect(generateImage(config, { modelConfigId: model.id, prompt: 'City' }, new AbortController().signal)).rejects.toThrow(message);
+    }
+  });
+  it('omits ratio with Agnes exact dimensions', async () => {
+    const { model, config } = setup('agnes');
+    const mock = vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] }));
+    vi.stubGlobal('fetch', mock);
+    await generateImage(config, { modelConfigId: model.id, prompt: 'City', size: '1024x768' }, new AbortController().signal);
+    expect(JSON.parse(mock.mock.calls[0][1].body)).not.toHaveProperty('ratio');
+  });
+  it('excludes and refuses disabled models before any network request', async () => {
+    const { model, config } = setup('kolors');
+    model.enabled = false;
+    const mock = vi.fn();
+    vi.stubGlobal('fetch', mock);
+    expect(availableImageModels(config)).toEqual([]);
+    await expect(generateImage(config, { modelConfigId: model.id, prompt: 'City' }, new AbortController().signal)).rejects.toThrow('disabled');
+    expect(mock).not.toHaveBeenCalled();
+  });
+  it('rejects unsupported sizes and cross-origin credential reuse', () => {
+    const { model, config } = setup('kolors');
+    expect(() => validateImageModel({ ...model, size: '4K' }, config)).toThrow('size');
+    expect(() => validateImageModel({ ...model, requestUrl: 'https://other.com/v1/images/generations' }, config)).toThrow('origin');
+  });
+  it('does not retry a failed paid request', async () => {
+    const { model, config } = setup('agnes');
+    const mock = vi.fn().mockResolvedValue(new Response('', { status: 503 }));
+    vi.stubGlobal('fetch', mock);
+    await expect(generateImage(config, { modelConfigId: model.id, prompt: 'City' }, new AbortController().signal)).rejects.toThrow('billed');
+    expect(mock).toHaveBeenCalledTimes(1);
+  });
+  it('keeps waiting after 60 seconds and accepts a later image response', async () => {
+    vi.useFakeTimers();
+    const { model, config } = setup('agnes');
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException('Timed out', 'TimeoutError')), milliseconds);
+      return controller.signal;
+    });
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise(resolve => setTimeout(() => resolve(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] })), 65000))));
+    let settled = false;
+    const pending = generateImage(config, { modelConfigId: model.id, prompt: 'City' }, new AbortController().signal).finally(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(61000);
+    expect(settled).toBe(false);
+    expect(timeout).toHaveBeenCalledWith(180000);
+    await vi.advanceTimersByTimeAsync(4000);
+    expect((await pending).type).toBe('image/png');
+  });
+  it('uses the model timeout and supports user cancellation while waiting', async () => {
+    const { model, config } = setup('agnes');
+    model.timeoutSeconds = 300;
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((_url, options) => new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true }))));
+    const controller = new AbortController();
+    const pending = generateImage(config, { modelConfigId: model.id, prompt: 'City' }, controller.signal);
+    controller.abort(new DOMException('User stopped', 'AbortError'));
+    await expect(pending).rejects.toThrow('User stopped');
+    expect(timeout).toHaveBeenCalledWith(300000);
+    expect(() => validateImageModel({ ...model, timeoutSeconds: 59 }, config)).toThrow('60 and 600');
+  });
+  it('aborts exactly at the configured generation timeout without retrying', async () => {
+    vi.useFakeTimers();
+    const { model, config } = setup('agnes');
+    model.timeoutSeconds = 90;
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException('Generation timed out', 'TimeoutError')), milliseconds);
+      return controller.signal;
+    });
+    const mock = vi.fn().mockImplementation((_url, options) => new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true })));
+    vi.stubGlobal('fetch', mock);
+    let settled = false;
+    const pending = generateImage(config, { modelConfigId: model.id, prompt: 'City' }, new AbortController().signal);
+    const rejected = expect(pending.finally(() => { settled = true; })).rejects.toThrow('Generation timed out');
+    await vi.advanceTimersByTimeAsync(89999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await rejected;
+    expect(mock).toHaveBeenCalledTimes(1);
+  });
+});
+
+function mockCanvas(output = new Blob(['webp'], { type: 'image/webp' })) {
+  const canvases: { width: number; height: number }[] = [];
+  class MockCanvas {
+    width = 0;
+    height = 0;
+    getContext() { return { drawImage: () => {} }; }
+    toBlob(callback: (blob: Blob) => void) { callback(output); }
+  }
+  vi.stubGlobal('HTMLCanvasElement', MockCanvas);
+  vi.stubGlobal('document', { createElement: () => { const canvas = new MockCanvas(); canvases.push(canvas); return canvas; } });
+  vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 2048, height: 1536, close: () => {} }));
+  return canvases;
+}
+
+function toolContext() {
+  const { config, model } = setup('agnes');
+  let project = { id: 'project', title: 'Test', layers: [], canvasConfig: { width: 1200, height: 630 }, background: { type: 'color', value: '#fff' } } as unknown as ProjectState;
+  const images = new Map<string, Blob>();
+  const refs: ChatImageRef[] = [];
+  const commit = vi.fn(async (next: ProjectState) => { project = next; });
+  const bridge: WorkspaceBridge = { getProject: () => project, getSelection: () => [], commit, manageProjects: async () => ({}) };
+  const context: ImageToolContext = {
+    getConfig: () => config, bridge,
+    loadImage: async id => images.get(id) || null,
+    saveImage: async (blob, name) => { const ref: ChatImageRef = { id: 'generated-image', name, type: imageMimeType(blob.type), size: blob.size }; images.set(ref.id, blob); return ref; },
+    onImage: image => refs.push(image)
+  };
+  return { config, model, images, refs, context, commit, getProject: () => project };
+}
+
+describe('image tools and persistence', () => {
+  it('downloads a signed Kolors result and persists image bytes instead of the expiring URL', async () => {
+    mockCanvas();
+    const { context, model, images, refs, getProject } = toolContext();
+    Object.assign(model, createImageModel('kolors'), { endpointId: 'endpoint', enabled: true });
+    const url = 'https://cdn.example.com/temporary/result.png?X-Amz-Expires=3600&X-Amz-Signature=example';
+    const original = new Blob([Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10])], { type: 'image/png' });
+    const mock = vi.fn().mockResolvedValueOnce(Response.json({ images: [{ url }] })).mockResolvedValueOnce(new Response(original));
+    vi.stubGlobal('fetch', mock);
+    const generated = await executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal);
+    const stored = images.get('generated-image')!;
+    expect(await stored.arrayBuffer()).toEqual(await original.arrayBuffer());
+    expect(refs[0].type).toBe('image/png');
+    expect(getProject().layers[0].content).toBe('data:image/png;base64,iVBORw0KGgo=');
+    expect(JSON.stringify({ project: getProject(), refs, result: generated.value })).not.toContain('X-Amz-');
+    expect(JSON.stringify(generated.value)).not.toContain(url);
+    expect(mock).toHaveBeenCalledTimes(2);
+  });
+  it('reports an expired download without submitting another generation request', async () => {
+    const { model, config } = setup('kolors');
+    const mock = vi.fn().mockResolvedValueOnce(Response.json({ images: [{ url: 'https://cdn.example.com/image.png?signature=expired' }] })).mockResolvedValueOnce(new Response('', { status: 403 }));
+    vi.stubGlobal('fetch', mock);
+    await expect(generateImage(config, { modelConfigId: model.id, prompt: 'City' }, new AbortController().signal)).rejects.toThrow('Do not regenerate automatically');
+    expect(mock).toHaveBeenCalledTimes(2);
+  });
+  it('does not expose the removed session image list tool', async () => {
+    const { context } = toolContext();
+    expect(JSON.stringify(imageToolDefinitions([]))).not.toContain('list_session_images');
+    await expect(executeImageTool('list_session_images', {}, context, new AbortController().signal)).rejects.toThrow('Unsupported');
+  });
+  it('keeps prompt advice in discovery only when multiple models are enabled', async () => {
+    const { context, model, config } = toolContext();
+    model.textPromptDescription = 'first text recommendation';
+    const single = await executeImageTool('list_image_models', {}, context, new AbortController().signal);
+    expect(JSON.stringify(single.value)).not.toContain('first text recommendation');
+    const second = { ...createImageModel('kolors'), enabled: true, endpointId: 'endpoint', referencePromptDescription: 'second reference recommendation' };
+    config.imageModels!.push(second);
+    const multiple = await executeImageTool('list_image_models', {}, context, new AbortController().signal);
+    expect(JSON.stringify(multiple.value)).toContain('first text recommendation');
+    expect(JSON.stringify(multiple.value)).toContain('second reference recommendation');
+    expect(JSON.stringify(imageToolDefinitions([model, second]))).not.toContain('first text recommendation');
+  });
+  it('requires explicit model selection when several are enabled and resolves existing UUIDs through short IDs', async () => {
+    mockCanvas();
+    const { context, model, config, getProject } = toolContext();
+    model.id = 'b31da620-4183-43de-8b60-6c65405182f5';
+    const other = { ...createImageModel('kolors'), enabled: true, endpointId: 'endpoint' };
+    config.imageModels!.push(other);
+    const mock = vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] }));
+    vi.stubGlobal('fetch', mock);
+    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('ambiguous');
+    expect(mock).not.toHaveBeenCalled();
+    const result = await executeImageTool('generate_image', { projectId: 'project', modelConfigId: imageModelToolId(model), prompt: 'City' }, context, new AbortController().signal);
+    expect(imageModelToolId(model)).toBe('b31da6204');
+    expect(JSON.parse(mock.mock.calls[0][1].body).model).toBe('agnes-image-2.5-flash');
+    expect(result.value).toMatchObject({ layerId: getProject().layers[0].id });
+    expect(model.id).toBe('b31da620-4183-43de-8b60-6c65405182f5');
+  });
+  it('rejects colliding short model IDs before saving configuration', () => {
+    const profiles = defaultConfig();
+    profiles.imageModels = [{ ...createImageModel('agnes'), id: 'abcdefghi-original' }, { ...createImageModel('kolors'), id: 'abcdefghi-other' }];
+    expect(() => validateConfig(profiles)).toThrow('short ID');
+  });
+  it('checks the project before any paid request and does not switch a previously bound model', async () => {
+    const { context, model } = toolContext();
+    const mock = vi.fn();
+    vi.stubGlobal('fetch', mock);
+    await expect(executeImageTool('generate_image', { projectId: 'missing', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('changed');
+    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, { ...context, defaultModelConfigId: 'removed' }, new AbortController().signal)).rejects.toThrow('disabled');
+    expect(mock).not.toHaveBeenCalled();
+    expect(model.enabled).toBe(true);
+  });
+  it('retains a generated image if the active project changes before placement', async () => {
+    mockCanvas();
+    const { context, images, refs, commit, getProject } = toolContext();
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => {
+      context.bridge.getProject = () => ({ ...getProject(), id: 'another-project' });
+      return Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] });
+    }));
+    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('generated and saved, but placement failed');
+    expect(images.has('generated-image')).toBe(true);
+    expect(refs).toHaveLength(1);
+    expect(commit).not.toHaveBeenCalled();
+    expect(getProject().layers).toHaveLength(0);
+  });
+  it('retains a generated image and reports placement errors instead of suggesting regeneration', async () => {
+    mockCanvas();
+    const { context, images, commit } = toolContext();
+    commit.mockRejectedValueOnce(new Error('Storage unavailable'));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] })));
+    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('Do not regenerate');
+    expect(images.has('generated-image')).toBe(true);
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+  it('lists descriptions and capabilities without leaking endpoint credentials', async () => {
+    const { context, model } = toolContext();
+    const result = await executeImageTool('list_image_models', {}, context, new AbortController().signal);
+    expect(result.value).toMatchObject({ models: [{ id: model.id, description: model.description, modes: ['text_to_image', 'single_reference'] }] });
+    expect(JSON.stringify(result)).not.toContain('secret');
+    expect(JSON.stringify(result)).not.toContain('https://example.com');
+  });
+  it('preserves original PNG bytes and MIME without re-encoding or putting pixels into tool output', async () => {
+    const canvases = mockCanvas();
+    const { model, context, images, refs, getProject } = toolContext();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] })));
+    const generated = await executeImageTool('generate_image', { projectId: 'project', prompt: 'A city' }, context, new AbortController().signal);
+    expect(canvases).toHaveLength(0);
+    expect(generated.value).toMatchObject({ imageId: 'generated-image' });
+    expect(JSON.stringify(generated.value)).not.toContain('base64');
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatchObject({ type: 'image/png', size: 8 });
+    expect(refs[0].name).toMatch(/\.png$/);
+    expect(new Uint8Array(await images.get('generated-image')!.arrayBuffer())).toEqual(Uint8Array.from(atob('iVBORw0KGgo='), character => character.charCodeAt(0)));
+    expect(images.size).toBe(1);
+    const layer = getProject().layers[0];
+    expect(layer).toMatchObject({ type: 'image', x: 180, y: 0, width: 840, height: 630, content: 'data:image/png;base64,iVBORw0KGgo=', imageSource: model.modelId, imageDescription: 'A city' });
+    const selected = await executeTool('get_selected_layers', {}, { ...context.bridge, getSelection: () => [layer.id] }, new AbortController().signal) as { layers: { imageSource: string; imageDescription: string }[]; images: unknown[] };
+    expect(selected.layers[0]).toMatchObject({ imageSource: model.modelId, imageDescription: 'A city' });
+    expect(selected.images).toEqual([]);
+    expect(layer.id).toMatch(/^[a-z0-9]{1,9}$/);
+    expect(generated.value).toMatchObject({ projectId: 'project', layerId: layer.id });
+    expect(getProject().layers).toHaveLength(1);
+  });
+  for (const [type, encoded, extension] of [
+    ['image/jpeg', '/9j/2Q==', 'jpg'],
+    ['image/webp', 'UklGRgAAAABXRUJQ', 'webp']
+  ] as const) it(`preserves original ${extension} generation bytes and filename`, async () => {
+    const canvases = mockCanvas();
+    const { context, images, refs, getProject } = toolContext();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: encoded }] })));
+    await executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal);
+    expect(canvases).toHaveLength(0);
+    expect(refs[0].type).toBe(type);
+    expect(refs[0].name).toMatch(new RegExp(`\\.${extension}$`));
+    expect(new Uint8Array(await images.get('generated-image')!.arrayBuffer())).toEqual(Uint8Array.from(atob(encoded), character => character.charCodeAt(0)));
+    expect(getProject().layers[0].content).toBe(`data:${type};base64,${encoded}`);
+  });
+  it('places large generated images and uses existing layer tools to make them locked backgrounds', async () => {
+    mockCanvas();
+    const { context, getProject } = toolContext();
+    const encoded = btoa(String.fromCharCode(137, 80, 78, 71, 13, 10, 26, 10) + '\0'.repeat(250000));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: encoded }] })));
+    await executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal);
+    expect(getProject().layers[0].content.length).toBeGreaterThan(200000);
+    const layerId = getProject().layers[0].id;
+    await executeTool('edit_layers', { projectId: 'project', action: 'back', layerIds: [layerId] }, context.bridge, new AbortController().signal);
+    await executeTool('edit_layers', { projectId: 'project', action: 'update', layerIds: [layerId], properties: { locked: true } }, context.bridge, new AbortController().signal);
+    expect(getProject().layers[0].locked).toBe(true);
+    expect(getProject().background.type).toBe('color');
+  });
+  it('reads a single saved image as a reference and rejects ambiguous or stale inputs', async () => {
+    mockCanvas();
+    const { model, context, images, commit } = toolContext();
+    images.set('reference', new Blob(['image'], { type: 'image/webp' }));
+    const mock = vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] }));
+    vi.stubGlobal('fetch', mock);
+    await executeImageTool('generate_image', { projectId: 'project', modelConfigId: model.id, prompt: 'Keep composition', referenceImageId: 'reference' }, context, new AbortController().signal);
+    expect(JSON.parse(mock.mock.calls[0][1].body).extra_body.image).toEqual(['data:image/webp;base64,aW1hZ2U=']);
+    commit.mockClear();
+    await expect(executeImageTool('generate_image', { projectId: 'project', modelConfigId: model.id, prompt: 'Edit', referenceImageId: 'reference', referenceLayerId: 'layer' }, context, new AbortController().signal)).rejects.toThrow('one reference');
+    await expect(executeImageTool('generate_image', { projectId: 'old', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('changed');
+    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City', referenceImageId: 'missing' }, context, new AbortController().signal)).rejects.toThrow('not found');
+    expect(commit).not.toHaveBeenCalled();
+  });
+  it('uses the selected image layer as a reference without requiring a vision model or session image list', async () => {
+    mockCanvas();
+    const { context, model, getProject } = toolContext();
+    const original = {
+      id: 'selected-image', type: 'image' as const, name: 'My photo', content: 'data:image/png;base64,iVBORw0KGgo=',
+      imageSource: 'upload', imageDescription: 'Street photo', x: 0, y: 0, width: 400, height: 300,
+      rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1
+    };
+    getProject().layers.push(original);
+    context.bridge.getSelection = () => [original.id];
+    const preview = vi.fn();
+    context.bridge.getLayerPreview = preview;
+    const selected = await executeTool('get_selected_layers', {}, context.bridge, new AbortController().signal) as { layers: { id: string; imageSource: string; imageDescription: string }[] };
+    expect(selected.layers[0]).toMatchObject({ id: original.id, imageSource: 'upload', imageDescription: 'Street photo' });
+    expect(preview).not.toHaveBeenCalled();
+    const mock = vi.fn().mockImplementation(async (url: string) => url.startsWith('data:')
+      ? new Response(new Blob(['original'], { type: 'image/png' }))
+      : Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] }));
+    vi.stubGlobal('fetch', mock);
+    await executeImageTool('generate_image', { projectId: 'project', referenceLayerId: selected.layers[0].id, prompt: 'Turn the street into a night scene' }, context, new AbortController().signal);
+    expect(JSON.parse(mock.mock.calls[1][1].body).extra_body.image).toEqual(['data:image/webp;base64,d2VicA==']);
+    expect(getProject().layers[1]).toMatchObject({ imageSource: model.modelId, imageDescription: 'Turn the street into a night scene' });
+    expect(getProject().layers[0]).toEqual(original);
+  });
+  it('rechecks model enablement immediately before execution', async () => {
+    const { context, model } = toolContext();
+    await executeImageTool('list_image_models', {}, context, new AbortController().signal);
+    model.enabled = false;
+    await expect(executeImageTool('generate_image', { projectId: 'project', modelConfigId: model.id, prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('disabled');
+  });
+  it('rejects unknown fields, multiple reference arrays and the removed placement tool', async () => {
+    const { context, model } = toolContext();
+    await expect(executeImageTool('generate_image', { modelConfigId: model.id, prompt: 'City', images: ['a', 'b'] }, context, new AbortController().signal)).rejects.toThrow('parameter');
+    await expect(executeImageTool('apply_image', { projectId: 'project', imageId: 'image', target: 'background', width: 100 }, context, new AbortController().signal)).rejects.toThrow('Unsupported');
+  });
+  it('persists full-size generated image bytes in the existing file chat store', async () => {
+    const binary = new Map<string, Blob>();
+    const store = createFileChatStore({ read: async () => null, write: async () => {}, readBinary: async path => binary.get(path) || null, writeBinary: async (path, blob) => { binary.set(path, blob); }, remove: async () => {}, removeDirectory: async () => {}, list: async () => [] }, 'files');
+    const blob = new Blob([new Uint8Array(250000)], { type: 'image/webp' });
+    await store.saveImage('session', 'generated', blob);
+    const restored = await store.loadImage('session', 'generated');
+    expect(restored?.size).toBe(250000);
+    expect(await restored?.arrayBuffer()).toEqual(await blob.arrayBuffer());
+    expect(binary.has('chat/images/session/generated.webp')).toBe(true);
+  });
+  it('preserves PNG, JPEG and WebP file formats across reads and prunes all three extensions', async () => {
+    const binary = new Map<string, Blob>();
+    const store = createFileChatStore({
+      read: async () => null, write: async () => {}, readBinary: async path => binary.get(path) || null,
+      writeBinary: async (path, blob) => { binary.set(path, blob); },
+      remove: async path => { binary.delete(path); }, removeDirectory: async () => {},
+      list: async path => [...binary.keys()].filter(key => key.startsWith(`${path}/`)).map(key => key.slice(path.length + 1))
+    }, 'files');
+    for (const [type, extension] of [['image/png', 'png'], ['image/jpeg', 'jpg'], ['image/webp', 'webp']]) {
+      const original = new Blob([new Uint8Array([137, 80, 78, 71, 1, 2, 3])], { type });
+      await store.saveImage('current', extension, original);
+      const restored = await store.loadImage('current', extension);
+      expect(restored?.type).toBe(type);
+      expect(await restored?.arrayBuffer()).toEqual(await original.arrayBuffer());
+      expect(binary.has(`chat/images/current/${extension}.${extension}`)).toBe(true);
+      expect(await store.loadImage('other', extension)).toBeNull();
+    }
+    await store.pruneImages('current', ['png']);
+    expect([...binary.keys()]).toEqual(['chat/images/current/png.png']);
+    await store.saveImage('current', 'png', new Blob(['JPEG replacement'], { type: 'image/jpeg' }));
+    expect((await store.loadImage('current', 'png'))?.type).toBe('image/jpeg');
+    expect(binary.has('chat/images/current/png.png')).toBe(false);
+    expect(binary.has('chat/images/current/png.jpg')).toBe(true);
+  });
+  it('forwards dynamic image tools through Responses and blocks automatic paid retries', async () => {
+    const { model, context, config } = toolContext();
+    const profiles = defaultConfig();
+    profiles.imageModels = [model];
+    profiles.endpoints[0].id = 'endpoint';
+    profiles.endpoints[0].endpoint = 'https://example.com/v1';
+    model.textPromptDescription = 'Custom prompt contract in actual API schema';
+    model.referencePromptDescription = 'Custom reference contract in actual API schema';
+    let round = 0;
+    let imageRequests = 0;
+    const requests: Record<string, unknown>[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, options: RequestInit) => {
+      if (String(url).endsWith('/images/generations')) { imageRequests++; return new Response('', { status: 503 }); }
+      requests.push(JSON.parse(options.body as string));
+      round++;
+      const output = round < 3
+        ? [{ type: 'function_call', call_id: `call-${round}`, name: 'generate_image', arguments: JSON.stringify({ projectId: 'project', prompt: 'City' }) }]
+        : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Generation failed', annotations: [] }] }];
+      return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+    }));
+    await runConversation({ config: { ...toRequestConfig(profiles), supportsVision: false }, input: [], bridge: context.bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}, getImageConfig: () => config, loadImage: context.loadImage, saveImage: context.saveImage });
+    expect(imageRequests).toBe(1);
+    expect(JSON.stringify(requests[0].tools)).toContain('generate_image');
+    expect(JSON.stringify(requests[0].tools)).not.toContain('apply_image');
+    expect(JSON.stringify(requests[0].tools)).not.toContain('list_image_models');
+    expect(JSON.stringify(requests[0].tools)).toContain('Custom prompt contract in actual API schema');
+    expect(JSON.stringify(requests[0].tools)).toContain('Custom reference contract in actual API schema');
+    expect(JSON.stringify(requests[2])).toContain('Ask the user');
+  });
+  it('returns the automatically created layer ID to the model in the next Responses round', async () => {
+    mockCanvas();
+    const { context, model, config, getProject } = toolContext();
+    context.bridge.getSelection = () => getProject().selectedLayerId ? [getProject().selectedLayerId!] : [];
+    const profiles = defaultConfig();
+    profiles.imageModels = [model];
+    profiles.endpoints[0].id = 'endpoint';
+    profiles.endpoints[0].endpoint = 'https://example.com/v1';
+    const requests: { input: { output?: string }[] }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, options: RequestInit) => {
+      if (String(url).endsWith('/images/generations')) return Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] });
+      requests.push(JSON.parse(options.body as string));
+      const output = requests.length === 1
+        ? [{ type: 'function_call', call_id: 'generate', name: 'generate_image', arguments: JSON.stringify({ projectId: 'project', prompt: 'City' }) }]
+        : requests.length === 2
+          ? [{ type: 'function_call', call_id: 'selected-image', name: 'get_selected_layers', arguments: '{}' }]
+          : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Placed', annotations: [] }] }];
+      return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+    }));
+    await runConversation({ config: { ...toRequestConfig(profiles), supportsVision: false }, input: [], bridge: context.bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}, getImageConfig: () => config, loadImage: context.loadImage, saveImage: context.saveImage, onImage: context.onImage });
+    const result = JSON.parse(requests[1].input.at(-1)!.output!);
+    expect(result.layerId).toBe(getProject().layers[0].id);
+    expect(result.layerId.length).toBeLessThanOrEqual(9);
+    expect(getProject().layers).toHaveLength(1);
+    expect(JSON.parse(requests[2].input.at(-1)!.output!)).toMatchObject({ projectId: 'project', layers: [{ id: result.layerId, imageSource: model.modelId, imageDescription: 'City' }] });
+    expect(JSON.stringify(requests.map(request => request.input))).not.toContain('base64');
+  });
+});

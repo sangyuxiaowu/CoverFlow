@@ -128,3 +128,19 @@ test('one-step ordering includes group children and enforces locks', () => {
     assert.throws(() => editLayers(original, action, ['missing']), /not found/);
   }
 });
+
+test('image provenance survives transforms and copies but clears when the image is replaced', () => {
+  const original = project();
+  Object.assign(original.layers[0], { type: 'image', imageSource: 'agnes-image-2.5-flash', imageDescription: 'A glowing city' });
+  const moved = updateProjectLayer(original, 'a', { x: 30 });
+  assert.equal(moved.layers[0].imageDescription, 'A glowing city');
+  const copied = editLayers(moved, 'duplicate', ['a']);
+  assert.equal(copied.layers.find(item => item.id === copied.selectedLayerId)!.imageSource, 'agnes-image-2.5-flash');
+  assert.equal(copied.layers.find(item => item.id === copied.selectedLayerId)!.imageDescription, 'A glowing city');
+  const replaced = updateProjectLayer(moved, 'a', { content: 'https://example.com/new.png' });
+  assert.equal(replaced.layers[0].imageSource, 'unknown');
+  assert.equal(replaced.layers[0].imageDescription, '');
+  const described = updateProjectLayer(moved, 'a', { content: 'https://example.com/new.png', imageSource: 'upload', imageDescription: 'My photo' });
+  assert.equal(described.layers[0].imageSource, 'upload');
+  assert.equal(described.layers[0].imageDescription, 'My photo');
+});

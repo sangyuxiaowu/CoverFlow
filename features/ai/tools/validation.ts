@@ -41,12 +41,13 @@ export function safeImage(value: string): string {
 export function layerPatch(value: unknown): Partial<Layer> {
   const input = record(value);
   const output: Record<string, unknown> = {};
-  const strings = ['name', 'content', 'color', 'fontFamily'];
+  const strings = ['name', 'content', 'color', 'fontFamily', 'imageSource', 'imageDescription'];
   const booleans = ['visible', 'locked', 'ratioLocked'];
   const numeric = ['x', 'y', 'rotation', 'width', 'height', 'opacity', 'fontSize', 'zIndex'];
   for (const [field, raw] of Object.entries(input)) {
     if (strings.includes(field)) {
-      if (typeof raw !== 'string' || raw.length > 200000) throw new Error('Invalid ' + field);
+      const limit = field === 'imageSource' ? 200 : field === 'imageDescription' ? 10000 : 200000;
+      if (typeof raw !== 'string' || raw.length > limit) throw new Error('Invalid ' + field);
       output[field] = raw;
     } else if (booleans.includes(field)) output[field] = boolean(raw, field);
     else if (numeric.includes(field)) output[field] = number(raw, field, ['width', 'height', 'fontSize'].includes(field) ? 1 : field === 'opacity' ? 0 : -100000, field === 'opacity' ? 1 : 100000);

@@ -1,5 +1,6 @@
 import type { AiConfig, ChatSession, ChatUiState } from '../types.ts';
 import { defaultConfig, loadConfig, normalizeConfig, validateConfig } from './config.ts';
+import { IMAGE_FORMATS, imageMimeType } from './imageAttachments.ts';
 import { decryptEndpointKeys, deleteStoredSession, encryptEndpointKeys, listStoredSessions, loadStoredImage, loadStoredUiState, pruneStoredImages, saveStoredConfig, saveStoredImage, saveStoredSession, saveStoredUiState, validateSession } from './configStore.ts';
 
 export interface ChatFileAccess {
@@ -91,20 +92,29 @@ export function createFileChatStore(files: ChatFileAccess, id: string): ChatStor
     },
     saveImage: (sessionId, imageId, blob) => {
       if (!/^[a-zA-Z0-9_-]+$/.test(imageId)) throw new Error('Invalid image ID.');
-      return enqueue(() => files.writeBinary(`${imageDirectory(sessionId)}/${imageId}.webp`, blob));
+      const extension = IMAGE_FORMATS[imageMimeType(blob.type)];
+      const prefix = `${imageDirectory(sessionId)}/${imageId}`;
+      return enqueue(async () => {
+        await files.writeBinary(`${prefix}.${extension}`, blob);
+        for (const other of Object.values(IMAGE_FORMATS)) if (other !== extension) await files.remove(`${prefix}.${other}`);
+      });
     },
     loadImage: async (sessionId, imageId) => {
       await pending;
       if (!/^[a-zA-Z0-9_-]+$/.test(imageId)) throw new Error('Invalid image ID.');
-      return files.readBinary(`${imageDirectory(sessionId)}/${imageId}.webp`);
+      const prefix = `${imageDirectory(sessionId)}/${imageId}`;
+      for (const [type, extension] of Object.entries(IMAGE_FORMATS)) {
+        const blob = await files.readBinary(`${prefix}.${extension}`);
+        if (blob) return blob.slice(0, blob.size, type);
+      }
+      return null;
     },
     pruneImages: async (sessionId, keepIds) => {
       await enqueue(async () => {
         const keep = new Set(keepIds);
         for (const name of await files.list(imageDirectory(sessionId))) {
-          if (!name.endsWith('.webp')) continue;
-          const imageId = name.slice(0, -5);
-          if (!keep.has(imageId)) await files.remove(`${imageDirectory(sessionId)}/${name}`);
+          const match = /^([a-zA-Z0-9_-]+)\.(png|jpg|webp)$/.exec(name);
+          if (match && !keep.has(match[1])) await files.remove(`${imageDirectory(sessionId)}/${name}`);
         }
       });
     },

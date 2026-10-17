@@ -11,11 +11,13 @@ features/ai/
   tools/requests.ts           动作契约、派生联合类型与请求解析
   tools/validation.ts         运行时白名单、数值范围及内容安全校验
   tools/execute.ts            工具分发与当前项目 ID 校验
+  tools/imageTools.ts         生图发现、单图参考与图片资源放置
   services/config.ts          多接入点、多模型、思考参数及配置校验
   services/configStore.ts     IndexedDB 配置与 AES-GCM 加密密钥存储
   services/chatStore.ts       浏览器/文件双模式配置、会话与界面状态
   services/chatFileAccess.ts  File System Access 与 Tauri 文件适配
   services/conversation.ts    OpenAI SDK Responses 事件、原生历史、工具循环
+  services/imageGeneration.ts Kolors / Agnes 生图协议、参数校验及结果归一化
   services/usage.ts           服务端用量汇总、上下文估算与输出预算
   services/workspace.ts       项目生命周期与真实存储适配器
   hooks/useAiAssistant.ts     React 会话、确认、错误和工作区实时值
@@ -84,6 +86,20 @@ chat/
 | add_layer | text/svg/image/decoration；装饰支持 CSS 声明或静态 HTML |
 | edit_layers | update/delete/duplicate/group/ungroup/front/back/forward/backward/align/distribute |
 | update_canvas | 画布尺寸及纯色/渐变/图片/自定义 CSS 背景、纹理 |
+| list_image_models | 多模型时读取当前启用模型的能力和提示词建议 |
+| generate_image | 文生图或单图参考生图，成功后自动添加图层并返回图层 ID |
+
+## 生图配置与调用
+
+- 生图模型在独立 Tab 中管理，`imageModels` 保存内部配置 ID、API 模型 ID、介绍、适配器、尺寸参数、启用状态和 `endpointId`。通过引用已有端点复用 Base URL 与加密 Key，不复制凭据。可覆盖同源的完整请求 URL；跨域须单独配置端点，避免 Key 被发送给未授权域名。
+- 默认接口为 `/v1/images/generations`；已有版本路径的 Base URL 不重复拼接 `/v1`。Kolors 使用 `image_size`、`num_inference_steps`、`guidance_scale`，参考图为单个 `image`；返回 `images[0].url`。Agnes 使用 `size`，档位尺寸可配 `ratio`；文生图使用 `return_base64`，参考图使用 `extra_body.image` 单元素数组和 `response_format: b64_json`；解析 `data[0].b64_json` 或 URL。
+- 每个模型分别配置 `textPromptDescription` 和 `referencePromptDescription`。仅启用一个模型时，`generate_image` 直接绑定该模型：省略 `modelConfigId`，直接在 prompt、size、ratio 参数中描述该模型能力，Kolors 不提供 ratio。多个模型时额外注册 `list_image_models`，由列表返回各自建议和能力。
+- 新生图模型、会话图片和生成图层沿用应用的 9 位短 ID。已有模型的长 ID 不重写存储，仅映射为稳定的短工具 ID；配置校验拒绝短 ID 冲突。单模型调用绑定请求开始时的模型，期间禁用或替换模型不会静默切换到另一个。
+- 生图超时默认 180 秒，每模型可配置 60–600 秒。工具保持 running 并等待完整响应，不在 60 秒时提前结束，也不强制延迟已完成的响应。用户停止会中止请求；超时、下载、存储或响应失败后，同轮禁止自动重新生成，避免重复计费。客户端中止不保证服务商停止计算或免除费用。
+- 无可用模型时不注册生图工具；模型列表只暴露启用且配置有效的条目。执行前重新检查最新启用状态，旧对话中的模型 ID 不能绕过禁用。配置、Key、请求地址不会作为工具结果返回。
+- 单图参考仅接受当前会话图片资源 ID，或带当前项目 ID 的图片图层 ID。两者互斥，禁止多图参数及未知字段。上传参考图和预览保留现有 WebP 处理；生成结果按接口返回的 PNG/JPEG/WebP 原始字节、格式和分辨率保存，不重新编码，限制为 25 MB、6400 万像素。文件模式使用对应的 .png/.jpg/.webp 扩展名，读取时恢复正确 MIME，清理覆盖全部三种格式。
+- 生成前必须提供当前 `projectId`；生成成功后保存会话图片，并通过实时工作区桥接自动添加等比适配、居中的 image 图层，返回 layerId、imageId 和位置尺寸，不回传 Base64。不再提供 `apply_image`；作为背景时使用现有 `edit_layers` 置底、调整和锁定。图片嵌入项目，不依赖会话存续，也不放宽文本工具的长度限制。等待期间切换项目或放置失败时，保留已保存图片并明确报告失败，禁止自动重新生成。
+- 所有请求直接由浏览器发送，生图接口及图片下载地址须允许 CORS。当前启停是本地配置，不是服务端管理员权限控制。
 
 图层更新支持位置、宽高、旋转、层级、透明度、锁定、显隐、比例锁定、名称、内容、文字颜色/字体/字号/字重/对齐/书写方向/渐变/阴影。结构字段 id/type/parentId/children 不允许直接修改，分组操作负责维护关系。不允许嵌套分组。组合图层变换传递到子图层，子图层变化会刷新组合边界。App 手动图层更新和 AI 更新共用 updateProjectLayer，保持变换规则一致。
 
@@ -109,6 +125,6 @@ chat/
 
 ## 验证与扩展
 
-`npm run test:ai` 使用 Node 原生测试、TypeScript 类型剥离（Node 22.18+）与 fake-indexeddb。覆盖图层几何、组关系、锁定、字段安全、过期 ID、项目生命周期、删除确认、Responses 事件、工具历史回传、配置校验、多模型选择、思考参数、用量汇总、中止、浮窗边界、加密往返、密文篡改、会话隔离及文件路径限制。`npm run typecheck:ai` 对 AI 目录执行严格类型检查。前端打包使用 `npm run build`；原生存储命令使用 `cargo check --manifest-path src-tauri/Cargo.toml`。全仓类型检查仍存在既有翻译字段、文件系统 API 声明和 Vite 插件版本诊断，未在本次功能中扩展修复范围。
+`bun run test` 使用 Vitest 与 fake-indexeddb。覆盖图层几何、组关系、锁定、字段安全、过期 ID、项目生命周期、删除确认、Responses 事件、工具历史回传、配置校验、多模型选择、思考参数、用量汇总、中止、浮窗边界、加密往返、密文篡改、会话隔离及文件路径限制。生图测试覆盖两适配器的文生图和单图参考请求、动态 prompt Schema、超过 60 秒等待、取消、禁用重检、凭据隔离、高清资源放置和文件持久化。前端打包使用 `bun run build`；AI 严格检查使用 `bun x tsc --noEmit -p features/ai/tsconfig.json`。原生存储命令使用 `cargo check --manifest-path src-tauri/Cargo.toml`。全仓类型检查仍存在既有诊断，未在本次功能中扩展修复范围。
 
-新增工具时先补 definition 与参数校验，再实现 executor 或 workspace 行为，并添加相邻测试。模型通信不要直接导入 App 或操作 DOM。图片生成、资产库搜索与导出工具不在当前实现范围内，可按需要另增服务和工具。
+新增工具时先补 definition 与参数校验，再实现 executor 或 workspace 行为，并添加相邻测试。模型通信不要直接导入 App 或操作 DOM。资产库搜索与导出工具不在当前实现范围内，可按需要另增服务和工具。

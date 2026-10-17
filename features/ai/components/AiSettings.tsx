@@ -8,6 +8,7 @@ import {
   Cpu,
   Eye,
   EyeOff,
+  ImagePlus,
   FileText,
   MessageSquare,
   Plus,
@@ -19,10 +20,12 @@ import {
   X
 } from 'lucide-react';
 import type { AiConfig, AiEndpointConfig, AiModelConfig, ReasoningEffort } from '../types.ts';
+import ImageModelSettings from './ImageModelSettings.tsx';
 import {
   ALL_REASONING_EFFORTS,
   createEndpoint,
   createModel,
+  DEFAULT_IMAGE_TOOL_PROMPT,
   DEFAULT_QUICK_SNIPPETS,
   normalizeConfig,
   REASONING_EFFORTS,
@@ -47,7 +50,7 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
     });
     return initial;
   });
-  const [tab, setTab] = useState<'models' | 'prompt' | 'snippets'>('models');
+  const [tab, setTab] = useState<'models' | 'images' | 'prompt' | 'snippets'>('models');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [testStatus, setTestStatus] = useState<string | null>(null);
@@ -105,6 +108,7 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
     setDraft({
       ...draft,
       endpoints: nextEndpoints,
+      imageModels: draft.imageModels?.map(model => model.endpointId === endpointId ? { ...model, endpointId: '', enabled: false } : model),
       activeSelection: nextActiveSelection
     });
   };
@@ -229,7 +233,7 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
         </header>
 
         {/* 标签页导航 (Image 2 样式) */}
-        <div className="px-6 border-b border-slate-800 flex items-center gap-6 shrink-0 bg-slate-900/40 text-xs font-semibold">
+        <div className="px-4 sm:px-6 border-b border-slate-800 flex items-center gap-4 sm:gap-6 overflow-x-auto shrink-0 bg-slate-900/40 text-xs font-semibold [&>button]:shrink-0">
           <button
             type="button"
             onClick={() => setTab('models')}
@@ -241,6 +245,9 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
           >
             <Cpu size={15} />
             <span>{label('端点与模型', 'Endpoints & Models')}</span>
+          </button>
+          <button type="button" onClick={() => setTab('images')} className={`py-3 flex items-center gap-2 border-b-2 cursor-pointer ${tab === 'images' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
+            <ImagePlus size={15} /><span>{label('生图模型', 'Image Models')}</span>
           </button>
           <button
             type="button"
@@ -272,7 +279,8 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
 
         {/* 主体表单区域 */}
         <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col">
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 space-y-6">
+            {tab === 'images' && <ImageModelSettings config={draft} onChange={setDraft} english={english} />}
             {error && (
               <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-medium">
                 {error}
@@ -833,6 +841,32 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                   onChange={e => setDraft(prev => ({ ...prev, systemPrompt: e.target.value }))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs font-mono text-slate-300 leading-relaxed outline-none focus:border-blue-500 custom-scrollbar"
                 />
+                <div className="space-y-2 border-t border-slate-800 pt-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-200">
+                        {label('生图工具提示词', 'Image Tool Instructions')}
+                      </h4>
+                      <p className="text-xs text-slate-500">
+                        {label('启用生图工具时追加到系统提示词；留空则不追加。', 'Appended to system instructions when image tools are enabled; leave blank to omit.')}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDraft(prev => ({ ...prev, imageToolPrompt: DEFAULT_IMAGE_TOOL_PROMPT }))}
+                      className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
+                    >
+                      <RotateCcw size={14} />
+                      <span>{label('恢复默认', 'Reset')}</span>
+                    </button>
+                  </div>
+                  <textarea
+                    rows={6}
+                    value={draft.imageToolPrompt ?? DEFAULT_IMAGE_TOOL_PROMPT}
+                    onChange={e => setDraft(prev => ({ ...prev, imageToolPrompt: e.target.value }))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs font-mono text-slate-300 leading-relaxed outline-none focus:border-blue-500 custom-scrollbar"
+                  />
+                </div>
               </div>
             )}
 

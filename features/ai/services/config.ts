@@ -1,13 +1,17 @@
 import type { AiConfig, AiEndpointConfig, AiModelConfig, AiRequestConfig, ReasoningEffort } from '../types.ts';
 import { loadStoredConfig, saveStoredConfig } from './configStore.ts';
+import { availableImageModels, createImageModel, imageModelToolId, validateImageModel } from './imageGeneration.ts';
 
-export const VISUAL_CONTENT_GUIDE = `## 视觉内容约束（原则级；具体数值上限以工具参数描述为准）
+export const VISUAL_CONTENT_GUIDE = `## 视觉内容约束
 - 背景支持 color/gradient/image/css，不支持 HTML 背景。
 - 装饰图层 decorationFormat 二选一：css（单元素外观）或 html（多节点静态标记），切换时须同时提交 format 与 content。
 - 装饰调色使用 content 中的具体 CSS 变量（如 --accent:#38bdf8;）并用 var() 引用；文字/SVG 用 color 字段，不依赖 currentColor 主色绑定。
 - 编辑已有装饰前先 read_layers，保留其结构与无关样式；改色时更新相应变量而非只改 color。
 - 所有自定义 CSS/HTML 禁止：脚本、事件属性、外部资源、url()/image-set()、CSS at-rule、动画/transition、fixed/sticky 定位、pointer-events、视口单位；使用百分比或像素。
-- HTML 图片仅允许嵌入 PNG/JPEG/WebP/GIF；通常应将图片作为独立 image 图层。不承诺外链字体或动态效果。`;
+`;
+
+export const DEFAULT_IMAGE_TOOL_PROMPT = `## 生图工具
+先 get_context 确认当前项目；未打开项目时先创建或打开项目。参考图只允许一个图片图层。生成成功自动添加图层，使用返回的 layerId 调整；作为背景时用 edit_layers 置底后锁定，无需另行放置。超时或失败不得自动重新生成，须用户重新批准。`;
 
 export const SYSTEM_PROMPT = `你是 CoverFlow 封面设计助手。请直接操作画布完成设计，不要只输出修改方案。
 
@@ -16,7 +20,7 @@ export const SYSTEM_PROMPT = `你是 CoverFlow 封面设计助手。请直接操
 2. 新建封面：先 create 项目，再 add_layer，再按需 edit。
 3. 坐标/尺寸单位 = 画布像素；透明度 ∈ [0,1]；旋转单位 = 度。调整画布尺寸不会缩放已有图层。
 4. 图层内容类型：text = 纯文本，svg = SVG 标记，decoration = CSS 声明或静态 HTML（见下方约束）。
-5. 图片仅使用已有 HTTP(S) URL 或 base64 数据 URL，本模型不生成图片。
+5. 图片使用已有资源；仅当提供生图工具时可调用工具生成，不编造图片 URL 或资源 ID。
 
 ## 安全与数据边界
 - 尊重锁定图层；除非用户明确要求，先询问再解锁。
@@ -30,11 +34,11 @@ export const SYSTEM_PROMPT = `你是 CoverFlow 封面设计助手。请直接操
 - 类型或格式不匹配 → 调整 format/content 后重试；
 - 系统性失败 / 多次重试无效 → 停止并如实报告，不臆造成功。
 
-${VISUAL_CONTENT_GUIDE}
-
 ## 完成标准
 - 每次任务后简要总结实际完成的修改；
 - 始终使用与用户当前消息相同的语言回复。
+
+${VISUAL_CONTENT_GUIDE}
 `;
 
 export const ALL_REASONING_EFFORTS: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -85,7 +89,7 @@ export function createEndpoint(provider: 'openai' | 'deepseek' | 'local' | 'cust
 
 export function defaultConfig(): AiConfig {
   const endpoint = createEndpoint('openai');
-  return { endpoints: [endpoint], activeSelection: { endpointId: endpoint.id, modelId: endpoint.models[0].id }, systemPrompt: SYSTEM_PROMPT, quickSnippets: [...DEFAULT_QUICK_SNIPPETS] };
+  return { endpoints: [endpoint], imageModels: [createImageModel('kolors'), createImageModel('agnes')], activeSelection: { endpointId: endpoint.id, modelId: endpoint.models[0].id }, systemPrompt: SYSTEM_PROMPT, imageToolPrompt: DEFAULT_IMAGE_TOOL_PROMPT, quickSnippets: [...DEFAULT_QUICK_SNIPPETS] };
 }
 
 export function resolveSelection(config: AiConfig) {
@@ -131,6 +135,7 @@ export function normalizeConfig(value: unknown, preserveKeys = true): AiConfig {
   const config: AiConfig = {
     ...input,
     endpoints,
+    imageToolPrompt: typeof input.imageToolPrompt === 'string' ? input.imageToolPrompt : DEFAULT_IMAGE_TOOL_PROMPT,
     quickSnippets: Array.isArray(input.quickSnippets) && input.quickSnippets.length
       ? input.quickSnippets
       : [...DEFAULT_QUICK_SNIPPETS]
@@ -142,13 +147,21 @@ export function normalizeConfig(value: unknown, preserveKeys = true): AiConfig {
 
 export function toRequestConfig(config: AiConfig): AiRequestConfig {
   const { endpoint, model } = resolveSelection(config);
+  const imageModels = availableImageModels(config);
+  const imageToolsEnabled = imageModels.length > 0;
+  const imageToolPrompt = config.imageToolPrompt ?? DEFAULT_IMAGE_TOOL_PROMPT;
+  const systemPrompt = imageToolsEnabled && imageToolPrompt.trim() && !config.systemPrompt.includes(imageToolPrompt)
+    ? `${config.systemPrompt}\n\n${imageToolPrompt}`
+    : config.systemPrompt;
   return {
+    imageToolsEnabled,
+    imageToolModels: imageModels.map(model => ({ id: imageModelToolId(model), label: model.label, adapter: model.adapter, description: model.description, size: model.size, ratio: model.ratio, textPromptDescription: model.textPromptDescription, referencePromptDescription: model.referencePromptDescription })),
     endpoint: endpoint.endpoint,
     apiKey: endpoint.apiKey,
     model: model.modelId,
     maxTokens: model.maxTokens,
     contextWindow: model.contextWindow,
-    systemPrompt: config.systemPrompt.includes(VISUAL_CONTENT_GUIDE) ? config.systemPrompt : `${config.systemPrompt}\n\n${VISUAL_CONTENT_GUIDE}`,
+    systemPrompt,
     thinkingAvailable: model.thinkingAvailable,
     supportsVision: model.supportsVision,
     supportedReasoningEfforts: model.supportedReasoningEfforts,
@@ -263,6 +276,13 @@ export function validateRequestConfig(config: AiRequestConfig): void {
 
 export function validateConfig(config: AiConfig): void {
   if (!config.endpoints.length) throw new Error('At least one endpoint is required.');
+  if (config.imageModels !== undefined && !Array.isArray(config.imageModels)) throw new Error('Invalid image model list.');
+  const imageIds = new Set<string>();
+  for (const model of config.imageModels || []) {
+    validateImageModel(model, config);
+    if (imageIds.has(imageModelToolId(model))) throw new Error('Duplicate image model short ID.');
+    imageIds.add(imageModelToolId(model));
+  }
   const endpointIds = new Set<string>();
   for (const endpoint of config.endpoints) {
     if (!endpoint.id || endpointIds.has(endpoint.id) || !endpoint.name.trim() || !endpoint.models.length) throw new Error('Invalid or duplicate endpoint.');

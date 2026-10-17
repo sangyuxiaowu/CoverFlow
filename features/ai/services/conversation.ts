@@ -1,7 +1,8 @@
 import OpenAI from 'openai';
 import type { Response, ResponseFunctionCallOutputItemList, ResponseStreamEvent } from 'openai/resources/responses/responses';
-import type { AiRequestConfig, ChatImageRef, RequestUsage, ResponseItem, TokenUsage, ToolEvent, WorkspaceBridge } from '../types.ts';
-import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import type { AiConfig, AiRequestConfig, ChatImageRef, RequestUsage, ResponseItem, TokenUsage, ToolEvent, WorkspaceBridge } from '../types.ts';
+import { imageToolDefinitions, IMAGE_TOOL_DEFINITIONS, TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import { executeImageTool } from '../tools/imageTools.ts';
 import { executeTool } from '../tools/execute.ts';
 import { record } from '../tools/validation.ts';
 import { normalizeEndpoint, reasoningPayload, validateRequestConfig } from './config.ts';
@@ -22,6 +23,7 @@ interface ConversationOptions {
   saveImage?: (blob: Blob, name: string) => Promise<ChatImageRef>;
   onImage?: (image: ChatImageRef) => void;
   onLimit?: () => void;
+  getImageConfig?: () => AiConfig;
 }
 
 export function normalizeUsage(usage: Response['usage'] | null): TokenUsage | undefined {
@@ -104,8 +106,9 @@ export async function runConversation(options: ConversationOptions): Promise<str
   const baseURL = normalizeEndpoint(config.endpoint);
   const client = new OpenAI({ baseURL, apiKey: config.apiKey || 'local', dangerouslyAllowBrowser: true, maxRetries: 0 });
   const input = structuredClone(options.input);
-  const tools = [...TOOL_DEFINITIONS, ...(config.supportsVision ? VISION_TOOL_DEFINITIONS : [])];
+  const tools = [...TOOL_DEFINITIONS, ...(config.supportsVision ? VISION_TOOL_DEFINITIONS : []), ...(config.imageToolsEnabled && options.getImageConfig && options.loadImage && options.saveImage ? imageToolDefinitions(config.imageToolModels) : [])];
   let previewCount = 0;
+  let generationFailed = false;
   for (let round = 0; round < 24; round++) {
     signal.throwIfAborted();
     const requestController = new AbortController();
@@ -116,7 +119,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
     let reported = false;
     let streamedText = '';
     const startTime = Date.now();
-    const request = { id: crypto.randomUUID(), endpoint: baseURL, model: config.model, createdAt: startTime, inputEstimate: estimateInput(input, config.systemPrompt, config.supportsVision) };
+    const request = { id: crypto.randomUUID(), endpoint: baseURL, model: config.model, createdAt: startTime, inputEstimate: estimateInput(input, config.systemPrompt, config.supportsVision, tools.some(tool => tool.function.name === 'generate_image'), config.imageToolModels) };
     try {
       const stream = await client.responses.create({
         model: config.model, instructions: config.systemPrompt, input: await hydrateImageReferences(input, options.loadImage),
@@ -163,13 +166,26 @@ export async function runConversation(options: ConversationOptions): Promise<str
         signal.throwIfAborted();
         if (cancelled) throw new Error('User cancelled. Do not retry this operation without new approval.');
         if (!tools.some(tool => tool.function.name === call.name)) throw new Error('Unknown tool.');
-        const value = await executeTool(call.name, record(JSON.parse(call.arguments)), bridge, signal, Boolean(config.supportsVision));
-        if (call.name === 'get_canvas_preview' && value instanceof Blob) {
+        const args = record(JSON.parse(call.arguments));
+        const isImageTool = IMAGE_TOOL_DEFINITIONS.some(tool => tool.function.name === call.name);
+        if (call.name === 'generate_image' && generationFailed) throw new Error('A generation already failed in this turn. Ask the user before trying again.');
+        const generated = isImageTool ? await executeImageTool(call.name, args, {
+          getConfig: options.getImageConfig!,
+          defaultModelConfigId: config.imageToolModels?.length === 1 ? config.imageToolModels[0].id : undefined,
+          loadImage: options.loadImage!, saveImage: options.saveImage!, onImage: image => options.onImage?.(image), bridge
+        }, signal) : undefined;
+        const value = generated ? generated.value : await executeTool(call.name, args, bridge, signal, Boolean(config.supportsVision));
+        if (generated) {
+          imageRef = generated.image;
+          result = JSON.stringify(value);
+          output = result;
+        } else if (call.name === 'get_canvas_preview' && value instanceof Blob) {
           if (!options.saveImage) throw new Error('Image storage is unavailable.');
           imageRef = await options.saveImage(value, `canvas-preview-${++previewCount}.webp`);
           options.onImage?.(imageRef);
           output = [{ type: 'input_image', image_url: `attachment://${imageRef.id}` }];
-          result = JSON.stringify({ image: imageRef.name, widthLimit: 600, format: 'webp' });
+          result = JSON.stringify({ imageId: imageRef.id, image: imageRef.name, widthLimit: 600, format: 'webp' });
+          output.push({ type: 'input_text', text: result });
         } else if (call.name === 'get_selected_layers' && value && typeof value === 'object' && 'kind' in value && value.kind === 'selected_layers') {
           const selected = value as unknown as { projectId: string; layers: unknown[]; images: { layerId: string; name: string; blob: Blob }[] };
           result = JSON.stringify({ projectId: selected.projectId, layers: selected.layers });
@@ -187,6 +203,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
           output = result;
         }
       } catch (error) {
+        if (call.name === 'generate_image') generationFailed = true;
         status = 'error';
         result = JSON.stringify({ error: signal.aborted ? 'Operation interrupted. Do not retry without explicit user approval.' : error instanceof Error ? error.message : 'Tool failed.' });
         output = result;

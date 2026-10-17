@@ -53,12 +53,38 @@ export interface AiEndpointConfig {
 
 export interface AiConfig {
   endpoints: AiEndpointConfig[];
+  imageModels?: ImageModelConfig[];
   activeSelection: { endpointId: string; modelId: string };
   systemPrompt: string;
+  imageToolPrompt?: string;
   quickSnippets?: string[];
 }
 
+export type ImageAdapterId = 'kolors' | 'agnes';
+
+export type ImagePromptConfig = Pick<ImageModelConfig, 'id' | 'label' | 'adapter' | 'description' | 'size' | 'ratio' | 'textPromptDescription' | 'referencePromptDescription'>;
+
+export interface ImageModelConfig {
+  id: string;
+  adapter: ImageAdapterId;
+  label: string;
+  description: string;
+  modelId: string;
+  endpointId: string;
+  requestUrl: string;
+  enabled: boolean;
+  size: string;
+  ratio: string;
+  steps: number;
+  guidance: number;
+  timeoutSeconds?: number;
+  textPromptDescription?: string;
+  referencePromptDescription?: string;
+}
+
 export interface AiRequestConfig {
+  imageToolsEnabled?: boolean;
+  imageToolModels?: ImagePromptConfig[];
   endpoint: string;
   model: string;
   apiKey: string;
@@ -102,7 +128,7 @@ export type AssistantActivityEvent =
 export interface ChatImageRef {
   id: string;
   name: string;
-  type: 'image/webp';
+  type: 'image/png' | 'image/jpeg' | 'image/webp';
   size: number;
 }
 

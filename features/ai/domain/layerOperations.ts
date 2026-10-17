@@ -13,6 +13,7 @@ export function groupBounds(layers: Layer[], ids: string[]) {
 export function updateProjectLayer(project: ProjectState, id: string, updates: Partial<Layer>): ProjectState {
   const target = project.layers.find(layer => layer.id === id);
   if (!target) throw new Error('Layer not found: ' + id);
+  if (target.type !== 'image' && (updates.imageSource !== undefined || updates.imageDescription !== undefined)) throw new Error('Image source and description are only supported on image layers.');
   let layers: Layer[];
   if (target.type === 'group') {
     const baseWidth = Math.max(1, target.width);
@@ -44,6 +45,10 @@ export function updateProjectLayer(project: ProjectState, id: string, updates: P
     layers = project.layers.map(layer => {
       if (layer.id !== id) return layer;
       const next = { ...layer, ...updates };
+      if (layer.type === 'image' && updates.content !== undefined && updates.content !== layer.content) {
+        next.imageSource = updates.imageSource ?? 'unknown';
+        next.imageDescription = updates.imageDescription ?? '';
+      }
       if (layer.ratioLocked) {
         if (updates.width !== undefined && updates.height === undefined) next.height = updates.width * layer.height / layer.width;
         if (updates.height !== undefined && updates.width === undefined) next.width = updates.height * layer.width / layer.height;

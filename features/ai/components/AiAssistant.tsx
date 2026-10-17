@@ -57,6 +57,8 @@ const toolLabels: Record<string, [string, string]> = {
   add_layer: ['新建图层', 'Add Layer'],
   edit_layers: ['编辑图层', 'Edit Layers'],
   update_canvas: ['调整画布', 'Update Canvas'],
+  list_image_models: ['读取生图模型', 'List Image Models'],
+  generate_image: ['生成图片', 'Generate Image'],
   get_canvas_preview: ['预览当前效果', 'Preview Canvas']
 };
 
@@ -241,7 +243,7 @@ export default function AiAssistant({
       return;
     }
     try {
-      const uploads = await Promise.all(selectedFiles.map(createImageUpload));
+      const uploads = await Promise.all(selectedFiles.map(file => createImageUpload(file, assistant.config.imageModels?.some(model => model.enabled))));
       setImageUploads(previous => [...previous, ...uploads]);
       setKeyAlert(null);
     } catch (error) {
@@ -513,6 +515,7 @@ export default function AiAssistant({
                           )}
                           {activity.map(item => {
                             if (item.type === 'text') {
+                              if (!item.text.trim()) return null;
                               return (
                                 <div className="cf-ai-message-bubble" key={item.id}>
                                   {entry.role === 'assistant' ? <MarkdownView content={item.text} /> : <p>{item.text}</p>}
@@ -534,7 +537,7 @@ export default function AiAssistant({
                                   <span>{toolLabels[tool.name]?.[english ? 1 : 0] || tool.name}</span>
                                   <span className={`cf-ai-tool-badge ${tool.status}`}>
                                     {tool.status === 'running'
-                                      ? label('执行中', 'Running')
+                                      ? tool.name === 'generate_image' ? label('等待生成结果', 'Waiting') : label('执行中', 'Running')
                                       : tool.status === 'error'
                                         ? label('失败', 'Failed')
                                         : label('完成', 'Done')}
@@ -850,18 +853,16 @@ export default function AiAssistant({
                         event.currentTarget.value = '';
                       }}
                     />
-                    {/* 图片上传按钮，暂时隐藏，已经有自动获取了，用户自己上传没意义，保留用于后期跟多能力
                     <button
                       type="button"
                       onClick={() => imageInputRef.current?.click()}
-                      disabled={controlsDisabled || !active.model.supportsVision || imageUploads.length >= 4}
+                      disabled={controlsDisabled || (!active.model.supportsVision && !assistant.config.imageModels?.some(model => model.enabled)) || imageUploads.length >= 4}
                       className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-emerald-300 disabled:opacity-30"
-                      title={active.model.supportsVision ? label('添加图片（最多 4 张）', 'Attach images (up to 4)') : label('当前模型未启用视觉输入', 'Vision input is not enabled for this model')}
+                      title={label('添加图片／生图参考（最多 4 张）', 'Attach images / generation references (up to 4)')}
                       aria-label={label('添加图片', 'Attach image')}
                     >
                       <ImagePlus size={14} />
                     </button>
-                    */}
                     <TokenUsageBar
                       session={assistant.sessions.find(session => session.id === assistant.activeSessionId)}
                       config={assistant.config}

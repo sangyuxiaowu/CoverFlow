@@ -65,10 +65,15 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
   if (name === 'add_layer') {
     const type = choice(args.type, 'type', ['text', 'svg', 'image', 'decoration']);
     const patch = layerPatch(args.properties);
+    if (type !== 'image' && (patch.imageSource !== undefined || patch.imageDescription !== undefined)) throw new Error('Image source and description are only supported on image layers.');
     if (type === 'decoration' && patch.color !== undefined) throw new Error('Decoration colors must be changed in content via CSS variables, not layer.color.');
     const content = validateContent(type, text(patch.content, 'content'), patch.decorationFormat);
     if (type === 'decoration') patch.decorationFormat ??= detectDecorationFormat(content);
     const layer: Layer = { id: crypto.randomUUID(), name: type, type, content, x: 40, y: 40, width: 300, height: 100, rotation: 0, zIndex: Math.max(0, ...project.layers.map(item => item.zIndex)) + 1, visible: true, locked: false, opacity: 1, ...(type === 'text' ? { fontSize: 48, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: '#ffffff', textAlign: 'left' } : {}), ...patch };
+    if (type === 'image') {
+      layer.imageSource ??= 'unknown';
+      layer.imageDescription ??= '';
+    }
     next = { ...project, layers: [...project.layers, layer], selectedLayerId: layer.id };
   } else if (name === 'edit_layers') {
     const request = parseEditLayersRequest(args);

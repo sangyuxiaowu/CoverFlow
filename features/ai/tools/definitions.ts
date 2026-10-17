@@ -1,4 +1,5 @@
-import type { ToolDefinition } from '../types.ts';
+import type { ImagePromptConfig, ToolDefinition } from '../types.ts';
+import { AGNES_SIZES, DEFAULT_REFERENCE_IMAGE_PROMPT, DEFAULT_TEXT_IMAGE_PROMPT, IMAGE_RATIOS, KOLORS_SIZES } from '../services/imageGeneration.ts';
 import { ALIGN_MODES, DISTRIBUTE_MODES, EDIT_LAYER_RULES, PROJECT_RULES, fieldUsage } from './requests.ts';
 
 const string = (description: string) => ({ type: 'string', description, maxLength: 200000 });
@@ -13,6 +14,8 @@ const conditional = <Schema extends { description: string }>(rules: Parameters<t
 
 const patch = object('图层属性的部分更新；省略字段保持原值。不要提交 id、type、parentId 或 children 等结构字段。', {
   name: string('图层名称，用于图层列表与搜索。'),
+  imageSource: { ...string('仅图片图层，用来描述来源，例如 upload、import 或实际生图模型 ID。'), maxLength: 200 },
+  imageDescription: { ...string('仅图片图层，用来记录图片描述或实际生成该图片的提示词。'), maxLength: 10000 },
   content: string([
     '图层完整内容；修改前先 read_layers，保留无关结构与样式，不接受差异补丁。',
     'text：纯文本。image：已有 HTTP(S) URL 或 PNG/JPEG/WebP/GIF 的 base64 数据 URL。',
@@ -75,7 +78,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     layerIds: layerIds('可选图层 ID 列表；省略时读取所有匹配图层。'),
     query: string('可选名称或内容关键词，不区分大小写；省略时不过滤，提供时不得为空白。')
   }, ['projectId'])),
-  tool('get_selected_layers', '读取当前选中图层的属性；视觉模型还会收到选中图片图层的预览。', object('无需参数', {})),
+  tool('get_selected_layers', '读取当前选中图层的属性，包括图片来源、描述或提示词；视觉模型还会收到图片预览。用户输入有明确指代时使用。', object('无需参数', {})),
   tool('add_layer', '在当前项目添加一个图层并选中；不会自动编组，多图层组合请使用 edit_layers。', object('新图层创建参数。', {
     projectId,
     type: enumeration('图层类型：text 为纯文本，svg 为矢量标记，image 为已有位图，decoration 为 CSS/HTML 装饰。', ['text', 'svg', 'image', 'decoration']),
@@ -109,3 +112,49 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
 export const VISION_TOOL_DEFINITIONS: ToolDefinition[] = [
   tool('get_canvas_preview', '预览当前画布效果，用于视觉分析；返回缩放后的 WebP 图片。', object('无需参数。', {}))
 ];
+
+export const IMAGE_TOOL_DEFINITIONS: ToolDefinition[] = [
+  tool('list_image_models', '读取可用生图模型、参数能力和提示词建议；按需求选择模型。', object('无需参数。', {})),
+  tool('generate_image', '文生图或单图参考生图，成功后自动添加图片图层并返回图层 ID，可继续用 edit_layers 调整。', object('图片生成请求', {
+    projectId,
+    modelConfigId: { ...string('来自 list_image_models 的模型配置 ID，不是 API 模型 ID。'), maxLength: 9 },
+    prompt: { type: 'string', maxLength: 10000, minLength: 1, description: '生图提示词' },
+    size: string('可选输出尺寸，仅使用该模型公布的支持值；省略使用配置默认值。'),
+    ratio: string('可选比例，仅 Agnes 档位尺寸支持；省略使用默认比例。Kolors 和 Agnes 精确尺寸不使用此字段。'),
+    referenceImageId: string('可选当前会话附件 ID，来自上传消息或已有工具结果。不得与 referenceLayerId 同时提供；省略两者则文生图。'),
+    referenceLayerId: string('可选当前项目的 image 图层 ID；可使用 get_selected_layers 获取当前选中图层；不得与 referenceImageId 同时提供。')
+  }, ['projectId', 'modelConfigId', 'prompt']))
+];
+
+export function imageToolDefinitions(models: ImagePromptConfig[] = []): ToolDefinition[] {
+  const single = models.length === 1 ? models[0] : undefined;
+  return IMAGE_TOOL_DEFINITIONS.filter(definition => !single || definition.function.name !== 'list_image_models').map(definition => {
+    if (definition.function.name !== 'generate_image') return definition;
+    const parameters = definition.function.parameters;
+    const properties = parameters.properties as Record<string, Record<string, unknown>>;
+    const next = { ...properties };
+    let required = ['projectId', 'modelConfigId', 'prompt'];
+    if (single) {
+      delete next.modelConfigId;
+      required = ['projectId', 'prompt'];
+      next.prompt = { ...properties.prompt, description: [
+        `生图提示词。${single.label}：${single.description}`,
+        `文生图：\n${single.textPromptDescription ?? DEFAULT_TEXT_IMAGE_PROMPT}`,
+        `单图参考：\n${single.referencePromptDescription ?? DEFAULT_REFERENCE_IMAGE_PROMPT}`
+      ].join('\n\n') };
+      next.size = single.adapter === 'kolors'
+        ? { type: 'string', description: `输出尺寸；省略为 ${single.size}。`, enum: KOLORS_SIZES }
+        : { type: 'string', description: `输出尺寸；省略为 ${single.size}。档位尺寸可配 ratio；精确尺寸不使用 ratio。`, anyOf: [
+            { type: 'string', description: '推荐尺寸档位。', enum: AGNES_SIZES },
+            { type: 'string', description: '兼容精确尺寸，如 1024x768；服务商可能标准化不支持的尺寸。', pattern: '^[1-9]\\d{1,3}x[1-9]\\d{1,3}$' }
+          ] };
+      if (single.adapter === 'kolors') delete next.ratio;
+      else next.ratio = { type: 'string', description: `仅档位尺寸使用；省略为 ${single.ratio}。`, enum: IMAGE_RATIOS };
+    } else {
+      next.modelConfigId = { ...properties.modelConfigId, ...(models.length ? { enum: models.map(model => model.id) } : {}) };
+    }
+    return { ...definition, function: { ...definition.function, parameters: {
+      ...parameters, properties: next, required
+    } } };
+  });
+}

@@ -1,9 +1,9 @@
-import type { AiRequestConfig, ChatSession, RequestUsage, ResponseItem, TokenUsage } from '../types.ts';
+import type { AiRequestConfig, ChatSession, ImagePromptConfig, RequestUsage, ResponseItem, TokenUsage } from '../types.ts';
 import { normalizeEndpoint } from './config.ts';
-import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import { imageToolDefinitions, TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
 
-export function estimateInput(input: ResponseItem[], instructions: string, supportsVision = false): number {
-  const tools = [...TOOL_DEFINITIONS, ...(supportsVision ? VISION_TOOL_DEFINITIONS : [])];
+export function estimateInput(input: ResponseItem[], instructions: string, supportsVision = false, imageToolsEnabled = false, imageModels?: ImagePromptConfig[]): number {
+  const tools = [...TOOL_DEFINITIONS, ...(supportsVision ? VISION_TOOL_DEFINITIONS : []), ...(imageToolsEnabled ? imageToolDefinitions(imageModels) : [])];
   const bytes = new TextEncoder().encode(JSON.stringify({ input, instructions, tools }));
   return Math.ceil(bytes.length / 3);
 }
@@ -48,7 +48,7 @@ export function sessionUsage(session: ChatSession | undefined, config: AiRequest
   const current = requests.filter(request => request.entryId === lastEntry?.id);
   const matching = [...requests].reverse().find(request => request.usage && request.endpoint === normalizeEndpoint(config.endpoint) && request.model === config.model);
   const projectedInput: ResponseItem[] = prompt.trim() ? [...input, { role: 'user', content: prompt.trim() }] : input;
-  const estimate = estimateInput(projectedInput, config.systemPrompt, config.supportsVision);
+  const estimate = estimateInput(projectedInput, config.systemPrompt, config.supportsVision, config.imageToolsEnabled, config.imageToolModels);
   const contextTokens = matching?.usage && matching.inputEstimate !== undefined
     ? Math.max(0, matching.usage.inputTokens + estimate - matching.inputEstimate)
     : estimate;
@@ -59,8 +59,7 @@ export function sessionUsage(session: ChatSession | undefined, config: AiRequest
   const remainingTokens = Math.max(0, contextWindow - contextTokens - reservedOutput);
 
   // 1. 系统指令与工具定义基础开销
-  const systemBytes = new TextEncoder().encode(JSON.stringify({ instructions: config.systemPrompt, tools: [...TOOL_DEFINITIONS, ...(config.supportsVision ? VISION_TOOL_DEFINITIONS : [])] })).length;
-  const systemAndTools = Math.ceil(systemBytes / 3);
+  const systemAndTools = estimateInput([], config.systemPrompt, config.supportsVision, config.imageToolsEnabled, config.imageToolModels);
 
   // 2. 画布与工具调用数据 (图层属性、设计快照与工具输出)
   const toolDataItems = projectedInput.filter(item => 'type' in item && (item.type === 'function_call' || item.type === 'function_call_output'));

@@ -34,6 +34,8 @@ export interface Layer {
   type: LayerType;
   content: string; // SVG 代码、文字内容、图片 URL 或装饰 CSS/HTML
   decorationFormat?: 'css' | 'html';
+  imageSource?: string;
+  imageDescription?: string;
   x: number;
   y: number;
   width: number;

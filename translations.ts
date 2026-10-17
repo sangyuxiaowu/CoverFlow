@@ -1,6 +1,8 @@
 // 模块：多语言文案
 export const translations = {
   zh: {
+    imageSource: "图片来源",
+    imageDescription: "描述 / 提示词",
     colorPicker: "拾色器",
     colorPickerClose: "关闭拾色器",
     colorPickerFormat: "颜色格式",
@@ -300,6 +302,8 @@ export const translations = {
     }
   },
   en: {
+    imageSource: "Image Source",
+    imageDescription: "Description / Prompt",
     colorPicker: "Color picker",
     colorPickerClose: "Close color picker",
     colorPickerFormat: "Color format",

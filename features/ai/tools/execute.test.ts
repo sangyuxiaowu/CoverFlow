@@ -260,3 +260,19 @@ test('forward and backward execute through the tool without extra parameters', a
   await assert.rejects(executeTool('edit_layers', { ...args, action: 'backward', properties: { zIndex: 1 } }, bridge, signal), /unsupported field/);
   assert.deepEqual(bridge.getProject(), before);
 });
+
+test('image source and description are editable, readable and restricted to image layers', async () => {
+  const { bridge, signal } = setup();
+  await executeTool('add_layer', { projectId: 'p1', type: 'image', properties: { content: 'https://example.com/photo.png', imageSource: 'upload', imageDescription: 'A user description' } }, bridge, signal);
+  const id = bridge.getProject()!.selectedLayerId!;
+  await executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [id], properties: { imageDescription: 'Revised description' } }, bridge, signal);
+  const selected = await executeTool('get_selected_layers', {}, { ...bridge, getSelection: () => [id] }, signal) as { layers: { imageSource: string; imageDescription: string }[]; images: unknown[] };
+  assert.equal(selected.layers[0].imageSource, 'upload');
+  assert.equal(selected.layers[0].imageDescription, 'Revised description');
+  assert.deepEqual(selected.images, []);
+  const saved = JSON.parse(JSON.stringify(bridge.getProject())) as ProjectState;
+  assert.equal(saved.layers[0].imageDescription, 'Revised description');
+  assert.throws(() => layerPatch({ imageSource: 'x'.repeat(201) }), /Invalid/);
+  assert.throws(() => layerPatch({ imageDescription: 'x'.repeat(10001) }), /Invalid/);
+  await assert.rejects(executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { content: 'Text', imageSource: 'upload' } }, bridge, signal), /only supported/);
+});

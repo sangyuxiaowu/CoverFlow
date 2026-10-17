@@ -97,6 +97,8 @@ export interface ToolEvent {
   name: string;
   arguments: string;
   status: 'running' | 'success' | 'error';
+  startedAt?: number;
+  durationMs?: number;
   result?: string;
   image?: ChatImageRef;
 }

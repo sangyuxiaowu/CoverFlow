@@ -820,6 +820,15 @@
   color: var(--ai-muted);
 }
 
+.cf-ai-tool-duration {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  color: var(--ai-muted);
+}
+
 .cf-ai-tool-badge.running {
   background: rgba(245, 158, 11, 0.15);
   color: #fbbf24;

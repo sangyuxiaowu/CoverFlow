@@ -179,7 +179,9 @@ export async function runConversation(options: ConversationOptions): Promise<str
     input.push(...output);
     let cancelled = false;
     for (const call of calls) {
-      onTool({ id: call.call_id, name: call.name, arguments: call.arguments, status: 'running' });
+      const startedAt = Date.now();
+      const started = performance.now();
+      onTool({ id: call.call_id, name: call.name, arguments: call.arguments, status: 'running', startedAt });
       let result: string;
       let output: string | ResponseFunctionCallOutputItemList;
       let imageRef: ChatImageRef | undefined;
@@ -234,7 +236,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
         output = result;
       }
       input.push({ type: 'function_call_output', call_id: call.call_id, output });
-      onTool({ id: call.call_id, name: call.name, arguments: call.arguments, status, result, ...(imageRef ? { image: imageRef } : {}) });
+      onTool({ id: call.call_id, name: call.name, arguments: call.arguments, status, startedAt, durationMs: Math.max(0, performance.now() - started), result, ...(imageRef ? { image: imageRef } : {}) });
       if (status === 'error' && result.includes('User cancelled')) cancelled = true;
     }
     if (cancelled) {

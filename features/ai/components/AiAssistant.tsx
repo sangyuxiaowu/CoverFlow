@@ -36,6 +36,7 @@ import { useChatStore } from '../hooks/useChatStore.ts';
 import SessionList from './SessionList.tsx';
 import TokenUsageBar from './TokenUsageBar.tsx';
 import MarkdownView from './MarkdownView.tsx';
+import ToolDuration from './ToolDuration.tsx';
 import { sumUsage } from '../services/usage.ts';
 import { createImageUpload } from '../services/imageAttachments.ts';
 import type { ChatImageUpload } from '../types.ts';
@@ -316,7 +317,8 @@ export default function AiAssistant({
             {floating.minimized && assistant.busy ? (
               <div className="cf-ai-minimized-ticker" title={currentBusyStatus}>
                 <span className="cf-ai-ticker-badge">{english ? 'WORKING' : '执行中'}</span>
-                <span className="cf-ai-ticker-text" key={`${tickerIndex % busyStatusList.length}:${currentBusyStatus}`}>{currentBusyStatus}</span>
+                <span className="cf-ai-ticker-text" key={`${tickerIndex % busyStatusList.length}:${currentBusyStatus}`}>{runningTool ? `${label('正在执行：', 'Executing: ')}${runningToolLabel}` : currentBusyStatus}</span>
+                {runningTool && <ToolDuration tool={runningTool} english={english} />}
               </div>
             ) : (
               <span title={currentSessionTitle}>
@@ -535,7 +537,8 @@ export default function AiAssistant({
                                     <CheckCircle2 size={14} className="text-emerald-400" />
                                   )}
                                   <span>{toolLabels[tool.name]?.[english ? 1 : 0] || tool.name}</span>
-                                  <span className={`cf-ai-tool-badge ${tool.status}`}>
+                                  <ToolDuration tool={tool} english={english} />
+                                  <span className={`cf-ai-tool-badge ${tool.status}`} title={tool.durationMs === undefined ? undefined : `${label('工具总耗时', 'Total tool elapsed time')}: ${(tool.durationMs / 1000).toFixed(1)}s`}>
                                     {tool.status === 'running'
                                       ? tool.name === 'generate_image' ? label('等待生成结果', 'Waiting') : label('执行中', 'Running')
                                       : tool.status === 'error'

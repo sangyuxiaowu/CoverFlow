@@ -27,6 +27,44 @@ const textOutput = { type: 'message', id: 'msg-test', role: 'assistant', status:
 async function* eventsFrom(events: unknown[]) { for (const event of events) yield event as ResponseStreamEvent; }
 const streamResponse = (payload: ReturnType<typeof responsePayload>) => new Response(`event: response.${payload.status}\ndata: ${JSON.stringify({ type: `response.${payload.status}`, response: payload })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
 
+for (const outcome of ['success', 'error', 'aborted'] as const) {
+  test(`tool timing is finalized on ${outcome} without entering model output`, async () => {
+    const originalFetch = globalThis.fetch;
+    const controller = new AbortController();
+    const events: ToolEvent[] = [];
+    let history: ResponseItem[] = [];
+    let round = 0;
+    globalThis.fetch = async () => streamResponse(responsePayload(++round === 1
+      ? [{ type: 'function_call', call_id: 'timed-preview', name: 'get_canvas_preview', arguments: '{}' }]
+      : [textOutput]));
+    try {
+      const run = runConversation({
+        config: { ...config, supportsVision: true }, input: [], signal: controller.signal,
+        bridge: { ...bridge, getCanvasPreview: async () => {
+          assert.equal(events.length, 1);
+          assert.equal(events[0].status, 'running');
+          assert.equal(typeof events[0].startedAt, 'number');
+          assert.equal(events[0].durationMs, undefined);
+          if (outcome === 'aborted') controller.abort(new ConversationAbortError('user_stop'));
+          if (outcome !== 'success') throw new Error('Preview interrupted');
+          return new Blob(['image'], { type: 'image/webp' });
+        } },
+        saveImage: async () => ({ id: 'timed-image', name: 'preview.webp', type: 'image/webp', size: 5 }),
+        onText: () => {}, onTool: event => events.push(event), onHistory: items => { history = items; }
+      });
+      if (outcome === 'aborted') await assert.rejects(run);
+      else await run;
+      assert.equal(events.length, 2);
+      assert.equal(events[1].startedAt, events[0].startedAt);
+      assert.equal(events[1].status, outcome === 'success' ? 'success' : 'error');
+      assert.ok(Number.isFinite(events[1].durationMs));
+      assert.ok(events[1].durationMs! >= 0);
+      assert.ok(!JSON.stringify(history).includes('durationMs'));
+      assert.ok(!JSON.stringify(history).includes('startedAt'));
+    } finally { globalThis.fetch = originalFetch; }
+  });
+}
+
 test('custom prompts are not silently extended with visual capability instructions', async () => {
   const profiles = configuredConfig();
   profiles.imageModels = profiles.imageModels?.map(model => ({ ...model, enabled: true, endpointId: profiles.endpoints[0].id }));
@@ -273,8 +311,8 @@ test.each([
   try {
     await runConversation({ config, input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: event => { tools.push(event); } });
     assert.equal(tools.length, 2);
-    assert.deepEqual(tools[0], { id: 'call', name: 'manage_projects', arguments: args, status: 'running' });
-    assert.deepEqual(tools[1], { id: 'call', name: 'manage_projects', arguments: args, status, result: tools[1].result });
+    assert.deepEqual(tools[0], { id: 'call', name: 'manage_projects', arguments: args, status: 'running', startedAt: tools[0].startedAt });
+    assert.deepEqual(tools[1], { id: 'call', name: 'manage_projects', arguments: args, status, result: tools[1].result, startedAt: tools[0].startedAt, durationMs: tools[1].durationMs });
     assert.ok(tools[1].result);
   } finally { globalThis.fetch = originalFetch; }
 });

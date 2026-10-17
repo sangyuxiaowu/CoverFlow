@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import {
   Brain,
   Check,
@@ -17,7 +17,13 @@ import {
   Sliders,
   Sparkles,
   Trash2,
-  X
+  X,
+  Globe,
+  Terminal,
+  CheckCircle2,
+  AlertCircle,
+  RefreshCw,
+  Info
 } from 'lucide-react';
 import type { AiConfig, AiEndpointConfig, AiModelConfig, ReasoningEffort } from '../types.ts';
 import ImageModelSettings from './ImageModelSettings.tsx';
@@ -108,7 +114,9 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
     setDraft({
       ...draft,
       endpoints: nextEndpoints,
-      imageModels: draft.imageModels?.map(model => model.endpointId === endpointId ? { ...model, endpointId: '', enabled: false } : model),
+      imageModels: draft.imageModels?.map(model =>
+        model.endpointId === endpointId ? { ...model, endpointId: '', enabled: false } : model
+      ),
       activeSelection: nextActiveSelection
     });
   };
@@ -142,17 +150,15 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
       if (!activeEndpoint.endpoint) {
         throw new Error(label('端点 URL 不能为空', 'Endpoint URL cannot be empty'));
       }
-      // 轻量连通性检查或格式校验
       const url = new URL(activeEndpoint.endpoint);
       if (!url.protocol.startsWith('http')) {
         throw new Error(label('无效的 URL 协议', 'Invalid URL protocol'));
       }
-      // 模拟测试或简单 ping
       await new Promise(resolve => setTimeout(resolve, 800));
       if (!activeEndpoint.apiKey && !activeEndpoint.endpoint.includes('localhost')) {
         setTestStatus(label('⚠️ 尚未填写 API Key', '⚠️ API Key is empty'));
       } else {
-        setTestStatus(label('✓ 端点配置正常', '✓ Endpoint Verified'));
+        setTestStatus(label('✓ 端点配置验证成功', '✓ Endpoint Verified'));
       }
     } catch (err) {
       setTestStatus(label(`❌ 连接测试失败: ${(err as Error).message}`, `❌ Failed: ${(err as Error).message}`));
@@ -195,28 +201,80 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
     }
   };
 
+// 现代平滑开关滑块组件
+const ToggleSwitch: React.FC<{
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+  label?: string;
+  id?: string;
+  activeColor?: string;
+}> = ({ checked, disabled, onChange, label, id, activeColor = 'bg-blue-600 shadow-blue-600/40' }) => {
   return (
-    <div className="fixed inset-0 z-[120] bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
+    <div className="flex items-center gap-2">
+      <button
+        id={id}
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        disabled={disabled}
+        onClick={e => {
+          e.stopPropagation();
+          if (!disabled) onChange(!checked);
+        }}
+        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 ${
+          checked ? `${activeColor} shadow-sm` : 'bg-slate-700 hover:bg-slate-650'
+        } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+      >
+        <span
+          className={`pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 ease-in-out ${
+            checked ? 'translate-x-4' : 'translate-x-1'
+          }`}
+        />
+      </button>
+      {label && (
+        <span
+          onClick={e => {
+            e.stopPropagation();
+            if (!disabled) onChange(!checked);
+          }}
+          className={`text-xs font-semibold select-none cursor-pointer ${
+            disabled ? 'text-slate-500 cursor-not-allowed' : checked ? 'text-blue-300' : 'text-slate-400'
+          }`}
+        >
+          {label}
+        </span>
+      )}
+    </div>
+  );
+};
+
+  const inputClass =
+    'w-full bg-slate-950/80 border border-slate-800 focus:border-blue-500/80 focus:ring-1 focus:ring-blue-500/30 rounded-xl px-3 py-2 text-xs text-slate-100 placeholder:text-slate-600 outline-none transition-all';
+  const labelClass = 'text-[11px] font-medium text-slate-400 block mb-1';
+
+  return (
+    <div className="fixed inset-0 z-[120] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
       <div
-        className="bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden text-slate-200"
+        className="bg-[#0b0f17] border border-slate-800 rounded-2xl shadow-2xl max-w-4xl w-full h-[88vh] max-h-[880px] min-h-[520px] flex flex-col overflow-hidden text-slate-200"
         role="dialog"
         aria-modal="true"
         aria-label={label('AI 助手配置中心', 'AI Assistant Configuration Center')}
       >
-        {/* 顶部标题栏 (Image 2 样式) */}
-        <header className="px-6 py-4 border-b border-slate-800 flex items-center justify-between shrink-0 bg-slate-900/60">
+        {/* 顶部标题栏 */}
+        <header className="px-6 py-4 border-b border-slate-800/80 flex items-center justify-between shrink-0 bg-slate-900/40">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-400 flex items-center justify-center shadow-inner">
-              <Sparkles size={20} />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/20 to-indigo-500/10 border border-blue-500/30 text-blue-400 flex items-center justify-center shadow-inner">
+              <Sparkles size={18} />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white tracking-tight">
-                {label('AI 助手配置中心', 'AI Assistant Configuration')}
+              <h2 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                <span>{label('AI 助手配置中心', 'AI Assistant Configuration')}</span>
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-400 mt-0.5">
                 {label(
-                  '自定义服务端点、模型参数、系统提示词与快捷短语',
-                  'Configure service endpoints, model parameters, system prompt and quick snippets'
+                  '配置大模型 API 端点、生成参数、生图模型与系统提示词',
+                  'Configure LLM endpoints, parameters, image models and system instructions'
                 )}
               </p>
             </div>
@@ -224,182 +282,253 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
           <button
             type="button"
             onClick={onBack}
-            className="w-8 h-8 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-xl bg-slate-850 hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
             title={label('关闭', 'Close')}
             aria-label={label('关闭', 'Close')}
           >
-            <X size={18} />
+            <X size={16} />
           </button>
         </header>
 
-        {/* 标签页导航 (Image 2 样式) */}
-        <div className="px-4 sm:px-6 border-b border-slate-800 flex items-center gap-4 sm:gap-6 overflow-x-auto shrink-0 bg-slate-900/40 text-xs font-semibold [&>button]:shrink-0">
+        {/* 导航选项卡 */}
+        <div className="px-6 border-b border-slate-800/80 flex items-center gap-2 overflow-x-auto shrink-0 bg-slate-900/20 text-xs font-semibold py-2">
           <button
             type="button"
             onClick={() => setTab('models')}
-            className={`py-3 flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${
               tab === 'models'
-                ? 'border-blue-500 text-blue-400 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850/50'
             }`}
           >
             <Cpu size={15} />
             <span>{label('端点与模型', 'Endpoints & Models')}</span>
           </button>
-          <button type="button" onClick={() => setTab('images')} className={`py-3 flex items-center gap-2 border-b-2 cursor-pointer ${tab === 'images' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
-            <ImagePlus size={15} /><span>{label('生图模型', 'Image Models')}</span>
+
+          <button
+            type="button"
+            onClick={() => setTab('images')}
+            className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${
+              tab === 'images'
+                ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850/50'
+            }`}
+          >
+            <ImagePlus size={15} />
+            <span>{label('生图模型', 'Image Models')}</span>
+            {draft.imageModels && draft.imageModels.length > 0 && (
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-400">
+                {draft.imageModels.length}
+              </span>
+            )}
           </button>
+
           <button
             type="button"
             onClick={() => setTab('prompt')}
-            className={`py-3 flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${
               tab === 'prompt'
-                ? 'border-blue-500 text-blue-400 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850/50'
             }`}
           >
             <FileText size={15} />
             <span>{label('系统提示词', 'System Prompt')}</span>
           </button>
+
           <button
             type="button"
             onClick={() => setTab('snippets')}
-            className={`py-3 flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${
               tab === 'snippets'
-                ? 'border-blue-500 text-blue-400 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850/50'
             }`}
           >
             <MessageSquare size={15} />
-            <span>
-              {label('快捷短语', 'Quick Snippets')} ({snippets.length})
+            <span>{label('快捷短语', 'Quick Snippets')}</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-400">
+              {snippets.length}
             </span>
           </button>
         </div>
 
         {/* 主体表单区域 */}
         <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col">
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 space-y-6">
-            {tab === 'images' && <ImageModelSettings config={draft} onChange={setDraft} english={english} />}
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-5 sm:p-6 space-y-6">
             {error && (
-              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-medium">
-                {error}
+              <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-medium flex items-center gap-2">
+                <AlertCircle size={16} className="text-rose-400 shrink-0" />
+                <span>{error}</span>
               </div>
             )}
 
-            {/* TAB 1: 端点与模型 */}
+            {/* TAB: 生图模型 */}
+            {tab === 'images' && <ImageModelSettings config={draft} onChange={setDraft} english={english} />}
+
+            {/* TAB: 端点与模型 */}
             {tab === 'models' && (
               <>
-                {/* 当前默认活跃模型横幅卡片 (Image 2 顶部蓝色横幅卡片) */}
-                <div className="p-4 rounded-xl border border-blue-500/30 bg-blue-950/20 backdrop-blur-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="text-[11px] font-bold text-blue-400 uppercase tracking-wider">
-                      {label('当前默认活跃模型', 'Current Active Model')}
+                {/* 顶部活跃模型旗舰卡片 */}
+                <div className="p-5 rounded-2xl border border-blue-500/25 bg-gradient-to-r from-blue-950/30 via-slate-900/60 to-indigo-950/20 backdrop-blur-sm space-y-3.5 shadow-lg shadow-blue-950/10">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                      </span>
+                      <span className="text-xs font-bold text-blue-400 uppercase tracking-wider">
+                        {label('当前默认活跃模型', 'Current Active Model')}
+                      </span>
                     </div>
-                    <div className="text-sm font-bold text-white">
-                      {activeEndpoint.name} · {activeModel.label} ({activeModel.modelId})
-                    </div>
-                    <div className="text-xs text-slate-400 flex flex-wrap items-center gap-2">
-                      <span>
-                        💡{' '}
-                        {activeModel.thinkingAvailable
-                          ? label('思考模式已支持', 'Thinking Supported')
-                          : label('标准模式', 'Standard Mode')}
-                      </span>
-                      <span>·</span>
-                      <span>
-                        {label('窗口', 'Context')}: {activeModel.contextWindow.toLocaleString()} tokens
-                      </span>
-                      <span>·</span>
-                      <span>
-                        {label('输出', 'Output')}: {activeModel.maxTokens.toLocaleString()} tokens
-                      </span>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      {testStatus && (
+                        <span className="text-xs font-medium text-blue-300 flex items-center gap-1.5 bg-blue-950/40 px-2.5 py-1 rounded-lg border border-blue-500/20">
+                          {testStatus}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        disabled={isTesting}
+                        onClick={handleTestConnection}
+                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-900/30 transition-all cursor-pointer"
+                      >
+                        <Sparkles size={13} className={isTesting ? 'animate-spin' : ''} />
+                        <span>{isTesting ? label('测试中...', 'Testing...') : label('测试连通性', 'Test Connection')}</span>
+                      </button>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 shrink-0">
-                    {testStatus && <span className="text-xs text-blue-300 font-medium">{testStatus}</span>}
-                    <button
-                      type="button"
-                      disabled={isTesting}
-                      onClick={handleTestConnection}
-                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-900/30 transition-all cursor-pointer"
-                    >
-                      <Sparkles size={14} />
-                      <span>{isTesting ? label('测试中...', 'Testing...') : label('测试连接', 'Test Connection')}</span>
-                    </button>
+                  <div className="space-y-1">
+                    <div className="text-base font-bold text-white flex items-center gap-2 flex-wrap">
+                      <span>{activeModel.label}</span>
+                      <span className="text-xs font-normal text-slate-400">
+                        ({label('来自端点', 'from')}: {activeEndpoint.name})
+                      </span>
+                      <span className="text-xs font-mono text-blue-300/80 bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/20">
+                        {activeModel.modelId}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-slate-400 flex flex-wrap items-center gap-x-3 gap-y-1 pt-1">
+                      <span className="text-slate-300">
+                        {activeModel.thinkingAvailable
+                          ? label('🧠 思考推理模式已支持', '🧠 Thinking reasoning supported')
+                          : label('⚡ 标准快速生成模式', '⚡ Standard generation mode')}
+                      </span>
+                      <span className="text-slate-600">·</span>
+                      <span>
+                        {label('上下文窗口', 'Context')}:{' '}
+                        <strong className="text-slate-300 font-mono">
+                          {activeModel.contextWindow.toLocaleString()}
+                        </strong>{' '}
+                        tokens
+                      </span>
+                      <span className="text-slate-600">·</span>
+                      <span>
+                        {label('最大输出', 'Max Output')}:{' '}
+                        <strong className="text-slate-300 font-mono">
+                          {activeModel.maxTokens.toLocaleString()}
+                        </strong>{' '}
+                        tokens
+                      </span>
+                      <span className="text-slate-600">·</span>
+                      <span>
+                        {activeModel.supportsVision
+                          ? label('👁️ 支持多模态图像识别', '👁️ Vision input supported')
+                          : label('📝 纯文本交互', '📝 Text only')}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                {/* API 端点配置区域 (Image 2 核心折叠列表) */}
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-slate-200">
-                      {label('API 端点配置', 'API Endpoint Configuration')}
-                    </h3>
-                    {/* 添加端点快速下拉 */}
-                    <div className="relative flex items-center gap-2">
+                {/* API 端点列表区域 */}
+                <div className="space-y-4 pt-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-200">
+                        {label('API 服务端点配置', 'API Endpoint Configurations')}
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {label(
+                          '支持任何兼容 OpenAI Chat Completions 规范的云端或本地 Ollama 服务',
+                          'Supports OpenAI-compatible cloud APIs or local Ollama endpoints'
+                        )}
+                      </p>
+                    </div>
+
+                    {/* 添加端点快速选择 */}
+                    <div className="relative">
                       <select
                         aria-label={label('添加端点预设', 'Add Endpoint Preset')}
                         value=""
                         onChange={e => {
                           if (e.target.value) addEndpoint(e.target.value as any);
                         }}
-                        className="bg-slate-800 border border-slate-700 rounded-lg text-xs font-semibold text-blue-400 px-2.5 py-1 outline-none hover:border-blue-500 cursor-pointer"
+                        className="bg-slate-850 hover:bg-slate-800 border border-slate-700 hover:border-blue-500 text-xs font-semibold text-blue-400 rounded-xl px-3 py-1.5 outline-none cursor-pointer transition-colors shadow-sm"
                       >
-                        <option value="">+ {label('添加端点', 'Add Endpoint')}</option>
-                        <option value="deepseek">DeepSeek</option>
-                        <option value="openai">OpenAI</option>
+                        <option value="" disabled>
+                          + {label('添加端点预设', 'Add Endpoint')}
+                        </option>
+                        <option value="deepseek">DeepSeek (官方)</option>
+                        <option value="openai">OpenAI (官方)</option>
                         <option value="local">Ollama (本地)</option>
-                        <option value="custom">{label('自定义端点', 'Custom Endpoint')}</option>
+                        <option value="custom">{label('自定义端点 (OpenAI兼容)', 'Custom Endpoint')}</option>
                       </select>
                     </div>
                   </div>
 
-                  {/* 端点卡片折叠列表 */}
-                  <div className="space-y-3">
+                  {/* 端点卡片列表 */}
+                  <div className="space-y-3.5">
                     {draft.endpoints.map(ep => {
                       const isExpanded = Boolean(expandedEndpoints[ep.id]);
                       const hasKey = Boolean(ep.apiKey && ep.apiKey.trim().length > 0);
+                      const isCurrentActiveEndpoint = ep.id === activeEndpoint.id;
 
                       return (
                         <div
                           key={ep.id}
-                          className="bg-slate-900/80 border border-slate-800 rounded-xl overflow-hidden transition-all shadow-sm"
+                          className={`rounded-2xl border transition-all duration-200 overflow-hidden ${
+                            isCurrentActiveEndpoint
+                              ? 'bg-slate-900/90 border-blue-500/40 shadow-md shadow-blue-950/15'
+                              : 'bg-slate-900/50 border-slate-800 hover:border-slate-700/80'
+                          }`}
                         >
-                          {/* 端点标题栏 (可点击折叠/展开) */}
+                          {/* 端点卡片头部 */}
                           <div
                             onClick={() => toggleEndpointExpanded(ep.id)}
-                            className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-800/40 select-none"
+                            className="p-4 flex items-center justify-between cursor-pointer hover:bg-slate-800/30 select-none transition-colors"
                           >
                             <div className="flex items-center gap-3 min-w-0">
-                              {isExpanded ? (
-                                <ChevronDown size={16} className="text-slate-400 shrink-0" />
-                              ) : (
-                                <ChevronRight size={16} className="text-slate-400 shrink-0" />
-                              )}
+                              <span className="p-1 rounded-lg text-slate-400 hover:text-white bg-slate-800/60 shrink-0">
+                                {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                              </span>
+
                               <div className="min-w-0">
                                 <div className="text-sm font-bold text-slate-100 flex items-center gap-2">
-                                  <span>{ep.name}</span>
-                                  {ep.id === activeEndpoint.id && (
-                                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 font-semibold">
-                                      {label('活跃', 'Active')}
+                                  <span className="truncate">{ep.name}</span>
+                                  {isCurrentActiveEndpoint && (
+                                    <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 border border-blue-500/30 font-semibold">
+                                      {label('活跃端点', 'Active')}
                                     </span>
                                   )}
                                 </div>
-                                <div className="text-xs font-mono text-slate-500 truncate">{ep.endpoint}</div>
+                                <div className="text-xs font-mono text-slate-400 truncate mt-0.5">{ep.endpoint}</div>
                               </div>
                             </div>
 
                             <div className="flex items-center gap-3 shrink-0" onClick={e => e.stopPropagation()}>
-                              {/* 状态徽章 (已配置 Key / 未设置 Key) */}
+                              {/* Key 状态展示 */}
                               {hasKey ? (
-                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                                  {label('已配置 Key', 'Key Configured')}
+                                <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                  {label('Key 已配置', 'Key Configured')}
                                 </span>
                               ) : (
-                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                                  {label('未设置 Key', 'Key Not Set')}
+                                <span className="inline-flex items-center gap-1.5 text-xs text-amber-400/90 font-medium">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                                  {label('未设置 Key', 'No API Key')}
                                 </span>
                               )}
 
@@ -408,7 +537,7 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                                 type="button"
                                 disabled={draft.endpoints.length <= 1}
                                 onClick={() => removeEndpoint(ep.id)}
-                                className="p-1 rounded text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 disabled:opacity-20 transition-colors cursor-pointer"
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 disabled:opacity-20 transition-colors cursor-pointer"
                                 title={label('删除此端点', 'Delete Endpoint')}
                               >
                                 <Trash2 size={15} />
@@ -416,22 +545,23 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                             </div>
                           </div>
 
-                          {/* 展开的端点详情 */}
+                          {/* 展开的端点详情配置 */}
                           {isExpanded && (
-                            <div className="p-4 border-t border-slate-800/80 bg-slate-950/40 space-y-4 text-xs">
+                            <div className="p-5 border-t border-slate-800/80 bg-slate-950/40 space-y-4 text-xs">
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <label className="space-y-1 block">
-                                  <span className="font-semibold text-slate-300">{label('端点名称', 'Endpoint Name')}</span>
+                                <div>
+                                  <label className={labelClass}>{label('端点标识名称', 'Endpoint Name')}</label>
                                   <input
                                     required
                                     value={ep.name}
                                     onChange={e => updateEndpoint(ep.id, { name: e.target.value })}
-                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 outline-none focus:border-blue-500 transition-colors"
+                                    className={inputClass}
+                                    placeholder={label('例如：DeepSeek 官方', 'e.g. DeepSeek API')}
                                   />
-                                </label>
+                                </div>
 
-                                <label className="space-y-1 block">
-                                  <span className="font-semibold text-slate-300">API Key</span>
+                                <div>
+                                  <label className={labelClass}>API Key</label>
                                   <div className="relative flex items-center">
                                     <input
                                       autoComplete="off"
@@ -439,48 +569,50 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                                       placeholder="sk-..."
                                       value={ep.apiKey}
                                       onChange={e => updateEndpoint(ep.id, { apiKey: e.target.value })}
-                                      className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-3 pr-9 py-2 text-slate-100 outline-none focus:border-blue-500 transition-colors font-mono"
+                                      className={`${inputClass} pr-9 font-mono`}
                                     />
                                     <button
                                       type="button"
                                       onClick={() => setShowKeyMap(m => ({ ...m, [ep.id]: !m[ep.id] }))}
-                                      className="absolute right-2 text-slate-500 hover:text-slate-300 p-1"
+                                      className="absolute right-2.5 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
                                     >
                                       {showKeyMap[ep.id] ? <EyeOff size={14} /> : <Eye size={14} />}
                                     </button>
                                   </div>
-                                </label>
+                                </div>
                               </div>
 
-                              <label className="space-y-1 block">
-                                <span className="font-semibold text-slate-300">
-                                  {label('端点服务地址 (URL)', 'Endpoint Service URL')}
-                                </span>
+                              <div>
+                                <label className={labelClass}>
+                                  {label('端点服务完整地址 (Base URL)', 'Endpoint Base Service URL')}
+                                </label>
                                 <input
                                   type="url"
                                   required
                                   value={ep.endpoint}
                                   onChange={e => updateEndpoint(ep.id, { endpoint: e.target.value })}
-                                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 outline-none focus:border-blue-500 transition-colors font-mono"
+                                  className={`${inputClass} font-mono`}
+                                  placeholder="https://api.openai.com/v1"
                                 />
-                                <span className="text-[11px] text-slate-500 block pt-0.5">
+                                <span className="text-[11px] text-slate-500 block mt-1">
                                   {label(
-                                    '请填写兼容 OpenAI Chat Completions 规范的完整 URL。',
-                                    'Please provide a full URL compatible with OpenAI Chat Completions.'
+                                    '请填写兼容 OpenAI Chat Completions 规范的完整 URL，如 https://api.deepseek.com/v1',
+                                    'Enter full OpenAI-compatible URL, e.g. https://api.deepseek.com/v1'
                                   )}
                                 </span>
-                              </label>
+                              </div>
 
-                              {/* 该端点下的模型列表 (Image 2 嵌套卡片) */}
-                              <div className="pt-2 space-y-3">
-                                <div className="flex items-center justify-between">
-                                  <span className="font-bold text-slate-200">
-                                    {label('该端点下的模型列表', 'Models under this endpoint')}
+                              {/* 该端点下的模型列表 */}
+                              <div className="pt-3 space-y-3">
+                                <div className="flex items-center justify-between pb-1">
+                                  <span className="font-bold text-slate-200 flex items-center gap-1.5">
+                                    <Cpu size={14} className="text-blue-400" />
+                                    <span>{label('该端点下的模型列表', 'Models under this endpoint')}</span>
                                   </span>
                                   <button
                                     type="button"
                                     onClick={() => addModelToEndpoint(ep.id)}
-                                    className="text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-1 cursor-pointer"
+                                    className="text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
                                   >
                                     <Plus size={14} />
                                     <span>{label('新增模型', 'Add Model')}</span>
@@ -496,17 +628,24 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                                     return (
                                       <div
                                         key={m.id}
-                                        className="p-3.5 bg-slate-900 border border-slate-800 rounded-xl space-y-3 shadow-inner"
+                                        className={`p-4 bg-slate-900/90 border rounded-xl space-y-3.5 transition-all ${
+                                          isDefault
+                                            ? 'border-blue-500/40 shadow-sm'
+                                            : 'border-slate-800 hover:border-slate-700/80'
+                                        }`}
                                       >
-                                        <div className="flex items-center justify-between">
-                                          <div className="flex items-center gap-2">
-                                            <Cpu size={15} className="text-blue-400" />
-                                            <span className="font-bold text-slate-100 text-sm">{m.label}</span>
+                                        <div className="flex items-center justify-between gap-3">
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            <div className="w-6 h-6 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center justify-center shrink-0">
+                                              <Cpu size={13} />
+                                            </div>
+                                            <span className="font-bold text-slate-100 text-sm truncate">{m.label}</span>
                                           </div>
-                                          <div className="flex items-center gap-2">
+
+                                          <div className="flex items-center gap-2 shrink-0">
                                             {isDefault ? (
-                                              <span className="px-2 py-0.5 rounded bg-blue-600/20 text-blue-300 border border-blue-500/40 text-[11px] font-semibold">
-                                                {label('当前默认', 'Default')}
+                                              <span className="px-2.5 py-0.5 rounded-lg bg-blue-600/20 text-blue-300 border border-blue-500/40 text-[11px] font-semibold">
+                                                {label('当前默认模型', 'Default')}
                                               </span>
                                             ) : (
                                               <button
@@ -517,7 +656,7 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                                                     activeSelection: { endpointId: ep.id, modelId: m.id }
                                                   }))
                                                 }
-                                                className="px-2.5 py-0.5 rounded bg-slate-800 hover:bg-blue-600 text-slate-300 hover:text-white text-[11px] font-semibold transition-colors cursor-pointer"
+                                                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-blue-600 text-slate-300 hover:text-white text-[11px] font-semibold transition-colors cursor-pointer"
                                               >
                                                 {label('设为默认', 'Set as Default')}
                                               </button>
@@ -527,7 +666,7 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                                               type="button"
                                               disabled={ep.models.length <= 1}
                                               onClick={() => removeModelFromEndpoint(ep.id, m.id)}
-                                              className="p-1 rounded text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 disabled:opacity-20 transition-colors cursor-pointer"
+                                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 disabled:opacity-20 transition-colors cursor-pointer"
                                               title={label('删除此模型', 'Delete Model')}
                                             >
                                               <Trash2 size={14} />
@@ -535,34 +674,34 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                                           </div>
                                         </div>
 
-                                        {/* 4列参数布局 (模型展示名称, 模型ID, 上下文Token, 最大输出Token) */}
+                                        {/* 参数网格 */}
                                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                                          <label className="space-y-1 block">
-                                            <span className="text-slate-400 text-[11px]">
+                                          <div>
+                                            <label className={labelClass}>
                                               {label('模型展示名称', 'Display Name')}
-                                            </span>
+                                            </label>
                                             <input
                                               required
                                               value={m.label}
                                               onChange={e => updateModel(ep.id, m.id, { label: e.target.value })}
-                                              className="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-slate-100 outline-none focus:border-blue-500 text-xs"
+                                              className={inputClass}
                                             />
-                                          </label>
-                                          <label className="space-y-1 block">
-                                            <span className="text-slate-400 text-[11px]">
-                                              {label('模型 ID (API)', 'Model ID (API)')}
-                                            </span>
+                                          </div>
+                                          <div>
+                                            <label className={labelClass}>
+                                              {label('模型 ID (API 请求参数)', 'Model ID (API)')}
+                                            </label>
                                             <input
                                               required
                                               value={m.modelId}
                                               onChange={e => updateModel(ep.id, m.id, { modelId: e.target.value })}
-                                              className="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-slate-100 outline-none focus:border-blue-500 text-xs font-mono"
+                                              className={`${inputClass} font-mono`}
                                             />
-                                          </label>
-                                          <label className="space-y-1 block">
-                                            <span className="text-slate-400 text-[11px]">
-                                              {label('上下文 Token (窗口)', 'Context Tokens')}
-                                            </span>
+                                          </div>
+                                          <div>
+                                            <label className={labelClass}>
+                                              {label('上下文窗口 (Tokens)', 'Context Window')}
+                                            </label>
                                             <input
                                               type="number"
                                               required
@@ -572,13 +711,13 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                                               onChange={e =>
                                                 updateModel(ep.id, m.id, { contextWindow: Number(e.target.value) })
                                               }
-                                              className="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-slate-100 outline-none focus:border-blue-500 text-xs font-mono"
+                                              className={`${inputClass} font-mono`}
                                             />
-                                          </label>
-                                          <label className="space-y-1 block">
-                                            <span className="text-slate-400 text-[11px]">
-                                              {label('最大输出 Token', 'Max Output Tokens')}
-                                            </span>
+                                          </div>
+                                          <div>
+                                            <label className={labelClass}>
+                                              {label('最大输出 (Max Tokens)', 'Max Tokens')}
+                                            </label>
                                             <input
                                               type="number"
                                               required
@@ -588,213 +727,238 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                                               onChange={e =>
                                                 updateModel(ep.id, m.id, { maxTokens: Number(e.target.value) })
                                               }
-                                              className="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-slate-100 outline-none focus:border-blue-500 text-xs font-mono"
+                                              className={`${inputClass} font-mono`}
                                             />
-                                          </label>
+                                          </div>
                                         </div>
 
-                                        {/* 思考模式与推理强度配置 (无 Temperature 参数，支持全类别与默认设置) */}
-                                        <div className="pt-2 border-t border-slate-800/60 space-y-3">
+                                        {/* 思考模式与多模态特性设置 */}
+                                        <div className="pt-2 border-t border-slate-800/80 space-y-3">
                                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                            <label className="flex items-center gap-2 cursor-pointer select-none">
-                                              <input
-                                                type="checkbox"
-                                                checked={m.thinkingAvailable}
-                                                onChange={e => {
-                                                  const checked = e.target.checked;
-                                                  updateModel(ep.id, m.id, {
-                                                    thinkingAvailable: checked,
-                                                    defaultThinkingEnabled: checked,
-                                                    thinkingEnabled: checked,
-                                                    supportedReasoningEfforts: checked ? [...ALL_REASONING_EFFORTS] : m.supportedReasoningEfforts
-                                                  });
-                                                }}
-                                                className="rounded accent-blue-500 w-4 h-4 cursor-pointer"
-                                              />
-                                              <span className="text-slate-200 text-xs font-semibold flex items-center gap-1.5">
-                                                <Brain size={14} className="text-blue-400" />
-                                                <span>{label('支持思考', 'Supports Thinking')}</span>
-                                              </span>
-                                            </label>
+                                            <div className="flex items-center gap-5">
+                                              <div className="flex items-center gap-2">
+                                                <Brain size={14} className="text-blue-400 shrink-0" />
+                                                <ToggleSwitch
+                                                  checked={m.thinkingAvailable}
+                                                  onChange={checked => {
+                                                    updateModel(ep.id, m.id, {
+                                                      thinkingAvailable: checked,
+                                                      defaultThinkingEnabled: checked,
+                                                      thinkingEnabled: checked,
+                                                      supportedReasoningEfforts: checked
+                                                        ? [...ALL_REASONING_EFFORTS]
+                                                        : m.supportedReasoningEfforts
+                                                    });
+                                                  }}
+                                                  label={label('思考推理', 'Thinking')}
+                                                />
+                                              </div>
 
-                                            <label className="flex items-center gap-2 cursor-pointer select-none">
-                                              <input
-                                                type="checkbox"
-                                                checked={m.supportsVision}
-                                                onChange={e => updateModel(ep.id, m.id, { supportsVision: e.target.checked })}
-                                                className="rounded accent-blue-500 w-4 h-4 cursor-pointer"
-                                              />
-                                              <span className="text-slate-200 text-xs font-semibold flex items-center gap-1.5">
-                                                <Eye size={14} className="text-emerald-400" />
-                                                <span>{label('支持视觉', 'Supports Vision')}</span>
-                                              </span>
-                                            </label>
+                                              <div className="flex items-center gap-2">
+                                                <Eye size={14} className="text-emerald-400 shrink-0" />
+                                                <ToggleSwitch
+                                                  checked={m.supportsVision}
+                                                  activeColor="bg-emerald-600 shadow-emerald-600/40"
+                                                  onChange={checked =>
+                                                    updateModel(ep.id, m.id, { supportsVision: checked })
+                                                  }
+                                                  label={label('多模态视觉', 'Vision')}
+                                                />
+                                              </div>
+                                            </div>
 
                                             {m.thinkingAvailable && (
                                               <div className="flex items-center gap-4 text-xs">
-                                                {/* 是否默认开启思考 */}
-                                                <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                                                  <input
-                                                    type="checkbox"
-                                                    checked={m.defaultThinkingEnabled ?? m.thinkingEnabled}
-                                                    onChange={e =>
-                                                      updateModel(ep.id, m.id, {
-                                                        defaultThinkingEnabled: e.target.checked
-                                                      })
-                                                    }
-                                                    className="rounded accent-blue-500 w-3.5 h-3.5 cursor-pointer"
-                                                  />
-                                                  <span className="text-slate-300 text-[11px] font-medium">
-                                                    {label('默认开启思考', 'Default Enabled')}
-                                                  </span>
-                                                </label>
+                                                <ToggleSwitch
+                                                  checked={m.defaultThinkingEnabled ?? m.thinkingEnabled}
+                                                  onChange={checked =>
+                                                    updateModel(ep.id, m.id, {
+                                                      defaultThinkingEnabled: checked
+                                                    })
+                                                  }
+                                                  label={label('默认开启', 'Default')}
+                                                />
 
-                                            {/* 默认思考强度 */}
-                                            {(() => {
-                                              const ALL_EFFORT_CATEGORIES: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
-                                              const supportedCategories = ALL_EFFORT_CATEGORIES.filter(effort =>
-                                                m.supportedReasoningEfforts.includes(effort)
-                                              );
-                                              const availableDefaultOptions = supportedCategories.length > 0
-                                                ? supportedCategories
-                                                : (['medium'] as ReasoningEffort[]);
-                                              const currentDefaultEffort = availableDefaultOptions.includes(m.defaultReasoningEffort as ReasoningEffort)
-                                                ? (m.defaultReasoningEffort as ReasoningEffort)
-                                                : (availableDefaultOptions.includes(m.reasoningEffort as ReasoningEffort)
+                                                {/* 默认思考强度 */}
+                                                {(() => {
+                                                  const ALL_EFFORT_CATEGORIES: ReasoningEffort[] = [
+                                                    'minimal',
+                                                    'low',
+                                                    'medium',
+                                                    'high',
+                                                    'xhigh',
+                                                    'max'
+                                                  ];
+                                                  const supportedCategories = ALL_EFFORT_CATEGORIES.filter(effort =>
+                                                    m.supportedReasoningEfforts.includes(effort)
+                                                  );
+                                                  const availableDefaultOptions =
+                                                    supportedCategories.length > 0
+                                                      ? supportedCategories
+                                                      : (['medium'] as ReasoningEffort[]);
+                                                  const currentDefaultEffort = availableDefaultOptions.includes(
+                                                    m.defaultReasoningEffort as ReasoningEffort
+                                                  )
+                                                    ? (m.defaultReasoningEffort as ReasoningEffort)
+                                                    : availableDefaultOptions.includes(m.reasoningEffort as ReasoningEffort)
                                                     ? (m.reasoningEffort as ReasoningEffort)
-                                                    : availableDefaultOptions[0]);
+                                                    : availableDefaultOptions[0];
 
-                                              return (
-                                                <div className="flex items-center gap-1.5">
-                                                  <span className="text-slate-400 text-[11px]">
-                                                    {label('默认强度:', 'Default Effort:')}
-                                                  </span>
-                                                  <select
-                                                    value={currentDefaultEffort}
-                                                    onChange={e => {
-                                                      const selected = e.target.value as ReasoningEffort;
-                                                      const nextSupported = m.supportedReasoningEfforts.includes(selected)
-                                                        ? m.supportedReasoningEfforts
-                                                        : [...m.supportedReasoningEfforts, selected];
-                                                      updateModel(ep.id, m.id, {
-                                                        defaultReasoningEffort: selected,
-                                                        supportedReasoningEfforts: nextSupported,
-                                                        reasoningEffort: m.thinkingEnabled ? selected : m.reasoningEffort
-                                                      });
-                                                    }}
-                                                    className="bg-slate-950 border border-slate-700 rounded-md px-2 py-0.5 text-[11px] font-semibold text-blue-400 outline-none cursor-pointer"
-                                                  >
-                                                    {availableDefaultOptions.map(effort => (
-                                                      <option key={effort} value={effort} className="bg-slate-900 text-slate-200">
-                                                        {effort.toUpperCase()}
-                                                      </option>
-                                                    ))}
-                                                  </select>
-                                                </div>
-                                              );
-                                            })()}
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      {/* 思考强度类别勾选区 (全类别支持，可勾选以支持或全选) */}
-                                      {m.thinkingAvailable && (
-                                        <div className="bg-slate-950/60 rounded-lg p-2.5 border border-slate-800/80 space-y-2">
-                                          <div className="flex items-center justify-between text-[11px]">
-                                            <span className="text-slate-400 font-medium">
-                                              {label('支持的思考级别:', 'Supported Reasoning Levels:')}
-                                            </span>
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                const ALL_EFFORT_CATEGORIES: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
-                                                const allSelected = ALL_EFFORT_CATEGORIES.every(e =>
-                                                  m.supportedReasoningEfforts.includes(e)
-                                                );
-                                                const nextSupported: ReasoningEffort[] = allSelected
-                                                  ? ['none', 'medium']
-                                                  : ['none', ...ALL_EFFORT_CATEGORIES];
-
-                                                const validEfforts = ALL_EFFORT_CATEGORIES.filter(e => nextSupported.includes(e));
-                                                let nextDefault = m.defaultReasoningEffort;
-                                                if (!validEfforts.includes(nextDefault as ReasoningEffort)) {
-                                                  nextDefault = validEfforts[0] || 'medium';
-                                                }
-
-                                                updateModel(ep.id, m.id, {
-                                                  supportedReasoningEfforts: nextSupported,
-                                                  defaultReasoningEffort: nextDefault,
-                                                  reasoningEffort: nextSupported.includes(m.reasoningEffort) ? m.reasoningEffort : nextDefault
-                                                });
-                                              }}
-                                              className="text-blue-400 hover:text-blue-300 font-semibold cursor-pointer"
-                                            >
-                                              {(['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as ReasoningEffort[]).every(e =>
-                                                m.supportedReasoningEfforts.includes(e)
-                                              )
-                                                ? label('恢复部分', 'Reset')
-                                                : label('全选类别', 'Select All')}
-                                            </button>
+                                                  return (
+                                                    <div className="flex items-center gap-1.5">
+                                                      <span className="text-slate-400 text-[11px]">
+                                                        {label('默认强度:', 'Default Effort:')}
+                                                      </span>
+                                                      <select
+                                                        value={currentDefaultEffort}
+                                                        onChange={e => {
+                                                          const selected = e.target.value as ReasoningEffort;
+                                                          const nextSupported = m.supportedReasoningEfforts.includes(selected)
+                                                            ? m.supportedReasoningEfforts
+                                                            : [...m.supportedReasoningEfforts, selected];
+                                                          updateModel(ep.id, m.id, {
+                                                            defaultReasoningEffort: selected,
+                                                            supportedReasoningEfforts: nextSupported,
+                                                            reasoningEffort: m.thinkingEnabled ? selected : m.reasoningEffort
+                                                          });
+                                                        }}
+                                                        className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-[11px] font-semibold text-blue-400 outline-none cursor-pointer"
+                                                      >
+                                                        {availableDefaultOptions.map(effort => (
+                                                          <option key={effort} value={effort} className="bg-slate-900 text-slate-200">
+                                                            {effort.toUpperCase()}
+                                                          </option>
+                                                        ))}
+                                                      </select>
+                                                    </div>
+                                                  );
+                                                })()}
+                                              </div>
+                                            )}
                                           </div>
 
-                                          <div className="flex flex-wrap gap-2">
-                                            {(['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as ReasoningEffort[]).map(effort => {
-                                              const isChecked = m.supportedReasoningEfforts.includes(effort);
-                                              const ALL_EFFORT_CATEGORIES: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+                                          {/* 思考级别多选控制 */}
+                                          {m.thinkingAvailable && (
+                                            <div className="bg-slate-950/70 rounded-xl p-3 border border-slate-800/80 space-y-2">
+                                              <div className="flex items-center justify-between text-[11px]">
+                                                <span className="text-slate-400 font-medium">
+                                                  {label('支持的思考级别选择 (Reasoning Efforts):', 'Supported Reasoning Levels:')}
+                                                </span>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    const ALL_EFFORT_CATEGORIES: ReasoningEffort[] = [
+                                                      'minimal',
+                                                      'low',
+                                                      'medium',
+                                                      'high',
+                                                      'xhigh',
+                                                      'max'
+                                                    ];
+                                                    const allSelected = ALL_EFFORT_CATEGORIES.every(e =>
+                                                      m.supportedReasoningEfforts.includes(e)
+                                                    );
+                                                    const nextSupported: ReasoningEffort[] = allSelected
+                                                      ? ['none', 'medium']
+                                                      : ['none', ...ALL_EFFORT_CATEGORIES];
 
-                                              return (
-                                                <label
-                                                  key={effort}
-                                                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] cursor-pointer transition-colors select-none ${
-                                                    isChecked
-                                                      ? 'bg-blue-600/15 border-blue-500/40 text-blue-300 font-semibold'
-                                                      : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'
-                                                  }`}
+                                                    const validEfforts = ALL_EFFORT_CATEGORIES.filter(e =>
+                                                      nextSupported.includes(e)
+                                                    );
+                                                    let nextDefault = m.defaultReasoningEffort;
+                                                    if (!validEfforts.includes(nextDefault as ReasoningEffort)) {
+                                                      nextDefault = validEfforts[0] || 'medium';
+                                                    }
+
+                                                    updateModel(ep.id, m.id, {
+                                                      supportedReasoningEfforts: nextSupported,
+                                                      defaultReasoningEffort: nextDefault,
+                                                      reasoningEffort: nextSupported.includes(m.reasoningEffort)
+                                                        ? m.reasoningEffort
+                                                        : nextDefault
+                                                    });
+                                                  }}
+                                                  className="text-blue-400 hover:text-blue-300 font-semibold cursor-pointer"
                                                 >
-                                                  <input
-                                                    type="checkbox"
-                                                    checked={isChecked}
-                                                    onChange={e => {
-                                                      let next: ReasoningEffort[];
-                                                      if (e.target.checked) {
-                                                        next = Array.from(new Set([...m.supportedReasoningEfforts, effort]));
-                                                      } else {
-                                                        const remaining = ALL_EFFORT_CATEGORIES.filter(
-                                                          item => item !== effort && m.supportedReasoningEfforts.includes(item)
-                                                        );
-                                                        if (remaining.length === 0) {
-                                                          return;
-                                                        }
-                                                        next = m.supportedReasoningEfforts.filter(item => item !== effort);
-                                                      }
+                                                  {(['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as ReasoningEffort[]).every(
+                                                    e => m.supportedReasoningEfforts.includes(e)
+                                                  )
+                                                    ? label('恢复部分', 'Reset Partial')
+                                                    : label('全选类别', 'Select All')}
+                                                </button>
+                                              </div>
 
-                                                      // 联动默认强度选择框
-                                                      const nextSupported = ALL_EFFORT_CATEGORIES.filter(item => next.includes(item));
-                                                      let nextDefault = m.defaultReasoningEffort;
-                                                      if (!nextSupported.includes(nextDefault as ReasoningEffort)) {
-                                                        nextDefault = nextSupported[0] || 'medium';
-                                                      }
+                                              <div className="flex flex-wrap gap-2">
+                                                {(['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as ReasoningEffort[]).map(
+                                                  effort => {
+                                                    const isChecked = m.supportedReasoningEfforts.includes(effort);
+                                                    const ALL_EFFORT_CATEGORIES: ReasoningEffort[] = [
+                                                      'minimal',
+                                                      'low',
+                                                      'medium',
+                                                      'high',
+                                                      'xhigh',
+                                                      'max'
+                                                    ];
 
-                                                      let nextReasoning = m.reasoningEffort;
-                                                      if (nextReasoning !== 'none' && !nextSupported.includes(nextReasoning)) {
-                                                        nextReasoning = nextDefault;
-                                                      }
+                                                    return (
+                                                      <label
+                                                        key={effort}
+                                                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] cursor-pointer transition-colors select-none ${
+                                                          isChecked
+                                                            ? 'bg-blue-600/15 border-blue-500/40 text-blue-300 font-semibold'
+                                                            : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'
+                                                        }`}
+                                                      >
+                                                        <input
+                                                          type="checkbox"
+                                                          checked={isChecked}
+                                                          onChange={e => {
+                                                            let next: ReasoningEffort[];
+                                                            if (e.target.checked) {
+                                                              next = Array.from(
+                                                                new Set([...m.supportedReasoningEfforts, effort])
+                                                              );
+                                                            } else {
+                                                              const remaining = ALL_EFFORT_CATEGORIES.filter(
+                                                                item => item !== effort && m.supportedReasoningEfforts.includes(item)
+                                                              );
+                                                              if (remaining.length === 0) return;
+                                                              next = m.supportedReasoningEfforts.filter(item => item !== effort);
+                                                            }
 
-                                                      updateModel(ep.id, m.id, {
-                                                        supportedReasoningEfforts: next,
-                                                        defaultReasoningEffort: nextDefault,
-                                                        reasoningEffort: nextReasoning
-                                                      });
-                                                    }}
-                                                    className="rounded accent-blue-500 w-3 h-3 cursor-pointer"
-                                                  />
-                                                  <span>{effort.toUpperCase()}</span>
-                                                </label>
-                                              );
-                                            })}
-                                          </div>
-                                        </div>
-                                      )}
+                                                            const nextSupported = ALL_EFFORT_CATEGORIES.filter(item =>
+                                                              next.includes(item)
+                                                            );
+                                                            let nextDefault = m.defaultReasoningEffort;
+                                                            if (!nextSupported.includes(nextDefault as ReasoningEffort)) {
+                                                              nextDefault = nextSupported[0] || 'medium';
+                                                            }
+
+                                                            let nextReasoning = m.reasoningEffort;
+                                                            if (
+                                                              nextReasoning !== 'none' &&
+                                                              !nextSupported.includes(nextReasoning)
+                                                            ) {
+                                                              nextReasoning = nextDefault;
+                                                            }
+
+                                                            updateModel(ep.id, m.id, {
+                                                              supportedReasoningEfforts: next,
+                                                              defaultReasoningEffort: nextDefault,
+                                                              reasoningEffort: nextReasoning
+                                                            });
+                                                          }}
+                                                          className="rounded accent-blue-500 w-3 h-3 cursor-pointer"
+                                                        />
+                                                        <span>{effort.toUpperCase()}</span>
+                                                      </label>
+                                                    );
+                                                  }
+                                                )}
+                                              </div>
+                                            </div>
+                                          )}
                                         </div>
                                       </div>
                                     );
@@ -811,70 +975,84 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
               </>
             )}
 
-            {/* TAB 2: 系统提示词 */}
+            {/* TAB: 系统提示词 */}
             {tab === 'prompt' && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-200">
-                      {label('封面设计系统提示词', 'System Instructions')}
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      {label(
-                        '指导模型如何调用工具对画布图层进行精准编辑与色彩排版。',
-                        'Guides how the model manipulates canvas layers and invokes design tools.'
-                      )}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setDraft(prev => ({ ...prev, systemPrompt: SYSTEM_PROMPT }))}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
-                  >
-                    <RotateCcw size={14} />
-                    <span>{label('恢复默认提示词', 'Reset to Default')}</span>
-                  </button>
-                </div>
-                <textarea
-                  rows={14}
-                  value={draft.systemPrompt}
-                  onChange={e => setDraft(prev => ({ ...prev, systemPrompt: e.target.value }))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs font-mono text-slate-300 leading-relaxed outline-none focus:border-blue-500 custom-scrollbar"
-                />
-                <div className="space-y-2 border-t border-slate-800 pt-4">
-                  <div className="flex items-center justify-between gap-3">
+              <div className="space-y-6">
+                {/* 封面设计系统提示词 */}
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-800">
                     <div>
-                      <h4 className="text-sm font-semibold text-slate-200">
-                        {label('生图工具提示词', 'Image Tool Instructions')}
+                      <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                        <FileText size={16} className="text-blue-400" />
+                        <span>{label('封面设计系统提示词 (System Prompt)', 'System Instructions')}</span>
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {label(
+                          '指导大模型如何理解画布尺寸、图层属性并精准调用设计与编辑工具。',
+                          'Directs how the model manipulates canvas layers and invokes design tools.'
+                        )}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDraft(prev => ({ ...prev, systemPrompt: SYSTEM_PROMPT }))}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
+                    >
+                      <RotateCcw size={13} />
+                      <span>{label('恢复默认提示词', 'Reset to Default')}</span>
+                    </button>
+                  </div>
+                  <textarea
+                    rows={12}
+                    value={draft.systemPrompt}
+                    onChange={e => setDraft(prev => ({ ...prev, systemPrompt: e.target.value }))}
+                    className="w-full bg-slate-950/90 border border-slate-800 rounded-xl p-4 text-xs font-mono text-slate-300 leading-relaxed outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 custom-scrollbar"
+                  />
+                  <div className="text-[11px] text-slate-500 flex items-center justify-between">
+                    <span>{label('提示：修改提示词后需保存并开启新会话方可生效。', 'Note: Changes apply to newly created sessions.')}</span>
+                    <span>{draft.systemPrompt.length} {label('字符', 'chars')}</span>
+                  </div>
+                </div>
+
+                {/* 生图工具提示词 */}
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-800">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                        <ImagePlus size={16} className="text-indigo-400" />
+                        <span>{label('生图工具提示词 (Image Tool Prompt)', 'Image Tool Instructions')}</span>
                       </h4>
-                      <p className="text-xs text-slate-500">
-                        {label('启用生图工具时追加到系统提示词；留空则不追加。', 'Appended to system instructions when image tools are enabled; leave blank to omit.')}
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {label(
+                          '当启用生图模型工具时自动追加到系统指令；若清空则不追加。',
+                          'Appended to system prompt when image tools are enabled; leave blank to omit.'
+                        )}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setDraft(prev => ({ ...prev, imageToolPrompt: DEFAULT_IMAGE_TOOL_PROMPT }))}
-                      className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
                     >
-                      <RotateCcw size={14} />
+                      <RotateCcw size={13} />
                       <span>{label('恢复默认', 'Reset')}</span>
                     </button>
                   </div>
                   <textarea
-                    rows={6}
+                    rows={5}
                     value={draft.imageToolPrompt ?? DEFAULT_IMAGE_TOOL_PROMPT}
                     onChange={e => setDraft(prev => ({ ...prev, imageToolPrompt: e.target.value }))}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs font-mono text-slate-300 leading-relaxed outline-none focus:border-blue-500 custom-scrollbar"
+                    className="w-full bg-slate-950/90 border border-slate-800 rounded-xl p-4 text-xs font-mono text-slate-300 leading-relaxed outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 custom-scrollbar"
                   />
                 </div>
               </div>
             )}
 
-            {/* TAB 3: 快捷短语 */}
+            {/* TAB: 快捷短语 */}
             {tab === 'snippets' && (
               <div className="space-y-5">
-                {/* 顶部说明与快捷操作横幅 */}
-                <div className="p-4 rounded-xl border border-blue-500/30 bg-blue-950/20 backdrop-blur-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                {/* 说明横幅 */}
+                <div className="p-4 rounded-2xl border border-blue-500/20 bg-blue-950/20 backdrop-blur-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <MessageSquare size={16} className="text-blue-400" />
@@ -887,8 +1065,8 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                     </div>
                     <p className="text-xs text-slate-400">
                       {label(
-                        '配置在会话开始时展示的一键快捷发送短语，方便快速发起高频封面设计任务。',
-                        'Configure quick prompt chips shown on assistant launch to trigger high-frequency design tasks.'
+                        '在会话初始界面展示的一键快捷发送短语，方便快速发起高频封面设计指令。',
+                        'Configure quick prompt chips shown on assistant launch for fast workflow triggering.'
                       )}
                     </p>
                   </div>
@@ -898,10 +1076,10 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                     onClick={() => {
                       setDraft(prev => ({ ...prev, quickSnippets: [...DEFAULT_QUICK_SNIPPETS] }));
                     }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
                   >
                     <RotateCcw size={13} />
-                    <span>{label('恢复默认预设', 'Reset to Defaults')}</span>
+                    <span>{label('恢复默认预设', 'Reset Defaults')}</span>
                   </button>
                 </div>
 
@@ -912,7 +1090,7 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                       value={newSnippet}
                       placeholder={label(
                         '输入新的快捷短语，例如：将主标题更换为科技感艺术字并居中...',
-                        'Enter new quick snippet, e.g. change title to tech neon style...'
+                        'Enter new prompt, e.g. center all text layers and enhance typography...'
                       )}
                       onChange={e => setNewSnippet(e.target.value)}
                       onKeyDown={e => {
@@ -921,33 +1099,33 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                           handleAddSnippet();
                         }
                       }}
-                      className="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-xl px-4 py-2.5 text-xs text-slate-100 placeholder:text-slate-500 outline-none transition-colors"
+                      className="w-full bg-slate-950/90 border border-slate-800 focus:border-blue-500 rounded-xl px-4 py-2.5 text-xs text-slate-100 placeholder:text-slate-600 outline-none transition-all shadow-inner"
                     />
                   </div>
                   <button
                     type="button"
                     onClick={handleAddSnippet}
                     disabled={!newSnippet.trim()}
-                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-blue-900/30 cursor-pointer"
+                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-blue-900/30 cursor-pointer shrink-0"
                   >
                     <Plus size={15} />
                     <span>{label('添加短语', 'Add Snippet')}</span>
                   </button>
                 </div>
 
-                {/* 推荐灵感库快捷添加 (点击即可加入列表) */}
+                {/* 推荐设计意图快捷点击 */}
                 <div className="space-y-2">
                   <div className="text-[11px] font-semibold text-slate-400">
-                    {label('💡 推荐高频设计意图 (点击快速加入列表):', '💡 Recommended design prompts (click to add):')}
+                    {label('💡 推荐常用封面设计意图 (点击直接加入列表):', '💡 Recommended design prompts (click to add):')}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {[
-                      '调整画布背景为深色渐变',
-                      '为封面添加一个吸睛的大标题',
-                      '居中对齐所有文字并优化排版',
-                      '添加精美装饰点缀并提升视觉层次感',
+                      '调整画布背景为高级暗色质感渐变',
+                      '为封面添加醒目的艺术大标题',
+                      '自动居中所有文字并优化上下间距',
+                      '在四周添加极简科技感几何边框与点缀',
                       '将副标题调整为现代极简无衬线字体',
-                      '在四周添加极简科技感几何边框'
+                      '生成一张契合主题的高清插画背景图'
                     ].map(rec => {
                       const alreadyAdded = snippets.includes(rec);
                       return (
@@ -963,10 +1141,10 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                               }));
                             }
                           }}
-                          className={`text-[11px] px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                          className={`text-xs px-3 py-1.5 rounded-xl border transition-all cursor-pointer ${
                             alreadyAdded
                               ? 'bg-slate-900/40 border-slate-800/60 text-slate-600 cursor-default'
-                              : 'bg-slate-900 hover:bg-slate-800 border-slate-700/80 hover:border-blue-500/50 text-slate-300 hover:text-white'
+                              : 'bg-slate-900 hover:bg-slate-800 border-slate-700/80 hover:border-blue-500/50 text-slate-300 hover:text-white shadow-sm'
                           }`}
                         >
                           <span>{alreadyAdded ? '✓ ' : '+ '}</span>
@@ -977,19 +1155,23 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                   </div>
                 </div>
 
-                {/* 已配置的短语卡片列表 */}
+                {/* 已启用的短语列表 */}
                 <div className="space-y-2.5 pt-1">
-                  <div className="text-xs font-bold text-slate-300">
-                    {label('当前已启用短语列表', 'Enabled Snippets List')}
+                  <div className="text-xs font-bold text-slate-300 flex items-center justify-between">
+                    <span>{label('当前生效短语列表', 'Enabled Snippets List')}</span>
+                    <span className="text-[11px] font-normal text-slate-500">
+                      {label('会话中将按以下顺序展示', 'Shown in assistant welcome screen')}
+                    </span>
                   </div>
+
                   <div className="space-y-2">
                     {snippets.map((snip, index) => (
                       <div
                         key={index}
-                        className="p-3 bg-slate-900/90 border border-slate-800/90 hover:border-slate-700 rounded-xl flex items-center justify-between text-xs group transition-all shadow-sm"
+                        className="p-3 bg-slate-900/70 border border-slate-800 hover:border-slate-700 rounded-xl flex items-center justify-between text-xs group transition-all shadow-sm"
                       >
                         <div className="flex items-center gap-3 min-w-0 pr-3">
-                          <span className="w-6 h-6 rounded-md bg-blue-500/10 border border-blue-500/20 text-blue-400 font-mono text-[11px] font-bold flex items-center justify-center shrink-0">
+                          <span className="w-6 h-6 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 font-mono text-[11px] font-bold flex items-center justify-center shrink-0">
                             {String(index + 1).padStart(2, '0')}
                           </span>
                           <span className="text-slate-200 font-medium select-text break-words">
@@ -997,8 +1179,8 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                           </span>
                         </div>
 
-                        <div className="flex items-center gap-1 shrink-0">
-                          {/* 复制短语按钮 */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {/* 复制短语 */}
                           <button
                             type="button"
                             onClick={async () => {
@@ -1018,7 +1200,7 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
                             )}
                           </button>
 
-                          {/* 删除短语按钮 */}
+                          {/* 删除短语 */}
                           <button
                             type="button"
                             onClick={() => handleDeleteSnippet(index)}
@@ -1036,13 +1218,13 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
             )}
           </div>
 
-          {/* 底部操作栏 (Image 2 底部取消与保存并生效按钮) */}
-          <footer className="px-6 py-4 border-t border-slate-800 bg-slate-900/80 flex items-center justify-end gap-3 shrink-0">
+          {/* 底部操作栏 */}
+          <footer className="px-6 py-4 border-t border-slate-800/80 bg-slate-900/60 flex items-center justify-end gap-3 shrink-0">
             <button
               type="button"
               disabled={saving}
               onClick={onBack}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition-colors cursor-pointer"
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-750 transition-colors cursor-pointer"
             >
               {label('取消', 'Cancel')}
             </button>
@@ -1052,7 +1234,7 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
               className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-900/30 flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
             >
               <Save size={15} />
-              <span>{saving ? label('保存中...', 'Saving...') : label('保存并生效', 'Save and Apply')}</span>
+              <span>{saving ? label('保存中...', 'Saving...') : label('保存并生效配置', 'Save and Apply')}</span>
             </button>
           </footer>
         </form>

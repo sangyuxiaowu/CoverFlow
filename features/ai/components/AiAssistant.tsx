@@ -449,6 +449,7 @@ export default function AiAssistant({
                   }}
                   onRename={assistant.renameSession}
                   onDelete={assistant.deleteSession}
+                  onLoadImage={(sessionId, imageId) => chatStore.loadImage(sessionId, imageId)}
                 />
               ) : (
                 <>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AiConfig, ChatEntry, ChatImageRef, ChatImageUpload, ChatSession, ExecutionError, ResponseItem, ToolEvent } from '../types.ts';
 import type { ResponseInputMessageContentList } from 'openai/resources/responses/responses';
-import { runConversation, sanitizeResponseItems } from '../services/conversation.ts';
+import { ConversationAbortError, conversationAbortDetails, runConversation, sanitizeResponseItems } from '../services/conversation.ts';
 import { createWorkspaceBridge, type WorkspaceOptions } from '../services/workspace.ts';
 import { defaultConfig, normalizeConfig, toRequestConfig } from '../services/config.ts';
 import type { ChatStore } from '../services/chatStore.ts';
@@ -10,6 +10,17 @@ import { generateId } from '../../../utils/helpers.ts';
 import { imageMimeType } from '../services/imageAttachments.ts';
 
 interface Confirmation { message: string; resolve: (accepted: boolean) => void }
+
+function stoppedConversationMessage(signal: AbortSignal): string {
+  const details = conversationAbortDetails(signal);
+  const messages: Record<string, string> = {
+    user_stop: '已停止。',
+    panel_closed: 'AI 助手面板已关闭，本轮执行已中止。',
+    storage_changed: '聊天存储位置已切换，本轮执行已中止。',
+    assistant_disposed: 'AI 助手已卸载或重新加载，本轮执行已中止。'
+  };
+  return `${messages[details.abortSource] ?? `执行已中断：${details.reason}。`}已完成的操作保留，请检查当前项目。`;
+}
 
 function appendAssistantText(entry: ChatEntry, text: string): ChatEntry {
   const activity = [...(entry.activity || [])];
@@ -93,7 +104,10 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   useEffect(() => {
     mountedRef.current = true;
     void reloadConfig();
-    return () => { mountedRef.current = false; controllerRef.current?.abort(); };
+    return () => {
+      mountedRef.current = false;
+      controllerRef.current?.abort(new ConversationAbortError(storeRef.current.id !== store.id ? 'storage_changed' : 'assistant_disposed'));
+    };
   }, [store]);
 
   useEffect(() => {
@@ -244,7 +258,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
       if (!streamedText && content) update(entry => appendAssistantText(entry, content));
     } catch (error) {
       if (controller.signal.aborted) {
-        const message = '已停止。已完成的操作保留，请检查当前项目。';
+        const message = stoppedConversationMessage(controller.signal);
         update(entry => ({
           ...entry,
           ...appendAssistantText(entry, `${entry.content ? '\n\n' : ''}${message}`),
@@ -292,7 +306,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     }
   };
 
-  const continueTurn = async (assistantId: string) => {
+  const continueTurn = async (assistantId: string, userApprovedRetry = false) => {
     if (controllerRef.current || loading || loadError || savingRef.current || !sessionRef.current) return;
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -312,6 +326,10 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
         : entry
     );
     working.responseItems = sanitizeResponseItems(working.responseItems);
+    if (userApprovedRetry) working.responseItems.push({
+      role: 'user',
+      content: '我已点击重试，明确批准重试刚才失败或未完成的操作。保留已经完成的修改，不要重复成功的操作；如果图片已经生成并保存，请使用已有图片，不要重新生图。如果再次失败，请停止并报告原因。'
+    });
 
     const publish = () => {
       working.updatedAt = Date.now();
@@ -367,7 +385,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
       if (!streamedText && content) update(entry => appendAssistantText(entry, `${entry.content ? '\n\n' : ''}${content}`));
     } catch (error) {
       if (controller.signal.aborted) {
-        const message = '已停止。已完成的操作保留，请检查当前项目。';
+        const message = stoppedConversationMessage(controller.signal);
         update(entry => ({
           ...entry,
           ...appendAssistantText(entry, `${entry.content ? '\n\n' : ''}${message}`),
@@ -428,7 +446,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     );
 
     if (hasProgress && targetEntryId) {
-      await continueTurn(targetEntryId);
+      await continueTurn(targetEntryId, true);
     } else {
       const userEntry = working.entries.find(entry => entry.role === 'user' && entry.content === promptToRetry);
       const uploads = await loadUploads(working.id, userEntry?.images);
@@ -524,7 +542,8 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   return {
     config, configure, entries, sessions, activeSessionId, newSession, selectSession,
     renameSession, deleteSession, busy, loading, saving, loadError, configError,
-    reloadConfig, send, clear, confirmation, stop: () => controllerRef.current?.abort(),
+    reloadConfig, send, clear, confirmation,
+    stop: (source: 'user_stop' | 'panel_closed' = 'user_stop') => controllerRef.current?.abort(new ConversationAbortError(source)),
     executionError, clearExecutionError, retry, regenerate
   };
 }

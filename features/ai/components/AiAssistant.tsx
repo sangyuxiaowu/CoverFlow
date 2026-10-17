@@ -201,7 +201,7 @@ export default function AiAssistant({
   }, [assistant.confirmation]);
 
   const close = () => {
-    if (assistant.busy) assistant.stop();
+    if (assistant.busy) assistant.stop('panel_closed');
     setOpen(false);
   };
 
@@ -882,7 +882,7 @@ export default function AiAssistant({
                     {assistant.busy ? (
                       <button
                         type="button"
-                        onClick={assistant.stop}
+                        onClick={() => assistant.stop()}
                         className="relative -top-0.5 w-8 h-8 flex items-center justify-center rounded-full bg-rose-600 hover:bg-rose-500 text-white transition-colors cursor-pointer active:scale-95 shadow-md shadow-rose-900/40"
                         title={label('停止', 'Stop')}
                       >

@@ -17,7 +17,11 @@ features/ai/
   services/chatStore.ts       浏览器/文件双模式配置、会话与界面状态
   services/chatFileAccess.ts  File System Access 与 Tauri 文件适配
   services/conversation.ts    OpenAI SDK Responses 事件、原生历史、工具循环
-  services/imageGeneration.ts Kolors / Agnes 生图协议、参数校验及结果归一化
+  image-generation/index.ts   生图统一入口、校验、超时及请求调度
+  image-generation/types.ts   生图配置、能力及适配器契约
+  image-generation/models.ts  模型预设、适配器注册与能力查询
+  image-generation/adapters/  Kolors / Agnes / GPT-Image 协议实现
+  image-generation/results.ts 结果下载、安全校验与原始图片归一化
   services/usage.ts           服务端用量汇总、上下文估算与输出预算
   services/workspace.ts       项目生命周期与真实存储适配器
   hooks/useAiAssistant.ts     React 会话、确认、错误和工作区实时值
@@ -86,16 +90,22 @@ chat/
 | add_layer | text/svg/image/decoration；装饰支持 CSS 声明或静态 HTML |
 | edit_layers | update/delete/duplicate/group/ungroup/front/back/forward/backward/align/distribute |
 | update_canvas | 画布尺寸及纯色/渐变/图片/自定义 CSS 背景、纹理 |
-| list_image_models | 多模型时读取当前启用模型的能力和提示词建议 |
+| list_image_models | 多模型时读取当前启用模型的介绍、版本及参数能力 |
 | generate_image | 文生图或单图参考生图，成功后自动添加图层并返回图层 ID |
 
 ## 生图配置与调用
 
 - 生图模型在独立 Tab 中管理，`imageModels` 保存内部配置 ID、API 模型 ID、介绍、适配器、尺寸参数、启用状态和 `endpointId`。通过引用已有端点复用 Base URL 与加密 Key，不复制凭据。可覆盖同源的完整请求 URL；跨域须单独配置端点，避免 Key 被发送给未授权域名。
 - 默认接口为 `/v1/images/generations`；已有版本路径的 Base URL 不重复拼接 `/v1`。Kolors 使用 `image_size`、`num_inference_steps`、`guidance_scale`，参考图为单个 `image`；返回 `images[0].url`。Agnes 使用 `size`，档位尺寸可配 `ratio`；文生图使用 `return_base64`，参考图使用 `extra_body.image` 单元素数组和 `response_format: b64_json`；解析 `data[0].b64_json` 或 URL。
-- 每个模型分别配置 `textPromptDescription` 和 `referencePromptDescription`。仅启用一个模型时，`generate_image` 直接绑定该模型：省略 `modelConfigId`，直接在 prompt、size、ratio 参数中描述该模型能力，Kolors 不提供 ratio。多个模型时额外注册 `list_image_models`，由列表返回各自建议和能力。
+- GPT-Image 提供 `gpt-image-2.5-sunburst`、`gpt-image-2.5-flare`、`gpt-image-2` 三个可编辑预设，默认不启用，沿用已有端点凭据。文生图向 `/images/generations` 发送 JSON；单图参考向 `/images/edits` 发送 FormData，上传单个 `image`，不发送 mask，不手动设置 Content-Type。同源请求 URL 覆盖若以 `/images/generations` 或 `/images/edits` 结尾，会按模式切换尾部路径；其他自定义路径不能推导参考图接口。
+- GPT-Image 固定 `output_format: png`，不发送 `response_format`，支持 `size`、`quality`、`n`。尺寸为 WIDTHxHEIGHT，两边必须是 16 的倍数、不超过 3840，比例为 1:3–3:1，总像素为 655360–8294400；2560x1440 为实验尺寸。Sunburst/Flare 质量支持 low/medium/high/xhigh/max/auto；GPT-Image-2 支持 low/medium/high。默认 1024x1024、high、1 张；客户端数量限制 1–10，实际尺寸、质量和数量仍取决于接入服务，模型 ID 可按服务提供值修改。其他未识别 GPT-Image ID 保守使用 low/medium/high。
+- 统一入口 `generateImages` 返回 Blob 列表，解析 `data` 中全部 `b64_json` 或 URL 结果，不只读取第一张。工具先保存全部图片，再逐张居中放置；单图返回 layerId/imageId，多图返回 `images` 中的各图层与图片 ID。放置失败保留已经保存的全部图片，禁止自动重生成。URL 返回方式还要求上游 CDN 支持跨域读取，下载不携带 API Key。
+- 通用文生图、参考图提示词指导集中在 `config.ts` 的 `DEFAULT_IMAGE_TOOL_PROMPT` 中，实际请求通过全局生图提示词提供一次，不在各模型或列表中重复。模型特有的提示词要求直接写在模型介绍 `description` 中，不再提供独立的文生图/参考图说明设置。仅启用一个模型时，`generate_image` 直接绑定该模型：省略 `modelConfigId`，参数说明中保留模型介绍和能力，Kolors 不提供 ratio。多个模型时额外注册 `list_image_models`，仅由列表返回各自介绍、版本和能力。已保存的自定义全局生图提示词不被默认内容覆盖，不迁移已删除的每模型说明字段。
+- 生图配置还保存可编辑的 `version` 和 `releasedAt`（YYYY-MM-DD）。预设中的日期来自已提供的模型资料，未知时留空；不从介绍文本自动解析，也不编造发布日期。多模型列表返回版本、发布日期和有效 `timeoutSeconds`，未知版本/日期为 null；单模型工具说明包含相同信息，供模型结合能力作选择参考。这些字段只属于本地配置与工具上下文，不作为图像 API 请求参数。
 - 新生图模型、会话图片和生成图层沿用应用的 9 位短 ID。已有模型的长 ID 不重写存储，仅映射为稳定的短工具 ID；配置校验拒绝短 ID 冲突。单模型调用绑定请求开始时的模型，期间禁用或替换模型不会静默切换到另一个。
-- 生图超时默认 180 秒，每模型可配置 60–600 秒。工具保持 running 并等待完整响应，不在 60 秒时提前结束，也不强制延迟已完成的响应。用户停止会中止请求；超时、下载、存储或响应失败后，同轮禁止自动重新生成，避免重复计费。客户端中止不保证服务商停止计算或免除费用。
+- 生图预设各自配置默认超时：Kolors/Agnes 为 180 秒，GPT-Image-2.5-Flare 为 300 秒，GPT-Image-2.5-Sunburst/GPT-Image-2 为 600 秒。这些是可调整的客户端等待策略，不是服务商延迟保证。每个模型实例可独立设置 60–600 秒，并恢复对应预设值；已设置的值不随预设更新被覆盖。未显式设置时按适配器与 API 模型 ID 查找预设，未知自定义模型回退到 180 秒。设置页、模型发现和实际请求共用同一超时解析函数。工具保持 running 并等待完整响应，不在 60 秒时提前结束，也不强制延迟已完成的响应。用户停止会中止请求；超时、下载、存储或响应失败后，同轮禁止自动重新生成，避免重复计费。客户端中止不保证服务商停止计算或免除费用。
+- 重复生图保护仅作用于一次 `runConversation`，不跨用户消息保留；新消息可明确授权再次尝试。界面“重试”续接已有进度时，会向实际模型历史追加用户授权，要求保留成功操作及已保存图片。仍不依赖 LLM 自觉阻止同轮重复计费。
+- 整轮中止与重试授权分开处理。停止、关闭面板、切换聊天存储、卸载或重新加载助手分别通过 `ConversationAbortError` 标记为 `user_stop`、`panel_closed`、`storage_changed`、`assistant_disposed`。工具结果及持久化历史保留 `abortSource` 和 `reason`；未标记的外部中止记为 `unknown`，不推断用户操作。界面显示对应的中止原因，不再统一声称缺少重试批准。旧历史没有中止来源时无法事后恢复原因；这些变更不自动修复尚未定位的意外中止。
 - 无可用模型时不注册生图工具；模型列表只暴露启用且配置有效的条目。执行前重新检查最新启用状态，旧对话中的模型 ID 不能绕过禁用。配置、Key、请求地址不会作为工具结果返回。
 - 单图参考仅接受当前会话图片资源 ID，或带当前项目 ID 的图片图层 ID。两者互斥，禁止多图参数及未知字段。上传参考图和预览保留现有 WebP 处理；生成结果按接口返回的 PNG/JPEG/WebP 原始字节、格式和分辨率保存，不重新编码，限制为 25 MB、6400 万像素。文件模式使用对应的 .png/.jpg/.webp 扩展名，读取时恢复正确 MIME，清理覆盖全部三种格式。
 - 生成前必须提供当前 `projectId`；生成成功后保存会话图片，并通过实时工作区桥接自动添加等比适配、居中的 image 图层，返回 layerId、imageId 和位置尺寸，不回传 Base64。不再提供 `apply_image`；作为背景时使用现有 `edit_layers` 置底、调整和锁定。图片嵌入项目，不依赖会话存续，也不放宽文本工具的长度限制。等待期间切换项目或放置失败时，保留已保存图片并明确报告失败，禁止自动重新生成。
@@ -125,6 +135,13 @@ chat/
 
 ## 验证与扩展
 
-`bun run test` 使用 Vitest 与 fake-indexeddb。覆盖图层几何、组关系、锁定、字段安全、过期 ID、项目生命周期、删除确认、Responses 事件、工具历史回传、配置校验、多模型选择、思考参数、用量汇总、中止、浮窗边界、加密往返、密文篡改、会话隔离及文件路径限制。生图测试覆盖两适配器的文生图和单图参考请求、动态 prompt Schema、超过 60 秒等待、取消、禁用重检、凭据隔离、高清资源放置和文件持久化。前端打包使用 `bun run build`；AI 严格检查使用 `bun x tsc --noEmit -p features/ai/tsconfig.json`。原生存储命令使用 `cargo check --manifest-path src-tauri/Cargo.toml`。全仓类型检查仍存在既有诊断，未在本次功能中扩展修复范围。
+`bun run test` 使用 Vitest 与 fake-indexeddb。覆盖图层几何、组关系、锁定、字段安全、过期 ID、项目生命周期、删除确认、Responses 事件、工具历史回传、配置校验、多模型选择、思考参数、用量汇总、中止、浮窗边界、加密往返、密文篡改、会话隔离及文件路径限制。生图测试覆盖三个适配器的文生图和单图参考请求、GPT-Image 尺寸/质量/数量校验、多图保存放置、动态 prompt Schema、超过 60 秒等待、取消、禁用重检、凭据隔离、高清资源放置和文件持久化。前端打包使用 `bun run build`；AI 严格检查使用 `bun x tsc --noEmit -p features/ai/tsconfig.json`。原生存储命令使用 `cargo check --manifest-path src-tauri/Cargo.toml`。全仓类型检查仍存在既有诊断，未在本次功能中扩展修复范围。
+
+### 扩展生图模型
+
+1. 同协议模型：在 `image-generation/models.ts` 的 `IMAGE_MODEL_PRESETS` 添加预设，填写已有适配器 ID、API 模型 ID、默认尺寸及介绍；如能力不同，在对应适配器中按模型 ID 返回限制。
+2. 新协议服务：在 `image-generation/adapters/` 添加实现 `ImageAdapter` 的模块，实现 `capabilities`、`validate`、`buildRequest`、`readResults`，并在 `models.ts` 注册，扩展适配器 ID 类型。
+3. 设置页从预设与能力表生成添加选项、尺寸、比例、质量和数量控件；工具发现与单模型 Schema 使用相同能力来源。新增特有参数时扩展统一类型与相应控件，不在工具层复制协议分支。
+4. 在已有生图测试中补充文生图/参考图请求、参数边界和响应用例。适配器不直接访问 App、存储或 DOM；凭据授权、超时/取消、安全下载和资源放置继续由统一层负责。
 
 新增工具时先补 definition 与参数校验，再实现 executor 或 workspace 行为，并添加相邻测试。模型通信不要直接导入 App 或操作 DOM。资产库搜索与导出工具不在当前实现范围内，可按需要另增服务和工具。

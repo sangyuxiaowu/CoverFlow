@@ -1,5 +1,5 @@
 import type { ImagePromptConfig, ToolDefinition } from '../types.ts';
-import { AGNES_SIZES, DEFAULT_REFERENCE_IMAGE_PROMPT, DEFAULT_TEXT_IMAGE_PROMPT, IMAGE_RATIOS, KOLORS_SIZES } from '../services/imageGeneration.ts';
+import { imageCapabilities, imageTimeoutSeconds } from '../image-generation/index.ts';
 import { ALIGN_MODES, DISTRIBUTE_MODES, EDIT_LAYER_RULES, PROJECT_RULES, fieldUsage } from './requests.ts';
 
 const string = (description: string) => ({ type: 'string', description, maxLength: 200000 });
@@ -114,13 +114,15 @@ export const VISION_TOOL_DEFINITIONS: ToolDefinition[] = [
 ];
 
 export const IMAGE_TOOL_DEFINITIONS: ToolDefinition[] = [
-  tool('list_image_models', '读取可用生图模型、参数能力和提示词建议；按需求选择模型。', object('无需参数。', {})),
+  tool('list_image_models', '读取可用生图模型、介绍和参数能力；按需求选择模型。', object('无需参数。', {})),
   tool('generate_image', '文生图或单图参考生图，成功后自动添加图片图层并返回图层 ID，可继续用 edit_layers 调整。', object('图片生成请求', {
     projectId,
     modelConfigId: { ...string('来自 list_image_models 的模型配置 ID，不是 API 模型 ID。'), maxLength: 9 },
     prompt: { type: 'string', maxLength: 10000, minLength: 1, description: '生图提示词' },
     size: string('可选输出尺寸，仅使用该模型公布的支持值；省略使用配置默认值。'),
-    ratio: string('可选比例，仅 Agnes 档位尺寸支持；省略使用默认比例。Kolors 和 Agnes 精确尺寸不使用此字段。'),
+    ratio: string('可选比例，仅模型公布的档位尺寸支持；省略使用默认比例。精确尺寸不使用此字段。'),
+    quality: string('可选生成质量，仅支持该模型公布的选项；省略使用配置默认值。'),
+    n: { type: 'integer', minimum: 1, maximum: 10, description: '生成数量，一般为1，仅支持该参数的模型可用；省略使用配置默认值。最多 10 张，接入服务可能有更低上限。' },
     referenceImageId: string('可选当前会话附件 ID，来自上传消息或已有工具结果。不得与 referenceLayerId 同时提供；省略两者则文生图。'),
     referenceLayerId: string('可选当前项目的 image 图层 ID；可使用 get_selected_layers 获取当前选中图层；不得与 referenceImageId 同时提供。')
   }, ['projectId', 'modelConfigId', 'prompt']))
@@ -139,17 +141,21 @@ export function imageToolDefinitions(models: ImagePromptConfig[] = []): ToolDefi
       required = ['projectId', 'prompt'];
       next.prompt = { ...properties.prompt, description: [
         `生图提示词。${single.label}：${single.description}`,
-        `文生图：\n${single.textPromptDescription ?? DEFAULT_TEXT_IMAGE_PROMPT}`,
-        `单图参考：\n${single.referencePromptDescription ?? DEFAULT_REFERENCE_IMAGE_PROMPT}`
+        `版本：${single.version?.trim() || '未提供'}；发布日期：${single.releasedAt || '未提供'}；生成等待超时：${imageTimeoutSeconds(single)} 秒。版本和日期仅作选择参考，未知信息不得推测。`
       ].join('\n\n') };
-      next.size = single.adapter === 'kolors'
-        ? { type: 'string', description: `输出尺寸；省略为 ${single.size}。`, enum: KOLORS_SIZES }
-        : { type: 'string', description: `输出尺寸；省略为 ${single.size}。档位尺寸可配 ratio；精确尺寸不使用 ratio。`, anyOf: [
-            { type: 'string', description: '推荐尺寸档位。', enum: AGNES_SIZES },
-            { type: 'string', description: '兼容精确尺寸，如 1024x768；服务商可能标准化不支持的尺寸。', pattern: '^[1-9]\\d{1,3}x[1-9]\\d{1,3}$' }
-          ] };
-      if (single.adapter === 'kolors') delete next.ratio;
-      else next.ratio = { type: 'string', description: `仅档位尺寸使用；省略为 ${single.ratio}。`, enum: IMAGE_RATIOS };
+      const capabilities = imageCapabilities(single);
+      next.size = { type: 'string', description: `输出尺寸；省略为 ${single.size}。${capabilities.sizeDescription}`, ...(capabilities.exactSizeSupported
+        ? { anyOf: [
+            { type: 'string', description: '推荐尺寸。', enum: capabilities.sizes },
+            { type: 'string', description: capabilities.sizeDescription, pattern: capabilities.sizePattern }
+          ] }
+        : { enum: capabilities.sizes }) };
+      if (!capabilities.ratios) delete next.ratio;
+      else next.ratio = { type: 'string', description: `仅档位尺寸使用；省略为 ${single.ratio}。`, enum: capabilities.ratios };
+      if (!capabilities.qualities) delete next.quality;
+      else next.quality = { type: 'string', description: `输出质量；省略为 ${single.quality ?? 'high'}。`, enum: capabilities.qualities };
+      if (!capabilities.maxImages) delete next.n;
+      else next.n = { ...properties.n, maximum: capabilities.maxImages, description: `生成数量；省略为 ${single.n ?? 1}，最多 ${capabilities.maxImages} 张，接入服务可能有更低上限，每张均可能计费。` };
     } else {
       next.modelConfigId = { ...properties.modelConfigId, ...(models.length ? { enum: models.map(model => model.id) } : {}) };
     }

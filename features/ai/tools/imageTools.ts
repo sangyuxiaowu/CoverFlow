@@ -1,5 +1,5 @@
 import type { AiConfig, ChatImageRef, WorkspaceBridge } from '../types.ts';
-import { AGNES_SIZES, availableImageModels, DEFAULT_REFERENCE_IMAGE_PROMPT, DEFAULT_TEXT_IMAGE_PROMPT, generateImage, imageModelToolId, IMAGE_RATIOS, KOLORS_SIZES } from '../services/imageGeneration.ts';
+import { availableImageModels, generateImages, imageCapabilities, imageModelToolId, imageTimeoutSeconds, type ImageQuality } from '../image-generation/index.ts';
 import { blobToDataUrl, encodeWebp, IMAGE_FORMATS, imageMimeType } from '../services/imageAttachments.ts';
 import { text } from './validation.ts';
 import { generateId } from '../../../utils/helpers.ts';
@@ -75,19 +75,17 @@ export async function executeImageTool(name: string, args: Record<string, unknow
   signal.throwIfAborted();
   const fields: Record<string, string[]> = {
     list_image_models: [],
-    generate_image: ['modelConfigId', 'prompt', 'size', 'ratio', 'referenceImageId', 'referenceLayerId', 'projectId']
+    generate_image: ['modelConfigId', 'prompt', 'size', 'ratio', 'quality', 'n', 'referenceImageId', 'referenceLayerId', 'projectId']
   };
   if (!fields[name] || Object.keys(args).some(field => !fields[name].includes(field))) throw new Error('Unsupported image tool or parameter.');
   const models = availableImageModels(context.getConfig());
   if (name === 'list_image_models') return { value: {
     models: models.map(model => ({
       id: imageModelToolId(model), label: model.label, description: model.description, modes: ['text_to_image', 'single_reference'],
-      ...(models.length > 1 ? {
-        textPromptDescription: model.textPromptDescription ?? DEFAULT_TEXT_IMAGE_PROMPT,
-        referencePromptDescription: model.referencePromptDescription ?? DEFAULT_REFERENCE_IMAGE_PROMPT
-      } : {}),
-      defaultSize: model.size, sizes: model.adapter === 'kolors' ? KOLORS_SIZES : AGNES_SIZES,
-      ...(model.adapter === 'agnes' ? { ratios: IMAGE_RATIOS, defaultRatio: model.ratio, exactSizeSupported: true } : {})
+      version: model.version?.trim() || null, releasedAt: model.releasedAt || null, timeoutSeconds: imageTimeoutSeconds(model),
+      defaultSize: model.size, ...imageCapabilities(model),
+      ...(imageCapabilities(model).ratios ? { defaultRatio: model.ratio } : {}),
+      ...(imageCapabilities(model).qualities ? { defaultQuality: model.quality ?? 'high', defaultCount: model.n ?? 1 } : {})
     }))
   } };
   if (name === 'generate_image') {
@@ -101,19 +99,28 @@ export async function executeImageTool(name: string, args: Record<string, unknow
     const model = matches[0];
     const reference = await referenceImage(args, context, signal);
     currentProject(projectId, context);
-    const source = await generateImage(context.getConfig(), {
+    if (args.n !== undefined && (typeof args.n !== 'number' || !Number.isInteger(args.n))) throw new Error('n must be an integer.');
+    const sources = await generateImages(context.getConfig(), {
       modelConfigId: model.id, prompt: text(args.prompt, 'prompt'),
       ...(args.size !== undefined ? { size: text(args.size, 'size') } : {}),
-      ...(args.ratio !== undefined ? { ratio: text(args.ratio, 'ratio') } : {})
+      ...(args.ratio !== undefined ? { ratio: text(args.ratio, 'ratio') } : {}),
+      ...(args.quality !== undefined ? { quality: text(args.quality, 'quality') as ImageQuality } : {}),
+      ...(args.n !== undefined ? { n: args.n as number } : {})
     }, signal, reference);
     signal.throwIfAborted();
-    const extension = IMAGE_FORMATS[imageMimeType(source.type)];
-    const image = await context.saveImage(source, `generated-${Date.now()}.${extension}`);
-    context.onImage(image);
+    const saved: { source: Blob; image: ChatImageRef }[] = [];
+    for (const [index, source] of sources.entries()) {
+      const extension = IMAGE_FORMATS[imageMimeType(source.type)];
+      const image = await context.saveImage(source, `generated-${Date.now()}-${index + 1}.${extension}`);
+      saved.push({ source, image });
+      context.onImage(image);
+    }
     try {
-      return { value: await placeGeneratedImage(source, image, projectId, model.label, model.modelId, text(args.prompt, 'prompt'), context, signal), image };
+      const placements = [];
+      for (const { source, image } of saved) placements.push(await placeGeneratedImage(source, image, projectId, model.label, model.modelId, text(args.prompt, 'prompt'), context, signal));
+      return { value: placements.length === 1 ? placements[0] : { projectId, images: placements }, image: saved[0].image };
     } catch (error) {
-      throw new Error(`Image ${image.id} was generated and saved, but placement failed: ${error instanceof Error ? error.message : 'Unknown error'}. Do not regenerate; the saved image remains in this session.`);
+      throw new Error(`Image ${saved.map(item => item.image.id).join(', ')} was generated and saved, but placement failed: ${error instanceof Error ? error.message : 'Unknown error'}. Do not regenerate; the saved image remains in this session.`);
     }
   }
   throw new Error('Unknown image tool.');

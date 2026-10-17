@@ -1,7 +1,7 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
-import { readResponse, runConversation, normalizeUsage, sanitizeResponseItems } from './conversation.ts';
+import { ConversationAbortError, conversationAbortDetails, readResponse, runConversation, normalizeUsage, sanitizeResponseItems } from './conversation.ts';
 import type { Response as AiResponse, ResponseStreamEvent } from 'openai/resources/responses/responses';
 import { DEFAULT_IMAGE_TOOL_PROMPT, SYSTEM_PROMPT, VISUAL_CONTENT_GUIDE, defaultConfig, saveConfig, normalizeConfig, normalizeEndpoint, selectModel, toRequestConfig, reasoningPayload, loadConfig, createEndpoint, validateRequestConfig } from './config.ts';
 import type { ProjectState } from '../../../types.ts';
@@ -35,6 +35,8 @@ test('custom prompts are not silently extended with visual capability instructio
   const requestConfig = toRequestConfig(profiles);
   assert.equal(profiles.systemPrompt, original);
   assert.equal(requestConfig.systemPrompt, `${original}\n\n${DEFAULT_IMAGE_TOOL_PROMPT}`);
+  assert.equal(requestConfig.systemPrompt.split('### 文生图提示词').length, 2);
+  assert.equal(requestConfig.systemPrompt.split('### 参考图提示词').length, 2);
   assert.equal(toRequestConfig({ ...profiles, systemPrompt: requestConfig.systemPrompt }).systemPrompt, requestConfig.systemPrompt);
   assert.equal(toRequestConfig({ ...configuredConfig(), imageModels: [] }).systemPrompt, SYSTEM_PROMPT);
   assert.equal(toRequestConfig({ ...profiles, systemPrompt: SYSTEM_PROMPT, imageToolPrompt: '自定义生图规则' }).systemPrompt, `${SYSTEM_PROMPT}\n\n自定义生图规则`);
@@ -297,6 +299,7 @@ test('Responses never sends temperature in any reasoning mode', async () => {
 
 test('IndexedDB stores encrypted API keys and restores multi-endpoint settings', async () => {
   const profiles = configuredConfig();
+  Object.assign(profiles.imageModels![0], { version: 'custom-version', releasedAt: '2026-10-01', timeoutSeconds: 420 });
   const second = createEndpoint('deepseek');
   second.apiKey = 'second-secret';
   profiles.endpoints.push(second);
@@ -319,6 +322,7 @@ test('IndexedDB stores encrypted API keys and restores multi-endpoint settings',
   const restored = await loadConfig();
   assert.equal(restored.endpoints[0].apiKey, 'secret');
   assert.equal(restored.endpoints[1].apiKey, 'second-secret');
+  assert.deepEqual(restored.imageModels, profiles.imageModels);
   db.close();
 });
 
@@ -420,6 +424,37 @@ test('aborted requests record unknown usage without SDK retries', async () => {
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('tool interruptions preserve the abort source and reason instead of claiming missing approval', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const source of ['user_stop', 'panel_closed', 'storage_changed', 'assistant_disposed'] as const) {
+      const controller = new AbortController();
+      const reason = new ConversationAbortError(source);
+      const tools: ToolEvent[] = [];
+      let history: ResponseItem[] = [];
+      let requests = 0;
+      globalThis.fetch = async () => {
+        requests++;
+        return streamResponse(responsePayload([{ type: 'function_call', call_id: 'interrupted-call', name: 'manage_projects', arguments: '{"action":"list"}' }]));
+      };
+      const interruptedBridge: WorkspaceBridge = { ...bridge, manageProjects: async () => { controller.abort(reason); throw reason; } };
+      await assert.rejects(runConversation({ config, input: [], bridge: interruptedBridge, signal: controller.signal, onText: () => {}, onTool: event => tools.push(event), onHistory: input => { history = input; } }), error => error === reason);
+      const failed = tools.find(event => event.status === 'error')!;
+      assert.deepEqual(JSON.parse(failed.result!), {
+        error: 'Operation interrupted.', abortSource: source, reason: reason.message,
+        retryPolicy: 'Do not automatically retry in this turn. A new explicit user request may retry.'
+      });
+      const result = history.find(item => 'type' in item && item.type === 'function_call_output');
+      assert.ok(result && 'output' in result);
+      assert.equal(result.output, failed.result);
+      assert.equal(requests, 1);
+    }
+    const unknown = new AbortController();
+    unknown.abort(new Error('External interruption'));
+    assert.deepEqual(conversationAbortDetails(unknown.signal), { abortSource: 'unknown', reason: 'External interruption' });
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('user rejection pairs all pending tool calls without executing or retrying them', async () => {
   const originalFetch = globalThis.fetch;
   let count = 0;
@@ -470,9 +505,11 @@ test('file mode stores encrypted configuration and each session under chat', asy
   };
   const store = createFileChatStore(files, 'test-directory');
   const settings = configuredConfig();
+  Object.assign(settings.imageModels![0], { version: 'file-version', releasedAt: '2026-10-02', timeoutSeconds: 360 });
   await store.saveConfig(settings);
   assert.equal(data.get('chat/config.json')!.includes('"apiKey": "secret"'), false);
   assert.equal(toRequestConfig(await store.loadConfig()).apiKey, 'secret');
+  assert.deepEqual((await createFileChatStore(files, 'reopened-directory').loadConfig()).imageModels, settings.imageModels);
   const session: ChatSession = { id: 'file-session', title: 'File chat', createdAt: 1, updatedAt: 1, entries: [{ id: 'u', role: 'user', content: 'File message' }], responseItems: [{ role: 'user', content: 'File message' }], requests: [{ id: 'file-request', endpoint: 'https://example.com/v1', model: 'test', createdAt: 1, status: 'completed', usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 } }] };
   await store.saveSession(session);
   const imageBlob = new Blob(['webp'], { type: 'image/webp' });

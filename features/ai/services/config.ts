@@ -1,6 +1,6 @@
 import type { AiConfig, AiEndpointConfig, AiModelConfig, AiRequestConfig, ReasoningEffort } from '../types.ts';
 import { loadStoredConfig, saveStoredConfig } from './configStore.ts';
-import { availableImageModels, createImageModel, imageModelToolId, validateImageModel } from './imageGeneration.ts';
+import { availableImageModels, createImageModel, IMAGE_MODEL_PRESETS, imageModelToolId, imageTimeoutSeconds, validateImageModel } from '../image-generation/index.ts';
 
 export const VISUAL_CONTENT_GUIDE = `## 视觉内容约束
 - 背景支持 color/gradient/image/css，不支持 HTML 背景。
@@ -11,7 +11,15 @@ export const VISUAL_CONTENT_GUIDE = `## 视觉内容约束
 `;
 
 export const DEFAULT_IMAGE_TOOL_PROMPT = `## 生图工具
-先 get_context 确认当前项目；未打开项目时先创建或打开项目。参考图只允许一个图片图层。生成成功自动添加图层，使用返回的 layerId 调整；作为背景时用 edit_layers 置底后锁定，无需另行放置。超时或失败不得自动重新生成，须用户重新批准。`;
+先 get_context 确认当前项目；未打开项目时先创建或打开项目。参考图只允许一个图片图层。生成成功自动添加图层，使用返回的 layerId 调整；作为背景时用 edit_layers 置底后锁定，无需另行放置。超时或失败不得自动重新生成，须用户重新批准。
+
+### 文生图提示词
+建议使用描述为：[主体] + [场景 / 环境] + [风格] + [光照] + [构图] + [质量要求]
+例如：日出时分薄雾峡谷上方的发光浮空城市，电影级写实风格，广角构图，丰富的建筑细节，柔和的金色光线，高视觉密度
+
+### 参考图提示词
+建议使用描述为：[改变要求] + [新风格 / 场景] + [需要添加或移除的元素] + [需要保留的元素]
+例如：将白天街道场景改为电影级赛博朋克夜景，添加霓虹招牌和湿滑路面倒影，同时保留原始街道布局、相机角度和主要建筑形状。`;
 
 export const SYSTEM_PROMPT = `你是 CoverFlow 封面设计助手。请直接操作画布完成设计，不要只输出修改方案。
 
@@ -89,7 +97,7 @@ export function createEndpoint(provider: 'openai' | 'deepseek' | 'local' | 'cust
 
 export function defaultConfig(): AiConfig {
   const endpoint = createEndpoint('openai');
-  return { endpoints: [endpoint], imageModels: [createImageModel('kolors'), createImageModel('agnes')], activeSelection: { endpointId: endpoint.id, modelId: endpoint.models[0].id }, systemPrompt: SYSTEM_PROMPT, imageToolPrompt: DEFAULT_IMAGE_TOOL_PROMPT, quickSnippets: [...DEFAULT_QUICK_SNIPPETS] };
+  return { endpoints: [endpoint], imageModels: IMAGE_MODEL_PRESETS.map(preset => createImageModel(preset.id)), activeSelection: { endpointId: endpoint.id, modelId: endpoint.models[0].id }, systemPrompt: SYSTEM_PROMPT, imageToolPrompt: DEFAULT_IMAGE_TOOL_PROMPT, quickSnippets: [...DEFAULT_QUICK_SNIPPETS] };
 }
 
 export function resolveSelection(config: AiConfig) {
@@ -155,7 +163,7 @@ export function toRequestConfig(config: AiConfig): AiRequestConfig {
     : config.systemPrompt;
   return {
     imageToolsEnabled,
-    imageToolModels: imageModels.map(model => ({ id: imageModelToolId(model), label: model.label, adapter: model.adapter, description: model.description, size: model.size, ratio: model.ratio, textPromptDescription: model.textPromptDescription, referencePromptDescription: model.referencePromptDescription })),
+    imageToolModels: imageModels.map(model => ({ id: imageModelToolId(model), label: model.label, adapter: model.adapter, modelId: model.modelId, version: model.version, releasedAt: model.releasedAt, timeoutSeconds: imageTimeoutSeconds(model), description: model.description, size: model.size, ratio: model.ratio, quality: model.quality, n: model.n })),
     endpoint: endpoint.endpoint,
     apiKey: endpoint.apiKey,
     model: model.modelId,

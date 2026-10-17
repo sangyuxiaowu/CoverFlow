@@ -1,5 +1,7 @@
 import type { ProjectState } from '../../types.ts';
 import type { ResponseInputItem } from 'openai/resources/responses/responses';
+import type { ImageModelConfig, ImagePromptConfig } from './image-generation/types.ts';
+export type { ImageAdapterId, ImageModelConfig, ImagePromptConfig, ImageQuality } from './image-generation/types.ts';
 
 export type ResponseItem = ResponseInputItem;
 
@@ -58,28 +60,6 @@ export interface AiConfig {
   systemPrompt: string;
   imageToolPrompt?: string;
   quickSnippets?: string[];
-}
-
-export type ImageAdapterId = 'kolors' | 'agnes';
-
-export type ImagePromptConfig = Pick<ImageModelConfig, 'id' | 'label' | 'adapter' | 'description' | 'size' | 'ratio' | 'textPromptDescription' | 'referencePromptDescription'>;
-
-export interface ImageModelConfig {
-  id: string;
-  adapter: ImageAdapterId;
-  label: string;
-  description: string;
-  modelId: string;
-  endpointId: string;
-  requestUrl: string;
-  enabled: boolean;
-  size: string;
-  ratio: string;
-  steps: number;
-  guidance: number;
-  timeoutSeconds?: number;
-  textPromptDescription?: string;
-  referencePromptDescription?: string;
 }
 
 export interface AiRequestConfig {

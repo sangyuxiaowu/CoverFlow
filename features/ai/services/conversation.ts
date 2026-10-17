@@ -26,6 +26,28 @@ interface ConversationOptions {
   getImageConfig?: () => AiConfig;
 }
 
+export type ConversationAbortSource = 'user_stop' | 'panel_closed' | 'storage_changed' | 'assistant_disposed';
+
+export class ConversationAbortError extends Error {
+  constructor(readonly source: ConversationAbortSource) {
+    const reasons: Record<ConversationAbortSource, string> = {
+      user_stop: 'The user clicked Stop.',
+      panel_closed: 'The AI assistant panel was closed.',
+      storage_changed: 'The chat storage location changed.',
+      assistant_disposed: 'The AI assistant was unmounted or reloaded.'
+    };
+    super(reasons[source]);
+    this.name = 'AbortError';
+  }
+}
+
+export function conversationAbortDetails(signal: AbortSignal) {
+  return {
+    abortSource: signal.reason instanceof ConversationAbortError ? signal.reason.source : 'unknown',
+    reason: signal.reason instanceof Error ? signal.reason.message : typeof signal.reason === 'string' ? signal.reason : 'No interruption reason was recorded.'
+  };
+}
+
 export function normalizeUsage(usage: Response['usage'] | null): TokenUsage | undefined {
   if (!usage || ![usage.input_tokens, usage.output_tokens, usage.total_tokens].every(value => Number.isInteger(value) && value >= 0)) return undefined;
   const cached = usage.input_tokens_details?.cached_tokens;
@@ -205,7 +227,10 @@ export async function runConversation(options: ConversationOptions): Promise<str
       } catch (error) {
         if (call.name === 'generate_image') generationFailed = true;
         status = 'error';
-        result = JSON.stringify({ error: signal.aborted ? 'Operation interrupted. Do not retry without explicit user approval.' : error instanceof Error ? error.message : 'Tool failed.' });
+        result = JSON.stringify(signal.aborted ? {
+          error: 'Operation interrupted.', ...conversationAbortDetails(signal),
+          retryPolicy: 'Do not automatically retry in this turn. A new explicit user request may retry.'
+        } : { error: error instanceof Error ? error.message : 'Tool failed.' });
         output = result;
       }
       input.push({ type: 'function_call_output', call_id: call.call_id, output });

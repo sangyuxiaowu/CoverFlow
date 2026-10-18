@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import type { AiConfig, ChatSession } from '../types.ts';
 import { toRequestConfig, resolveSelection } from '../services/config.ts';
 import { sessionUsage } from '../services/usage.ts';
@@ -16,6 +17,9 @@ export default function TokenUsageBar({ session, config, prompt, busy, english }
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'turn' | 'total'>('turn');
   const containerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [popoverPosition, setPopoverPosition] = useState<CSSProperties>({ left: 0, top: 0, visibility: 'hidden' });
   const closeTimerRef = useRef<number | null>(null);
   const requestConfig = toRequestConfig(config);
   const { model } = resolveSelection(config);
@@ -52,7 +56,8 @@ export default function TokenUsageBar({ session, config, prompt, busy, english }
   useEffect(() => {
     if (!open) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (!containerRef.current?.contains(target) && !popoverRef.current?.contains(target)) {
         setOpen(false);
       }
     };
@@ -66,6 +71,40 @@ export default function TokenUsageBar({ session, config, prompt, busy, english }
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const updatePosition = () => {
+      const anchor = buttonRef.current?.getBoundingClientRect();
+      const popover = popoverRef.current;
+      if (!anchor || !popover) return;
+
+      const margin = 12;
+      const gap = 6;
+      const width = Math.min(330, window.innerWidth - margin * 2);
+      const maxAvailableHeight = Math.max(80, window.innerHeight - margin * 2);
+      const measuredHeight = Math.min(popover.scrollHeight, maxAvailableHeight);
+      const spaceAbove = Math.max(0, anchor.top - margin - gap);
+      const spaceBelow = Math.max(0, window.innerHeight - anchor.bottom - margin - gap);
+      const placeAbove = spaceAbove >= measuredHeight || spaceAbove >= spaceBelow;
+      const availableHeight = Math.max(80, Math.min(maxAvailableHeight, placeAbove ? spaceAbove : spaceBelow));
+      const height = Math.min(popover.scrollHeight, availableHeight);
+      const left = Math.max(margin, Math.min(anchor.left, window.innerWidth - width - margin));
+      const top = placeAbove
+        ? Math.max(margin, anchor.top - height - gap)
+        : Math.min(window.innerHeight - margin - height, anchor.bottom + gap);
+
+      setPopoverPosition({ left, top, width, maxHeight: availableHeight, visibility: 'visible' });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open, activeTab]);
 
   const percent = Math.min(100, Math.max(0, usage.percent));
   const percentDisplay = `${percent.toFixed(0)}%`;
@@ -116,6 +155,7 @@ export default function TokenUsageBar({ session, config, prompt, busy, english }
     >
       {/* 圆形 Token 使用率渐变环 (h-6 w-6 紧凑尺寸) */}
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => {
           if (closeTimerRef.current) {
@@ -137,14 +177,16 @@ export default function TokenUsageBar({ session, config, prompt, busy, english }
       </button>
 
       {/* 悬浮用量与上下文全景看板 (紧贴触发环，无空隙阻断，带防抖延时缓冲) */}
-      {open && (
+      {open && createPortal(
         <div
-          className="absolute left-0 bottom-full pb-1.5 z-50 pointer-events-auto"
+          ref={popoverRef}
+          className="fixed z-[100] w-[330px] max-w-[calc(100vw-24px)] overflow-y-auto pointer-events-auto"
+          style={popoverPosition}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
         >
           <div
-            className="w-[330px] rounded-2xl border p-3.5 shadow-2xl text-[11px] bg-slate-900/98 backdrop-blur-2xl border-slate-700/80 text-slate-300 animate-in fade-in zoom-in-95 duration-150 select-none space-y-3"
+            className="w-full rounded-2xl border p-3.5 shadow-2xl text-[11px] bg-slate-900/98 backdrop-blur-2xl border-slate-700/80 text-slate-300 animate-in fade-in zoom-in-95 duration-150 select-none space-y-3"
             role="tooltip"
           >
           {/* 1. 顶部：活跃模型名称与健康度状态徽标 */}
@@ -357,7 +399,7 @@ export default function TokenUsageBar({ session, config, prompt, busy, english }
           </div>
         </div>
       </div>
-    )}
+      , document.body)}
   </div>
 );
 }

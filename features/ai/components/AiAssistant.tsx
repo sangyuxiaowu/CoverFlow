@@ -95,7 +95,7 @@ export default function AiAssistant({
   const [prompt, setPrompt] = useState('');
   const [keyAlert, setKeyAlert] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const chatScroll = useChatScroll(assistant.activeSessionId, open && !floating.minimized && !showSessions);
+  const chatScroll = useChatScroll(assistant.activeSessionId, open && !floating.minimized, !showSessions);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [imageUploads, setImageUploads] = useState<ChatImageUpload[]>([]);

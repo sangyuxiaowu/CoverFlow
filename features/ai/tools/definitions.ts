@@ -79,7 +79,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     query: string('可选名称或内容关键词，不区分大小写；省略时不过滤，提供时不得为空白。')
   }, ['projectId'])),
   tool('get_selected_layers', '读取当前选中图层的属性，包括图片来源、描述或提示词；视觉模型还会收到图片预览。用户输入有明确指代时使用。', object('无需参数', {})),
-  tool('remove_background', '本地移除图片图层背景，成功后返回结果图层 ID；已抠图图片不可重复处理。', object('处理当前项目的一个图片图层。', {
+  tool('remove_background', '移除图片图层背景，成功后返回结果图层 ID；已抠图图片不可重复处理。', object('处理当前项目的一个图片图层。', {
     projectId,
     layerId: string('当前项目的 image 图层 ID，来自 get_context、get_selected_layers 或 read_layers，不可编造。锁定图层须先获用户许可解锁。'),
     modelId: enumeration('可选，默认 u2netp。u2netp：内置约 4.6 MB 的轻量模型，优先用于快速处理、普通主体。birefnet：约 490 MB 的高质量候选，适合毛发或复杂边缘，耗时和内存较高。', ['u2netp', 'birefnet']),
@@ -122,13 +122,13 @@ export const VISION_TOOL_DEFINITIONS: ToolDefinition[] = [
 
 export const IMAGE_TOOL_DEFINITIONS: ToolDefinition[] = [
   tool('list_image_models', '读取可用生图模型、介绍和参数能力；按需求选择模型。', object('无需参数。', {})),
-  tool('generate_image', '文生图或单图参考生图，成功后自动添加图片图层并返回图层 ID，可继续用 edit_layers 调整。', object('图片生成请求', {
+  tool('generate_image', '文本生成图像或单图参考生成图像，成功后自动添加图片图层并返回图层 ID，可继续用 edit_layers 调整。', object('图片生成请求', {
     projectId,
     modelConfigId: { ...string('来自 list_image_models 的模型配置 ID，不是 API 模型 ID。'), maxLength: 9 },
     prompt: { type: 'string', maxLength: 10000, minLength: 1, description: '生图提示词' },
-    size: string('可选输出尺寸，仅使用该模型公布的支持值；省略使用配置默认值。'),
+    size: string('可选输出尺寸，仅使用该模型公布的支持值；省略使用配置默认值。根据用法素材或背景图，选择合适的尺寸即可，不建议超过画布大小，以此优化生图速度。'),
     ratio: string('可选比例，仅模型公布的档位尺寸支持；省略使用默认比例。精确尺寸不使用此字段。'),
-    quality: string('可选生成质量，仅支持该模型公布的选项；省略使用配置默认值。'),
+    quality: string('可选生成质量，仅支持该模型公布的选项；省略使用配置默认值。质量越高生成越慢。'),
     n: { type: 'integer', minimum: 1, maximum: 10, description: '生成数量，一般为1，仅支持该参数的模型可用；省略使用配置默认值。最多 10 张，接入服务可能有更低上限。' },
     referenceImageId: string('可选当前会话附件 ID，来自上传消息或已有工具结果。不得与 referenceLayerId 同时提供；省略两者则文生图。'),
     referenceLayerId: string('可选当前项目的 image 图层 ID；可使用 get_selected_layers 获取当前选中图层；不得与 referenceImageId 同时提供。')

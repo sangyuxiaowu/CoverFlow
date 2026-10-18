@@ -71,13 +71,13 @@ export default defineConfig(({ mode }) => {
         port: 3000,
         host: '0.0.0.0',
         watch: {
-          ignored: ['**/src-tauri/target/**'],
+          ignored: ['**/src-tauri/target/**', '**/doc/**', '**/docs/**', '**/*.md', '**/*.mdx'],
         },
       },
       plugins,
       resolve: {
         alias: {
-          '@': path.resolve(__dirname, '.'),
+          '@': path.resolve(__dirname, 'src'),
         }
       }
     };

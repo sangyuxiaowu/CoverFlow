@@ -4,9 +4,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import LandingView from './LandingView.tsx';
 import type { ProjectBrowserProps } from './ProjectBrowser.tsx';
-import type { ProjectState } from '../../types.ts';
-import { translations } from '../../translations.ts';
-import { getStoredProjectViewLayout, getStoredTimeGroupingMode } from '../../storage/storage.ts';
+import type { ProjectState } from '../types.ts';
+import { translations } from '../translations.ts';
+import { getStoredProjectViewLayout, getStoredTimeGroupingMode } from '../storage/storage.ts';
 
 type ItemProps = {
   project: ProjectState;
@@ -26,7 +26,7 @@ vi.mock('./ProjectItems.tsx', () => ({
     </div>
   )
 }));
-vi.mock('../../components/pwa/PWAInstallButton.tsx', () => ({ PWAInstallButton: () => null }));
+vi.mock('../components/pwa/PWAInstallButton.tsx', () => ({ PWAInstallButton: () => null }));
 
 const roots = new Set<Root>();
 const t = translations.en;

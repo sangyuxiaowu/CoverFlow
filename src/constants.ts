@@ -1,6 +1,6 @@
 // 模块：常量与预设数据
 import { DecorationElement, PresetRatio } from './types.ts';
-import logoSvg from './doc/logo.svg?raw';
+import logoSvg from './assets/logo.svg?raw';
 
 export const PRESET_RATIOS: (PresetRatio & { description: string })[] = [
   { name: 'WeChat 2.35:1', nameZh: '微信封面 2.35:1', ratio: '2.35:1', width: 900, height: 383, description: '适合微信公众号头条文章等超宽横版封面' },

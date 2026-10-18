@@ -53,7 +53,7 @@ ONNX Runtime Web 1.23.2 不进入主构建，首次在设置页从 jsDelivr 下�
 - `processing.ts`：纯像素预处理、遮罩及 alpha 合成。
 - 两个 React 组件：设置入口与图层操作入口。
 
-验证：`bun run test features/background-removal`，完整构建：`bun run build`。
+验证：`bun run test src/features/background-removal`，完整构建：`bun run build`。
 
 模型来源：
 

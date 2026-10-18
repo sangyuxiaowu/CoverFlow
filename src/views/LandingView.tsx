@@ -1,8 +1,8 @@
 import React from 'react';
 import { Bot, FolderOpen, Plus, Settings, Upload } from 'lucide-react';
-import { PWAInstallButton } from '../../components/pwa/PWAInstallButton.tsx';
-import { translations, type Language } from '../../translations.ts';
-import logoSvg from '../../doc/logo.svg?raw';
+import { PWAInstallButton } from '../components/pwa/PWAInstallButton.tsx';
+import { translations, type Language } from '../translations.ts';
+import logoSvg from '../assets/logo.svg?raw';
 import packageInfo from '../../package.json';
 import ProjectBrowser, { type ProjectBrowserProps } from './ProjectBrowser.tsx';
 

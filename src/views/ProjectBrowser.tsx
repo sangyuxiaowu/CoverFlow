@@ -1,11 +1,11 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Clock, Layers, LayoutGrid, List, Search, X } from 'lucide-react';
 import { ProjectCard, ProjectListItem } from './ProjectItems.tsx';
-import type { RecentProjectItem } from '../../hooks/useLocalProjects.ts';
-import type { ProjectState } from '../../types.ts';
-import { translations, type Language } from '../../translations.ts';
+import type { RecentProjectItem } from '../hooks/useLocalProjects.ts';
+import type { ProjectState } from '../types.ts';
+import { translations, type Language } from '../translations.ts';
 import { getStoredTimeGroupingMode, setStoredTimeGroupingMode, getStoredProjectViewLayout,
-  setStoredProjectViewLayout, type TimeGroupingMode, type ProjectViewLayout } from '../../storage/storage.ts';
+  setStoredProjectViewLayout, type TimeGroupingMode, type ProjectViewLayout } from '../storage/storage.ts';
 
 export type ProjectBrowserProps = {
   lang: Language;

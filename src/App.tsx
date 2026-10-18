@@ -6,7 +6,7 @@ import LayersPanel from './components/LayersPanel.tsx';
 import Toast from './components/Toast.tsx';
 import ConfirmModal from './components/ConfirmModal.tsx';
 import BackgroundCropModal from './components/BackgroundCropModal.tsx';
-import LandingView from './src/views/LandingView.tsx';
+import LandingView from './views/LandingView.tsx';
 import ProjectPresetModal from './components/ProjectPresetModal.tsx';
 import ExportModal from './components/ExportModal.tsx';
 import AiAssistant from './features/ai/components/AiAssistant.tsx';
@@ -43,7 +43,7 @@ import {
   Download, ArrowLeft, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, X, Save, Bot
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
-import packageInfo from './package.json';
+import packageInfo from '../package.json';
 
 const APP_VERSION = packageInfo.version;
 const GITHUB_REPO_URL = 'https://github.com/sangyuxiaowu/CoverFlow';

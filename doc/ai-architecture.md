@@ -3,7 +3,7 @@
 ## 目录职责
 
 ```text
-features/ai/
+src/features/ai/
   types.ts                    协议与工作区桥接契约
   domain/layerOperations.ts   纯图层规则、分组几何与批量操作
   domain/floatingGeometry.ts  浮窗位置与尺寸边界
@@ -142,7 +142,7 @@ chat/
 
 ## 验证与扩展
 
-`bun run test` 使用 Vitest 与 fake-indexeddb。覆盖图层几何、组关系、锁定、字段安全、过期 ID、项目生命周期、删除确认、Responses 事件、工具历史回传、配置校验、多模型选择、思考参数、用量汇总、中止、浮窗边界、加密往返、密文篡改、会话隔离及文件路径限制。生图测试覆盖三个适配器的文生图和单图参考请求、GPT-Image 尺寸/质量/数量校验、多图保存放置、动态 prompt Schema、超过 60 秒等待、取消、禁用重检、凭据隔离、高清资源放置和文件持久化。前端打包使用 `bun run build`；AI 严格检查使用 `bun x tsc --noEmit -p features/ai/tsconfig.json`。原生存储命令使用 `cargo check --manifest-path src-tauri/Cargo.toml`。全仓类型检查仍存在既有诊断，未在本次功能中扩展修复范围。
+`bun run test` 使用 Vitest 与 fake-indexeddb。覆盖图层几何、组关系、锁定、字段安全、过期 ID、项目生命周期、删除确认、Responses 事件、工具历史回传、配置校验、多模型选择、思考参数、用量汇总、中止、浮窗边界、加密往返、密文篡改、会话隔离及文件路径限制。生图测试覆盖三个适配器的文生图和单图参考请求、GPT-Image 尺寸/质量/数量校验、多图保存放置、动态 prompt Schema、超过 60 秒等待、取消、禁用重检、凭据隔离、高清资源放置和文件持久化。前端打包使用 `bun run build`；AI 严格检查使用 `bun x tsc --noEmit -p src/features/ai/tsconfig.json`。原生存储命令使用 `cargo check --manifest-path src-tauri/Cargo.toml`。全仓类型检查仍存在既有诊断，未在本次功能中扩展修复范围。
 
 ### 扩展生图模型
 

@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Clock, Copy, FileJson, ImageIcon as ImageIconLucide, Trash2 } from 'lucide-react';
-import LivePreview from '../../components/LivePreview.tsx';
-import type { ProjectState } from '../../types.ts';
-import { translations, type Language } from '../../translations.ts';
+import LivePreview from '../components/LivePreview.tsx';
+import type { ProjectState } from '../types.ts';
+import { translations, type Language } from '../translations.ts';
 
 const formatProjectTime = (timestamp: number, lang: Language, showFullDate = false) => {
   const d = new Date(timestamp);

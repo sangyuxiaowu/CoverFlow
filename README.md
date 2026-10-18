@@ -170,21 +170,31 @@ bun run typecheck
 
 ```
 .
-├─ components/         # UI 组件与面板
-├─ features/ai/        # AI 功能：domain / tools / services / hooks / components
-├─ hooks/              # 业务 Hooks
-├─ src/views/          # 落地页、项目浏览区与预览条目
-├─ storage/            # 存储适配器
-├─ utils/              # 工具函数
+├─ src/                # 前端应用源码，测试与对应模块放在一起
+│  ├─ assets/          # 随前端打包的图片与 Logo
+│  ├─ components/      # UI 组件与面板
+│  ├─ features/        # AI、背景移除等独立功能模块
+│  ├─ hooks/           # 业务 Hooks
+│  ├─ views/           # 落地页、项目浏览区与预览条目
+│  ├─ storage/         # 存储适配器
+│  ├─ utils/           # 工具函数
+│  ├─ App.tsx          # 顶层视图切换与编辑状态
+│  ├─ index.tsx        # React 挂载入口
+│  ├─ index.css        # 全局样式
+│  ├─ constants.ts     # 常量与默认配置
+│  ├─ types.ts         # 类型定义
+│  ├─ translations.ts  # 文案与多语言
+│  └─ vite-env.d.ts    # Vite 与浏览器 API 类型声明
 ├─ src-tauri/          # Tauri 原生端
 ├─ scripts/            # 构建/同步脚本
 ├─ doc/                # 文档与素材
 ├─ public/             # PWA 资源与静态文件
-├─ App.tsx             # 应用入口
-├─ constants.ts        # 常量与默认配置
-├─ types.ts            # 类型定义
-└─ translations.ts     # 文案与多语言
+├─ index.html          # Vite HTML 入口
+├─ vite.config.ts      # 开发与打包配置
+└─ tsconfig.json       # TypeScript 配置
 ```
+
+应用源码统一位于 `src/`，`@/` 别名指向该目录。`public/` 中保留按 URL 直接访问的图标和模型文件；构建脚本、配置、文档与 Tauri 原生工程不放入前端源码目录。
 
 许可协议
 --------

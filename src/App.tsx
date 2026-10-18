@@ -1335,9 +1335,7 @@ const App: React.FC = () => {
         const { width, height } = project.canvasConfig;
         const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(width, height));
         const canvas = await htmlToImage.toCanvas(node, {
-          pixelRatio: 1,
-          width,
-          height,
+          ...buildExportOptions(project, 1),
           canvasWidth: Math.max(1, Math.round(width * scale)),
           canvasHeight: Math.max(1, Math.round(height * scale))
         });

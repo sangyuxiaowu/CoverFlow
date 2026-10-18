@@ -17,7 +17,6 @@ export const DEFAULT_IMAGE_TOOL_PROMPT = `## 生图工具
 - 作为素材直接使用，作为封面一部分融入设计
 - 使用纯色背景提示词，配合 remove_background 工具去除背景
 - 作为背景图使用时， edit_layers 置底后锁定
-- 超时或失败不得自动重新生成，须用户重新批准。
 
 ### 文生图提示词
 建议使用描述为：[主体] + [场景 / 环境] + [风格] + [光照] + [构图] + [质量要求]
@@ -57,6 +56,8 @@ ${VISUAL_CONTENT_GUIDE}
 
 export const ALL_REASONING_EFFORTS: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 export const REASONING_EFFORTS: ReasoningEffort[] = ALL_REASONING_EFFORTS;
+export const DEFAULT_MAX_TOOL_ROUNDS = 24;
+export const DEFAULT_MAX_IMAGE_FAILURES = 3;
 
 export function normalizeEndpoint(endpoint: string): string {
   return endpoint.replace(/\/+$/, '');
@@ -103,7 +104,7 @@ export function createEndpoint(provider: 'openai' | 'deepseek' | 'local' | 'cust
 
 export function defaultConfig(): AiConfig {
   const endpoint = createEndpoint('openai');
-  return { endpoints: [endpoint], imageModels: IMAGE_MODEL_PRESETS.map(preset => createImageModel(preset.id)), activeSelection: { endpointId: endpoint.id, modelId: endpoint.models[0].id }, systemPrompt: SYSTEM_PROMPT, imageToolPrompt: DEFAULT_IMAGE_TOOL_PROMPT, quickSnippets: [...DEFAULT_QUICK_SNIPPETS] };
+  return { endpoints: [endpoint], imageModels: IMAGE_MODEL_PRESETS.map(preset => createImageModel(preset.id)), activeSelection: { endpointId: endpoint.id, modelId: endpoint.models[0].id }, systemPrompt: SYSTEM_PROMPT, imageToolPrompt: DEFAULT_IMAGE_TOOL_PROMPT, quickSnippets: [...DEFAULT_QUICK_SNIPPETS], maxToolRounds: DEFAULT_MAX_TOOL_ROUNDS, maxImageFailures: DEFAULT_MAX_IMAGE_FAILURES };
 }
 
 export function resolveSelection(config: AiConfig) {
@@ -149,6 +150,8 @@ export function normalizeConfig(value: unknown, preserveKeys = true): AiConfig {
   const config: AiConfig = {
     ...input,
     endpoints,
+    maxToolRounds: input.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS,
+    maxImageFailures: input.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES,
     imageToolPrompt: typeof input.imageToolPrompt === 'string' ? input.imageToolPrompt : DEFAULT_IMAGE_TOOL_PROMPT,
     quickSnippets: Array.isArray(input.quickSnippets) && input.quickSnippets.length
       ? input.quickSnippets
@@ -169,6 +172,8 @@ export function toRequestConfig(config: AiConfig): AiRequestConfig {
     : config.systemPrompt;
   return {
     imageToolsEnabled,
+    maxToolRounds: config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS,
+    maxImageFailures: config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES,
     imageToolModels: imageModels.map(model => ({ id: imageModelToolId(model), label: model.label, adapter: model.adapter, modelId: model.modelId, version: model.version, releasedAt: model.releasedAt, timeoutSeconds: imageTimeoutSeconds(model), description: model.description, size: model.size, ratio: model.ratio, quality: model.quality, n: model.n })),
     endpoint: endpoint.endpoint,
     apiKey: endpoint.apiKey,
@@ -274,6 +279,8 @@ export async function loadConfig(): Promise<AiConfig> {
 }
 
 export function validateRequestConfig(config: AiRequestConfig): void {
+  if (!Number.isSafeInteger(config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS) || (config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS) < 1) throw new Error('Tool round limit must be a positive safe integer.');
+  if (!Number.isSafeInteger(config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES) || (config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES) < 1) throw new Error('Image failure limit must be a positive safe integer.');
   const url = new URL(config.endpoint);
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) throw new Error('Use HTTPS, or HTTP on localhost.');
   if (url.username || url.password || url.search || url.hash) throw new Error('Endpoint cannot contain credentials, query parameters or fragments.');
@@ -305,7 +312,7 @@ export function validateConfig(config: AiConfig): void {
     for (const model of endpoint.models) {
       if (!model.id || modelIds.has(model.id) || !model.label.trim()) throw new Error('Invalid or duplicate model.');
       modelIds.add(model.id);
-      validateRequestConfig({ ...model, endpoint: endpoint.endpoint, apiKey: endpoint.apiKey, model: model.modelId, systemPrompt: config.systemPrompt });
+      validateRequestConfig({ ...model, endpoint: endpoint.endpoint, apiKey: endpoint.apiKey, model: model.modelId, systemPrompt: config.systemPrompt, maxToolRounds: config.maxToolRounds, maxImageFailures: config.maxImageFailures });
     }
   }
   const active = resolveSelection(config);

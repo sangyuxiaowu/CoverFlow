@@ -77,10 +77,10 @@ export async function generateImages(config: AiConfig, input: GenerateImageInput
   const request = adapter.buildRequest(selected, input.prompt.trim(), reference);
   const headers = { ...request.headers, ...(endpoint.apiKey ? { Authorization: `Bearer ${endpoint.apiKey}` } : {}) };
   const response = await fetch(imageRequestUrl(endpoint.endpoint, model.requestUrl, request.operation), { method: 'POST', headers, body: request.body, signal });
-  if (!response.ok) throw new Error(`Image generation failed (HTTP ${response.status}). Do not automatically retry: this request may have been billed.`);
+  if (!response.ok) throw new Error(`Image generation failed (HTTP ${response.status}).`);
   const items = adapter.readResults(await response.json());
-  if (!items.length) throw new Error('The image provider returned no image. Do not automatically retry.');
-  if (items.length > (capabilities.maxImages ?? 1)) throw new Error('The image provider returned too many images. Do not automatically retry.');
+  if (!items.length) throw new Error('The image provider returned no image.');
+  if (items.length > (capabilities.maxImages ?? 1)) throw new Error('The image provider returned too many images.');
   const images: Blob[] = [];
   for (const item of items) images.push(await downloadImage(item, signal));
   return images;

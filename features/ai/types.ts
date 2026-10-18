@@ -60,6 +60,8 @@ export interface AiConfig {
   systemPrompt: string;
   imageToolPrompt?: string;
   quickSnippets?: string[];
+  maxToolRounds?: number;
+  maxImageFailures?: number;
 }
 
 export interface AiRequestConfig {
@@ -70,6 +72,8 @@ export interface AiRequestConfig {
   apiKey: string;
   maxTokens: number;
   systemPrompt: string;
+  maxToolRounds?: number;
+  maxImageFailures?: number;
   contextWindow?: number;
   thinkingAvailable?: boolean;
   supportsVision?: boolean;

@@ -206,7 +206,7 @@ describe('image generation adapters', () => {
     const { model, config } = setup('agnes');
     const mock = vi.fn().mockResolvedValue(new Response('', { status: 503 }));
     vi.stubGlobal('fetch', mock);
-    await expect(generateImages(config, { modelConfigId: model.id, prompt: 'City' }, new AbortController().signal)).rejects.toThrow('billed');
+    await expect(generateImages(config, { modelConfigId: model.id, prompt: 'City' }, new AbortController().signal)).rejects.toThrow('Image generation failed (HTTP 503).');
     expect(mock).toHaveBeenCalledTimes(1);
   });
   it('keeps waiting after 60 seconds and accepts a later image response', async () => {
@@ -431,7 +431,7 @@ describe('image tools and persistence', () => {
     commit.mockRejectedValueOnce(new Error('Storage unavailable'));
     const mock = vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }, { b64_json: 'iVBORw0KGgo=' }] }));
     vi.stubGlobal('fetch', mock);
-    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City', n: 2 }, context, new AbortController().signal)).rejects.toThrow('Do not regenerate');
+    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City', n: 2 }, context, new AbortController().signal)).rejects.toThrow('was generated and saved, but placement failed');
     expect(images.size).toBe(2);
     expect(refs).toHaveLength(2);
     expect(mock).toHaveBeenCalledTimes(1);
@@ -457,7 +457,7 @@ describe('image tools and persistence', () => {
     const { model, config } = setup('kolors');
     const mock = vi.fn().mockResolvedValueOnce(Response.json({ images: [{ url: 'https://cdn.example.com/image.png?signature=expired' }] })).mockResolvedValueOnce(new Response('', { status: 403 }));
     vi.stubGlobal('fetch', mock);
-    await expect(generateImages(config, { modelConfigId: model.id, prompt: 'City' }, new AbortController().signal)).rejects.toThrow('Do not regenerate automatically');
+    await expect(generateImages(config, { modelConfigId: model.id, prompt: 'City' }, new AbortController().signal)).rejects.toThrow('Generated image download failed (HTTP 403)');
     expect(mock).toHaveBeenCalledTimes(2);
   });
   it('does not expose the removed session image list tool', async () => {
@@ -531,7 +531,7 @@ describe('image tools and persistence', () => {
     const { context, images, commit } = toolContext();
     commit.mockRejectedValueOnce(new Error('Storage unavailable'));
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] })));
-    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('Do not regenerate');
+    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('was generated and saved, but placement failed');
     expect(images.has('generated-image')).toBe(true);
     expect(commit).toHaveBeenCalledTimes(1);
   });
@@ -674,7 +674,7 @@ describe('image tools and persistence', () => {
     expect(binary.has('chat/images/current/png.png')).toBe(false);
     expect(binary.has('chat/images/current/png.jpg')).toBe(true);
   });
-  it('forwards dynamic image tools through Responses and blocks automatic paid retries', async () => {
+  it.each([undefined, 1, 2, 5])('forwards dynamic image tools and enforces failure budget %s', async maxImageFailures => {
     const { model, context, config } = toolContext();
     const profiles = defaultConfig();
     profiles.imageModels = [model];
@@ -688,13 +688,13 @@ describe('image tools and persistence', () => {
       if (String(url).endsWith('/images/generations')) { imageRequests++; return new Response('', { status: 503 }); }
       requests.push(JSON.parse(options.body as string));
       round++;
-      const output = round < 3
+      const output = round <= (maxImageFailures ?? 3) + 1
         ? [{ type: 'function_call', call_id: `call-${round}`, name: 'generate_image', arguments: JSON.stringify({ projectId: 'project', prompt: 'City' }) }]
         : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Generation failed', annotations: [] }] }];
       return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
     }));
-    await runConversation({ config: { ...toRequestConfig(profiles), supportsVision: false }, input: [], bridge: context.bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}, getImageConfig: () => config, loadImage: context.loadImage, saveImage: context.saveImage });
-    expect(imageRequests).toBe(1);
+    await runConversation({ config: { ...toRequestConfig(profiles), maxImageFailures, supportsVision: false }, input: [], bridge: context.bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}, getImageConfig: () => config, loadImage: context.loadImage, saveImage: context.saveImage });
+    expect(imageRequests).toBe(maxImageFailures ?? 3);
     expect(JSON.stringify(requests[0].tools)).toContain('generate_image');
     expect(JSON.stringify(requests[0].tools)).not.toContain('apply_image');
     expect(JSON.stringify(requests[0].tools)).not.toContain('list_image_models');
@@ -705,7 +705,41 @@ describe('image tools and persistence', () => {
     expect(String(requests[0].instructions).split('### 参考图提示词')).toHaveLength(2);
     expect(JSON.stringify(toRequestConfig(profiles).imageToolModels)).not.toContain('textPromptDescription');
     expect(JSON.stringify(toRequestConfig(profiles).imageToolModels)).not.toContain('referencePromptDescription');
-    expect(JSON.stringify(requests[2])).toContain('Ask the user');
+    const outputs = (requests.at(-1)!.input as { type: string; output?: string }[])
+      .filter(item => item.type === 'function_call_output').map(item => JSON.parse(item.output!));
+    expect(outputs.at(-1)).toEqual({ error: 'Image generation failure limit reached in this turn.' });
+    for (const output of outputs.slice(0, -1)) expect(output).toEqual({ error: 'Image generation failed (HTTP 503).' });
+  });
+  it('accumulates failures across successful generations and enforces the budget within one response batch', async () => {
+    mockCanvas();
+    const { context, model, config, getProject } = toolContext();
+    const profiles = defaultConfig();
+    profiles.imageModels = [model];
+    profiles.endpoints[0].id = 'endpoint';
+    profiles.endpoints[0].endpoint = 'https://example.com/v1';
+    let imageRequests = 0;
+    let rounds = 0;
+    const results: { error?: string }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith('/images/generations')) {
+        imageRequests++;
+        return imageRequests === 2 ? Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] }) : new Response('', { status: 503 });
+      }
+      const output = ++rounds === 1
+        ? Array.from({ length: 5 }, (_, index) => ({ type: 'function_call', call_id: `batch-${index}`, name: 'generate_image', arguments: JSON.stringify({ projectId: 'project', prompt: 'City' }) }))
+        : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] }];
+      return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+    }));
+    await runConversation({ config: { ...toRequestConfig(profiles), maxImageFailures: 2 }, input: [], bridge: context.bridge,
+      signal: new AbortController().signal, onText: () => {},
+      onTool: event => { if (event.status !== 'running') results.push(JSON.parse(event.result!)); },
+      getImageConfig: () => config, loadImage: context.loadImage, saveImage: context.saveImage });
+    expect(imageRequests).toBe(3);
+    expect(getProject().layers).toHaveLength(1);
+    expect(results).toHaveLength(5);
+    expect(results[0]).toEqual({ error: 'Image generation failed (HTTP 503).' });
+    expect(results[2]).toEqual({ error: 'Image generation failed (HTTP 503).' });
+    for (const result of results.slice(3)) expect(result).toEqual({ error: 'Image generation failure limit reached in this turn.' });
   });
   for (const interrupted of [false, true]) it(`allows a new user message to retry after a previous ${interrupted ? 'interruption' : 'provider failure'}`, async () => {
     mockCanvas();

@@ -5,7 +5,7 @@ import { imageToolDefinitions, IMAGE_TOOL_DEFINITIONS, TOOL_DEFINITIONS, VISION_
 import { executeImageTool } from '../tools/imageTools.ts';
 import { executeTool } from '../tools/execute.ts';
 import { record } from '../tools/validation.ts';
-import { normalizeEndpoint, reasoningPayload, validateRequestConfig } from './config.ts';
+import { DEFAULT_MAX_IMAGE_FAILURES, DEFAULT_MAX_TOOL_ROUNDS, normalizeEndpoint, reasoningPayload, validateRequestConfig } from './config.ts';
 import { estimateInput } from './usage.ts';
 import { blobToDataUrl } from './imageAttachments.ts';
 
@@ -130,8 +130,10 @@ export async function runConversation(options: ConversationOptions): Promise<str
   const input = structuredClone(options.input);
   const tools = [...TOOL_DEFINITIONS, ...(config.supportsVision ? VISION_TOOL_DEFINITIONS : []), ...(config.imageToolsEnabled && options.getImageConfig && options.loadImage && options.saveImage ? imageToolDefinitions(config.imageToolModels) : [])];
   let previewCount = 0;
-  let generationFailed = false;
-  for (let round = 0; round < 24; round++) {
+  let imageFailures = 0;
+  const maxImageFailures = config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES;
+  const maxToolRounds = config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
+  for (let round = 0; round < maxToolRounds; round++) {
     signal.throwIfAborted();
     const requestController = new AbortController();
     const abortRequest = () => requestController.abort(signal.reason);
@@ -192,7 +194,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
         if (!tools.some(tool => tool.function.name === call.name)) throw new Error('Unknown tool.');
         const args = record(JSON.parse(call.arguments));
         const isImageTool = IMAGE_TOOL_DEFINITIONS.some(tool => tool.function.name === call.name);
-        if (call.name === 'generate_image' && generationFailed) throw new Error('A generation already failed in this turn. Ask the user before trying again.');
+        if (call.name === 'generate_image' && imageFailures >= maxImageFailures) throw new Error('Image generation failure limit reached in this turn.');
         const generated = isImageTool ? await executeImageTool(call.name, args, {
           getConfig: options.getImageConfig!,
           defaultModelConfigId: config.imageToolModels?.length === 1 ? config.imageToolModels[0].id : undefined,
@@ -228,7 +230,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
           output = result;
         }
       } catch (error) {
-        if (call.name === 'generate_image') generationFailed = true;
+        if (call.name === 'generate_image' && !signal.aborted && imageFailures < maxImageFailures) imageFailures++;
         status = 'error';
         result = JSON.stringify(signal.aborted ? {
           error: 'Operation interrupted.', ...conversationAbortDetails(signal),

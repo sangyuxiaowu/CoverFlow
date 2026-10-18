@@ -27,6 +27,49 @@ const textOutput = { type: 'message', id: 'msg-test', role: 'assistant', status:
 async function* eventsFrom(events: unknown[]) { for (const event of events) yield event as ResponseStreamEvent; }
 const streamResponse = (payload: ReturnType<typeof responsePayload>) => new Response(`event: response.${payload.status}\ndata: ${JSON.stringify({ type: `response.${payload.status}`, response: payload })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
 
+test('turn limits default, normalize, validate, persist and reach request configuration', async () => {
+  const profiles = configuredConfig();
+  assert.equal(profiles.maxToolRounds, 24);
+  assert.equal(profiles.maxImageFailures, 3);
+  delete profiles.maxToolRounds;
+  delete profiles.maxImageFailures;
+  assert.equal(normalizeConfig(profiles).maxToolRounds, 24);
+  assert.equal(normalizeConfig(profiles).maxImageFailures, 3);
+  profiles.maxToolRounds = 40;
+  profiles.maxImageFailures = 5;
+  await saveConfig(profiles);
+  const restored = await loadConfig();
+  assert.equal(restored.maxToolRounds, 40);
+  assert.equal(restored.maxImageFailures, 5);
+  assert.equal(toRequestConfig(restored).maxToolRounds, 40);
+  assert.equal(toRequestConfig(restored).maxImageFailures, 5);
+  for (const field of ['maxToolRounds', 'maxImageFailures'] as const) {
+    for (const value of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+      assert.throws(() => validateRequestConfig({ ...config, [field]: value }), /positive safe integer/);
+      await assert.rejects(saveConfig({ ...profiles, [field]: value }), /positive safe integer/);
+    }
+  }
+});
+
+for (const maxToolRounds of [1, 3, 25]) test(`stops after the configured ${maxToolRounds} tool rounds and preserves paired history`, async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  let limits = 0;
+  let history: ResponseItem[] = [];
+  globalThis.fetch = async () => streamResponse(responsePayload([
+    { type: 'function_call', call_id: `call-${++requests}`, name: 'get_context', arguments: '{}' }
+  ]));
+  try {
+    const result = await runConversation({ config: { ...config, maxToolRounds }, input: [], bridge,
+      signal: new AbortController().signal, onText: () => {}, onTool: () => {},
+      onLimit: () => { limits++; }, onHistory: items => { history = items; } });
+    assert.equal(requests, maxToolRounds);
+    assert.equal(limits, 1);
+    assert.match(result, /工具调用上限/);
+    assert.equal(history.filter(item => 'type' in item && item.type === 'function_call_output').length, maxToolRounds);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('background removal remains statically registered and sends model-not-ready errors back to Responses', async () => {
   const originalFetch = globalThis.fetch;
   const requests: Record<string, any>[] = [];
@@ -583,11 +626,16 @@ test('file mode stores encrypted configuration and each session under chat', asy
   };
   const store = createFileChatStore(files, 'test-directory');
   const settings = configuredConfig();
+  settings.maxToolRounds = 50;
+  settings.maxImageFailures = 4;
   Object.assign(settings.imageModels![0], { version: 'file-version', releasedAt: '2026-10-02', timeoutSeconds: 360 });
   await store.saveConfig(settings);
   assert.equal(data.get('chat/config.json')!.includes('"apiKey": "secret"'), false);
   assert.equal(toRequestConfig(await store.loadConfig()).apiKey, 'secret');
   assert.deepEqual((await createFileChatStore(files, 'reopened-directory').loadConfig()).imageModels, settings.imageModels);
+  const restoredSettings = toRequestConfig(await createFileChatStore(files, 'reopened-limits').loadConfig());
+  assert.equal(restoredSettings.maxToolRounds, 50);
+  assert.equal(restoredSettings.maxImageFailures, 4);
   const session: ChatSession = { id: 'file-session', title: 'File chat', createdAt: 1, updatedAt: 1, entries: [{ id: 'u', role: 'user', content: 'File message' }], responseItems: [{ role: 'user', content: 'File message' }], requests: [{ id: 'file-request', endpoint: 'https://example.com/v1', model: 'test', createdAt: 1, status: 'completed', usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 } }] };
   await store.saveSession(session);
   const imageBlob = new Blob(['webp'], { type: 'image/webp' });

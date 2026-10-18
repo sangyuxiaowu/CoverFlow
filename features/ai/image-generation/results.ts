@@ -6,7 +6,7 @@ export function validateImageDownloadUrl(value: string): URL {
 }
 
 export async function normalizeGeneratedImage(blob: Blob): Promise<Blob> {
-  if (!blob.size) throw new Error('Generated image is empty. Do not regenerate automatically.');
+  if (!blob.size) throw new Error('Generated image is empty.');
   if (blob.size > 25 * 1024 * 1024) throw new Error('Generated image exceeds 25 MB.');
   const bytes = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
   const png = [137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value);
@@ -14,7 +14,7 @@ export async function normalizeGeneratedImage(blob: Blob): Promise<Blob> {
   const webp = [82, 73, 70, 70].every((value, index) => bytes[index] === value)
     && [87, 69, 66, 80].every((value, index) => bytes[index + 8] === value);
   const mime = png ? 'image/png' : jpeg ? 'image/jpeg' : webp ? 'image/webp' : '';
-  if (!mime) throw new Error(`Generated image data is not PNG, JPEG or WebP (reported Content-Type: ${blob.type || 'missing'}). Do not regenerate automatically.`);
+  if (!mime) throw new Error(`Generated image data is not PNG, JPEG or WebP (reported Content-Type: ${blob.type || 'missing'}).`);
   return blob.type === mime ? blob : blob.slice(0, blob.size, mime);
 }
 
@@ -42,10 +42,10 @@ export async function downloadImage(item: ImageResult, signal: AbortSignal): Pro
     blob = new Blob([bytes]);
   } else if (typeof item?.url === 'string') {
     const download = await fetch(validateImageDownloadUrl(item.url), { signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
-    if (!download.ok) throw new Error(`Generated image download failed (HTTP ${download.status}). Do not regenerate automatically.`);
+    if (!download.ok) throw new Error(`Generated image download failed (HTTP ${download.status}).`);
     if (Number(download.headers.get('content-length')) > 25 * 1024 * 1024) throw new Error('Generated image exceeds 25 MB.');
     blob = await download.blob();
-  } else throw new Error('The image provider returned no image. Do not automatically retry.');
+  } else throw new Error('The image provider returned no image.');
   signal.throwIfAborted();
   const image = await normalizeGeneratedImage(blob);
   signal.throwIfAborted();

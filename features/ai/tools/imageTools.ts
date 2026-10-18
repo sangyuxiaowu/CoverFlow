@@ -120,7 +120,7 @@ export async function executeImageTool(name: string, args: Record<string, unknow
       for (const { source, image } of saved) placements.push(await placeGeneratedImage(source, image, projectId, model.label, model.modelId, text(args.prompt, 'prompt'), context, signal));
       return { value: placements.length === 1 ? placements[0] : { projectId, images: placements }, image: saved[0].image };
     } catch (error) {
-      throw new Error(`Image ${saved.map(item => item.image.id).join(', ')} was generated and saved, but placement failed: ${error instanceof Error ? error.message : 'Unknown error'}. Do not regenerate; the saved image remains in this session.`);
+      throw new Error(`Image ${saved.map(item => item.image.id).join(', ')} was generated and saved, but placement failed: ${error instanceof Error ? error.message : 'Unknown error'}.`);
     }
   }
   throw new Error('Unknown image tool.');

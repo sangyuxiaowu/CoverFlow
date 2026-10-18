@@ -34,6 +34,8 @@ import {
   createEndpoint,
   createModel,
   DEFAULT_IMAGE_TOOL_PROMPT,
+  DEFAULT_MAX_IMAGE_FAILURES,
+  DEFAULT_MAX_TOOL_ROUNDS,
   DEFAULT_QUICK_SNIPPETS,
   normalizeConfig,
   REASONING_EFFORTS,
@@ -58,7 +60,7 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
     });
     return initial;
   });
-  const [tab, setTab] = useState<'models' | 'images' | 'removal' | 'prompt' | 'snippets'>('models');
+  const [tab, setTab] = useState<'models' | 'limits' | 'images' | 'removal' | 'prompt' | 'snippets'>('models');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [testStatus, setTestStatus] = useState<string | null>(null);
@@ -309,6 +311,19 @@ const ToggleSwitch: React.FC<{
 
           <button
             type="button"
+            onClick={() => setTab('limits')}
+            className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${
+              tab === 'limits'
+                ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850/50'
+            }`}
+          >
+            <Sliders size={15} />
+            <span>{label('调用限制', 'Turn Limits')}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setTab('images')}
             className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${
               tab === 'images'
@@ -376,6 +391,37 @@ const ToggleSwitch: React.FC<{
             {/* TAB: 生图模型 */}
             {tab === 'images' && <ImageModelSettings config={draft} onChange={setDraft} english={english} />}
             {tab === 'removal' && <BackgroundRemovalSettings english={english} />}
+
+            {tab === 'limits' && (
+              <section className="space-y-5">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-slate-100">{label('单轮对话限制', 'Per-Turn Limits')}</h3>
+                  <button type="button"
+                    onClick={() => setDraft(prev => ({ ...prev, maxToolRounds: DEFAULT_MAX_TOOL_ROUNDS, maxImageFailures: DEFAULT_MAX_IMAGE_FAILURES }))}
+                    className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white cursor-pointer"
+                    title={label('恢复默认限制', 'Reset Turn Limits')}
+                    aria-label={label('恢复默认限制', 'Reset Turn Limits')}>
+                    <RotateCcw size={15} />
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                  <div className="min-w-0">
+                    <label htmlFor="ai-max-tool-rounds" className={labelClass}>{label('工具调用轮次上限', 'Tool Round Limit')}</label>
+                    <input id="ai-max-tool-rounds" type="number" min={1} max={Number.MAX_SAFE_INTEGER} step={1} required
+                      value={Number.isNaN(draft.maxToolRounds) ? '' : draft.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS}
+                      onChange={event => setDraft(prev => ({ ...prev, maxToolRounds: event.target.valueAsNumber }))}
+                      className={inputClass} />
+                  </div>
+                  <div className="min-w-0">
+                    <label htmlFor="ai-max-image-failures" className={labelClass}>{label('生图累计失败上限', 'Image Failure Limit')}</label>
+                    <input id="ai-max-image-failures" type="number" min={1} max={Number.MAX_SAFE_INTEGER} step={1} required
+                      value={Number.isNaN(draft.maxImageFailures) ? '' : draft.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES}
+                      onChange={event => setDraft(prev => ({ ...prev, maxImageFailures: event.target.valueAsNumber }))}
+                      className={inputClass} />
+                  </div>
+                </div>
+              </section>
+            )}
 
             {/* TAB: 端点与模型 */}
             {tab === 'models' && (

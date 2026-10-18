@@ -273,7 +273,8 @@ export const scanAssetFolder = async (handle: FileSystemDirectoryHandle) => {
       items: []
     };
 
-    for await (const [fileName, fileEntry] of entry.entries()) {
+    const dirEntry = entry as FileSystemDirectoryHandle;
+    for await (const [fileName, fileEntry] of dirEntry.entries()) {
       if (fileEntry.kind !== 'file') continue;
       const lowerFileName = fileName.toLowerCase();
       const assetType = lowerFileName.endsWith('.svg')
@@ -287,7 +288,7 @@ export const scanAssetFolder = async (handle: FileSystemDirectoryHandle) => {
         key: `${groupKey}/${fileName}`,
         name,
         assetType,
-        fileHandle: fileEntry
+        fileHandle: fileEntry as FileSystemFileHandle
       });
     }
 

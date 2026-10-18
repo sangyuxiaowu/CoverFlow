@@ -156,4 +156,4 @@ const LivePreview: React.FC<{
   );
 };
 
-export default LivePreview;
+export default React.memo(LivePreview);

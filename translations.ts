@@ -23,6 +23,8 @@ export const translations = {
     recentProjects: "最近项目",
     searchProjects: "搜索项目名称...",
     duplicateProject: "复制项目",
+    viewGrid: "网格视图",
+    viewList: "列表视图",
     loading: "加载中...",
     dateGroups: {
       today: "今天",
@@ -326,6 +328,8 @@ export const translations = {
     recentProjects: "Recent Projects",
     searchProjects: "Search project name...",
     duplicateProject: "Duplicate Project",
+    viewGrid: "Grid view",
+    viewList: "List view",
     loading: "Loading...",
     dateGroups: {
       today: "Today",

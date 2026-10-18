@@ -842,7 +842,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               fileHandle: item.fileHandle
             });
           }
-        } else {
+        } else if ('content' in item) {
           items.push({
             key: item.key,
             name: item.name,

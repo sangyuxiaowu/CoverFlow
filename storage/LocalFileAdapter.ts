@@ -100,10 +100,11 @@ export class LocalFileAdapter implements StorageAdapter {
 
     for await (const entry of dataHandle.values()) {
       if (entry.kind !== 'file') continue;
-      if (!entry.name.toLowerCase().endsWith(`.${PROJECT_FILE_EXT}`)) continue;
+      const fileHandle = entry as FileSystemFileHandle;
+      if (!fileHandle.name.toLowerCase().endsWith(`.${PROJECT_FILE_EXT}`)) continue;
       try {
-        const file = await entry.getFile();
-        entries.push({ handle: entry, lastModified: file.lastModified });
+        const file = await fileHandle.getFile();
+        entries.push({ handle: fileHandle, lastModified: file.lastModified });
       } catch (err) {
         // Skip unreadable entries
       }

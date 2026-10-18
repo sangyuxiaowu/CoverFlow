@@ -19,7 +19,7 @@ import { PWAUpdatePrompt } from './components/pwa/PWAUpdatePrompt.tsx';
 import { OfflineIndicator } from './components/pwa/OfflineIndicator.tsx';
 // Tauri 环境下的本地文件适配器
 import { useLocalProjects, type RecentProjectItem } from './hooks/useLocalProjects.ts';
-import { ProjectState, Layer, DecorationTemplate } from './types.ts';
+import { ProjectState, Layer, DecorationTemplate, PresetRatio } from './types.ts';
 import {
   createIndexedDBAdapter,
   createLocalFileAdapter,
@@ -79,7 +79,7 @@ const formatProjectTime = (timestamp: number, lang: Language, showFullDate = fal
 };
 
 // 项目卡片组件（网格视图）
-const ProjectCard = ({
+const ProjectCard = React.memo(({
   project,
   lang,
   onClick,
@@ -195,10 +195,10 @@ const ProjectCard = ({
       </div>
     </div>
   );
-};
+});
 
 // 项目列表项组件（列表视图）
-const ProjectListItem = ({
+const ProjectListItem = React.memo(({
   project,
   lang,
   onClick,
@@ -318,7 +318,7 @@ const ProjectListItem = ({
       </div>
     </div>
   );
-};
+});
 
 // 应用主组件
 const App: React.FC = () => {
@@ -376,7 +376,7 @@ const App: React.FC = () => {
   const [cloudHasMore, setCloudHasMore] = useState(true);
   const [cloudLoading, setCloudLoading] = useState(false);
   const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
-  const [selectedPreset, setSelectedPreset] = useState(() => PRESET_RATIOS[0]);
+  const [selectedPreset, setSelectedPreset] = useState<PresetRatio>(() => PRESET_RATIOS[0]);
   const [customPresetSize, setCustomPresetSize] = useState(() => ({
     width: PRESET_RATIOS[0].width,
     height: PRESET_RATIOS[0].height
@@ -786,7 +786,7 @@ const App: React.FC = () => {
 
   const clampPresetSize = (value: number) => Math.max(10, Math.round(value));
 
-  const createNewProject = (preset: typeof PRESET_RATIOS[0], overrides?: { width?: number; height?: number }) => {
+  const createNewProject = (preset: PresetRatio, overrides?: { width?: number; height?: number }) => {
     const width = clampPresetSize(overrides?.width ?? preset.width);
     const height = clampPresetSize(overrides?.height ?? preset.height);
     const ratioLabel = (width === preset.width && height === preset.height)
@@ -2007,7 +2007,9 @@ const App: React.FC = () => {
         const { width, height } = project.canvasConfig;
         const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(width, height));
         const canvas = await htmlToImage.toCanvas(node, {
-          ...buildExportOptions(project, 1),
+          pixelRatio: 1,
+          width,
+          height,
           canvasWidth: Math.max(1, Math.round(width * scale)),
           canvasHeight: Math.max(1, Math.round(height * scale))
         });
@@ -2409,11 +2411,11 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           
-          <div className="flex h-[29px] items-center gap-1 mr-4 bg-slate-800 rounded-lg">
+          <div className="flex items-center gap-1 mr-4 bg-slate-800 p-1 rounded-lg">
             <button 
               onClick={handleUndo} 
               disabled={historyIndex <= 0}
-              className="h-full p-1.5 rounded hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-all text-slate-300"
+              className="p-1.5 rounded hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-all text-slate-300"
               title="Undo (Ctrl+Z)"
             >
               <Undo2 className="w-4 h-4" />
@@ -2421,7 +2423,7 @@ const App: React.FC = () => {
             <button 
               onClick={handleRedo} 
               disabled={historyIndex >= history.length - 1}
-              className="h-full p-1.5 rounded hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-all text-slate-300"
+              className="p-1.5 rounded hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-all text-slate-300"
               title="Redo (Ctrl+Shift+Z)"
             >
               <Redo2 className="w-4 h-4" />

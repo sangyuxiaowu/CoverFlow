@@ -52,6 +52,7 @@ interface Props {
 
 const toolLabels: Record<string, [string, string]> = {
   get_context: ['读取画布', 'Read Canvas'],
+  get_cover_size_recommendations: ['封面尺寸建议', 'Cover Size Recommendations'],
   manage_projects: ['项目管理', 'Manage Projects'],
   read_layers: ['读取图层', 'Read Layers'],
   get_selected_layers: ['读取选中图层', 'Read Selected Layers'],
@@ -60,6 +61,7 @@ const toolLabels: Record<string, [string, string]> = {
   update_canvas: ['调整画布', 'Update Canvas'],
   list_image_models: ['读取生图模型', 'List Image Models'],
   generate_image: ['生成图片', 'Generate Image'],
+  remove_background: ['移除背景', 'Remove Background'],
   get_canvas_preview: ['预览当前效果', 'Preview Canvas']
 };
 

@@ -39,6 +39,7 @@ import TokenUsageBar from './TokenUsageBar.tsx';
 import MarkdownView from './MarkdownView.tsx';
 import ToolDuration from './ToolDuration.tsx';
 import ChatScrollbar from './ChatScrollbar.tsx';
+import { imageModelForTool } from './imageToolModel.ts';
 import { sumUsage } from '../services/usage.ts';
 import { createImageUpload } from '../services/imageAttachments.ts';
 import type { ChatImageUpload } from '../types.ts';
@@ -521,6 +522,7 @@ export default function AiAssistant({
                             }
                             const tool = entry.tools?.find(candidate => candidate.id === item.toolId);
                             if (!tool) return null;
+                            const imageModel = imageModelForTool(tool, assistant.config.imageModels);
                             return (
                               <details className="cf-ai-tool" key={item.id} open={Boolean(tool.image)}>
                                 <summary>
@@ -532,6 +534,7 @@ export default function AiAssistant({
                                     <CheckCircle2 size={14} className="text-emerald-400" />
                                   )}
                                   <span>{toolLabels[tool.name]?.[english ? 1 : 0] || tool.name}</span>
+                                  {imageModel && <span className="cf-ai-tool-model" title={imageModel.modelId}>{imageModel.label}</span>}
                                   <ToolDuration tool={tool} english={english} />
                                   <span className={`cf-ai-tool-badge ${tool.status}`} title={tool.durationMs === undefined ? undefined : `${label('工具总耗时', 'Total tool elapsed time')}: ${(tool.durationMs / 1000).toFixed(1)}s`}>
                                     {tool.status === 'running'

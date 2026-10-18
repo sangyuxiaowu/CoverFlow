@@ -5,30 +5,75 @@ export function useChatScroll(sessionId: string | null, visible: boolean) {
   const contentRef = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const previousTop = useRef(0);
+  const pendingFrame = useRef<number | null>(null);
 
   const scrollToBottom = () => {
     const element = scrollRef.current;
     if (!element || !following.current) return;
-    element.scrollTop = element.scrollHeight;
+    const bottom = Math.max(0, element.scrollHeight - element.clientHeight);
+    if (Math.abs(element.scrollTop - bottom) > 1) element.scrollTop = bottom;
     previousTop.current = element.scrollTop;
+  };
+
+  const cancelScroll = () => {
+    if (pendingFrame.current === null) return;
+    cancelAnimationFrame(pendingFrame.current);
+    pendingFrame.current = null;
+  };
+
+  const scheduleScroll = () => {
+    if (!visible || !following.current || pendingFrame.current !== null) return;
+    pendingFrame.current = requestAnimationFrame(() => {
+      pendingFrame.current = null;
+      scrollToBottom();
+    });
   };
 
   const resetScroll = () => {
     following.current = true;
-    scrollToBottom();
+    scheduleScroll();
+  };
+
+  const scrollManually = (top: number) => {
+    const element = scrollRef.current;
+    if (!element) return;
+    cancelScroll();
+    const bottom = Math.max(0, element.scrollHeight - element.clientHeight);
+    element.scrollTop = Math.max(0, Math.min(bottom, top));
+    previousTop.current = element.scrollTop;
+    following.current = bottom - element.scrollTop <= 1;
   };
 
   useLayoutEffect(resetScroll, [sessionId]);
-  useLayoutEffect(() => { if (visible) scrollToBottom(); });
+  useLayoutEffect(scheduleScroll);
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
     const content = contentRef.current;
     if (!visible || !element || !content) return;
-    const observer = new ResizeObserver(scrollToBottom);
+    const handleWheel = (event: globalThis.WheelEvent) => {
+      if (!event.cancelable || event.defaultPrevented || event.ctrlKey || event.shiftKey || !event.deltaY || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientHeight : 1;
+      const delta = event.deltaY * unit;
+      let target = event.target instanceof Element && element.contains(event.target) ? event.target : null;
+      while (target && target !== element) {
+        const overflow = getComputedStyle(target).overflowY;
+        if (/^(auto|scroll)$/.test(overflow) && target.scrollHeight > target.clientHeight && (delta < 0 ? target.scrollTop > 0 : target.scrollTop + target.clientHeight < target.scrollHeight - 1)) return;
+        target = target.parentElement;
+      }
+      event.preventDefault();
+      scrollManually(element.scrollTop + delta);
+    };
+    const wheelTarget = element.closest('.cf-ai-messages-region') || element;
+    wheelTarget.addEventListener('wheel', handleWheel as EventListener, { passive: false });
+    const observer = new ResizeObserver(scheduleScroll);
     observer.observe(element);
     observer.observe(content);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      wheelTarget.removeEventListener('wheel', handleWheel as EventListener);
+      cancelScroll();
+    };
   }, [visible]);
 
   const onScroll = (event: UIEvent<HTMLDivElement>) => {
@@ -38,13 +83,17 @@ export function useChatScroll(sessionId: string | null, visible: boolean) {
       following.current = true;
     } else if (top < previousTop.current) {
       following.current = false;
+      cancelScroll();
     }
     previousTop.current = top;
   };
 
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
-    if (event.deltaY < 0) following.current = false;
+    if (event.deltaY < 0) {
+      following.current = false;
+      cancelScroll();
+    }
   };
 
-  return { scrollRef, contentRef, onScroll, onWheel, resetScroll };
+  return { scrollRef, contentRef, onScroll, onWheel, resetScroll, scrollManually };
 }

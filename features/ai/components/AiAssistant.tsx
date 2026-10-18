@@ -38,6 +38,7 @@ import SessionList from './SessionList.tsx';
 import TokenUsageBar from './TokenUsageBar.tsx';
 import MarkdownView from './MarkdownView.tsx';
 import ToolDuration from './ToolDuration.tsx';
+import ChatScrollbar from './ChatScrollbar.tsx';
 import { sumUsage } from '../services/usage.ts';
 import { createImageUpload } from '../services/imageAttachments.ts';
 import type { ChatImageUpload } from '../types.ts';
@@ -415,6 +416,7 @@ export default function AiAssistant({
             </div>
 
             {/* 消息区域 */}
+            <div className="cf-ai-messages-region">
             <div
               className="cf-ai-messages"
               ref={chatScroll.scrollRef}
@@ -714,6 +716,14 @@ export default function AiAssistant({
                 </>
               )}
               </div>
+            </div>
+
+              <ChatScrollbar
+                scrollRef={chatScroll.scrollRef}
+                contentRef={chatScroll.contentRef}
+                scrollTo={chatScroll.scrollManually}
+                english={english}
+              />
             </div>
 
             {/* 操作确认框 */}

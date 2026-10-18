@@ -9,6 +9,7 @@ import { removeSessionImages } from '../services/chatStore.ts';
 import { sumUsage } from '../services/usage.ts';
 import { generateId } from '../../../utils/helpers.ts';
 import { imageMimeType } from '../services/imageAttachments.ts';
+import { ConfigDecryptionError } from '../services/configStore.ts';
 
 interface Confirmation { message: string; resolve: (accepted: boolean) => void }
 
@@ -47,6 +48,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [keyError, setKeyError] = useState(false);
   const [configError, setConfigError] = useState('');
   const [executionError, setExecutionError] = useState<ExecutionError | null>(null);
   const mountedRef = useRef(true);
@@ -88,7 +90,12 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     setLoadError('');
     setConfigError('');
     try {
-      const [stored, savedSessions, ui] = await Promise.all([target.loadConfig(), target.listSessions(), target.loadUiState()]);
+      let locked = false;
+      const [stored, savedSessions, ui] = await Promise.all([target.loadConfig().catch(error => {
+        if (!(error instanceof ConfigDecryptionError)) throw error;
+        locked = true;
+        return error.config;
+      }), target.listSessions(), target.loadUiState()]);
       if (!mountedRef.current || storeRef.current !== target) return;
       const selected = savedSessions.find(item => item.id === ui.activeSessionId) || savedSessions[0] || freshSession();
       selected.entries = selected.entries.map(entry => ({ ...entry, tools: entry.tools?.map(tool => tool.status === 'running' ? { ...tool, status: 'error', result: 'The previous operation was interrupted.' } : tool) }));
@@ -96,6 +103,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
       await target.saveUiState({ activeSessionId: selected.id });
       if (storeRef.current !== target) return;
       setConfig(stored);
+      setKeyError(locked);
       setSessions([selected, ...savedSessions.filter(item => item.id !== selected.id)]);
       activate(selected);
     }
@@ -189,7 +197,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   };
 
   const configure = async (next: AiConfig) => {
-    if (controllerRef.current || loading || loadError || savingRef.current) throw new Error('AI settings are busy or unavailable.');
+    if (controllerRef.current || loading || loadError || keyError || savingRef.current) throw new Error('AI settings are busy or unavailable. Import or reset the encryption key first.');
     savingRef.current = true;
     setSaving(true);
     setConfigError('');
@@ -204,7 +212,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   }));
 
   const send = async (prompt: string, attachments: ChatImageUpload[] = []) => {
-    if ((!prompt.trim() && !attachments.length) || controllerRef.current || loading || loadError || savingRef.current || !sessionRef.current) return;
+    if ((!prompt.trim() && !attachments.length) || controllerRef.current || loading || loadError || keyError || savingRef.current || !sessionRef.current) return;
     const requestConfig = toRequestConfig(config);
     if (attachments.length && !requestConfig.supportsVision && !requestConfig.imageToolsEnabled) throw new Error('Enable image input or an image generation model to attach a reference.');
     setExecutionError(null);
@@ -332,7 +340,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   };
 
   const continueTurn = async (assistantId: string, userApprovedRetry = false) => {
-    if (controllerRef.current || loading || loadError || savingRef.current || !sessionRef.current) return;
+    if (controllerRef.current || loading || loadError || keyError || savingRef.current || !sessionRef.current) return;
     const controller = new AbortController();
     controllerRef.current = controller;
     setBusy(true);
@@ -456,7 +464,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   const clearExecutionError = () => setExecutionError(null);
 
   const retry = async () => {
-    if (!executionError || controllerRef.current || loading || loadError || savingRef.current || !sessionRef.current) return;
+    if (!executionError || controllerRef.current || loading || loadError || keyError || savingRef.current || !sessionRef.current) return;
     const targetEntryId = executionError.entryId;
     const promptToRetry = executionError.prompt;
     setExecutionError(null);
@@ -490,7 +498,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   };
 
   const regenerate = async () => {
-    if (controllerRef.current || loading || loadError || savingRef.current || !sessionRef.current) return;
+    if (controllerRef.current || loading || loadError || keyError || savingRef.current || !sessionRef.current) return;
     setExecutionError(null);
     const working = structuredClone(sessionRef.current);
 
@@ -566,7 +574,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
 
   return {
     config, configure, entries, sessions, activeSessionId, newSession, selectSession,
-    renameSession, deleteSession, deleteImages, busy, loading, saving, loadError, configError,
+    renameSession, deleteSession, deleteImages, busy, loading, saving, loadError, keyError, configError,
     reloadConfig, send, clear, confirmation,
     stop: (source: 'user_stop' | 'panel_closed' = 'user_stop') => controllerRef.current?.abort(new ConversationAbortError(source)),
     executionError, clearExecutionError, retry, regenerate

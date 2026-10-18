@@ -9,6 +9,7 @@ import type { ChatStore } from '../services/chatStore.ts';
 import type { WorkspaceOptions } from '../services/workspace.ts';
 import type { StorageAdapter } from '../../../storage/StorageAdapter.ts';
 import type { ChatSession } from '../types.ts';
+import { ConfigDecryptionError } from '../services/configStore.ts';
 
 vi.mock('../services/conversation.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../services/conversation.ts')>(),
@@ -60,6 +61,30 @@ afterEach(async () => {
   roots.clear();
   vi.mocked(runConversation).mockReset();
   vi.unstubAllGlobals();
+});
+
+it('keeps chat accessible when API keys cannot be decrypted without overwriting configuration', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const store = memoryStore();
+  const config = defaultConfig();
+  config.endpoints[0].apiKey = 'must-not-leak';
+  store.loadConfig = async () => { throw new ConfigDecryptionError(config); };
+  store.saveConfig = vi.fn();
+  const harness = await mount(store);
+  expect(harness.getAssistant().loadError).toBe('');
+  expect(harness.getAssistant().keyError).toBe(true);
+  expect(harness.getAssistant().config.endpoints[0].apiKey).toBe('');
+  expect(harness.getAssistant().sessions).toHaveLength(1);
+  await act(async () => { await harness.getAssistant().newSession(); });
+  expect(harness.getAssistant().sessions).toHaveLength(2);
+  expect(store.saveConfig).not.toHaveBeenCalled();
+  await act(async () => { await harness.getAssistant().send('Do not send while locked'); });
+  expect(runConversation).not.toHaveBeenCalled();
+  await expect(harness.getAssistant().configure(config)).rejects.toThrow(/Import or reset/);
+  store.loadConfig = async () => config;
+  await act(async () => { await harness.getAssistant().reloadConfig(); });
+  expect(harness.getAssistant().keyError).toBe(false);
+  expect(harness.getAssistant().config.endpoints[0].apiKey).toBe('must-not-leak');
 });
 
 it('deletes selected images and history references before pruning, preserving other assets and snapshots', async () => {

@@ -1,7 +1,8 @@
 import type { AiConfig, ChatSession, ChatUiState } from '../types.ts';
 import { defaultConfig, loadConfig, normalizeConfig, validateConfig } from './config.ts';
 import { IMAGE_FORMATS, imageMimeType } from './imageAttachments.ts';
-import { decryptEndpointKeys, deleteStoredSession, encryptEndpointKeys, listStoredSessions, loadStoredImage, loadStoredUiState, pruneStoredImages, saveStoredConfig, saveStoredImage, saveStoredSession, saveStoredUiState, validateSession } from './configStore.ts';
+import { ConfigDecryptionError, decryptEndpointKeys, deleteStoredSession, encryptEndpointKeys, listStoredSessions, loadStoredImage, loadStoredUiState, pruneStoredImages, readEncryptionKey, replaceEncryptionKey, saveStoredConfig, saveStoredImage, saveStoredSession, saveStoredUiState, validateSession, verifyStoredEncryptionKey } from './configStore.ts';
+import { generateEncryptionKey, type EncryptionManager } from './encryptionKeys.ts';
 
 export interface ChatFileAccess {
   read: (relativePath: string) => Promise<string | null>;
@@ -15,6 +16,7 @@ export interface ChatFileAccess {
 
 export interface ChatStore {
   id: string;
+  encryption?: EncryptionManager;
   loadConfig: () => Promise<AiConfig>;
   saveConfig: (config: AiConfig) => Promise<void>;
   listSessions: () => Promise<ChatSession[]>;
@@ -55,7 +57,37 @@ export function removeSessionImages(session: ChatSession, imageIds: Set<string>)
 }
 
 export function createBrowserChatStore(): ChatStore {
-  return { id: 'indexeddb', loadConfig, saveConfig: async config => { validateConfig(config); await saveStoredConfig(config); }, listSessions: listStoredSessions, saveSession: saveStoredSession, saveImage: saveStoredImage, loadImage: loadStoredImage, pruneImages: pruneStoredImages, deleteSession: deleteStoredSession, loadUiState: loadStoredUiState, saveUiState: saveStoredUiState };
+  const store: ChatStore = { id: 'indexeddb', loadConfig, saveConfig: async config => { validateConfig(config); await loadConfig(); await saveStoredConfig(config); }, listSessions: listStoredSessions, saveSession: saveStoredSession, saveImage: saveStoredImage, loadImage: loadStoredImage, pruneImages: pruneStoredImages, deleteSession: deleteStoredSession, loadUiState: loadStoredUiState, saveUiState: saveStoredUiState };
+  store.encryption = encryptionManager(store, verifyStoredEncryptionKey, (key, preserve) => replaceEncryptionKey(key, !preserve));
+  return store;
+}
+
+function encryptionManager(store: ChatStore, verify: (key: CryptoKey) => Promise<void>, regenerate: (key: CryptoKey, preserve: boolean) => Promise<void>): EncryptionManager {
+  const status: EncryptionManager['status'] = async () => {
+    try { await store.loadConfig(); }
+    catch (error) { if (error instanceof ConfigDecryptionError) return 'locked'; throw error; }
+    return await readEncryptionKey() ? 'ready' : 'missing';
+  };
+  return {
+    status,
+    generate: async mode => {
+      const current = await status();
+      if ((mode === 'create' && current !== 'missing') || (mode === 'rotate' && current !== 'ready') || (mode === 'reset' && current !== 'locked')) {
+        throw new Error('Encryption key status changed. Reload settings before continuing.');
+      }
+      const generated = await generateEncryptionKey();
+      try {
+        if (mode === 'create') await replaceEncryptionKey(generated.key, false, true);
+        else await regenerate(generated.key, mode === 'rotate');
+        return generated.bytes;
+      } catch (error) { generated.bytes.fill(0); throw error; }
+    },
+    import: async key => {
+      if (key.extractable || key.algorithm.name !== 'AES-GCM' || (key.algorithm as AesKeyAlgorithm).length !== 256) throw new Error('Invalid encryption key.');
+      await verify(key);
+      await replaceEncryptionKey(key, false);
+    }
+  };
 }
 
 function sessionPath(id: string): string {
@@ -76,22 +108,28 @@ export function createFileChatStore(files: ChatFileAccess, id: string): ChatStor
     pending = task.catch(() => {});
     return task;
   };
-  return {
+  const readConfig = async () => {
+    const raw = await files.read('chat/config.json');
+    if (!raw) return null;
+    const stored = JSON.parse(raw) as { version: number; config: AiConfig; secrets: { endpointId: string; iv: string; ciphertext: string }[] };
+    if (stored.version !== 1 || !Array.isArray(stored.secrets)) throw new Error('Unsupported chat configuration file.');
+    const config = normalizeConfig(stored.config);
+    validateConfig(config);
+    return { config, secrets: stored.secrets.map(secret => ({ endpointId: secret.endpointId, iv: buffer(secret.iv), ciphertext: buffer(secret.ciphertext) })) };
+  };
+  const store: ChatStore = {
     id,
     loadConfig: async () => {
       await pending;
-      const raw = await files.read('chat/config.json');
-      if (!raw) return defaultConfig();
-      const stored = JSON.parse(raw) as { version: number; config: AiConfig; secrets: { endpointId: string; iv: string; ciphertext: string }[] };
-      if (stored.version !== 1 || !Array.isArray(stored.secrets)) throw new Error('Unsupported chat configuration file.');
-      const config = normalizeConfig(stored.config);
-      validateConfig(config);
-      return decryptEndpointKeys(config, stored.secrets.map(secret => ({ endpointId: secret.endpointId, iv: buffer(secret.iv), ciphertext: buffer(secret.ciphertext) })));
+      const stored = await readConfig();
+      return stored ? decryptEndpointKeys(stored.config, stored.secrets) : defaultConfig();
     },
     saveConfig: config => {
       validateConfig(config);
       const snapshot = structuredClone(config);
       return enqueue(async () => {
+        const current = await readConfig();
+        if (current) await decryptEndpointKeys(current.config, current.secrets);
         const secrets = await encryptEndpointKeys(snapshot);
         const sanitized = { ...snapshot, endpoints: snapshot.endpoints.map(endpoint => ({ ...endpoint, apiKey: '' })) };
         await files.write('chat/config.json', JSON.stringify({ version: 1, config: sanitized, secrets: secrets.map(secret => ({ endpointId: secret.endpointId, iv: base64(secret.iv), ciphertext: base64(secret.ciphertext) })) }, null, 2));
@@ -152,4 +190,25 @@ export function createFileChatStore(files: ChatFileAccess, id: string): ChatStor
     loadUiState: async () => { await pending; return JSON.parse(await files.read('chat/ui.json') || '{}') as ChatUiState; },
     saveUiState: patch => enqueue(async () => { const previous = JSON.parse(await files.read('chat/ui.json') || '{}'); await files.write('chat/ui.json', JSON.stringify({ ...previous, ...patch }, null, 2)); })
   };
+  store.encryption = encryptionManager(store, async key => {
+    await pending;
+    const stored = await readConfig();
+    if (stored) await decryptEndpointKeys(stored.config, stored.secrets, key);
+  }, (key, preserve) => enqueue(async () => {
+    const original = await files.read('chat/config.json');
+    const stored = await readConfig();
+    if (stored) {
+      const config = preserve ? await decryptEndpointKeys(stored.config, stored.secrets) : stored.config;
+      const secrets = preserve ? await encryptEndpointKeys(config, key) : [];
+      await files.write('chat/config.json', JSON.stringify({ version: 1,
+        config: { ...config, endpoints: config.endpoints.map(endpoint => ({ ...endpoint, apiKey: '' })) },
+        secrets: secrets.map(secret => ({ endpointId: secret.endpointId, iv: base64(secret.iv), ciphertext: base64(secret.ciphertext) })) }, null, 2));
+    }
+    try { await replaceEncryptionKey(key, !preserve); }
+    catch (error) {
+      if (original !== null && stored) await files.write('chat/config.json', original);
+      throw error;
+    }
+  }));
+  return store;
 }

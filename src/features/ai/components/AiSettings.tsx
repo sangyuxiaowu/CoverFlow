@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Brain,
   Check,
@@ -29,6 +29,9 @@ import {
 import type { AiConfig, AiEndpointConfig, AiModelConfig, ReasoningEffort } from '../types.ts';
 import ImageModelSettings from './ImageModelSettings.tsx';
 import BackgroundRemovalSettings from '../../background-removal/BackgroundRemovalSettings.tsx';
+import EncryptionKeySettings from './EncryptionKeySettings.tsx';
+import type { ChatStore } from '../services/chatStore.ts';
+import type { EncryptionStatus } from '../services/encryptionKeys.ts';
 import {
   ALL_REASONING_EFFORTS,
   createEndpoint,
@@ -48,9 +51,12 @@ interface Props {
   onSave: (config: AiConfig) => Promise<void>;
   onBack: () => void;
   english: boolean;
+  store: ChatStore;
+  onKeyChanged: () => Promise<void>;
+  initialSecurity?: boolean;
 }
 
-export default function AiSettings({ config, onSave, onBack, english }: Props) {
+export default function AiSettings({ config, onSave, onBack, english, store, onKeyChanged, initialSecurity }: Props) {
   const [draft, setDraft] = useState(() => structuredClone(config));
   const [showKeyMap, setShowKeyMap] = useState<Record<string, boolean>>({});
   const [expandedEndpoints, setExpandedEndpoints] = useState<Record<string, boolean>>(() => {
@@ -60,7 +66,11 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
     });
     return initial;
   });
-  const [tab, setTab] = useState<'models' | 'limits' | 'images' | 'removal' | 'prompt' | 'snippets'>('models');
+  const [tab, setTab] = useState<'models' | 'other' | 'images' | 'removal' | 'prompt' | 'snippets'>(initialSecurity ? 'other' : 'models');
+  const [keyStatus, setKeyStatus] = useState<EncryptionStatus | null>(null);
+  const [keyBusy, setKeyBusy] = useState(false);
+  const [backupPending, setBackupPending] = useState(false);
+  const tabsRef = useRef<HTMLDivElement>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [testStatus, setTestStatus] = useState<string | null>(null);
@@ -69,6 +79,17 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
   const label = (zh: string, en: string) => (english ? en : zh);
+
+  useEffect(() => {
+    tabsRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [tab]);
+
+  useEffect(() => {
+    if (!backupPending) return;
+    const protect = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', protect);
+    return () => window.removeEventListener('beforeunload', protect);
+  }, [backupPending]);
 
   const activeSelection = resolveSelection(draft);
   const activeEndpoint = activeSelection.endpoint;
@@ -191,7 +212,7 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (saving) return;
+    if (saving || keyBusy || backupPending || keyStatus !== 'ready') return;
     setSaving(true);
     setError('');
     try {
@@ -260,7 +281,7 @@ const ToggleSwitch: React.FC<{
   return (
     <div className="fixed inset-0 z-[120] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
       <div
-        className="bg-[#0b0f17] border border-slate-800 rounded-2xl shadow-2xl max-w-4xl w-full h-[88vh] max-h-[880px] min-h-[520px] flex flex-col overflow-hidden text-slate-200"
+        className="bg-[#0b0f17] border border-slate-800 rounded-2xl shadow-2xl max-w-4xl w-full h-[88vh] max-h-[880px] min-h-0 sm:min-h-[520px] flex flex-col overflow-hidden text-slate-200"
         role="dialog"
         aria-modal="true"
         aria-label={label('AI 助手配置中心', 'AI Assistant Configuration Center')}
@@ -286,6 +307,7 @@ const ToggleSwitch: React.FC<{
           <button
             type="button"
             onClick={onBack}
+            disabled={keyBusy || backupPending || saving}
             className="w-8 h-8 rounded-xl bg-slate-850 hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
             title={label('关闭', 'Close')}
             aria-label={label('关闭', 'Close')}
@@ -295,9 +317,10 @@ const ToggleSwitch: React.FC<{
         </header>
 
         {/* 导航选项卡 */}
-        <div className="px-6 border-b border-slate-800/80 flex items-center gap-2 overflow-x-auto shrink-0 bg-slate-900/20 text-xs font-semibold py-2 whitespace-nowrap [&>button]:shrink-0">
+        <div ref={tabsRef} role="tablist" aria-label={label('配置分类', 'Settings Categories')} className={`px-6 border-b border-slate-800/80 flex items-center gap-2 overflow-x-auto shrink-0 bg-slate-900/20 text-xs font-semibold py-2 whitespace-nowrap [&>button]:shrink-0 ${keyBusy || backupPending ? 'pointer-events-none opacity-50' : ''}`} inert={keyBusy || backupPending || undefined}>
           <button
             type="button"
+            role="tab" aria-selected={tab === 'models'}
             onClick={() => setTab('models')}
             className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${
               tab === 'models'
@@ -311,19 +334,7 @@ const ToggleSwitch: React.FC<{
 
           <button
             type="button"
-            onClick={() => setTab('limits')}
-            className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${
-              tab === 'limits'
-                ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850/50'
-            }`}
-          >
-            <Sliders size={15} />
-            <span>{label('调用限制', 'Turn Limits')}</span>
-          </button>
-
-          <button
-            type="button"
+            role="tab" aria-selected={tab === 'images'}
             onClick={() => setTab('images')}
             className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${
               tab === 'images'
@@ -340,7 +351,7 @@ const ToggleSwitch: React.FC<{
             )}
           </button>
 
-          <button type="button" onClick={() => setTab('removal')}
+          <button type="button" role="tab" aria-selected={tab === 'removal'} onClick={() => setTab('removal')}
             className={`px-3.5 py-2 rounded-xl flex items-center gap-2 shrink-0 transition-all cursor-pointer ${
               tab === 'removal' ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850/50'
@@ -350,6 +361,7 @@ const ToggleSwitch: React.FC<{
 
           <button
             type="button"
+            role="tab" aria-selected={tab === 'prompt'}
             onClick={() => setTab('prompt')}
             className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${
               tab === 'prompt'
@@ -363,6 +375,7 @@ const ToggleSwitch: React.FC<{
 
           <button
             type="button"
+            role="tab" aria-selected={tab === 'snippets'}
             onClick={() => setTab('snippets')}
             className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${
               tab === 'snippets'
@@ -376,11 +389,16 @@ const ToggleSwitch: React.FC<{
               {snippets.length}
             </span>
           </button>
+          <button type="button" role="tab" aria-selected={tab === 'other'} onClick={() => setTab('other')}
+            className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${tab === 'other' ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850/50'}`}>
+            <Sliders size={15} /><span>{label('其他设置', 'Other Settings')}</span>
+            {(keyStatus === 'missing' || keyStatus === 'locked') && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
+          </button>
         </div>
 
         {/* 主体表单区域 */}
         <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col">
-          <div key={tab} className="flex-1 overflow-y-auto custom-scrollbar p-5 sm:p-6 space-y-6">
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-5 sm:p-6 space-y-6">
             {error && (
               <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-medium flex items-center gap-2">
                 <AlertCircle size={16} className="text-rose-400 shrink-0" />
@@ -392,8 +410,18 @@ const ToggleSwitch: React.FC<{
             {tab === 'images' && <ImageModelSettings config={draft} onChange={setDraft} english={english} />}
             {tab === 'removal' && <BackgroundRemovalSettings english={english} />}
 
-            {tab === 'limits' && (
-              <section className="space-y-5">
+            <div hidden={tab !== 'other'} className="space-y-6">
+              {store.encryption && <EncryptionKeySettings manager={store.encryption} english={english}
+                onStatus={status => { setKeyStatus(status); if (status !== 'ready') setTab('other'); }}
+                onBusy={setKeyBusy} onBackupPending={setBackupPending}
+                onChanged={async () => {
+                  const restored = await store.loadConfig();
+                  setDraft(previous => ({ ...previous, endpoints: previous.endpoints.map(endpoint => ({ ...endpoint,
+                    apiKey: restored.endpoints.find(item => item.id === endpoint.id)?.apiKey || '' })) }));
+                  await onKeyChanged();
+                }} />}
+            {tab === 'other' && (
+              <section className="space-y-5 border-t border-slate-800 pt-5">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-sm font-semibold text-slate-100">{label('单轮对话限制', 'Per-Turn Limits')}</h3>
                   <button type="button"
@@ -422,6 +450,7 @@ const ToggleSwitch: React.FC<{
                 </div>
               </section>
             )}
+            </div>
 
             {/* TAB: 端点与模型 */}
             {tab === 'models' && (
@@ -1276,10 +1305,11 @@ const ToggleSwitch: React.FC<{
           </div>
 
           {/* 底部操作栏 */}
-          <footer className="px-6 py-4 border-t border-slate-800/80 bg-slate-900/60 flex items-center justify-end gap-3 shrink-0">
+          <footer className="px-4 sm:px-6 py-4 border-t border-slate-800/80 bg-slate-900/60 flex flex-wrap items-center justify-end gap-3 shrink-0">
+            {backupPending && <span className="mr-auto text-xs text-amber-300">{label('请先完成一次性备份步骤', 'Finish the one-time backup step first')}</span>}
             <button
               type="button"
-              disabled={saving}
+              disabled={saving || keyBusy || backupPending}
               onClick={onBack}
               className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-750 transition-colors cursor-pointer"
             >
@@ -1287,7 +1317,7 @@ const ToggleSwitch: React.FC<{
             </button>
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || keyBusy || backupPending || keyStatus !== 'ready'}
               className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-900/30 flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
             >
               <Save size={15} />

@@ -1,4 +1,4 @@
-import { test } from 'vitest';
+import { beforeAll, test } from 'vitest';
 import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
 import { ConversationAbortError, conversationAbortDetails, readResponse, runConversation, normalizeUsage, sanitizeResponseItems } from './conversation.ts';
@@ -6,7 +6,8 @@ import type { Response as AiResponse, ResponseStreamEvent } from 'openai/resourc
 import { DEFAULT_IMAGE_TOOL_PROMPT, SYSTEM_PROMPT, VISUAL_CONTENT_GUIDE, defaultConfig, saveConfig, normalizeConfig, normalizeEndpoint, selectModel, toRequestConfig, reasoningPayload, loadConfig, createEndpoint, validateRequestConfig } from './config.ts';
 import type { ProjectState } from '../../../types.ts';
 import type { AiRequestConfig, ChatEntry, ChatSession, RequestUsage, ResponseItem, ToolEvent, WorkspaceBridge } from '../types.ts';
-import { AI_DATABASE_NAME, listStoredSessions, saveStoredImage, loadStoredImage, saveStoredSession, deleteStoredSession } from './configStore.ts';
+import { AI_DATABASE_NAME, listStoredSessions, saveStoredImage, loadStoredImage, saveStoredSession, deleteStoredSession, replaceEncryptionKey } from './configStore.ts';
+import { generateEncryptionKey } from './encryptionKeys.ts';
 import { createFileChatStore, type ChatFileAccess } from './chatStore.ts';
 import { estimateInput, sessionUsage, sumUsage } from './usage.ts';
 import { parseMarkdown } from './markdown.ts';
@@ -14,6 +15,11 @@ import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.
 
 
 const config: AiRequestConfig = { endpoint: 'https://example.com/v1', model: 'test', apiKey: 'secret', maxTokens: 4096, systemPrompt: SYSTEM_PROMPT };
+beforeAll(async () => {
+  const generated = await generateEncryptionKey();
+  await replaceEncryptionKey(generated.key, true);
+  generated.bytes.fill(0);
+});
 const configuredConfig = () => {
   const profiles = defaultConfig();
   Object.assign(profiles.endpoints[0], { endpoint: config.endpoint, apiKey: config.apiKey });

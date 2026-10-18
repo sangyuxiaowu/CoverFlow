@@ -92,6 +92,7 @@ export default function AiAssistant({
   };
 
   const [settings, setSettings] = useState(false);
+  const [securityRequested, setSecurityRequested] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [keyAlert, setKeyAlert] = useState<string | null>(null);
@@ -351,9 +352,10 @@ export default function AiAssistant({
                 <button
                   type="button"
                   className="cf-ai-icon"
-                  disabled={controlsDisabled}
+                  disabled={assistant.busy || assistant.loading || assistant.saving}
                   onClick={() => {
                     setKeyAlert(null);
+                    setSecurityRequested(assistant.keyError);
                     setSettings(true);
                   }}
                   title={label('AI 配置中心', 'AI Settings Center')}
@@ -386,6 +388,11 @@ export default function AiAssistant({
 
         {!floating.minimized && (
           <>
+            {assistant.keyError && <div className="cf-ai-config-error" role="alert">
+              <span>{label('API Key 无法解锁。请导入对应密钥，或重新生成后填写 API Key。', 'API keys are locked. Import the matching key, or regenerate and re-enter API keys.')}</span>
+              <button type="button" className="cf-ai-icon" onClick={() => { setSecurityRequested(true); setSettings(true); }}
+                title={label('管理密钥', 'Manage Encryption Key')} aria-label={label('管理密钥', 'Manage Encryption Key')}><Settings size={16} /></button>
+            </div>}
             {(assistant.loadError || assistant.configError) && (
               <div className="cf-ai-config-error" role="alert">
                 <span>{assistant.loadError || assistant.configError}</span>
@@ -935,10 +942,14 @@ export default function AiAssistant({
       {/* AI 助手配置中心模态弹窗 (Image 2 样式) */}
       {settings && (
         <AiSettings
+          key={chatStore.id}
           config={assistant.config}
           onSave={assistant.configure}
           onBack={() => setSettings(false)}
           english={english}
+          store={chatStore}
+          onKeyChanged={assistant.reloadConfig}
+          initialSecurity={securityRequested || assistant.keyError}
         />
       )}
       {selectedImage && createPortal(

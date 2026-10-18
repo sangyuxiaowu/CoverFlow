@@ -9,6 +9,15 @@ const IMAGES = 'images';
 const UI = 'ui-state';
 export interface EncryptedSecret { endpointId: string; iv: ArrayBuffer; ciphertext: ArrayBuffer }
 
+export class ConfigDecryptionError extends Error {
+  readonly config: AiConfig;
+  constructor(config: AiConfig) {
+    super('Unable to decrypt API keys. Import the matching encryption key or reset it in Other Settings.');
+    this.name = 'ConfigDecryptionError';
+    this.config = { ...config, endpoints: config.endpoints.map(endpoint => ({ ...endpoint, apiKey: '' })) };
+  }
+}
+
 const result = <Value>(request: IDBRequest<Value>) => new Promise<Value>((resolve, reject) => {
   request.onsuccess = () => resolve(request.result);
   request.onerror = () => reject(request.error);
@@ -43,24 +52,19 @@ function database(): Promise<IDBDatabase> {
   return databasePromise;
 }
 
-async function encryptionKey(db: IDBDatabase): Promise<CryptoKey> {
-  const read = db.transaction([KEYS, SECRETS], 'readonly');
-  const complete = done(read);
-  const [existing, secretCount] = await Promise.all([result(read.objectStore(KEYS).get('master')) as Promise<CryptoKey | undefined>, result(read.objectStore(SECRETS).count())]);
+export async function readEncryptionKey(): Promise<CryptoKey | undefined> {
+  const db = await database();
+  const transaction = db.transaction(KEYS, 'readonly');
+  const complete = done(transaction);
+  const key = await result(transaction.objectStore(KEYS).get('master')) as CryptoKey | undefined;
   await complete;
-  if (existing) return existing;
-  if (secretCount) throw new Error('Encryption key is missing. Existing API keys cannot be recovered.');
-  const generated = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-  const write = db.transaction(KEYS, 'readwrite');
-  const written = done(write);
-  const request = write.objectStore(KEYS).get('master');
-  let selected = generated;
-  request.onsuccess = () => {
-    if (request.result) selected = request.result as CryptoKey;
-    else write.objectStore(KEYS).put(generated, 'master');
-  };
-  await written;
-  return selected;
+  return key;
+}
+
+async function encryptionKey(): Promise<CryptoKey> {
+  const key = await readEncryptionKey();
+  if (!key) throw new Error('Create or import an encryption key in Other Settings before saving API keys.');
+  return key;
 }
 
 let pendingSave = Promise.resolve();
@@ -68,12 +72,7 @@ export function saveStoredConfig(config: AiConfig): Promise<void> {
   const snapshot = structuredClone(config);
   const operation = pendingSave.then(async () => {
     const db = await database();
-    const key = await encryptionKey(db);
-    const encrypted: EncryptedSecret[] = await Promise.all(snapshot.endpoints.filter(endpoint => endpoint.apiKey).map(async endpoint => {
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: new TextEncoder().encode(endpoint.id) }, key, new TextEncoder().encode(endpoint.apiKey));
-      return { endpointId: endpoint.id, iv: iv.buffer, ciphertext };
-    }));
+    const encrypted = await encryptEndpointKeys(snapshot);
     const transaction = db.transaction([SETTINGS, SECRETS], 'readwrite');
     const committed = done(transaction);
     transaction.objectStore(SETTINGS).put({ ...snapshot, endpoints: snapshot.endpoints.map(endpoint => ({ ...endpoint, apiKey: '' })) }, 'config');
@@ -101,12 +100,12 @@ export async function loadStoredConfig(): Promise<AiConfig | null> {
     if (secrets.length) throw new Error('AI settings are missing but encrypted keys remain.');
     return null;
   }
-  if (secrets.length && !key) throw new Error('AI encryption key is missing.');
+  if (secrets.length && !key) throw new ConfigDecryptionError(config);
   const entries = await Promise.all(secrets.map(async secret => {
     try {
       const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: secret.iv, additionalData: new TextEncoder().encode(secret.endpointId) }, key!, secret.ciphertext);
       return [secret.endpointId, new TextDecoder().decode(plaintext)] as const;
-    } catch { throw new Error('Unable to decrypt an AI API key. Stored data was not modified.'); }
+    } catch { throw new ConfigDecryptionError(config); }
   }));
   const keys = new Map(entries);
   return { ...config, endpoints: config.endpoints.map(endpoint => ({ ...endpoint, apiKey: keys.get(endpoint.id) || '' })) };
@@ -181,9 +180,9 @@ export async function deleteStoredSession(id: string): Promise<void> {
   await complete;
 }
 
-export async function encryptEndpointKeys(config: AiConfig): Promise<EncryptedSecret[]> {
-  const db = await database();
-  const key = await encryptionKey(db);
+export async function encryptEndpointKeys(config: AiConfig, candidate?: CryptoKey): Promise<EncryptedSecret[]> {
+  if (!config.endpoints.some(endpoint => endpoint.apiKey)) return [];
+  const key = candidate ?? await encryptionKey();
   return Promise.all(config.endpoints.filter(endpoint => endpoint.apiKey).map(async endpoint => {
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: new TextEncoder().encode(endpoint.id) }, key, new TextEncoder().encode(endpoint.apiKey));
@@ -191,21 +190,73 @@ export async function encryptEndpointKeys(config: AiConfig): Promise<EncryptedSe
   }));
 }
 
-export async function decryptEndpointKeys(config: AiConfig, secrets: EncryptedSecret[]): Promise<AiConfig> {
+export async function decryptEndpointKeys(config: AiConfig, secrets: EncryptedSecret[], candidate?: CryptoKey): Promise<AiConfig> {
   if (!secrets.length) return { ...config, endpoints: config.endpoints.map(endpoint => ({ ...endpoint, apiKey: '' })) };
-  const db = await database();
-  const transaction = db.transaction(KEYS, 'readonly');
-  const complete = done(transaction);
-  const key = await result(transaction.objectStore(KEYS).get('master')) as CryptoKey | undefined;
-  await complete;
-  if (!key) throw new Error('This chat folder belongs to another browser or device. Its API keys cannot be decrypted.');
+  const key = candidate ?? await readEncryptionKey();
+  if (!key) throw new ConfigDecryptionError(config);
   const keys = new Map(await Promise.all(secrets.map(async secret => {
     try {
       const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: secret.iv, additionalData: new TextEncoder().encode(secret.endpointId) }, key, secret.ciphertext);
       return [secret.endpointId, new TextDecoder().decode(plaintext)] as const;
-    } catch { throw new Error('Unable to decrypt this chat folder. Stored files were not modified.'); }
+    } catch { throw new ConfigDecryptionError(config); }
   })));
   return { ...config, endpoints: config.endpoints.map(endpoint => ({ ...endpoint, apiKey: keys.get(endpoint.id) || '' })) };
+}
+
+export function replaceEncryptionKey(key: CryptoKey, reset: boolean, onlyIfMissing = false): Promise<void> {
+  const operation = pendingSave.then(async () => {
+    const db = await database();
+    const read = db.transaction([KEYS, SECRETS], 'readonly');
+    const complete = done(read);
+    const [oldKey, secrets] = await Promise.all([
+      result(read.objectStore(KEYS).get('master')) as Promise<CryptoKey | undefined>,
+      result(read.objectStore(SECRETS).getAll()) as Promise<EncryptedSecret[]>
+    ]);
+    await complete;
+    const encrypted = reset ? [] : await Promise.all(secrets.map(async secret => {
+      let plaintext: ArrayBuffer;
+      const additionalData = new TextEncoder().encode(secret.endpointId);
+      try {
+        plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: secret.iv, additionalData }, key, secret.ciphertext);
+      } catch {
+        if (!oldKey) throw new Error('Existing local API keys cannot be recovered. Reset the encryption key explicitly instead.');
+        plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: secret.iv, additionalData }, oldKey, secret.ciphertext);
+      }
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      return { endpointId: secret.endpointId, iv: iv.buffer, ciphertext: await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData }, key, plaintext) };
+    }));
+    const write = db.transaction([KEYS, SECRETS], 'readwrite');
+    const written = done(write);
+    let alreadyCreated = false;
+    const current = write.objectStore(KEYS).get('master');
+    current.onsuccess = () => {
+      if (onlyIfMissing && current.result) { alreadyCreated = true; write.abort(); return; }
+      write.objectStore(KEYS).put(key, 'master');
+      write.objectStore(SECRETS).clear();
+      encrypted.forEach(secret => write.objectStore(SECRETS).put(secret));
+    };
+    try { await written; }
+    catch (error) {
+      if (alreadyCreated) throw new Error('An encryption key already exists. Reload settings before continuing.');
+      throw error;
+    }
+  });
+  pendingSave = operation.catch(() => {});
+  return operation;
+}
+
+export async function verifyStoredEncryptionKey(key: CryptoKey): Promise<void> {
+  await pendingSave;
+  const db = await database();
+  const read = db.transaction(SECRETS, 'readonly');
+  const complete = done(read);
+  const secrets = await result(read.objectStore(SECRETS).getAll()) as EncryptedSecret[];
+  await complete;
+  for (const secret of secrets) {
+    try {
+      await crypto.subtle.decrypt({ name: 'AES-GCM', iv: secret.iv, additionalData: new TextEncoder().encode(secret.endpointId) }, key, secret.ciphertext);
+    } catch { throw new Error('This key does not match the encrypted API keys. Nothing was changed.'); }
+  }
 }
 
 export async function loadStoredUiState(): Promise<ChatUiState> {

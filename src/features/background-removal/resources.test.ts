@@ -1,10 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { download, importRuntime, validateRuntime } from './resources.ts';
+import { download, importRuntime, RUNTIME_ASSETS, validateRuntime } from './resources.ts';
 import type { RuntimeFiles } from './types.ts';
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('optional removal resources', () => {
+  it('pairs the dedicated WebGPU entry with its asyncify loader and WASM', () => {
+    expect(RUNTIME_ASSETS).toEqual({
+      script: 'ort.webgpu.bundle.min.mjs',
+      loader: 'ort-wasm-simd-threaded.asyncify.mjs',
+      wasm: 'ort-wasm-simd-threaded.asyncify.wasm'
+    });
+  });
   it('downloads directly without credentials and reports bytes', async () => {
     const fetch = vi.fn(async () => new Response(new Uint8Array([8, 1, 2]), { headers: { 'content-length': '3' } }));
     vi.stubGlobal('fetch', fetch);

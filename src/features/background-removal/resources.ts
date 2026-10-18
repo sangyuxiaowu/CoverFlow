@@ -4,8 +4,8 @@ import type { Progress, RuntimeFiles } from './types.ts';
 
 export const RUNTIME_ASSETS = {
   script: 'ort.webgpu.bundle.min.mjs',
-  loader: 'ort-wasm-simd-threaded.jsep.mjs',
-  wasm: 'ort-wasm-simd-threaded.jsep.wasm'
+  loader: 'ort-wasm-simd-threaded.asyncify.mjs',
+  wasm: 'ort-wasm-simd-threaded.asyncify.wasm'
 } as const;
 export const RUNTIME_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${RUNTIME_VERSION}/dist/`;
 

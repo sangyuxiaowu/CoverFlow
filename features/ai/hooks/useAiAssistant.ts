@@ -5,6 +5,7 @@ import { ConversationAbortError, conversationAbortDetails, runConversation, sani
 import { createWorkspaceBridge, type WorkspaceOptions } from '../services/workspace.ts';
 import { defaultConfig, normalizeConfig, toRequestConfig } from '../services/config.ts';
 import type { ChatStore } from '../services/chatStore.ts';
+import { removeSessionImages } from '../services/chatStore.ts';
 import { sumUsage } from '../services/usage.ts';
 import { generateId } from '../../../utils/helpers.ts';
 import { imageMimeType } from '../services/imageAttachments.ts';
@@ -162,6 +163,30 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
       activate(next);
     }
   });
+
+  const deleteImages = async (images: { sessionId: string; imageId: string }[]) => {
+    let completed = false;
+    await operateSession(async () => {
+      const grouped = new Map<string, Set<string>>();
+      images.forEach(image => {
+        if (!grouped.has(image.sessionId)) grouped.set(image.sessionId, new Set());
+        grouped.get(image.sessionId)!.add(image.imageId);
+      });
+      for (const [sessionId, ids] of grouped) {
+        const source = sessionRef.current?.id === sessionId ? sessionRef.current : sessions.find(session => session.id === sessionId);
+        if (!source) throw new Error('Session not found.');
+        const next = removeSessionImages(source, ids);
+        await persist(next);
+        if (sessionRef.current?.id === sessionId) activate(next);
+        const keepIds = next.entries.flatMap(entry => [
+          ...(entry.images || []), ...(entry.tools || []).flatMap(tool => tool.image ? [tool.image] : [])
+        ]).map(image => image.id);
+        await store.pruneImages(sessionId, keepIds);
+      }
+      completed = true;
+    });
+    return completed;
+  };
 
   const configure = async (next: AiConfig) => {
     if (controllerRef.current || loading || loadError || savingRef.current) throw new Error('AI settings are busy or unavailable.');
@@ -541,7 +566,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
 
   return {
     config, configure, entries, sessions, activeSessionId, newSession, selectSession,
-    renameSession, deleteSession, busy, loading, saving, loadError, configError,
+    renameSession, deleteSession, deleteImages, busy, loading, saving, loadError, configError,
     reloadConfig, send, clear, confirmation,
     stop: (source: 'user_stop' | 'panel_closed' = 'user_stop') => controllerRef.current?.abort(new ConversationAbortError(source)),
     executionError, clearExecutionError, retry, regenerate

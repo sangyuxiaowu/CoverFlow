@@ -27,6 +27,33 @@ export interface ChatStore {
   saveUiState: (patch: Partial<ChatUiState>) => Promise<void>;
 }
 
+export function removeSessionImages(session: ChatSession, imageIds: Set<string>): ChatSession {
+  const cleanHistory = (items: ChatSession['responseItems']) => items.map(item => {
+    const cleanParts = (parts: unknown[]) => parts.map(part => {
+      if (!part || typeof part !== 'object') return part;
+      const image = part as { type?: string; image_url?: string };
+      return image.type === 'input_image' && image.image_url?.startsWith('attachment://') && imageIds.has(image.image_url.slice('attachment://'.length))
+        ? { type: 'input_text', text: '[Chat image deleted by user]' }
+        : part;
+    });
+    return {
+      ...item,
+      ...('content' in item && Array.isArray(item.content) ? { content: cleanParts(item.content) } : {}),
+      ...('type' in item && item.type === 'function_call_output' && Array.isArray(item.output) ? { output: cleanParts(item.output) } : {})
+    } as typeof item;
+  });
+  return {
+    ...session,
+    entries: session.entries.map(entry => ({
+      ...entry,
+      images: entry.images?.filter(image => !imageIds.has(image.id)),
+      tools: entry.tools?.map(tool => tool.image && imageIds.has(tool.image.id) ? { ...tool, image: undefined } : tool),
+      previousResponseItems: entry.previousResponseItems ? cleanHistory(entry.previousResponseItems) : undefined
+    })),
+    responseItems: cleanHistory(session.responseItems)
+  };
+}
+
 export function createBrowserChatStore(): ChatStore {
   return { id: 'indexeddb', loadConfig, saveConfig: async config => { validateConfig(config); await saveStoredConfig(config); }, listSessions: listStoredSessions, saveSession: saveStoredSession, saveImage: saveStoredImage, loadImage: loadStoredImage, pruneImages: pruneStoredImages, deleteSession: deleteStoredSession, loadUiState: loadStoredUiState, saveUiState: saveStoredUiState };
 }

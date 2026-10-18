@@ -8,6 +8,7 @@ import { defaultConfig } from '../services/config.ts';
 import type { ChatStore } from '../services/chatStore.ts';
 import type { WorkspaceOptions } from '../services/workspace.ts';
 import type { StorageAdapter } from '../../../storage/StorageAdapter.ts';
+import type { ChatSession } from '../types.ts';
 
 vi.mock('../services/conversation.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../services/conversation.ts')>(),
@@ -59,6 +60,39 @@ afterEach(async () => {
   roots.clear();
   vi.mocked(runConversation).mockReset();
   vi.unstubAllGlobals();
+});
+
+it('deletes selected images and history references before pruning, preserving other assets and snapshots', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const image = { id: 'preview', name: 'canvas-preview.webp', type: 'image/webp' as const, size: 100 };
+  const keep = { ...image, id: 'generated', name: 'generated.png' };
+  const history: ChatSession['responseItems'] = [
+    { role: 'user', content: [{ type: 'input_image', image_url: 'attachment://preview', detail: 'auto' }, { type: 'input_text', text: 'Keep text' }] },
+    { type: 'function_call_output', call_id: 'call', output: [{ type: 'input_image', image_url: 'attachment://preview' }] }
+  ];
+  const session: ChatSession = {
+    id: 'session', title: 'Test', createdAt: 1, updatedAt: 2, requests: [], responseItems: history,
+    entries: [{ id: 'entry', role: 'assistant', content: 'Kept', images: [image, keep], tools: [
+      { id: 'tool', name: 'get_canvas_preview', arguments: '{}', status: 'success', image },
+      { id: 'other', name: 'generate_image', arguments: '{}', status: 'success', image: keep }
+    ], previousResponseItems: history, projectSnapshot: null }]
+  };
+  const store = memoryStore();
+  store.listSessions = async () => [structuredClone(session)];
+  store.pruneImages = vi.fn(async () => {});
+  const harness = await mount(store);
+  await act(async () => { expect(await harness.getAssistant().deleteImages([{ sessionId: 'session', imageId: 'preview' }])).toBe(true); });
+  const next = harness.getAssistant().sessions[0];
+  expect(next.entries[0].images).toEqual([keep]);
+  expect(next.entries[0].tools?.[0].image).toBeUndefined();
+  expect(next.entries[0].tools?.[1].image).toEqual(keep);
+  expect(JSON.stringify(next)).not.toContain('attachment://preview');
+  expect(JSON.stringify(next.responseItems)).toContain('Keep text');
+  expect(next.entries[0].projectSnapshot).toBeNull();
+  expect(next.updatedAt).toBe(2);
+  expect(harness.getAssistant().entries).toEqual(next.entries);
+  expect(store.pruneImages).toHaveBeenCalledWith('session', ['generated', 'generated']);
+  expect(vi.mocked(store.saveSession).mock.invocationCallOrder.at(-1)).toBeLessThan(vi.mocked(store.pruneImages).mock.invocationCallOrder[0]);
 });
 
 it.each(['user_stop', 'panel_closed'] as const)('records %s without confusing it with missing retry approval', async source => {

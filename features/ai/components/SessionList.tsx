@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Check,
   Image as ImageIcon,
@@ -18,7 +18,10 @@ import {
   ChevronRight,
   ExternalLink,
   HardDrive,
-  Paperclip
+  Paperclip,
+  ListChecks,
+  CheckCheck,
+  ArrowLeftRight
 } from 'lucide-react';
 import type { ChatSession } from '../types.ts';
 
@@ -32,6 +35,7 @@ interface Props {
   onRename: (id: string, title: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onLoadImage?: (sessionId: string, imageId: string) => Promise<Blob | null>;
+  onDeleteImages?: (images: { sessionId: string; imageId: string }[]) => Promise<boolean>;
 }
 
 export type ImageCategory = 'all' | 'generated' | 'preview' | 'attachment';
@@ -57,7 +61,8 @@ export default function SessionList({
   onSelect,
   onRename,
   onDelete,
-  onLoadImage
+  onLoadImage,
+  onDeleteImages
 }: Props) {
   const [view, setView] = useState<'sessions' | 'gallery'>('sessions');
   const [galleryCategory, setGalleryCategory] = useState<ImageCategory>('all');
@@ -65,6 +70,11 @@ export default function SessionList({
   const [title, setTitle] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmingImages, setConfirmingImages] = useState(false);
+  const [deletingImages, setDeletingImages] = useState(false);
+  const [imageDeleteError, setImageDeleteError] = useState('');
 
   // 放大查看大图模态框
   const [previewingImage, setPreviewingImage] = useState<{
@@ -78,6 +88,9 @@ export default function SessionList({
   // 缓存图片 URL
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({});
+  const cachedUrls = useRef<Record<string, string>>({});
+  const attemptedImages = useRef(new Set<string>());
+  const mounted = useRef(true);
 
   const label = (zh: string, en: string) => (english ? en : zh);
 
@@ -201,6 +214,37 @@ export default function SessionList({
     return allGalleryItems;
   }, [allGalleryItems, galleryCategory]);
 
+  const validImageIds = useRef(new Set<string>());
+  validImageIds.current = new Set(allGalleryItems.map(item => item.id));
+  const selectedItems = filteredGalleryItems.filter(item => selectedIds.has(item.id));
+  const imageControlsDisabled = disabled || deletingImages;
+  const changeCategory = (category: ImageCategory) => {
+    setGalleryCategory(category);
+    setSelectedIds(new Set());
+    setConfirmingImages(false);
+  };
+  const toggleImage = (id: string) => setSelectedIds(previous => {
+    const next = new Set(previous);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+  const deleteSelectedImages = async () => {
+    if (!onDeleteImages || imageControlsDisabled || !selectedItems.length) return;
+    setDeletingImages(true);
+    setImageDeleteError('');
+    try {
+      const deleted = await onDeleteImages(selectedItems.map(({ sessionId, imageId }) => ({ sessionId, imageId })));
+      if (deleted) {
+        setSelectedIds(new Set());
+        setConfirmingImages(false);
+        setPreviewingImage(null);
+      } else setImageDeleteError(label('删除未完成，请检查存储错误后重试。', 'Deletion incomplete. Check storage errors and retry.'));
+    } catch (error) {
+      setImageDeleteError(error instanceof Error ? error.message : label('图片删除失败。', 'Unable to delete images.'));
+    } finally { setDeletingImages(false); }
+  };
+
   // 会话搜索与过滤
   const filteredSessions = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -216,18 +260,20 @@ export default function SessionList({
     if (view !== 'gallery' || !onLoadImage) return;
 
     filteredGalleryItems.forEach(item => {
-      if (!imageUrls[item.id] && !loadingImages[item.id]) {
+      if (!imageUrls[item.id] && !attemptedImages.current.has(item.id)) {
+        attemptedImages.current.add(item.id);
         setLoadingImages(prev => ({ ...prev, [item.id]: true }));
         onLoadImage(item.sessionId, item.imageId)
           .then(blob => {
-            if (blob) {
+            if (blob && mounted.current && validImageIds.current.has(item.id)) {
               const url = URL.createObjectURL(blob);
+              cachedUrls.current[item.id] = url;
               setImageUrls(prev => ({ ...prev, [item.id]: url }));
             }
           })
           .catch(() => {})
           .finally(() => {
-            setLoadingImages(prev => ({ ...prev, [item.id]: false }));
+            if (mounted.current) setLoadingImages(prev => ({ ...prev, [item.id]: false }));
           });
       }
     });
@@ -235,10 +281,25 @@ export default function SessionList({
 
   // 组件卸载时释放所有 object URLs
   useEffect(() => {
+    mounted.current = true;
     return () => {
-      Object.values(imageUrls).forEach(url => URL.revokeObjectURL(url));
+      mounted.current = false;
+      Object.values(cachedUrls.current).forEach(url => URL.revokeObjectURL(url));
+      cachedUrls.current = {};
+      attemptedImages.current.clear();
     };
   }, []);
+
+  useEffect(() => {
+    const removed = Object.keys(cachedUrls.current).filter(id => !validImageIds.current.has(id));
+    if (!removed.length) return;
+    removed.forEach(id => {
+      URL.revokeObjectURL(cachedUrls.current[id]);
+      delete cachedUrls.current[id];
+      attemptedImages.current.delete(id);
+    });
+    setImageUrls({ ...cachedUrls.current });
+  }, [allGalleryItems]);
 
   // 下载保存图片
   const handleSaveImage = (item: GalleryItem, e?: React.MouseEvent) => {
@@ -276,27 +337,54 @@ export default function SessionList({
     return (
       <section className="w-full space-y-3.5 text-xs select-none" aria-label={label('图片资产画廊', 'Image Gallery')}>
         {/* 画廊头部导航 */}
-        <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-800/80">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-slate-800/80">
           <button
             type="button"
-            onClick={() => setView('sessions')}
+            disabled={imageControlsDisabled}
+            onClick={() => { setView('sessions'); setSelecting(false); setSelectedIds(new Set()); setConfirmingImages(false); }}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
           >
             <ArrowLeft size={13} />
             <span>{label('返回会话列表', 'Back to Chats')}</span>
           </button>
 
-          <div className="flex items-center gap-1.5 text-slate-400 text-[11px]">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5 text-slate-400 text-[11px]">
+            {onDeleteImages && (
+              <>
+                {selecting && (
+                  <>
+                    <span className="font-mono" role="status">{selectedItems.length}/{filteredGalleryItems.length}</span>
+                    <button type="button" disabled={imageControlsDisabled || !filteredGalleryItems.length} onClick={() => { setSelectedIds(new Set(filteredGalleryItems.map(item => item.id))); setConfirmingImages(false); }} title={label('全选当前分类', 'Select all in category')} aria-label={label('全选当前分类', 'Select all in category')} className="cf-ai-icon disabled:opacity-30"><CheckCheck size={14} /></button>
+                    <button type="button" disabled={imageControlsDisabled || !filteredGalleryItems.length} onClick={() => { setSelectedIds(new Set(filteredGalleryItems.filter(item => !selectedIds.has(item.id)).map(item => item.id))); setConfirmingImages(false); }} title={label('反选当前分类', 'Invert category selection')} aria-label={label('反选当前分类', 'Invert category selection')} className="cf-ai-icon disabled:opacity-30"><ArrowLeftRight size={14} /></button>
+                    <button type="button" disabled={imageControlsDisabled || !selectedItems.length} onClick={() => { setConfirmingImages(true); setImageDeleteError(''); }} title={label('删除选中图片', 'Delete selected images')} aria-label={label('删除选中图片', 'Delete selected images')} className="cf-ai-icon text-rose-400 disabled:opacity-30"><Trash2 size={14} /></button>
+                  </>
+                )}
+                <button type="button" disabled={imageControlsDisabled} aria-pressed={selecting} onClick={() => { setSelecting(!selecting); setSelectedIds(new Set()); setConfirmingImages(false); }} title={selecting ? label('退出批量选择', 'Exit selection') : label('批量选择', 'Batch select')} aria-label={selecting ? label('退出批量选择', 'Exit selection') : label('批量选择', 'Batch select')} className="cf-ai-icon disabled:opacity-30">{selecting ? <X size={14} /> : <ListChecks size={14} />}</button>
+              </>
+            )}
             <HardDrive size={12} className="text-blue-400" />
-            <span className="font-mono">{formatBytes(totalImageStorageBytes)}</span>
+            <span className="font-mono whitespace-nowrap">{formatBytes(totalImageStorageBytes)}</span>
           </div>
         </div>
+
+        {confirmingImages && (
+          <div role="alertdialog" aria-label={label('确认删除图片', 'Confirm image deletion')} className="space-y-2 rounded-lg border border-rose-500/30 bg-rose-950/30 p-3 text-xs text-rose-200">
+            <p>{label(`永久删除选中的 ${selectedItems.length} 张图片（${formatBytes(selectedItems.reduce((total, item) => total + item.size, 0))}）？`, `Permanently delete ${selectedItems.length} selected images (${formatBytes(selectedItems.reduce((total, item) => total + item.size, 0))})?`)}</p>
+            <p className="text-[11px] text-slate-400">{label('聊天中的图片及其引用将被清理，不影响画布中已添加的图片，无法撤销。', 'Removes chat images and references, not images already on the canvas. Cannot be undone.')}</p>
+            {imageDeleteError && <p role="alert">{imageDeleteError}</p>}
+            <div className="flex justify-end gap-2">
+              <button type="button" disabled={deletingImages} onClick={() => setConfirmingImages(false)} className="rounded-md bg-slate-800 px-3 py-1.5 text-slate-300">{label('取消', 'Cancel')}</button>
+              <button type="button" disabled={imageControlsDisabled || !selectedItems.length} onClick={() => void deleteSelectedImages()} className="rounded-md bg-rose-600 px-3 py-1.5 text-white disabled:opacity-40">{deletingImages ? label('删除中...', 'Deleting...') : label('确认删除', 'Delete')}</button>
+            </div>
+          </div>
+        )}
 
         {/* 分类过滤器切换 (全部 / 生图 / 预览 / 附件) */}
         <div className="grid grid-cols-4 gap-1 p-1 bg-slate-900/80 border border-slate-800/90 rounded-xl shadow-inner">
           <button
             type="button"
-            onClick={() => setGalleryCategory('all')}
+            disabled={deletingImages}
+            onClick={() => changeCategory('all')}
             className={`py-1.5 px-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center justify-center gap-1 min-w-0 ${
               galleryCategory === 'all'
                 ? 'bg-blue-600 text-white shadow-sm shadow-blue-900/30 font-bold'
@@ -317,7 +405,8 @@ export default function SessionList({
 
           <button
             type="button"
-            onClick={() => setGalleryCategory('generated')}
+            disabled={deletingImages}
+            onClick={() => changeCategory('generated')}
             className={`py-1.5 px-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center justify-center gap-1 min-w-0 ${
               galleryCategory === 'generated'
                 ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-900/30 font-bold'
@@ -338,7 +427,8 @@ export default function SessionList({
 
           <button
             type="button"
-            onClick={() => setGalleryCategory('preview')}
+            disabled={deletingImages}
+            onClick={() => changeCategory('preview')}
             className={`py-1.5 px-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center justify-center gap-1 min-w-0 ${
               galleryCategory === 'preview'
                 ? 'bg-amber-600 text-white shadow-sm shadow-amber-900/30 font-bold'
@@ -359,7 +449,8 @@ export default function SessionList({
 
           <button
             type="button"
-            onClick={() => setGalleryCategory('attachment')}
+            disabled={deletingImages}
+            onClick={() => changeCategory('attachment')}
             className={`py-1.5 px-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center justify-center gap-1 min-w-0 ${
               galleryCategory === 'attachment'
                 ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-900/30 font-bold'
@@ -408,6 +499,10 @@ export default function SessionList({
                 <div
                   key={item.id}
                   onClick={() => {
+                    if (selecting) {
+                      if (!imageControlsDisabled) { toggleImage(item.id); setConfirmingImages(false); }
+                      return;
+                    }
                     if (url) {
                       setPreviewingImage({
                         name: item.name,
@@ -418,7 +513,7 @@ export default function SessionList({
                       });
                     }
                   }}
-                  className="group relative rounded-xl border border-slate-800 hover:border-blue-500/50 bg-slate-900/60 overflow-hidden flex flex-col transition-all cursor-pointer shadow-sm hover:shadow-blue-950/20"
+                  className={`group relative rounded-xl border ${selecting && selectedIds.has(item.id) ? 'border-blue-500 ring-1 ring-blue-500' : 'border-slate-800'} hover:border-blue-500/50 bg-slate-900/60 overflow-hidden flex flex-col transition-all cursor-pointer shadow-sm hover:shadow-blue-950/20`}
                 >
                   {/* 图片缩略图容器 */}
                   <div className="relative aspect-video sm:aspect-square bg-[#070a0f] flex items-center justify-center overflow-hidden">
@@ -438,7 +533,10 @@ export default function SessionList({
                     )}
 
                     {/* 左上角分类徽章 */}
-                    <div className="absolute top-2 left-2 z-10">
+                    {selecting && (
+                      <input type="checkbox" checked={selectedIds.has(item.id)} disabled={imageControlsDisabled} aria-label={`${label('选择', 'Select')}: ${item.name} (${item.sessionTitle})`} onClick={event => event.stopPropagation()} onChange={() => { toggleImage(item.id); setConfirmingImages(false); }} className="absolute top-2 left-2 z-20 h-4 w-4 cursor-pointer accent-blue-600" />
+                    )}
+                    <div className={`absolute ${selecting ? 'top-8' : 'top-2'} left-2 z-10`}>
                       {item.category === 'generated' ? (
                         <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-indigo-600/90 text-white font-semibold backdrop-blur-sm shadow-sm flex items-center gap-1">
                           <Sparkles size={9} />

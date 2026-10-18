@@ -173,6 +173,7 @@ bun run typecheck
 ├─ components/         # UI 组件与面板
 ├─ features/ai/        # AI 功能：domain / tools / services / hooks / components
 ├─ hooks/              # 业务 Hooks
+├─ src/views/          # 落地页、项目浏览区与预览条目
 ├─ storage/            # 存储适配器
 ├─ utils/              # 工具函数
 ├─ src-tauri/          # Tauri 原生端

@@ -6,7 +6,7 @@ import LayersPanel from './components/LayersPanel.tsx';
 import Toast from './components/Toast.tsx';
 import ConfirmModal from './components/ConfirmModal.tsx';
 import BackgroundCropModal from './components/BackgroundCropModal.tsx';
-import LivePreview from './components/LivePreview.tsx';
+import LandingView from './src/views/LandingView.tsx';
 import ProjectPresetModal from './components/ProjectPresetModal.tsx';
 import ExportModal from './components/ExportModal.tsx';
 import AiAssistant from './features/ai/components/AiAssistant.tsx';
@@ -14,11 +14,13 @@ import type { WorkspaceOptions } from './features/ai/services/workspace.ts';
 import { updateProjectLayer } from './features/ai/domain/layerOperations.ts';
 import { applyRemovalResult } from './features/background-removal/layerResult.ts';
 import type { RemovalResult } from './features/background-removal/types.ts';
-import { PWAInstallButton } from './components/pwa/PWAInstallButton.tsx';
 import { PWAUpdatePrompt } from './components/pwa/PWAUpdatePrompt.tsx';
 import { OfflineIndicator } from './components/pwa/OfflineIndicator.tsx';
 // Tauri 环境下的本地文件适配器
 import { useLocalProjects, type RecentProjectItem } from './hooks/useLocalProjects.ts';
+import { useProjectHistory } from './hooks/useProjectHistory.ts';
+import { useProjectAutoSave } from './hooks/useProjectAutoSave.ts';
+import { useEditorShortcuts } from './hooks/useEditorShortcuts.ts';
 import { ProjectState, Layer, DecorationTemplate, PresetRatio } from './types.ts';
 import {
   createIndexedDBAdapter,
@@ -28,13 +30,7 @@ import {
   getStoredStorageType,
   setStoredLanguage,
   setStoredStorageType,
-  StorageAdapterType,
-  getStoredTimeGroupingMode,
-  setStoredTimeGroupingMode,
-  getStoredProjectViewLayout,
-  setStoredProjectViewLayout,
-  TimeGroupingMode,
-  ProjectViewLayout
+  StorageAdapterType
 } from './storage/storage.ts';
 import { translations, Language } from './translations.ts';
 import { PRESET_RATIOS } from './constants.ts';
@@ -43,14 +39,10 @@ import { clampDecorationSize } from './utils/decorationStyles.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
 import { encodeWebp, MAX_IMAGE_EDGE } from './features/ai/services/imageAttachments.ts';
 import { type Area } from 'react-easy-crop';
-import { 
-  Download, Trash2, Plus, ArrowLeft, Clock, 
-  LayoutGrid, CalendarDays, List, Layers,
-  Upload, FolderOpen, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, Search, X,
-  FileJson, ImageIcon as ImageIconLucide, Copy, Settings, Save, Bot
+import {
+  Download, ArrowLeft, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, X, Save, Bot
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
-import logoSvg from './doc/logo.svg?raw';
 import packageInfo from './package.json';
 
 const APP_VERSION = packageInfo.version;
@@ -61,266 +53,6 @@ const CLOUD_PAGE_SIZE = 9;
 type ExportFormat = 'png' | 'jpeg' | 'webp';
 type ExportCompression = 'lossless' | 'balanced' | 'small';
 
-// 格式化项目更新时间
-const formatProjectTime = (timestamp: number, lang: Language, showFullDate = false) => {
-  const d = new Date(timestamp);
-  if (isNaN(d.getTime())) return '';
-  const now = new Date();
-  const isToday = d.toDateString() === now.toDateString();
-  const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  if (!showFullDate && isToday) {
-    return timeStr;
-  }
-  const isThisYear = d.getFullYear() === now.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const dateStr = isThisYear ? `${month}-${day}` : `${d.getFullYear()}-${month}-${day}`;
-  return `${dateStr} ${timeStr}`;
-};
-
-// 项目卡片组件（网格视图）
-const ProjectCard = React.memo(({
-  project,
-  lang,
-  onClick,
-  onDelete,
-  onDownloadJson,
-  onDownloadImage,
-  onDuplicate,
-  sourceLabel,
-  showFullDate = false
-}: {
-  project: ProjectState;
-  lang: Language;
-  onClick: () => void;
-  onDelete: (e: React.MouseEvent) => void;
-  onDownloadJson: (e: React.MouseEvent) => void;
-  onDownloadImage: (previewNode: HTMLDivElement | null, e: React.MouseEvent) => void;
-  onDuplicate: (e: React.MouseEvent) => void;
-  sourceLabel?: string;
-  showFullDate?: boolean;
-}) => {
-  const t = translations[lang];
-  const [isVisible, setIsVisible] = useState(false);
-  const cardRef = useRef<HTMLDivElement>(null);
-  const previewNodeRef = useRef<HTMLDivElement>(null);
-
-  // 记录操作历史，供撤销/重做
-  useEffect(() => {
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) {
-        setIsVisible(true);
-        observer.disconnect();
-      }
-    }, { threshold: 0.05 });
-
-    if (cardRef.current) observer.observe(cardRef.current);
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <div 
-      ref={cardRef}
-      onClick={onClick} 
-      className="group bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden hover:border-blue-500/50 transition-all cursor-pointer shadow-xl hover:shadow-blue-900/10 flex flex-col h-[260px]"
-    >
-      <div className="flex-1 bg-[#0c0c0e] relative overflow-hidden flex items-center justify-center">
-        {isVisible ? (
-          <LivePreview project={project} previewRef={previewNodeRef} />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-[#0c0c0e]">
-            <div className="w-8 h-8 rounded-full border border-slate-800 border-t-slate-600 animate-spin opacity-20" />
-          </div>
-        )}
-        
-        {/* 右上角悬浮删除按钮 */}
-        <button 
-          onClick={onDelete} 
-          className="absolute top-3 right-3 z-20 p-2 text-white bg-red-600/80 hover:bg-red-500 rounded-xl transition-all shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95"
-          title={t.deleteProject}
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
-
-        {/* 标签 */}
-        <div className="absolute bottom-2 right-3 flex gap-2 z-10 opacity-60 group-hover:opacity-100 transition-opacity">
-          {/* Tauri 本地文件标签 */}
-          {sourceLabel && (
-            <span className="text-[9px] px-2 py-1 bg-emerald-600/20 text-emerald-300 font-black rounded-lg border border-emerald-500/40 uppercase tracking-tight">
-              {sourceLabel}
-            </span>
-          )}
-          {/* 比例标签 */}
-           <span className="text-[9px] px-2 py-1 bg-slate-800 text-slate-400 font-black rounded-lg border border-slate-700 uppercase tracking-tight">
-              {project.canvasConfig.ratio}
-           </span>
-        </div>
-
-        
-      </div>
-
-      <div className="px-5 py-4 flex flex-col gap-2 border-t border-slate-800/50 bg-slate-900/60 backdrop-blur-sm">
-        <h3 className="text-sm font-bold text-slate-100 group-hover:text-blue-400 transition-colors truncate">
-          {project.title}
-        </h3>
-        
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-[10px] flex items-center gap-1.5 uppercase font-bold tracking-widest text-slate-600">
-            <Clock className="w-3 h-3 text-slate-600" /> {formatProjectTime(project.updatedAt, lang, showFullDate)}
-          </p>
-          <div className="flex items-center gap-1">
-            <button 
-              onClick={(e) => onDuplicate(e)}
-              className="p-2 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
-              title={t.duplicateProject || t.importedCopySuffix}
-            >
-              <Copy className="w-3 h-3" />
-            </button>
-            <button 
-              onClick={(e) => onDownloadJson(e)} 
-              className="p-2 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
-              title={t.exportJson}
-            >
-              <FileJson className="w-3 h-3" />
-            </button>
-            <button 
-              onClick={(e) => onDownloadImage(previewNodeRef.current, e)} 
-              className="p-2 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
-              title={t.export}
-            >
-              <ImageIconLucide className="w-3 h-3" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-});
-
-// 项目列表项组件（列表视图）
-const ProjectListItem = React.memo(({
-  project,
-  lang,
-  onClick,
-  onDelete,
-  onDownloadJson,
-  onDownloadImage,
-  onDuplicate,
-  sourceLabel,
-  showFullDate = false
-}: {
-  project: ProjectState;
-  lang: Language;
-  onClick: () => void;
-  onDelete: (e: React.MouseEvent) => void;
-  onDownloadJson: (e: React.MouseEvent) => void;
-  onDownloadImage: (previewNode: HTMLDivElement | null, e: React.MouseEvent) => void;
-  onDuplicate: (e: React.MouseEvent) => void;
-  sourceLabel?: string;
-  showFullDate?: boolean;
-}) => {
-  const t = translations[lang];
-  const [isVisible, setIsVisible] = useState(false);
-  const rowRef = useRef<HTMLDivElement>(null);
-  const previewNodeRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) {
-        setIsVisible(true);
-        observer.disconnect();
-      }
-    }, { threshold: 0.05 });
-
-    if (rowRef.current) observer.observe(rowRef.current);
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <div 
-      ref={rowRef}
-      onClick={onClick} 
-      className="group bg-slate-900/40 border border-slate-800 rounded-2xl p-3 flex items-center justify-between gap-4 hover:border-blue-500/50 transition-all cursor-pointer shadow-lg hover:shadow-blue-900/10 hover:bg-slate-900/70"
-    >
-      <div className="flex items-center gap-4 min-w-0 flex-1">
-        {/* 缩略图预览 */}
-        <div className="w-24 h-16 bg-[#0c0c0e] rounded-xl overflow-hidden border border-slate-800/80 flex items-center justify-center flex-shrink-0 relative">
-          {isVisible ? (
-            <LivePreview project={project} previewRef={previewNodeRef} />
-          ) : (
-            <div className="w-5 h-5 rounded-full border border-slate-800 border-t-slate-600 animate-spin opacity-20" />
-          )}
-        </div>
-
-        {/* 项目标题及信息 */}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-            <h3 className="text-sm font-bold text-slate-100 group-hover:text-blue-400 transition-colors truncate max-w-md">
-              {project.title}
-            </h3>
-            {sourceLabel && (
-              <span className="text-[9px] px-1.5 py-0.5 bg-emerald-600/20 text-emerald-300 font-black rounded-md border border-emerald-500/40 uppercase tracking-tight flex-shrink-0">
-                {sourceLabel}
-              </span>
-            )}
-            <span className="text-[9px] px-1.5 py-0.5 bg-slate-800 text-slate-400 font-black rounded-md border border-slate-700 uppercase tracking-tight flex-shrink-0">
-              {project.canvasConfig.ratio}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3 text-[10px] font-bold text-slate-500">
-            <span className="flex items-center gap-1.5 uppercase tracking-wider text-slate-500">
-              <Clock className="w-3 h-3 text-slate-600" />
-              {formatProjectTime(project.updatedAt, lang, showFullDate)}
-            </span>
-            <span className="text-slate-700">•</span>
-            <span className="text-slate-500">
-              {project.layers.length} {lang === 'zh' ? '个图层' : 'layers'}
-            </span>
-            <span className="text-slate-700">•</span>
-            <span className="text-slate-500">
-              {project.canvasConfig.width} × {project.canvasConfig.height} px
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* 操作按钮 */}
-      <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-        <button 
-          onClick={(e) => onDuplicate(e)}
-          className="p-2 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
-          title={t.duplicateProject || t.importedCopySuffix}
-        >
-          <Copy className="w-3.5 h-3.5" />
-        </button>
-        <button 
-          onClick={(e) => onDownloadJson(e)} 
-          className="p-2 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
-          title={t.exportJson}
-        >
-          <FileJson className="w-3.5 h-3.5" />
-        </button>
-        <button 
-          onClick={(e) => onDownloadImage(previewNodeRef.current, e)} 
-          className="p-2 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
-          title={t.export}
-        >
-          <ImageIconLucide className="w-3.5 h-3.5" />
-        </button>
-        <button 
-          onClick={onDelete} 
-          className="p-2 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-red-600 rounded-xl transition-all shadow-sm active:scale-90"
-          title={t.deleteProject}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-      </div>
-    </div>
-  );
-});
-
-// 应用主组件
 const App: React.FC = () => {
   const [lang, setLang] = useState<Language>(() => getStoredLanguage('zh'));
   const t = translations[lang];
@@ -337,12 +69,6 @@ const App: React.FC = () => {
   }, [storageType, localFileAdapter, indexedDbAdapter, cloudAdapter]);
   const [storageFolderName, setStorageFolderName] = useState('');
   const storageReadyRef = useRef(false);
-  const lastSavedAtRef = useRef(0);
-  const lastSavedSnapshotRef = useRef('');
-  const lastSavedProjectIdRef = useRef<string | null>(null);
-  const saveTimerRef = useRef<number | null>(null);
-  const latestProjectRef = useRef<ProjectState | null>(null);
-  const prevViewRef = useRef<'landing' | 'editor'>('landing');
   
   const [view, setView] = useState<'landing' | 'editor'>('landing');
   const [aiBusy, setAiBusy] = useState(false);
@@ -355,23 +81,6 @@ const App: React.FC = () => {
   const [confirmDialog, setConfirmDialog] = useState<{ message: string, onConfirm: () => void } | null>(null);
   const [isStorageSettingsOpen, setIsStorageSettingsOpen] = useState(false);
   const [projectSearchTerm, setProjectSearchTerm] = useState('');
-  const [timeGroupingMode, setTimeGroupingMode] = useState<TimeGroupingMode>(() => (
-    getStoredTimeGroupingMode('grouped')
-  ));
-  const [viewLayoutMode, setViewLayoutMode] = useState<ProjectViewLayout>(() => (
-    getStoredProjectViewLayout('grid')
-  ));
-
-  const handleTimeGroupingChange = useCallback((mode: TimeGroupingMode) => {
-    setTimeGroupingMode(mode);
-    setStoredTimeGroupingMode(mode);
-  }, []);
-
-  const handleViewLayoutChange = useCallback((layout: ProjectViewLayout) => {
-    setViewLayoutMode(layout);
-    setStoredProjectViewLayout(layout);
-  }, []);
-
   const [cloudPage, setCloudPage] = useState(1);
   const [cloudHasMore, setCloudHasMore] = useState(true);
   const [cloudLoading, setCloudLoading] = useState(false);
@@ -394,8 +103,7 @@ const App: React.FC = () => {
   const [exportEstimatedSize, setExportEstimatedSize] = useState<number | null>(null);
   const [exportEstimating, setExportEstimating] = useState(false);
   
-  const [history, setHistory] = useState<ProjectState[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
+  const { initProjectHistory, modifyProject, saveHistorySnapshot, handleUndo, handleRedo, canUndo, canRedo } = useProjectHistory(project, setProject);
 
   const [bgCropModal, setBgCropModal] = useState<{ src: string } | null>(null);
   const [bgCropPosition, setBgCropPosition] = useState({ x: 0, y: 0 });
@@ -405,8 +113,6 @@ const App: React.FC = () => {
   const [bgCropAreaPixels, setBgCropAreaPixels] = useState<Area | null>(null);
   const [bgCropSaving, setBgCropSaving] = useState(false);
 
-  const isUndoRedoAction = useRef(false);
-  const ignoreHistoryChange = useRef(false);
 
   const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -419,10 +125,6 @@ const App: React.FC = () => {
     showToast(`${message}: ${detail}`, 'error');
   }, [showToast, storageAdapter]);
 
-  const initProjectHistory = useCallback((p: ProjectState) => {
-    setHistory([JSON.parse(JSON.stringify(p))]);
-    setHistoryIndex(0);
-  }, []);
 
   const handleLocalProjectUpdate = useCallback((nextProject: ProjectState) => {
     setProject(nextProject);
@@ -550,81 +252,11 @@ const App: React.FC = () => {
     };
   }, [storageAdapter, storageType, localFileAdapter, t.storageLoadFailed, isCloudMode, reportStorageError]);
 
-  useEffect(() => {
-    latestProjectRef.current = project;
-    if (!project) {
-      lastSavedProjectIdRef.current = null;
-      lastSavedSnapshotRef.current = '';
-      return;
-    }
-    if (lastSavedProjectIdRef.current !== project.id) {
-      lastSavedProjectIdRef.current = project.id;
-      lastSavedSnapshotRef.current = JSON.stringify(project);
-    }
-  }, [project]);
-
-  const performAutoSave = useCallback((reason: 'auto' | 'leave' | 'manual') => {
-    const canSaveLocal = Boolean(activeLocalFilePath && isTauri);
-    if (!storageReadyRef.current && !canSaveLocal) return;
-    const currentProject = latestProjectRef.current;
-    if (!currentProject) return;
-
-    const snapshot = JSON.stringify(currentProject);
-    if (snapshot === lastSavedSnapshotRef.current) return;
-
-    const now = Date.now();
-    if (reason === 'auto' && now - lastSavedAtRef.current < 5000) {
-      const delay = 5000 - (now - lastSavedAtRef.current);
-      if (saveTimerRef.current === null) {
-        // 延迟到 5s 后再保存最新内容
-        saveTimerRef.current = window.setTimeout(() => {
-          saveTimerRef.current = null;
-          performAutoSave('auto');
-        }, delay);
-      }
-      return;
-    }
-
-    // tauri 模式下本地文件编辑关闭自动保存
-    if (activeLocalFilePath && isTauri && reason === 'auto') {
-      return;
-    }
-
-    if (activeLocalFilePath && isTauri) {
-      saveLocalProjectToFile(activeLocalFilePath, currentProject).then((nextProject) => {
-        lastSavedAtRef.current = Date.now();
-        lastSavedProjectIdRef.current = nextProject.id;
-        lastSavedSnapshotRef.current = JSON.stringify(nextProject);
-        if (reason === 'manual') {
-          showToast(t.save || 'Saved');
-        }
-      }).catch((err) => {
-        reportStorageError(err, `save-${reason}`, t.storageSaveFailed, currentProject.id, activeLocalFilePath);
-      });
-      return;
-    }
-
-    storageAdapter.saveProject(currentProject).then(() => {
-      lastSavedAtRef.current = Date.now();
-      lastSavedProjectIdRef.current = currentProject.id;
-      lastSavedSnapshotRef.current = snapshot;
-      if (reason === 'manual') {
-        showToast(t.save || 'Saved');
-      }
-    }).catch((err) => {
-      reportStorageError(err, `save-${reason}`, t.storageSaveFailed, currentProject.id);
-    });
-  }, [activeLocalFilePath, isTauri, saveLocalProjectToFile, storageAdapter, showToast, reportStorageError, t.storageSaveFailed]);
-
-  const persistProject = useCallback(async (nextProject: ProjectState) => {
-    try {
-      await storageAdapter.saveProject(nextProject);
-      lastSavedProjectIdRef.current = nextProject.id;
-      lastSavedSnapshotRef.current = JSON.stringify(nextProject);
-    } catch (err) {
-      reportStorageError(err, 'persist-project', t.storageSaveFailed, nextProject.id);
-    }
-  }, [storageAdapter, reportStorageError, t.storageSaveFailed]);
+  const { performAutoSave, persistProject, latestProjectRef, cancelPendingSave } = useProjectAutoSave({
+    project, view, storageAdapter, storageReadyRef, isCloudMode, isTauri, activeLocalFilePath,
+    saveLocalProjectToFile, clearActiveLocalFilePath, showToast, reportStorageError,
+    savedMessage: t.save || 'Saved', saveFailedMessage: t.storageSaveFailed
+  });
 
   const removeStoredProject = useCallback(async (projectId: string) => {
     try {
@@ -643,37 +275,6 @@ const App: React.FC = () => {
     removeStoredProject(projectId);
   }, [project?.id, removeStoredProject]);
 
-  useEffect(() => {
-    if (saveTimerRef.current !== null) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
-  }, [storageAdapter]);
-
-  useEffect(() => {
-    if (isCloudMode) return;
-    if (view !== 'editor' || !project) return;
-    if (activeLocalFilePath && isTauri) return;
-    performAutoSave('auto');
-  }, [project, view, performAutoSave, isCloudMode, activeLocalFilePath, isTauri]);
-
-  useEffect(() => {
-    if (prevViewRef.current === 'editor' && view !== 'editor') {
-      // 离开编辑页时强制尝试保存（跳过 5s 限制）
-      performAutoSave('leave');
-      clearActiveLocalFilePath();
-    }
-    prevViewRef.current = view;
-  }, [view, performAutoSave]);
-
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      // 关闭浏览器时尝试保存最新内容
-      performAutoSave('leave');
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [performAutoSave]);
 
   useEffect(() => {
     if (project && view === 'editor') {
@@ -699,10 +300,6 @@ const App: React.FC = () => {
     });
   }, [project?.id, project?.selectedLayerId]);
 
-  const modifyProject = (modifier: (p: ProjectState) => ProjectState, saveToHistory: boolean = true) => {
-    if (!saveToHistory) ignoreHistoryChange.current = true;
-    setProject(prev => prev ? modifier(prev) : null);
-  };
 
   const handleOpenBackgroundCrop = useCallback((src: string) => {
     setBgCropModal({ src });
@@ -736,53 +333,6 @@ const App: React.FC = () => {
     }
   }, [project, bgCropModal, bgCropAreaPixels, bgCropRotation, bgCropFlip, modifyProject, showToast, t.cropFailed]);
 
-  useEffect(() => {
-    if (project && !isUndoRedoAction.current && !ignoreHistoryChange.current) {
-      const lastState = history[historyIndex];
-      if (JSON.stringify(lastState) !== JSON.stringify(project)) {
-         const newHistory = history.slice(0, historyIndex + 1);
-         newHistory.push(JSON.parse(JSON.stringify(project)));
-         if (newHistory.length > 50) newHistory.shift();
-         setHistory(newHistory);
-         setHistoryIndex(newHistory.length - 1);
-      }
-    }
-    isUndoRedoAction.current = false;
-    ignoreHistoryChange.current = false;
-  }, [project]);
-
-  const handleUndo = useCallback(() => {
-    if (historyIndex > 0) {
-      isUndoRedoAction.current = true;
-      const prevIndex = historyIndex - 1;
-      const prevState = JSON.parse(JSON.stringify(history[prevIndex]));
-      setProject(prevState);
-      setHistoryIndex(prevIndex);
-    }
-  }, [historyIndex, history]);
-
-  const handleRedo = useCallback(() => {
-    if (historyIndex < history.length - 1) {
-      isUndoRedoAction.current = true;
-      const nextIndex = historyIndex + 1;
-      const nextState = JSON.parse(JSON.stringify(history[nextIndex]));
-      setProject(nextState);
-      setHistoryIndex(nextIndex);
-    }
-  }, [historyIndex, history]);
-
-  // 拖拽/连续调整结束时提交一次历史快照
-  const saveHistorySnapshot = () => {
-    if (!project) return;
-    ignoreHistoryChange.current = false;
-    const lastState = history[historyIndex];
-    if (JSON.stringify(lastState) !== JSON.stringify(project)) {
-      const newHistory = history.slice(0, historyIndex + 1);
-      newHistory.push(JSON.parse(JSON.stringify(project)));
-      setHistory(newHistory);
-      setHistoryIndex(newHistory.length - 1);
-    }
-  };
 
   const clampPresetSize = (value: number) => Math.max(10, Math.round(value));
 
@@ -1557,79 +1107,6 @@ const App: React.FC = () => {
     showToast(t.projectJsonApplied);
   };
 
-  // 统一处理粘贴：文字/SVG/图片/JSON
-  useEffect(() => {
-    if (view !== 'editor' || !project) return;
-
-    const readFileAsText = (file: File) => new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsText(file);
-    });
-
-    const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-
-    const handlePaste = async (e: ClipboardEvent) => {
-      if (aiBusy) return;
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
-        return;
-      }
-
-      const clipboard = e.clipboardData;
-      if (!clipboard) return;
-
-      const files = Array.from(clipboard.files || []);
-      if (files.length > 0) {
-        e.preventDefault();
-        for (const file of files) {
-          if (file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) {
-            const text = await readFileAsText(file);
-            addSvgLayerWithContent(text);
-          } else if (file.type.startsWith('image/')) {
-            const dataUrl = await readFileAsDataUrl(file);
-            addImageLayerWithContent(dataUrl);
-          }
-        }
-        return;
-      }
-
-      const text = clipboard.getData('text/plain');
-      if (!text || !text.trim()) return;
-
-      const trimmed = text.trim();
-
-      if (trimmed.toLowerCase().startsWith('<svg')) {
-        e.preventDefault();
-        addSvgLayerWithContent(trimmed);
-        return;
-      }
-
-      if (trimmed.startsWith('{')) {
-        try {
-          const parsed = JSON.parse(trimmed);
-          if (parsed && (parsed.layers || parsed.background || parsed.canvasConfig)) {
-            e.preventDefault();
-            applyProjectFromJson(parsed as ProjectState);
-            return;
-          }
-        } catch (err) {}
-      }
-
-      e.preventDefault();
-      addTextLayerWithContent(trimmed);
-    };
-
-    window.addEventListener('paste', handlePaste);
-    return () => window.removeEventListener('paste', handlePaste);
-  }, [view, project, lang, aiBusy]);
-
   const handleAddText = () => {
     if (!project) return;
     const newLayer: Layer = {
@@ -1739,160 +1216,11 @@ const App: React.FC = () => {
   };
 
   
-    // 键盘快捷键处理
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (aiBusy || (e.target as HTMLElement).closest('.cf-ai-panel')) return;
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
-        return;
-      }
-
-      // 保存（Ctrl+S / Cmd+S）
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-        e.preventDefault();
-        performAutoSave('manual');
-        return;
-      }
-
-      // 撤销/重做
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) handleRedo();
-        else handleUndo();
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
-        e.preventDefault();
-        handleRedo();
-        return;
-      }
-
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
-        if (selectedLayerIds.length > 1) {
-          e.preventDefault();
-          handleGroupLayers(selectedLayerIds);
-        }
-        return;
-      }
-
-      if (!project || !project.selectedLayerId) return;
-
-      const layer = project.layers.find(l => l.id === project.selectedLayerId);
-      if (!layer || layer.locked) return;
-
-      // 回车：激活文字编辑
-      if (e.key === 'Enter') {
-        if (layer.type === 'text') {
-          e.preventDefault();
-          const textarea = document.querySelector('textarea');
-          if (textarea) textarea.focus();
-          return;
-        }
-      }
-
-      // 删除/退格
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        e.preventDefault();
-        if (selectedLayerIds.length > 1) handleDeleteLayers(selectedLayerIds);
-        else handleDeleteLayers([project.selectedLayerId]);
-        return;
-      }
-
-      // 组合按键（Ctrl + 方向键）
-      if (e.ctrlKey || e.metaKey) {
-        // 层级调整
-        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-          e.preventDefault();
-          modifyProject(p => {
-            const index = p.layers.findIndex(l => l.id === project.selectedLayerId);
-            const newLayers = [...p.layers];
-            if (e.key === 'ArrowUp' && index < newLayers.length - 1) {
-              [newLayers[index], newLayers[index + 1]] = [newLayers[index + 1], newLayers[index]];
-            } else if (e.key === 'ArrowDown' && index > 0) {
-              [newLayers[index], newLayers[index - 1]] = [newLayers[index - 1], newLayers[index]];
-            }
-            return { ...p, layers: newLayers.map((l, i) => ({ ...l, zIndex: i + 1 })) };
-          });
-          return;
-        }
-
-        // 旋转调整
-        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-          e.preventDefault();
-          const dr = e.key === 'ArrowLeft' ? -5 : 5;
-          updateLayer(project.selectedLayerId, { rotation: (layer.rotation + dr) % 360 });
-          return;
-        }
-
-        // 克隆（Ctrl+J）
-        if (e.key.toLowerCase() === 'j') {
-          e.preventDefault();
-          if (selectedLayerIds.length > 1) handleCloneLayers(selectedLayerIds);
-          else handleCloneLayers([project.selectedLayerId]);
-          return;
-        }
-      }
-
-      // 简单位移
-      if (!e.ctrlKey && !e.metaKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-        e.preventDefault();
-        const step = e.shiftKey ? 10 : 1;
-        let dx = 0, dy = 0;
-        if (e.key === 'ArrowUp') dy = -step;
-        if (e.key === 'ArrowDown') dy = step;
-        if (e.key === 'ArrowLeft') dx = -step;
-        if (e.key === 'ArrowRight') dx = step;
-        updateLayer(project.selectedLayerId, { x: layer.x + dx, y: layer.y + dy });
-        return;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [project, handleUndo, handleRedo, updateLayer, lang, selectedLayerIds, handleDeleteLayers, handleCloneLayers, handleGroupLayers, performAutoSave, aiBusy]);
-
-  const allFilteredProjects = useMemo(() => {
-    const search = projectSearchTerm.toLowerCase();
-    const storageItems: RecentProjectItem[] = (isCloudMode
-      ? projects
-      : projects.filter(p => p.title.toLowerCase().includes(search)))
-      .map(project => ({ project, source: 'storage' }));
-    const localItems = localRecentItems.filter(item => !search || item.project.title.toLowerCase().includes(search));
-    const filtered = [...storageItems, ...localItems];
-    filtered.sort((a, b) => (b.project.updatedAt || 0) - (a.project.updatedAt || 0));
-    return filtered;
-  }, [projects, localRecentItems, projectSearchTerm, isCloudMode]);
-
-  const groupedProjects = useMemo(() => {
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const startOfYesterday = startOfToday - 86400000;
-    const startOfThisWeek = startOfToday - (now.getDay() * 86400000);
-    const startOfLastWeek = startOfThisWeek - (7 * 86400000);
-    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()).getTime();
-
-    const groups: { label: string, key: string, items: RecentProjectItem[] }[] = [
-      { label: t.dateGroups.today, key: 'today', items: [] },
-      { label: t.dateGroups.yesterday, key: 'yesterday', items: [] },
-      { label: t.dateGroups.thisWeek, key: 'thisWeek', items: [] },
-      { label: t.dateGroups.lastWeek, key: 'lastWeek', items: [] },
-      { label: t.dateGroups.lastMonth, key: 'lastMonth', items: [] },
-      { label: t.dateGroups.older, key: 'older', items: [] }
-    ];
-
-    allFilteredProjects.forEach(item => {
-      const time = item.project.updatedAt;
-      if (time >= startOfToday) groups[0].items.push(item);
-      else if (time >= startOfYesterday) groups[1].items.push(item);
-      else if (time >= startOfThisWeek) groups[2].items.push(item);
-      else if (time >= startOfLastWeek) groups[3].items.push(item);
-      else if (time >= startOfLastMonth) groups[4].items.push(item);
-      else groups[5].items.push(item);
-    });
-
-    return groups.filter(g => g.items.length > 0);
-  }, [allFilteredProjects, t.dateGroups]);
+  useEditorShortcuts({
+    view, project, aiBusy, selectedLayerIds, handleUndo, handleRedo, performAutoSave, modifyProject,
+    updateLayer, handleDeleteLayers, handleCloneLayers, handleGroupLayers, addSvgLayerWithContent,
+    addImageLayerWithContent, addTextLayerWithContent, applyProjectFromJson
+  });
 
   const renderStorageSettingsModal = () => {
     if (!isStorageSettingsOpen) return null;
@@ -2060,7 +1388,7 @@ const App: React.FC = () => {
       else setProjects(previous => previous.filter(item => item.id !== id));
       if (project?.id === id) {
         latestProjectRef.current = null;
-        if (saveTimerRef.current !== null) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+        cancelPendingSave();
         clearActiveLocalFilePath();
         setProject(null);
         setSelectedLayerIds([]);
@@ -2082,15 +1410,7 @@ const App: React.FC = () => {
     return { width: Math.round(width), height: Math.round(height) };
   })();
 
-  const renderProjectItem = (item: RecentProjectItem) => {
-    const isUngrouped = timeGroupingMode === 'ungrouped';
-    const itemKey = `${item.source}-${item.localPath || item.project.id}`;
-    const commonProps = {
-      project: item.project,
-      lang: lang,
-      sourceLabel: item.source === 'local' ? t.localProjectTag : undefined,
-      showFullDate: isUngrouped,
-      onClick: () => {
+  const handleOpenRecentProject = (item: RecentProjectItem) => {
         if (item.source === 'local' && item.localPath) {
           openLocalProjectFromPath(item.localPath);
           return;
@@ -2099,9 +1419,9 @@ const App: React.FC = () => {
         setView('editor');
         initProjectHistory(item.project);
         clearActiveLocalFilePath();
-      },
-      onDelete: (e: React.MouseEvent) => {
-        e.stopPropagation();
+  };
+
+  const handleDeleteRecentProject = (item: RecentProjectItem) => {
         if (item.source === 'local' && item.localPath) {
           setConfirmDialog({
             message: t.confirmRemoveLocalProject,
@@ -2113,31 +1433,22 @@ const App: React.FC = () => {
           message: t.confirmDeleteProject,
           onConfirm: () => deleteProjectById(item.project.id)
         });
-      },
-      onDuplicate: (e: React.MouseEvent) => {
-        e.stopPropagation();
-        handleDuplicateProject(item.project);
-      },
-      onDownloadJson: (e: React.MouseEvent) => {
-        e.stopPropagation();
-        handleExportJson(item.project);
-      },
-      onDownloadImage: (node: HTMLDivElement | null, e: React.MouseEvent) => {
-        e.stopPropagation();
-        handleExportImage(node, item.project);
-      }
-    };
-
-    if (viewLayoutMode === 'list') {
-      return <ProjectListItem key={itemKey} {...commonProps} />;
-    }
-    return <ProjectCard key={itemKey} {...commonProps} />;
   };
 
   return (
     <>
       {view === 'landing' ? (
-      <div inert={aiBusy} className="min-h-screen bg-slate-950 text-slate-200 p-8 flex flex-col gap-12 max-w-8xl mx-auto h-screen overflow-hidden" style={{ maxWidth: '95%' }}>
+      <LandingView
+        lang={lang} aiBusy={aiBusy} isAiOpen={isAiOpen} isTauri={isTauri} isCloudMode={isCloudMode}
+        projects={projects} localRecentItems={localRecentItems} projectSearchTerm={projectSearchTerm}
+        setProjectSearchTerm={setProjectSearchTerm} cloudLoading={cloudLoading}
+        handleProjectsScroll={handleProjectsScroll} handleOpenRecentProject={handleOpenRecentProject}
+        handleDeleteRecentProject={handleDeleteRecentProject} handleDuplicateProject={handleDuplicateProject}
+        handleExportJson={handleExportJson} handleExportImage={handleExportImage}
+        openPresetModal={openPresetModal} openLocalProjectDialog={openLocalProjectDialog} handleImportJson={handleImportJson}
+        onToggleAi={() => setIsAiOpen(prev => !prev)} onOpenStorageSettings={() => setIsStorageSettingsOpen(true)}
+        onLanguageChange={setLang}
+      >
         {toast && <Toast message={toast.msg} type={toast.type} />}
         {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
         {!isCloudMode && renderStorageSettingsModal()}
@@ -2158,193 +1469,7 @@ const App: React.FC = () => {
             setIsPresetModalOpen(false);
           }}
         />
-        <div className="flex justify-between items-center flex-shrink-0">
-          <div className="flex items-center gap-4"><div className="bg-blue-600 p-2.5 rounded-2xl shadow-xl shadow-blue-900/20 text-white"><span className="w-8 h-8 block" dangerouslySetInnerHTML={{ __html: logoSvg }} /></div><div className="relative"><h1 className="text-3xl font-black tracking-tight text-white">{t.title}</h1><p className="text-slate-500 text-sm font-medium">{t.landingHeader}</p>
-          <a href={GITHUB_REPO_URL}
-                target="_blank"
-                rel="noreferrer"
-                title={`GitHub Repository v${APP_VERSION}`}>
-                  <span className="absolute top-0 left-full ml-2 px-1.5 py-0.5 rounded-full bg-slate-900 text-[9px] font-black tracking-tight text-white border border-slate-700">v{APP_VERSION}</span>
-          </a></div></div>
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              onClick={openPresetModal}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-900/20 transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              {t.createNew}
-            </button>
-            {/* 本地打开需要文件系统权限，仅在 Tauri 版本支持 */}
-            {isTauri && (
-              <button
-                type="button"
-                onClick={openLocalProjectDialog}
-                className="flex items-center gap-2 px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 transition-all"
-              >
-                <FolderOpen className="w-4 h-4 text-blue-500" />
-                <span className="text-xs font-bold">{t.openLocalProject}</span>
-              </button>
-            )}
-            <label className="flex items-center gap-2 px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 cursor-pointer transition-all">
-              <Upload className="w-4 h-4 text-blue-500" />
-              <span className="text-xs font-bold">{t.import}</span>
-              <input type="file" accept=".cfj" onChange={handleImportJson} className="hidden" />
-            </label>
-            <PWAInstallButton lang={lang} />
-            <button
-              type="button"
-              onClick={() => setIsAiOpen(prev => !prev)}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border shadow-sm ${
-                isAiOpen
-                  ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300 shadow-emerald-950/30'
-                  : 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:border-emerald-500/40 hover:bg-slate-800/80'
-              }`}
-              title={lang === 'en' ? 'AI Assistant' : 'AI 助手'}
-              aria-label={lang === 'en' ? 'AI Assistant' : 'AI 助手'}
-              aria-expanded={isAiOpen}
-            >
-              <Bot className={`w-4 h-4 ${isAiOpen ? 'text-emerald-400' : 'text-emerald-500'}`} />
-              <span>{lang === 'en' ? 'AI Assistant' : 'AI 助手'}</span>
-              {aiBusy && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />}
-            </button>
-            {!isCloudMode && (
-              <button
-                type="button"
-                onClick={() => setIsStorageSettingsOpen(true)}
-                className="flex items-center gap-2 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 transition-all"
-              >
-                <Settings className="w-4 h-4 text-blue-500" />
-                <span className="text-xs font-bold">{t.storageSettings}</span>
-              </button>
-            )}
-            <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800"><button onClick={() => setLang('zh')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'zh' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>中</button><button onClick={() => setLang('en')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'en' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>EN</button></div>
-          </div>
-        </div>
-        <div className="flex-1 min-h-0 flex flex-col gap-6 overflow-hidden">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 flex-shrink-0">
-            <div className="flex items-center gap-3">
-              <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <Clock className="w-4 h-4 text-blue-500" />
-                <span>{t.recentProjects}</span>
-              </h2>
-              {allFilteredProjects.length > 0 && (
-                <span className="text-[11px] font-bold text-slate-400 bg-slate-900/80 px-2.5 py-0.5 rounded-full border border-slate-800">
-                  {allFilteredProjects.length}
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center gap-3 flex-wrap">
-              {/* 整合控制组：排列方式与视图切换 */}
-              <div className="flex items-center bg-slate-900 border border-slate-800 p-1 rounded-xl shadow-inner gap-0.5">
-                {/* 按时间分组切换：单图标开关，点亮时按时间分组，熄灭时平铺展示 */}
-                <button
-                  type="button"
-                  onClick={() => handleTimeGroupingChange(timeGroupingMode === 'grouped' ? 'ungrouped' : 'grouped')}
-                  className={`p-1.5 rounded-lg transition-all ${
-                    timeGroupingMode === 'grouped'
-                      ? 'bg-slate-800 text-blue-400 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/60'
-                  }`}
-                  title={
-                    timeGroupingMode === 'grouped'
-                      ? (lang === 'zh' ? '按时间分组：已开启（点击平铺全部）' : 'Group by date: On (click to show all)')
-                      : (lang === 'zh' ? '按时间分组：已关闭（点击按时间分组）' : 'Group by date: Off (click to group by date)')
-                  }
-                  aria-label={lang === 'zh' ? '按时间分组' : 'Group by date'}
-                  aria-pressed={timeGroupingMode === 'grouped'}
-                >
-                  <Layers className="w-4 h-4" />
-                </button>
-
-                <div className="w-px h-4 bg-slate-800 mx-1 self-center" />
-
-                {/* 视图切换：网格 / 列表 */}
-                <button
-                  type="button"
-                  onClick={() => handleViewLayoutChange('grid')}
-                  className={`p-1.5 rounded-lg transition-all ${
-                    viewLayoutMode === 'grid'
-                      ? 'bg-slate-800 text-blue-400 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/60'
-                  }`}
-                  title={t.viewGrid}
-                  aria-label={t.viewGrid}
-                >
-                  <LayoutGrid className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleViewLayoutChange('list')}
-                  className={`p-1.5 rounded-lg transition-all ${
-                    viewLayoutMode === 'list'
-                      ? 'bg-slate-800 text-blue-400 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/60'
-                  }`}
-                  title={t.viewList}
-                  aria-label={t.viewList}
-                >
-                  <List className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* 搜索框 */}
-              <div className="relative w-full sm:w-56">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-                <input 
-                  type="text" 
-                  placeholder={t.searchProjects}
-                  value={projectSearchTerm}
-                  onChange={(e) => setProjectSearchTerm(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl py-2 pl-9 pr-8 text-xs font-medium text-slate-200 placeholder-slate-600 outline-none focus:border-blue-500 transition-all"
-                />
-                {projectSearchTerm && (
-                  <button 
-                    type="button"
-                    onClick={() => setProjectSearchTerm('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 hover:text-slate-300"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar space-y-10 pb-16" onScroll={handleProjectsScroll}>
-            {projects.length === 0 && localRecentItems.length === 0 ? (
-              <div className="bg-slate-900/50 border-2 border-dashed border-slate-800 rounded-3xl h-80 flex flex-col items-center justify-center text-slate-600 gap-4"><LayoutGrid className="w-12 h-12 opacity-20" /><p className="text-sm font-medium">{t.noProjects}</p></div>
-            ) : allFilteredProjects.length === 0 ? (
-              <div className="h-64 flex flex-col items-center justify-center text-slate-600 opacity-50 italic">
-                <p className="text-sm">{t.noMatchingProjects}</p>
-              </div>
-            ) : timeGroupingMode === 'grouped' ? (
-              groupedProjects.map(group => (
-                <div key={group.key} className="space-y-4">
-                  <h3 className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em] flex items-center gap-4">
-                    <span>{group.label}</span>
-                    <span className="text-[10px] font-bold text-slate-700 tracking-normal">({group.items.length})</span>
-                    <div className="flex-1 h-px bg-slate-900"></div>
-                  </h3>
-                  <div className={viewLayoutMode === 'list' ? 'flex flex-col gap-3' : 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6'}>
-                    {group.items.map(renderProjectItem)}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="space-y-4">
-                <div className={viewLayoutMode === 'list' ? 'flex flex-col gap-3' : 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6'}>
-                  {allFilteredProjects.map(renderProjectItem)}
-                </div>
-              </div>
-            )}
-            {isCloudMode && cloudLoading && (
-              <div className="flex items-center justify-center py-6 text-xs text-slate-500">{t.loading || 'Loading...'}</div>
-            )}
-          </div>
-        </div>
-      </div>
+      </LandingView>
       ) : project ? (
       <div inert={aiBusy} className="flex flex-col h-screen bg-slate-950 text-slate-200 overflow-hidden">
       {toast && <Toast message={toast.msg} type={toast.type} />}
@@ -2414,7 +1539,7 @@ const App: React.FC = () => {
           <div className="flex items-center gap-1 mr-4 bg-slate-800 p-1 rounded-lg">
             <button 
               onClick={handleUndo} 
-              disabled={historyIndex <= 0}
+              disabled={!canUndo}
               className="p-1.5 rounded hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-all text-slate-300"
               title="Undo (Ctrl+Z)"
             >
@@ -2422,7 +1547,7 @@ const App: React.FC = () => {
             </button>
             <button 
               onClick={handleRedo} 
-              disabled={historyIndex >= history.length - 1}
+              disabled={!canRedo}
               className="p-1.5 rounded hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-all text-slate-300"
               title="Redo (Ctrl+Shift+Z)"
             >

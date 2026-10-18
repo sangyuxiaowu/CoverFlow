@@ -7,7 +7,7 @@ import { applySvgAspectRatio } from '../utils/helpers.ts';
 // 实时缩放预览组件。
 const LivePreview: React.FC<{
   project: ProjectState;
-  previewRef?: React.RefObject<HTMLDivElement>;
+  previewRef?: React.RefObject<HTMLDivElement | null>;
 }> = ({ project, previewRef }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);

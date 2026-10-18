@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Brain,
   Check,
@@ -194,6 +194,70 @@ export default function AiSettings({ config, onSave, onBack, english, store, onK
 
   const snippets = draft.quickSnippets || DEFAULT_QUICK_SNIPPETS;
 
+  const tabList = useMemo(() => [
+    {
+      id: 'models' as const,
+      label: label('端点与模型', 'Endpoints & Models'),
+      icon: Cpu,
+      count: draft.endpoints.reduce((acc, ep) => acc + (ep.models?.length || 0), 0),
+      tooltip: label('管理 LLM API 端点与模型列表', 'Manage LLM endpoints and model list')
+    },
+    {
+      id: 'images' as const,
+      label: label('生图模型', 'Image Models'),
+      icon: ImagePlus,
+      count: draft.imageModels?.length || 0,
+      tooltip: label('配置 AI 图像生成模型与参数', 'Configure AI image generation models')
+    },
+    {
+      id: 'removal' as const,
+      label: label('智能抠图', 'Background Removal'),
+      icon: Scissors,
+      tooltip: label('本地 ONNX 智能背景移除模型', 'Local ONNX background removal models')
+    },
+    {
+      id: 'prompt' as const,
+      label: label('系统提示词', 'System Prompt'),
+      icon: FileText,
+      tooltip: label('定制大模型设计思维与生图指令', 'Customize system instructions')
+    },
+    {
+      id: 'snippets' as const,
+      label: label('快捷短语', 'Quick Snippets'),
+      icon: MessageSquare,
+      count: snippets.length,
+      tooltip: label('管理设计助手快捷提问短语', 'Manage assistant quick snippets')
+    },
+    {
+      id: 'other' as const,
+      label: label('其他设置', 'Other Settings'),
+      icon: Sliders,
+      alert: keyStatus === 'missing' || keyStatus === 'locked',
+      tooltip: label('密钥加密存储与轮次限制', 'Encryption storage and turn limits')
+    }
+  ], [draft.endpoints, draft.imageModels, snippets.length, keyStatus, english]);
+
+  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const tabIds: Array<'models' | 'images' | 'removal' | 'prompt' | 'snippets' | 'other'> = [
+      'models',
+      'images',
+      'removal',
+      'prompt',
+      'snippets',
+      'other'
+    ];
+    const currentIndex = tabIds.indexOf(tab);
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      const nextIndex = (currentIndex + 1) % tabIds.length;
+      setTab(tabIds[nextIndex]);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const prevIndex = (currentIndex - 1 + tabIds.length) % tabIds.length;
+      setTab(tabIds[prevIndex]);
+    }
+  };
+
   const handleAddSnippet = () => {
     if (!newSnippet.trim()) return;
     setDraft(prev => ({
@@ -316,89 +380,82 @@ const ToggleSwitch: React.FC<{
           </button>
         </header>
 
-        {/* 导航选项卡 */}
-        <div ref={tabsRef} role="tablist" aria-label={label('配置分类', 'Settings Categories')} className={`px-6 border-b border-slate-800/80 flex items-center gap-2 overflow-x-auto shrink-0 bg-slate-900/20 text-xs font-semibold py-2 whitespace-nowrap [&>button]:shrink-0 ${keyBusy || backupPending ? 'pointer-events-none opacity-50' : ''}`} inert={keyBusy || backupPending || undefined}>
-          <button
-            type="button"
-            role="tab" aria-selected={tab === 'models'}
-            onClick={() => setTab('models')}
-            className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${
-              tab === 'models'
-                ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850/50'
+        {/* 导航选项卡栏 */}
+        <div className="px-4 sm:px-6 py-2.5 bg-slate-900/50 border-b border-slate-800/80 shrink-0 backdrop-blur-md">
+          <div
+            ref={tabsRef}
+            role="tablist"
+            aria-label={label('配置分类', 'Settings Categories')}
+            onKeyDown={handleTabKeyDown}
+            className={`flex items-center gap-1.5 p-1 rounded-2xl bg-slate-950/70 border border-slate-800/80 overflow-x-auto no-scrollbar scroll-smooth whitespace-nowrap [&>button]:shrink-0 ${
+              keyBusy || backupPending ? 'pointer-events-none opacity-50' : ''
             }`}
+            inert={keyBusy || backupPending || undefined}
           >
-            <Cpu size={15} />
-            <span>{label('端点与模型', 'Endpoints & Models')}</span>
-          </button>
-
-          <button
-            type="button"
-            role="tab" aria-selected={tab === 'images'}
-            onClick={() => setTab('images')}
-            className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${
-              tab === 'images'
-                ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850/50'
-            }`}
-          >
-            <ImagePlus size={15} />
-            <span>{label('生图模型', 'Image Models')}</span>
-            {draft.imageModels && draft.imageModels.length > 0 && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-400">
-                {draft.imageModels.length}
-              </span>
-            )}
-          </button>
-
-          <button type="button" role="tab" aria-selected={tab === 'removal'} onClick={() => setTab('removal')}
-            className={`px-3.5 py-2 rounded-xl flex items-center gap-2 shrink-0 transition-all cursor-pointer ${
-              tab === 'removal' ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850/50'
-            }`}>
-            <Scissors size={15} /><span>{label('抠图', 'Background Removal')}</span>
-          </button>
-
-          <button
-            type="button"
-            role="tab" aria-selected={tab === 'prompt'}
-            onClick={() => setTab('prompt')}
-            className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${
-              tab === 'prompt'
-                ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850/50'
-            }`}
-          >
-            <FileText size={15} />
-            <span>{label('系统提示词', 'System Prompt')}</span>
-          </button>
-
-          <button
-            type="button"
-            role="tab" aria-selected={tab === 'snippets'}
-            onClick={() => setTab('snippets')}
-            className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${
-              tab === 'snippets'
-                ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850/50'
-            }`}
-          >
-            <MessageSquare size={15} />
-            <span>{label('快捷短语', 'Quick Snippets')}</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-400">
-              {snippets.length}
-            </span>
-          </button>
-          <button type="button" role="tab" aria-selected={tab === 'other'} onClick={() => setTab('other')}
-            className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer ${tab === 'other' ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850/50'}`}>
-            <Sliders size={15} /><span>{label('其他设置', 'Other Settings')}</span>
-            {(keyStatus === 'missing' || keyStatus === 'locked') && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
-          </button>
+            {tabList.map(item => {
+              const isActive = tab === item.id;
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  id={`ai-settings-tab-${item.id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-controls={`ai-settings-tabpanel-${item.id}`}
+                  tabIndex={isActive ? 0 : -1}
+                  onClick={() => setTab(item.id)}
+                  title={item.tooltip}
+                  className={`group relative px-3 sm:px-3.5 py-2 rounded-xl flex items-center gap-2 text-xs transition-all duration-200 cursor-pointer select-none shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 ${
+                    isActive
+                      ? 'bg-gradient-to-r from-blue-600/25 via-blue-500/15 to-indigo-600/20 text-blue-200 border border-blue-500/40 shadow-[0_2px_12px_rgba(59,130,246,0.18)] font-semibold'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850/60 border border-transparent font-medium'
+                  }`}
+                >
+                  <Icon
+                    size={15}
+                    className={`shrink-0 transition-colors duration-200 ${
+                      isActive ? 'text-blue-400 drop-shadow-[0_0_6px_rgba(96,165,250,0.5)]' : 'text-slate-400 group-hover:text-slate-300'
+                    }`}
+                  />
+                  <span>{item.label}</span>
+                  {typeof item.count === 'number' && item.count > 0 && (
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono transition-colors border ${
+                        isActive
+                          ? 'bg-blue-500/25 text-blue-200 border-blue-400/30'
+                          : 'bg-slate-800/80 text-slate-400 border-slate-700/50 group-hover:border-slate-600/60'
+                      }`}
+                    >
+                      {item.count}
+                    </span>
+                  )}
+                  {item.alert && (
+                    <span className="relative flex h-2 w-2 ml-0.5" title={label('密钥状态需配置', 'Key configuration needed')}>
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                    </span>
+                  )}
+                  {isActive && (
+                    <span
+                      className="absolute -bottom-[1px] left-3 right-3 h-[2px] bg-gradient-to-r from-transparent via-blue-400 to-transparent rounded-full shadow-[0_0_6px_rgba(96,165,250,0.8)]"
+                      aria-hidden="true"
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* 主体表单区域 */}
         <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col">
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-5 sm:p-6 space-y-6">
+          <div
+            className="flex-1 overflow-y-auto custom-scrollbar p-5 sm:p-7 space-y-6"
+            role="tabpanel"
+            id={`ai-settings-tabpanel-${tab}`}
+            aria-labelledby={`ai-settings-tab-${tab}`}
+          >
             {error && (
               <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-medium flex items-center gap-2">
                 <AlertCircle size={16} className="text-rose-400 shrink-0" />
@@ -407,10 +464,18 @@ const ToggleSwitch: React.FC<{
             )}
 
             {/* TAB: 生图模型 */}
-            {tab === 'images' && <ImageModelSettings config={draft} onChange={setDraft} english={english} />}
-            {tab === 'removal' && <BackgroundRemovalSettings english={english} />}
+            {tab === 'images' && (
+              <div className="animate-in fade-in-50 duration-200 slide-in-from-bottom-1 space-y-6">
+                <ImageModelSettings config={draft} onChange={setDraft} english={english} />
+              </div>
+            )}
+            {tab === 'removal' && (
+              <div className="animate-in fade-in-50 duration-200 slide-in-from-bottom-1 space-y-6">
+                <BackgroundRemovalSettings english={english} />
+              </div>
+            )}
 
-            <div hidden={tab !== 'other'} className="space-y-6">
+            <div hidden={tab !== 'other'} className={`space-y-6 ${tab === 'other' ? 'animate-in fade-in-50 duration-200 slide-in-from-bottom-1' : ''}`}>
               {store.encryption && <EncryptionKeySettings manager={store.encryption} english={english}
                 onStatus={status => { setKeyStatus(status); if (status !== 'ready') setTab('other'); }}
                 onBusy={setKeyBusy} onBackupPending={setBackupPending}
@@ -421,18 +486,27 @@ const ToggleSwitch: React.FC<{
                   await onKeyChanged();
                 }} />}
             {tab === 'other' && (
-              <section className="space-y-5 border-t border-slate-800 pt-5">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-slate-100">{label('单轮对话限制', 'Per-Turn Limits')}</h3>
+              <section className="p-5 rounded-2xl border border-slate-800/80 bg-slate-900/40 backdrop-blur-sm space-y-4">
+                <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                      <Sliders size={16} className="text-blue-400" />
+                      <span>{label('单轮对话限制', 'Per-Turn Limits')}</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {label('防止长会话无限调用工具或重试生图消耗过多额度。', 'Guard against runaway tool loops and consecutive image retry limits.')}
+                    </p>
+                  </div>
                   <button type="button"
                     onClick={() => setDraft(prev => ({ ...prev, maxToolRounds: DEFAULT_MAX_TOOL_ROUNDS, maxImageFailures: DEFAULT_MAX_IMAGE_FAILURES }))}
-                    className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
                     title={label('恢复默认限制', 'Reset Turn Limits')}
                     aria-label={label('恢复默认限制', 'Reset Turn Limits')}>
-                    <RotateCcw size={15} />
+                    <RotateCcw size={14} />
+                    <span>{label('恢复默认', 'Reset')}</span>
                   </button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pt-1">
                   <div className="min-w-0">
                     <label htmlFor="ai-max-tool-rounds" className={labelClass}>{label('工具调用轮次上限', 'Tool Round Limit')}</label>
                     <input id="ai-max-tool-rounds" type="number" min={1} max={Number.MAX_SAFE_INTEGER} step={1} required
@@ -454,7 +528,7 @@ const ToggleSwitch: React.FC<{
 
             {/* TAB: 端点与模型 */}
             {tab === 'models' && (
-              <>
+              <div className="animate-in fade-in-50 duration-200 slide-in-from-bottom-1 space-y-6">
                 {/* 顶部活跃模型旗舰卡片 */}
                 <div className="p-5 rounded-2xl border border-blue-500/25 bg-gradient-to-r from-blue-950/30 via-slate-900/60 to-indigo-950/20 backdrop-blur-sm space-y-3.5 shadow-lg shadow-blue-950/10">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1058,12 +1132,12 @@ const ToggleSwitch: React.FC<{
                     })}
                   </div>
                 </div>
-              </>
+              </div>
             )}
 
             {/* TAB: 系统提示词 */}
             {tab === 'prompt' && (
-              <div className="space-y-6">
+              <div className="animate-in fade-in-50 duration-200 slide-in-from-bottom-1 space-y-6">
                 {/* 封面设计系统提示词 */}
                 <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-800">
@@ -1136,7 +1210,7 @@ const ToggleSwitch: React.FC<{
 
             {/* TAB: 快捷短语 */}
             {tab === 'snippets' && (
-              <div className="space-y-5">
+              <div className="animate-in fade-in-50 duration-200 slide-in-from-bottom-1 space-y-5">
                 {/* 说明横幅 */}
                 <div className="p-4 rounded-2xl border border-blue-500/20 bg-blue-950/20 backdrop-blur-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="space-y-1">

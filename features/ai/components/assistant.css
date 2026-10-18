@@ -1308,6 +1308,10 @@
 }
 
 .cf-ai-minimized .cf-ai-header {
+  height: 48px;
+  min-height: 48px;
+  gap: 8px;
+  padding-inline: 12px;
   border-bottom: 0;
 }
 

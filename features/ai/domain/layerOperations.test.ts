@@ -74,8 +74,10 @@ test('floating windows stay visible on mobile and after viewport changes', () =>
   assert.equal(mobile.width, 370);
   assert.equal(mobile.x, 10);
   assert.equal(mobile.y + mobile.height, 834);
+  const topBound = clampFloatingRect({ x: 10, y: 0, width: 520, height: 640 }, { width: 1440, height: 900 });
+  assert.equal(topBound.y, 16);
   const desktop = clampFloatingRect({ x: -200, y: -100, width: 100, height: 100 }, { width: 1440, height: 900 });
-  assert.deepEqual(desktop, { x: 10, y: 10, width: 360, height: 360 });
+  assert.deepEqual(desktop, { x: 10, y: 16, width: 360, height: 360 });
 });
 
 test('invalid saved float geometry and minimized header positions are bounded', () => {
@@ -84,7 +86,8 @@ test('invalid saved float geometry and minimized header positions are bounded', 
   assert.equal(fallback.height, 580);
   assert.equal(fallback.x, 10);
   const minimized = clampFloatingRect({ x: 10, y: 1000, width: 520, height: 640 }, { width: 800, height: 900 }, true);
-  assert.equal(minimized.y, 826);
+  assert.equal(minimized.width, 360);
+  assert.equal(minimized.y, 838);
 });
 
 test('one-step ordering swaps neighbors rather than incrementing sparse z-index values', () => {

@@ -36,7 +36,7 @@ export function useFloatingPanel(store: ChatStore) {
     if (maximized || event.button !== 0 || (!resizing && (event.target as HTMLElement).closest('button, input, select, textarea'))) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, start: displayed, resizing };
+    drag.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, start: minimized ? { ...rect, x: displayed.x, y: displayed.y } : displayed, resizing };
   };
   const move = (event: PointerEvent<HTMLElement>) => {
     const active = drag.current;
@@ -44,13 +44,18 @@ export function useFloatingPanel(store: ChatStore) {
     const deltaX = event.clientX - active.clientX;
     const deltaY = event.clientY - active.clientY;
     const next = active.resizing ? { ...active.start, width: active.start.width + deltaX, height: active.start.height + deltaY } : { ...active.start, x: active.start.x + deltaX, y: active.start.y + deltaY };
-    setRect(clampFloatingRect(next, viewport, minimized));
+    const clamped = clampFloatingRect(next, viewport, minimized);
+    if (minimized && !active.resizing) {
+      setRect(previous => ({ ...previous, x: clamped.x, y: clamped.y }));
+    } else {
+      setRect(clamped);
+    }
   };
   const finish = () => { drag.current = null; };
   const toggleMaximized = () => { setMinimized(false); setMaximized(previous => !previous); };
   return {
     minimized, maximized, setMinimized, toggleMaximized,
-    style: { left: displayed.x, top: displayed.y, width: displayed.width, height: minimized ? Math.min(64, displayed.height) : displayed.height },
+    style: { left: displayed.x, top: displayed.y, width: displayed.width, height: minimized ? Math.min(52, displayed.height) : displayed.height },
     headerEvents: { onPointerDown: (event: PointerEvent<HTMLElement>) => start(event), onPointerMove: move, onPointerUp: finish, onPointerCancel: finish, onLostPointerCapture: finish },
     resizeEvents: { onPointerDown: (event: PointerEvent<HTMLElement>) => start(event, true), onPointerMove: move, onPointerUp: finish, onPointerCancel: finish, onLostPointerCapture: finish },
     resizeByKeyboard: (key: string, large: boolean) => {

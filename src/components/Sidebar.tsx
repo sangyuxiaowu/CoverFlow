@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { CATEGORIZED_ASSETS, PRESET_COLORS, PRESET_GRADIENTS } from '../constants.ts';
 import { BackgroundConfig, DecorationTemplate, Layer, FAIconMetadata, FACategory, ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
-import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash, HelpCircle, Keyboard, ChevronDown, ChevronRight, Flower, Plus } from 'lucide-react';
+import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash, HelpCircle, Keyboard, ChevronDown, ChevronRight, ChevronLeft, Flower, Plus } from 'lucide-react';
 import * as yaml from 'js-yaml';
 import { normalizeSVG } from '../utils/helpers.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
@@ -37,8 +37,8 @@ interface SidebarProps {
   project: ProjectState;
   selectedLayerIds: string[];
   background: BackgroundConfig;
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
+  activeTab: string | null;
+  setActiveTab: (tab: string | null) => void;
   storageType: StorageAdapterType;
   localFileAdapter: LocalFileAdapter;
 }
@@ -1417,155 +1417,177 @@ const Sidebar: React.FC<SidebarProps> = ({
     </div>
   );
 
+  const handleTabClick = (tabKey: string) => {
+    if (activeTab === tabKey) {
+      setActiveTab(null);
+    } else {
+      setActiveTab(tabKey);
+    }
+  };
+
+  const isCollapsed = !activeTab;
+
   return (
-    <div className="w-72 flex bg-slate-900 border-r border-slate-800 flex-shrink-0 relative h-full">
-      <div className="w-14 border-r border-slate-800 flex flex-col items-center py-5 gap-4 flex-shrink-0">
+    <div className={`${isCollapsed ? 'w-14' : 'w-72'} flex bg-slate-900 border-r border-slate-800 flex-shrink-0 relative h-full transition-[width] duration-200 ease-in-out`}>
+      <div className={`w-14 ${isCollapsed ? '' : 'border-r'} border-slate-800 flex flex-col items-center py-5 gap-4 flex-shrink-0 z-10 bg-slate-900`}>
         <button
-          title={t.assets}
-          onClick={() => setActiveTab('assets')}
+          title={`${t.assets}${activeTab === 'assets' ? (lang === 'zh' ? ' (点击收起)' : ' (Click to collapse)') : ''}`}
+          onClick={() => handleTabClick('assets')}
           className={`p-2.5 rounded-lg transition-all ${activeTab === 'assets' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
         >
           <Box className="w-5 h-5" />
         </button>
         <button
-          title={t.decorations}
-          onClick={() => setActiveTab('decorations')}
+          title={`${t.decorations}${activeTab === 'decorations' ? (lang === 'zh' ? ' (点击收起)' : ' (Click to collapse)') : ''}`}
+          onClick={() => handleTabClick('decorations')}
           className={`p-2.5 rounded-lg transition-all ${activeTab === 'decorations' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
         >
           <Flower className="w-5 h-5" />
         </button>
         <button
-          title={t.fontAwesome}
-          onClick={() => setActiveTab('fa')}
+          title={`${t.fontAwesome}${activeTab === 'fa' ? (lang === 'zh' ? ' (点击收起)' : ' (Click to collapse)') : ''}`}
+          onClick={() => handleTabClick('fa')}
           className={`p-2.5 rounded-lg transition-all ${activeTab === 'fa' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
         >
           <Flag className="w-5 h-5" />
         </button>
         <button
-          title={t.layout}
-          onClick={() => setActiveTab('layout')}
+          title={`${t.layout}${activeTab === 'layout' ? (lang === 'zh' ? ' (点击收起)' : ' (Click to collapse)') : ''}`}
+          onClick={() => handleTabClick('layout')}
           className={`p-2.5 rounded-lg transition-all ${activeTab === 'layout' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
         >
           <Palette className="w-5 h-5" />
         </button>
         <button
-          title={t.help}
-          onClick={() => setActiveTab('help')}
+          title={`${t.help}${activeTab === 'help' ? (lang === 'zh' ? ' (点击收起)' : ' (Click to collapse)') : ''}`}
+          onClick={() => handleTabClick('help')}
           className={`p-2.5 rounded-lg transition-all ${activeTab === 'help' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}
         >
           <HelpCircle className="w-5 h-5" />
         </button>
       </div>
 
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        <div className="p-5 pb-2 border-b border-slate-800/50 flex items-center justify-between">
-          <h2 className="text-base font-bold flex items-center gap-2 text-slate-100 uppercase tracking-tighter">
-            {activeTab === 'assets'
-              ? t.assets
-              : activeTab === 'decorations'
-                ? t.decorations
-              : activeTab === 'fa'
-                ? t.fontAwesome
-                : activeTab === 'layout'
-                  ? t.layout
-                  : t.help}
-          </h2>
-          {activeTab === 'decorations' && (
-            <button
-              type="button"
-              onClick={() => setDecorationCreateRequestToken((value) => value + 1)}
-              className="text-slate-500 hover:text-white transition-colors"
-              title={t.decorationNew}
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          )}
-          {activeTab === 'assets' && !isLocalFileStorage && (
-            <button
-              onClick={() => setIsAssetSettingsOpen(true)}
-              className="p-1 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-md transition-all"
-              title={t.assetFolderSettings}
-            >
-              <Sliders className="w-3.5 h-3.5" />
-            </button>
-          )}
-          {activeTab === 'fa' && !isLocalFileStorage && (faIcons || faCategories) && (
-            <button 
-              onClick={clearFAData} 
-              className="p-1 text-slate-500 hover:text-red-500 hover:bg-red-500/10 rounded-md transition-all"
-              title={t.clearFAData}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-        <div className={`flex-1 min-h-0 ${activeTab === 'decorations' ? 'overflow-hidden' : activeTab === 'assets' || activeTab === 'fa' ? 'overflow-hidden p-5' : 'overflow-y-auto scrollbar-hide p-5'}`}>
-          {activeTab === 'assets'
-            ? renderResources()
-            : activeTab === 'decorations'
-              ? (
-                <DecorationLibrary
-                  lang={lang}
-                  storageType={storageType}
-                  localFileAdapter={localFileAdapter}
-                  createRequestToken={decorationCreateRequestToken}
-                  project={project}
-                  selectedLayerIds={selectedLayerIds}
-                  onAddLayer={onAddLayer}
-                  onApplyTemplate={onApplyTemplate}
-                />
-              )
-            : activeTab === 'fa'
-              ? renderFontAwesome()
-              : activeTab === 'layout'
-                ? renderBackgroundSettings()
-                : renderHelp()}
-        </div>
-
-        {activeTab === 'layout' && (
-          <div className="p-5 border-t border-slate-800 bg-slate-900/80 backdrop-blur-md flex flex-col h-[250px]">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{t.savedPresets}</h3>
-              <button onClick={saveCurrentPreset} className="p-1 bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white rounded-md transition-all active:scale-95 flex items-center gap-1">
-                <Save className="w-3.5 h-3.5" />
-                <span className="text-[9px] font-bold">{t.savePreset}</span>
+      {!isCollapsed && (
+        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+          <div className="p-5 pb-2 border-b border-slate-800/50 flex items-center justify-between">
+            <h2 className="text-base font-bold flex items-center gap-2 text-slate-100 uppercase tracking-tighter">
+              {activeTab === 'assets'
+                ? t.assets
+                : activeTab === 'decorations'
+                  ? t.decorations
+                : activeTab === 'fa'
+                  ? t.fontAwesome
+                  : activeTab === 'layout'
+                    ? t.layout
+                    : t.help}
+            </h2>
+            <div className="flex items-center gap-1">
+              {activeTab === 'decorations' && (
+                <button
+                  type="button"
+                  onClick={() => setDecorationCreateRequestToken((value) => value + 1)}
+                  className="text-slate-500 hover:text-white transition-colors"
+                  title={t.decorationNew}
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              )}
+              {activeTab === 'assets' && !isLocalFileStorage && (
+                <button
+                  onClick={() => setIsAssetSettingsOpen(true)}
+                  className="p-1 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-md transition-all"
+                  title={t.assetFolderSettings}
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {activeTab === 'fa' && !isLocalFileStorage && (faIcons || faCategories) && (
+                <button 
+                  onClick={clearFAData} 
+                  className="p-1 text-slate-500 hover:text-red-500 hover:bg-red-500/10 rounded-md transition-all"
+                  title={t.clearFAData}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setActiveTab(null)}
+                className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded-md transition-all ml-0.5"
+                title={lang === 'zh' ? '收起面板' : 'Collapse panel'}
+              >
+                <ChevronLeft className="w-4 h-4" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto pr-1 scrollbar-hide">
-              {savedPresets.length === 0 ? (
-                <div className="h-full min-h-[160px] flex flex-col items-center justify-center border border-dashed border-slate-800 rounded-xl bg-slate-900/40">
-                  <p className="text-[10px] text-slate-600 font-bold uppercase tracking-tighter">{t.noSavedPresets}</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-3 pb-4">
-                  {savedPresets.map((preset, idx) => (
-                    <div
-                      key={idx}
-                      onClick={() => onUpdateBackground(preset)}
-                      className="group relative aspect-video rounded-xl border border-slate-700 cursor-pointer overflow-hidden transition-all hover:border-blue-500 hover:shadow-lg hover:shadow-blue-900/20"
-                      style={getPreviewStyles(preset)}
-                    >
-                      <button onClick={(e) => confirmDeletePreset(e, idx)} className={`absolute top-1 right-1 p-1 bg-red-600/80 text-white rounded-full transition-all hover:bg-red-500 opacity-0 group-hover:opacity-100 ${deletingIndex === idx ? 'hidden' : 'block'}`}>
-                        <X className="w-2.5 h-2.5" />
-                      </button>
-                      {deletingIndex === idx && (
-                        <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center animate-in fade-in duration-200 z-10">
-                          <span className="text-[8px] font-black text-white uppercase mb-1 tracking-tighter">{t.confirmDeleteShort}</span>
-                          <div className="flex gap-1.5">
-                            <button onClick={(e) => executeDeletePreset(e, idx)} className="p-1 bg-red-600 text-white rounded-md hover:bg-red-500 shadow-lg"><Check className="w-3.5 h-3.5" /></button>
-                            <button onClick={(e) => { e.stopPropagation(); setDeletingIndex(null); }} className="p-1 bg-slate-700 text-white rounded-md hover:bg-slate-600"><X className="w-3.5 h-3.5" /></button>
-                          </div>
-                        </div>
-                      )}
-                      <div className="absolute bottom-1 right-1 px-1 py-0.5 bg-black/40 backdrop-blur-md rounded text-[7px] text-slate-300 font-black uppercase tracking-tighter">{preset.type}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
-        )}
-      </div>
+          <div className={`flex-1 min-h-0 ${activeTab === 'decorations' ? 'overflow-hidden' : activeTab === 'assets' || activeTab === 'fa' ? 'overflow-hidden p-5' : 'overflow-y-auto scrollbar-hide p-5'}`}>
+            {activeTab === 'assets'
+              ? renderResources()
+              : activeTab === 'decorations'
+                ? (
+                  <DecorationLibrary
+                    lang={lang}
+                    storageType={storageType}
+                    localFileAdapter={localFileAdapter}
+                    createRequestToken={decorationCreateRequestToken}
+                    project={project}
+                    selectedLayerIds={selectedLayerIds}
+                    onAddLayer={onAddLayer}
+                    onApplyTemplate={onApplyTemplate}
+                  />
+                )
+              : activeTab === 'fa'
+                ? renderFontAwesome()
+                : activeTab === 'layout'
+                  ? renderBackgroundSettings()
+                  : renderHelp()}
+          </div>
+
+          {activeTab === 'layout' && (
+            <div className="p-5 border-t border-slate-800 bg-slate-900/80 backdrop-blur-md flex flex-col h-[250px]">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{t.savedPresets}</h3>
+                <button onClick={saveCurrentPreset} className="p-1 bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white rounded-md transition-all active:scale-95 flex items-center gap-1">
+                  <Save className="w-3.5 h-3.5" />
+                  <span className="text-[9px] font-bold">{t.savePreset}</span>
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto pr-1 scrollbar-hide">
+                {savedPresets.length === 0 ? (
+                  <div className="h-full min-h-[160px] flex flex-col items-center justify-center border border-dashed border-slate-800 rounded-xl bg-slate-900/40">
+                    <p className="text-[10px] text-slate-600 font-bold uppercase tracking-tighter">{t.noSavedPresets}</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3 pb-4">
+                    {savedPresets.map((preset, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => onUpdateBackground(preset)}
+                        className="group relative aspect-video rounded-xl border border-slate-700 cursor-pointer overflow-hidden transition-all hover:border-blue-500 hover:shadow-lg hover:shadow-blue-900/20"
+                        style={getPreviewStyles(preset)}
+                      >
+                        <button onClick={(e) => confirmDeletePreset(e, idx)} className={`absolute top-1 right-1 p-1 bg-red-600/80 text-white rounded-full transition-all hover:bg-red-500 opacity-0 group-hover:opacity-100 ${deletingIndex === idx ? 'hidden' : 'block'}`}>
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                        {deletingIndex === idx && (
+                          <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center animate-in fade-in duration-200 z-10">
+                            <span className="text-[8px] font-black text-white uppercase mb-1 tracking-tighter">{t.confirmDeleteShort}</span>
+                            <div className="flex gap-1.5">
+                              <button onClick={(e) => executeDeletePreset(e, idx)} className="p-1 bg-red-600 text-white rounded-md hover:bg-red-500 shadow-lg"><Check className="w-3.5 h-3.5" /></button>
+                              <button onClick={(e) => { e.stopPropagation(); setDeletingIndex(null); }} className="p-1 bg-slate-700 text-white rounded-md hover:bg-slate-600"><X className="w-3.5 h-3.5" /></button>
+                            </div>
+                          </div>
+                        )}
+                        <div className="absolute bottom-1 right-1 px-1 py-0.5 bg-black/40 backdrop-blur-md rounded text-[7px] text-slate-300 font-black uppercase tracking-tighter">{preset.type}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {renderAssetSettingsModal()}
     </div>
   );

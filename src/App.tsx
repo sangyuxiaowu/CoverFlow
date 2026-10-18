@@ -75,7 +75,7 @@ const App: React.FC = () => {
   const [isAiOpen, setIsAiOpen] = useState(false);
   const [project, setProject] = useState<ProjectState | null>(null);
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState('assets');
+  const [activeTab, setActiveTab] = useState<string | null>('assets');
   const [isExporting, setIsExporting] = useState(false);
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ message: string, onConfirm: () => void } | null>(null);
@@ -1722,15 +1722,25 @@ const App: React.FC = () => {
             updateLayer={updateLayer}
             onCommit={saveHistorySnapshot}
           />
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-slate-900/95 backdrop-blur-xl border border-slate-800 rounded-2xl p-2 shadow-2xl z-40">
-            <button onClick={handleAddText} className="flex items-center gap-2 px-4 py-2 hover:bg-blue-600/10 hover:text-blue-400 rounded-xl transition-all text-xs font-bold group">
-              <div className="p-1.5 bg-slate-800 rounded-lg group-hover:bg-blue-600/20"><TextIcon className="w-4 h-4" /></div>
-              {t.addHeadline}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl px-2 py-1 shadow-xl z-40">
+            <button
+              onClick={handleAddText}
+              className="flex items-center gap-1.5 px-2.5 py-1 hover:bg-slate-800 hover:text-blue-400 rounded-lg transition-all text-[11px] font-semibold text-slate-200 group active:scale-95"
+            >
+              <div className="p-1 bg-slate-800 rounded group-hover:bg-blue-600/20 text-slate-300 group-hover:text-blue-400 transition-colors">
+                <TextIcon className="w-3.5 h-3.5" />
+              </div>
+              <span>{t.addHeadline}</span>
             </button>
-            <div className="w-px h-6 bg-slate-800" />
-            <button onClick={handleAddImage} className="flex items-center gap-2 px-4 py-2 hover:bg-blue-600/10 hover:text-blue-400 rounded-xl transition-all text-xs font-bold group">
-              <div className="p-1.5 bg-slate-800 rounded-lg group-hover:bg-blue-600/20"><ImagePlus className="w-4 h-4" /></div>
-              {t.addImage}
+            <div className="w-px h-3.5 bg-slate-800" />
+            <button
+              onClick={handleAddImage}
+              className="flex items-center gap-1.5 px-2.5 py-1 hover:bg-slate-800 hover:text-blue-400 rounded-lg transition-all text-[11px] font-semibold text-slate-200 group active:scale-95"
+            >
+              <div className="p-1 bg-slate-800 rounded group-hover:bg-blue-600/20 text-slate-300 group-hover:text-blue-400 transition-colors">
+                <ImagePlus className="w-3.5 h-3.5" />
+              </div>
+              <span>{t.addImage}</span>
             </button>
           </div>
         </div>

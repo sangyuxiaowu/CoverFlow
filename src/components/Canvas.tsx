@@ -541,12 +541,31 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
         </div>
       </div>
       
-      <div className="absolute bottom-3 right-3 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-xl px-3 py-2 flex items-center gap-3 text-[10px] font-bold text-slate-200 shadow-2xl z-50">
-        <button onClick={() => setZoom(z => Math.max(0.05, z - 0.1))} className="hover:text-blue-400 font-black w-7 h-7 flex items-center justify-center rounded-md bg-slate-800 border border-slate-700 transition-all active:scale-95">－</button>
-        <span className="w-12 text-center font-mono text-xs tracking-tight">{Math.round(zoom * 100)}%</span>
-        <button onClick={() => setZoom(z => Math.min(5, z + 0.1))} className="hover:text-blue-400 font-black w-7 h-7 flex items-center justify-center rounded-md bg-slate-800 border border-slate-700 transition-all active:scale-95">＋</button>
-        <div className="w-px h-4 bg-slate-700" />
-        <button onClick={fitCanvas} className="hover:text-blue-400 text-slate-400 transition-colors uppercase tracking-widest text-[9px]">{t.fitCanvas}</button>
+      <div className="absolute bottom-4 right-4 bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl px-2 py-1 flex items-center gap-1.5 text-slate-200 shadow-xl z-50">
+        <button
+          onClick={() => setZoom(z => Math.max(0.05, z - 0.1))}
+          className="hover:text-blue-400 hover:bg-slate-700/80 font-bold w-5 h-5 flex items-center justify-center rounded-md bg-slate-800 border border-slate-700/60 transition-all active:scale-95 text-xs text-slate-300 leading-none"
+          title="Zoom out"
+        >
+          －
+        </button>
+        <span className="w-9 text-center font-mono text-[11px] font-medium tracking-tight text-slate-200 select-none">
+          {Math.round(zoom * 100)}%
+        </span>
+        <button
+          onClick={() => setZoom(z => Math.min(5, z + 0.1))}
+          className="hover:text-blue-400 hover:bg-slate-700/80 font-bold w-5 h-5 flex items-center justify-center rounded-md bg-slate-800 border border-slate-700/60 transition-all active:scale-95 text-xs text-slate-300 leading-none"
+          title="Zoom in"
+        >
+          ＋
+        </button>
+        <div className="w-px h-3.5 bg-slate-800" />
+        <button
+          onClick={fitCanvas}
+          className="hover:text-blue-400 text-slate-400 px-1.5 py-0.5 rounded hover:bg-slate-800 transition-colors text-[10px] font-medium tracking-tight whitespace-nowrap"
+        >
+          {t.fitCanvas}
+        </button>
       </div>
     </div>
   );

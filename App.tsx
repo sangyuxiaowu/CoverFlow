@@ -2191,16 +2191,6 @@ const App: React.FC = () => {
               <span className="text-xs font-bold">{t.import}</span>
               <input type="file" accept=".cfj" onChange={handleImportJson} className="hidden" />
             </label>
-            {!isCloudMode && (
-              <button
-                type="button"
-                onClick={() => setIsStorageSettingsOpen(true)}
-                className="flex items-center gap-2 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 transition-all"
-              >
-                <Settings className="w-4 h-4 text-blue-500" />
-                <span className="text-xs font-bold">{t.storageSettings}</span>
-              </button>
-            )}
             <PWAInstallButton lang={lang} />
             <button
               type="button"
@@ -2218,6 +2208,16 @@ const App: React.FC = () => {
               <span>{lang === 'en' ? 'AI Assistant' : 'AI 助手'}</span>
               {aiBusy && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />}
             </button>
+            {!isCloudMode && (
+              <button
+                type="button"
+                onClick={() => setIsStorageSettingsOpen(true)}
+                className="flex items-center gap-2 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 transition-all"
+              >
+                <Settings className="w-4 h-4 text-blue-500" />
+                <span className="text-xs font-bold">{t.storageSettings}</span>
+              </button>
+            )}
             <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800"><button onClick={() => setLang('zh')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'zh' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>中</button><button onClick={() => setLang('en')} className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${lang === 'en' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200'}`}>EN</button></div>
           </div>
         </div>
@@ -2411,11 +2411,11 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           
-          <div className="flex items-center gap-1 mr-4 bg-slate-800 p-1 rounded-lg">
+          <div className="flex h-[29px] items-center gap-1 mr-4 bg-slate-800 rounded-lg">
             <button 
               onClick={handleUndo} 
               disabled={historyIndex <= 0}
-              className="p-1.5 rounded hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-all text-slate-300"
+              className="h-full p-1.5 rounded hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-all text-slate-300"
               title="Undo (Ctrl+Z)"
             >
               <Undo2 className="w-4 h-4" />
@@ -2423,7 +2423,7 @@ const App: React.FC = () => {
             <button 
               onClick={handleRedo} 
               disabled={historyIndex >= history.length - 1}
-              className="p-1.5 rounded hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-all text-slate-300"
+              className="h-full p-1.5 rounded hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-all text-slate-300"
               title="Redo (Ctrl+Shift+Z)"
             >
               <Redo2 className="w-4 h-4" />

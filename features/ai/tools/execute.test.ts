@@ -16,6 +16,18 @@ function setup(layers: ProjectState['layers'] = [], selectedLayerIds: string[] =
   return { bridge, signal };
 }
 
+test('background removal is a static tool with model selection guidance and no readiness filtering', () => {
+  const definitions = TOOL_DEFINITIONS.filter(item => item.function.name === 'remove_background');
+  assert.equal(definitions.length, 1);
+  const parameters = definitions[0].function.parameters;
+  const properties = parameters.properties as Record<string, Record<string, unknown>>;
+  assert.deepEqual(parameters.required, ['projectId', 'layerId']);
+  assert.deepEqual(properties.modelId.enum, ['u2netp', 'birefnet']);
+  assert.match(String(properties.modelId.description), /轻量|快速/);
+  assert.match(String(properties.modelId.description), /毛发|复杂边缘/);
+  assert.equal('backgroundRemoved' in (properties || {}), false);
+});
+
 test('dedicated tool provides cover size recommendations with and without an open project', async () => {
   const { bridge, signal } = setup();
   for (const getProject of [bridge.getProject, () => null]) {

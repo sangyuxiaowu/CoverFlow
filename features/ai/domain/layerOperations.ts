@@ -48,6 +48,7 @@ export function updateProjectLayer(project: ProjectState, id: string, updates: P
       if (layer.type === 'image' && updates.content !== undefined && updates.content !== layer.content) {
         next.imageSource = updates.imageSource ?? 'unknown';
         next.imageDescription = updates.imageDescription ?? '';
+        next.backgroundRemoved = updates.backgroundRemoved ?? false;
       }
       if (layer.ratioLocked) {
         if (updates.width !== undefined && updates.height === undefined) next.height = updates.width * layer.height / layer.width;

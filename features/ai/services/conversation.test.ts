@@ -27,6 +27,46 @@ const textOutput = { type: 'message', id: 'msg-test', role: 'assistant', status:
 async function* eventsFrom(events: unknown[]) { for (const event of events) yield event as ResponseStreamEvent; }
 const streamResponse = (payload: ReturnType<typeof responsePayload>) => new Response(`event: response.${payload.status}\ndata: ${JSON.stringify({ type: `response.${payload.status}`, response: payload })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
 
+test('background removal remains statically registered and sends model-not-ready errors back to Responses', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Record<string, any>[] = [];
+  const events: ToolEvent[] = [];
+  const project: ProjectState = {
+    id: 'removal-project', title: 'Test', updatedAt: 0, selectedLayerId: 'image',
+    layers: [{ id: 'image', name: 'Photo', type: 'image', content: 'data:image/png;base64,AA==',
+      x: 0, y: 0, width: 100, height: 100, rotation: 0, opacity: 1, zIndex: 1, visible: true, locked: false }],
+    canvasConfig: { width: 800, height: 600, ratio: '4:3' },
+    background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 1 }
+  };
+  let commits = 0;
+  globalThis.fetch = async (_url, options) => {
+    requests.push(JSON.parse(options!.body as string));
+    return streamResponse(responsePayload(requests.length === 1
+      ? [{ type: 'function_call', call_id: 'removal-call', name: 'remove_background',
+        arguments: JSON.stringify({ projectId: project.id, layerId: 'image', modelId: 'birefnet' }) }]
+      : [textOutput]));
+  };
+  try {
+    await runConversation({ config: { ...config, supportsVision: false, imageToolsEnabled: false }, input: [],
+      bridge: { ...bridge, getProject: () => project, commit: async () => { commits++; } },
+      signal: new AbortController().signal, onText: () => {}, onTool: event => events.push(event) });
+    assert.equal(requests.length, 2);
+    const definition = TOOL_DEFINITIONS.find(item => item.function.name === 'remove_background')!;
+    const sent = requests[0].tools.find((item: { name: string }) => item.name === 'remove_background');
+    assert.deepEqual(sent, { type: 'function', ...definition.function, strict: false });
+    assert.deepEqual(requests[1].tools, requests[0].tools);
+    const output = requests[1].input.find((item: { type: string; call_id?: string }) => item.type === 'function_call_output' && item.call_id === 'removal-call');
+    assert.equal(output.type, 'function_call_output');
+    assert.deepEqual(JSON.parse(output.output), {
+      success: false, code: 'MODEL_NOT_READY', stage: 'model',
+      error: 'BiRefNet is not ready. Import or download the model in AI Settings > Background Removal; the large model was not downloaded automatically.',
+      projectId: project.id, layerId: 'image', modelId: 'birefnet', runtimeDownloaded: false
+    });
+    assert.equal(events.at(-1)!.status, 'error');
+    assert.equal(commits, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 for (const outcome of ['success', 'error', 'aborted'] as const) {
   test(`tool timing is finalized on ${outcome} without entering model output`, async () => {
     const originalFetch = globalThis.fetch;

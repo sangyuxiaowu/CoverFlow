@@ -7,6 +7,16 @@ import { clampFloatingRect } from './floatingGeometry.ts';
 const layer = (id: string, x: number): Layer => ({ id, name: id, type: 'text', content: id, x, y: 20, width: 100, height: 50, rotation: 0, zIndex: x, visible: true, locked: false, opacity: 1 });
 const project = (): ProjectState => ({ id: 'project', title: 'Cover', layers: [layer('a', 0), layer('b', 200), layer('c', 500)], background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 }, canvasConfig: { width: 800, height: 600, ratio: '4:3' }, selectedLayerId: 'a', updatedAt: 0 });
 
+test('background removal status survives ordinary edits and resets for a replacement image', () => {
+  const original = project();
+  original.layers[0] = { ...original.layers[0], type: 'image', backgroundRemoved: true };
+  assert.equal(updateProjectLayer(original, 'a', { x: 30 }).layers[0].backgroundRemoved, true);
+  assert.equal(updateProjectLayer(original, 'a', { content: 'replacement' }).layers[0].backgroundRemoved, false);
+  assert.equal(updateProjectLayer(original, 'a', { content: 'result', backgroundRemoved: true }).layers[0].backgroundRemoved, true);
+  assert.equal(editLayers(original, 'duplicate', ['a']).layers.at(-1)!.backgroundRemoved, true);
+  assert.equal(JSON.parse(JSON.stringify(original)).layers[0].backgroundRemoved, true);
+});
+
 test('group transforms propagate and updating a child recomputes bounds', () => {
   const grouped = editLayers(project(), 'group', ['a', 'b']);
   const groupId = grouped.selectedLayerId!;

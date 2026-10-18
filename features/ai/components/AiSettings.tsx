@@ -16,6 +16,7 @@ import {
   Save,
   Sliders,
   Sparkles,
+  Scissors,
   Trash2,
   X,
   Globe,
@@ -27,6 +28,7 @@ import {
 } from 'lucide-react';
 import type { AiConfig, AiEndpointConfig, AiModelConfig, ReasoningEffort } from '../types.ts';
 import ImageModelSettings from './ImageModelSettings.tsx';
+import BackgroundRemovalSettings from '../../background-removal/BackgroundRemovalSettings.tsx';
 import {
   ALL_REASONING_EFFORTS,
   createEndpoint,
@@ -56,7 +58,7 @@ export default function AiSettings({ config, onSave, onBack, english }: Props) {
     });
     return initial;
   });
-  const [tab, setTab] = useState<'models' | 'images' | 'prompt' | 'snippets'>('models');
+  const [tab, setTab] = useState<'models' | 'images' | 'removal' | 'prompt' | 'snippets'>('models');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [testStatus, setTestStatus] = useState<string | null>(null);
@@ -291,7 +293,7 @@ const ToggleSwitch: React.FC<{
         </header>
 
         {/* 导航选项卡 */}
-        <div className="px-6 border-b border-slate-800/80 flex items-center gap-2 overflow-x-auto shrink-0 bg-slate-900/20 text-xs font-semibold py-2">
+        <div className="px-6 border-b border-slate-800/80 flex items-center gap-2 overflow-x-auto shrink-0 bg-slate-900/20 text-xs font-semibold py-2 whitespace-nowrap [&>button]:shrink-0">
           <button
             type="button"
             onClick={() => setTab('models')}
@@ -321,6 +323,14 @@ const ToggleSwitch: React.FC<{
                 {draft.imageModels.length}
               </span>
             )}
+          </button>
+
+          <button type="button" onClick={() => setTab('removal')}
+            className={`px-3.5 py-2 rounded-xl flex items-center gap-2 shrink-0 transition-all cursor-pointer ${
+              tab === 'removal' ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-850/50'
+            }`}>
+            <Scissors size={15} /><span>{label('抠图', 'Background Removal')}</span>
           </button>
 
           <button
@@ -355,7 +365,7 @@ const ToggleSwitch: React.FC<{
 
         {/* 主体表单区域 */}
         <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col">
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-5 sm:p-6 space-y-6">
+          <div key={tab} className="flex-1 overflow-y-auto custom-scrollbar p-5 sm:p-6 space-y-6">
             {error && (
               <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-medium flex items-center gap-2">
                 <AlertCircle size={16} className="text-rose-400 shrink-0" />
@@ -365,6 +375,7 @@ const ToggleSwitch: React.FC<{
 
             {/* TAB: 生图模型 */}
             {tab === 'images' && <ImageModelSettings config={draft} onChange={setDraft} english={english} />}
+            {tab === 'removal' && <BackgroundRemovalSettings english={english} />}
 
             {/* TAB: 端点与模型 */}
             {tab === 'models' && (

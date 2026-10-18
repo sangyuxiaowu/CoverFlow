@@ -199,6 +199,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
           loadImage: options.loadImage!, saveImage: options.saveImage!, onImage: image => options.onImage?.(image), bridge
         }, signal) : undefined;
         const value = generated ? generated.value : await executeTool(call.name, args, bridge, signal, Boolean(config.supportsVision));
+        if (call.name === 'remove_background' && value && typeof value === 'object' && 'success' in value && value.success === false) status = 'error';
         if (generated) {
           imageRef = generated.image;
           result = JSON.stringify(value);

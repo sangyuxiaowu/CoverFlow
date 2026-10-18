@@ -1,0 +1,7 @@
+U2NetP model source:
+https://www.modelscope.cn/models/budaoshou/U2NetP-ONNX
+Upstream: https://github.com/xuebinqin/U-2-Net
+License: Apache-2.0
+https://www.apache.org/licenses/LICENSE-2.0
+
+The upstream license and notices are included in U2NetP-Apache-2.0.txt.

@@ -5,9 +5,11 @@ import { editLayers } from '../domain/layerOperations.ts';
 import { backgroundPatch, choice, ids, layerPatch, number, record, safeImage, text, validateContent } from './validation.ts';
 import { detectDecorationFormat, sanitizeBackgroundCss } from '../../../utils/customContent.ts';
 import { parseEditLayersRequest, parseManageProjectsRequest } from './requests.ts';
+import { executeBackgroundRemovalTool } from './backgroundRemoval.ts';
 
 export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false): Promise<unknown> {
   signal.throwIfAborted();
+  if (name === 'remove_background') return executeBackgroundRemovalTool(input, bridge, signal);
   const args = record(input);
   if (name === 'get_cover_size_recommendations') return {
     note: '以下为常见用途的设计建议，不是平台强制规格。用户明确指定的尺寸优先；调整已有画布尺寸前应确认需求，图层不会自动缩放。',

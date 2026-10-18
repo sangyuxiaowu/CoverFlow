@@ -12,6 +12,8 @@ import ExportModal from './components/ExportModal.tsx';
 import AiAssistant from './features/ai/components/AiAssistant.tsx';
 import type { WorkspaceOptions } from './features/ai/services/workspace.ts';
 import { updateProjectLayer } from './features/ai/domain/layerOperations.ts';
+import { applyRemovalResult } from './features/background-removal/layerResult.ts';
+import type { RemovalResult } from './features/background-removal/types.ts';
 import { PWAInstallButton } from './components/pwa/PWAInstallButton.tsx';
 import { PWAUpdatePrompt } from './components/pwa/PWAUpdatePrompt.tsx';
 import { OfflineIndicator } from './components/pwa/OfflineIndicator.tsx';
@@ -983,6 +985,12 @@ const App: React.FC = () => {
       return updateProjectLayer(p, id, updates);
     }, record);
   }, []);
+
+  const handleRemoveBackground = (result: RemovalResult) => {
+    const projectId = project?.id;
+    const copyId = generateId();
+    modifyProject(current => current.id === projectId ? applyRemovalResult(current, result, copyId) : current);
+  };
 
   const getExpandedSelection = (layers: Layer[], ids: string[]) => {
     const expanded = new Set(ids);
@@ -2606,6 +2614,7 @@ const App: React.FC = () => {
           project={project}
           selectedLayerIds={selectedLayerIds}
           onUpdateLayer={updateLayer}
+          onRemoveBackground={handleRemoveBackground}
           onDeleteLayer={(id) => setConfirmDialog({ message: t.confirmDelete, onConfirm: () => handleDeleteLayers([id]) })}
           onSelectLayer={handleSelectLayer}
           onReorderLayers={(newLayers) => modifyProject(p => ({ ...p, layers: newLayers.map((l, i) => ({ ...l, zIndex: i + 1 })) }))}

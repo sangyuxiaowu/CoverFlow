@@ -6,6 +6,8 @@ import { PRESET_COLORS, TEXT_GRADIENT_PRESETS } from '../constants.ts';
 import { sanitizeDecorationContent } from '../utils/decorationStyles.ts';
 import DecorationContent from './DecorationContent.tsx';
 import DecorationCodeEditor from './DecorationCodeEditor.tsx';
+import RemoveBackgroundButton from '../features/background-removal/RemoveBackgroundButton.tsx';
+import type { RemovalResult } from '../features/background-removal/types.ts';
 import { 
   Eye, EyeOff, Lock, Unlock, Trash2, Hash, RotateCw, Maximize2, 
   Type as TextIcon, Image as ImageIcon, GripVertical, Link as LinkIcon, Link2Off, MoveHorizontal, MoveVertical,
@@ -18,6 +20,7 @@ interface LayersPanelProps {
   project: ProjectState;
   selectedLayerIds: string[];
   onUpdateLayer: (id: string, updates: Partial<Layer>, record?: boolean) => void;
+  onRemoveBackground: (result: RemovalResult) => void;
   onDeleteLayer: (id: string) => void;
   onSelectLayer: (
     id: string | null,
@@ -87,6 +90,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   project,
   selectedLayerIds,
   onUpdateLayer,
+  onRemoveBackground,
   onDeleteLayer,
   onSelectLayer,
   onReorderLayers,
@@ -563,6 +567,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
 
               {selectedLayer.type === 'image' && (
                 <div className="space-y-2 pt-2 border-t border-slate-800/80">
+                  <RemoveBackgroundButton key={`${project.id}:${selectedLayer.id}`} layer={selectedLayer} english={lang === 'en'} onApply={onRemoveBackground} />
                   <div className="space-y-1">
                     <label htmlFor={`image-source-${selectedLayer.id}`} className="block text-[9px] text-slate-500 font-bold">{t.imageSource}</label>
                     <input id={`image-source-${selectedLayer.id}`} type="text" maxLength={200} value={selectedLayer.imageSource || ''} onChange={event => onUpdateLayer(selectedLayer.id, { imageSource: event.target.value })} onBlur={onCommit} className="w-full min-w-0 bg-slate-800/50 rounded-md px-2 py-1 text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none" />

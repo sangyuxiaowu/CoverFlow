@@ -79,6 +79,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     query: string('可选名称或内容关键词，不区分大小写；省略时不过滤，提供时不得为空白。')
   }, ['projectId'])),
   tool('get_selected_layers', '读取当前选中图层的属性，包括图片来源、描述或提示词；视觉模型还会收到图片预览。用户输入有明确指代时使用。', object('无需参数', {})),
+  tool('remove_background', '本地移除图片图层背景，成功后返回结果图层 ID；已抠图图片不可重复处理。', object('处理当前项目的一个图片图层。', {
+    projectId,
+    layerId: string('当前项目的 image 图层 ID，来自 get_context、get_selected_layers 或 read_layers，不可编造。锁定图层须先获用户许可解锁。'),
+    modelId: enumeration('可选，默认 u2netp。u2netp：内置约 4.6 MB 的轻量模型，优先用于快速处理、普通主体。birefnet：约 490 MB 的高质量候选，适合毛发或复杂边缘，耗时和内存较高。', ['u2netp', 'birefnet']),
+    keepOriginal: boolean('可选，默认 true：成功后保留并隐藏原图，在相同位置创建已抠图副本并选中；false 为原地替换。失败或取消不改图层，成功变更可一次撤销。'),
+    device: enumeration('可选，默认 auto：优先 WebGPU，失败回退 CPU/WASM。', ['auto', 'webgpu', 'wasm'])
+  }, ['projectId', 'layerId'])),
   tool('add_layer', '在当前项目添加一个图层并选中；不会自动编组，多图层组合请使用 edit_layers。', object('新图层创建参数。', {
     projectId,
     type: enumeration('图层类型：text 为纯文本，svg 为矢量标记，image 为已有位图，decoration 为 CSS/HTML 装饰。', ['text', 'svg', 'image', 'decoration']),

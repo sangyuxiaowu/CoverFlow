@@ -36,6 +36,7 @@ export interface Layer {
   decorationFormat?: 'css' | 'html';
   imageSource?: string;
   imageDescription?: string;
+  backgroundRemoved?: boolean;
   x: number;
   y: number;
   width: number;

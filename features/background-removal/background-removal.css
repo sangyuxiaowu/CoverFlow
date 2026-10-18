@@ -1,36 +1,262 @@
-.cf-removal-settings { color: #cbd5e1; font-size: 12px; min-width: 0; }
-.cf-removal-heading { display: flex; align-items: center; gap: 8px; color: #e2e8f0; margin-bottom: 20px; }
-.cf-removal-heading h3 { font-size: 15px; font-weight: 600; margin: 0; }
-.cf-removal-controls { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 12px; align-items: center; max-width: 480px; }
-.cf-removal-controls select { width: 100%; min-width: 0; padding: 8px; color: #e2e8f0; background: #0f172a; border: 1px solid #334155; border-radius: 6px; }
-.cf-removal-runtime { margin: 24px 0; padding-block: 16px; border-block: 1px solid #263143; }
-.cf-removal-runtime > div:first-child { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 12px; }
-.cf-removal-runtime span { color: #94a3b8; }
-.cf-removal-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.cf-removal-actions button, .cf-removal-actions a, .cf-removal-status button { display: inline-flex; justify-content: center; align-items: center; gap: 6px; min-height: 30px; padding: 5px 9px; color: #cbd5e1; background: #182334; border: 1px solid #334155; border-radius: 6px; font-size: 11px; cursor: pointer; text-decoration: none; }
-.cf-removal-actions button:hover:not(:disabled), .cf-removal-actions a:hover { background: #26384d; color: #fff; }
-.cf-removal-actions button:disabled { opacity: .45; cursor: not-allowed; }
-.cf-removal-settings button:focus-visible, .cf-removal-settings a:focus-visible, .cf-removal-layer button:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; }
-.cf-removal-runtime details { margin-top: 12px; color: #94a3b8; }
-.cf-removal-runtime summary { cursor: pointer; }
-.cf-removal-runtime details a { display: flex; gap: 6px; align-items: center; color: #7dd3fc; margin-top: 8px; overflow-wrap: anywhere; }
-.cf-removal-models { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.cf-removal-model { min-width: 0; border: 1px solid #263143; border-radius: 8px; padding: 14px; }
-.cf-removal-model-title { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.cf-removal-model-title strong { color: #f1f5f9; font-size: 13px; }
-.cf-removal-model-title span { color: #94a3b8; font-size: 11px; }
-.cf-removal-meta { display: flex; flex-wrap: wrap; gap: 10px; color: #94a3b8; font-size: 11px; margin: 8px 0 14px; }
-.cf-removal-filename { overflow-wrap: anywhere; color: #94a3b8; margin-bottom: 10px; }
-.cf-removal-status { display: flex; gap: 8px; align-items: center; margin-top: 16px; min-width: 0; }
-.cf-removal-status span { flex: 1; overflow-wrap: anywhere; }
-.cf-removal-settings .cf-removal-ready { color: #6ee7b7; }
-.cf-removal-error { color: #fda4af; overflow-wrap: anywhere; margin-top: 10px; }
-.cf-removal-layer { min-width: 0; }
-.cf-removal-layer p { margin: 6px 0 0; font-size: 10px; overflow-wrap: anywhere; }
-.cf-removal-keep-original { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; font-size: 11px; color: #cbd5e1; cursor: pointer; }
-.cf-removal-keep-original input { width: 13px; height: 13px; accent-color: #38bdf8; }
-.cf-removal-hint { color: #94a3b8; line-height: 1.6; }
-@media (max-width: 560px) {
-  .cf-removal-models { grid-template-columns: minmax(0, 1fr); }
-  .cf-removal-controls { grid-template-columns: 78px minmax(0, 1fr); gap: 10px; }
+/* 模块：抠图相关样式增强 */
+
+.cf-removal-settings {
+  color: #cbd5e1;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.cf-removal-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #e2e8f0;
+  margin-bottom: 20px;
+}
+
+.cf-removal-heading h3 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.cf-removal-controls {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.cf-removal-controls select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 12px;
+  color: #e2e8f0;
+  background: #090d16;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  font-size: 12px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.cf-removal-controls select:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.cf-removal-runtime {
+  margin: 20px 0;
+  padding: 18px;
+  border: 1px solid #1e293b;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.cf-removal-runtime > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.cf-removal-runtime span {
+  color: #94a3b8;
+}
+
+.cf-removal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.cf-removal-actions button,
+.cf-removal-actions a,
+.cf-removal-status button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 12px;
+  color: #cbd5e1;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.cf-removal-actions button:hover:not(:disabled),
+.cf-removal-actions a:hover {
+  background: #334155;
+  color: #ffffff;
+  border-color: #475569;
+}
+
+.cf-removal-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cf-removal-settings button:focus-visible,
+.cf-removal-settings a:focus-visible,
+.cf-removal-layer button:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 2px;
+}
+
+.cf-removal-runtime details {
+  margin-top: 14px;
+  color: #94a3b8;
+  border-top: 1px solid #1e293b;
+  padding-top: 12px;
+}
+
+.cf-removal-runtime summary {
+  cursor: pointer;
+  font-weight: 600;
+  user-select: none;
+}
+
+.cf-removal-runtime details a {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: #7dd3fc;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+.cf-removal-runtime details a:hover {
+  text-decoration: underline;
+}
+
+.cf-removal-models {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.cf-removal-model {
+  min-width: 0;
+  border: 1px solid #1e293b;
+  border-radius: 14px;
+  padding: 18px;
+  background: rgba(15, 23, 42, 0.4);
+  transition: all 0.2s ease;
+}
+
+.cf-removal-model:hover {
+  border-color: #334155;
+}
+
+.cf-removal-model-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.cf-removal-model-title strong {
+  color: #f1f5f9;
+  font-size: 14px;
+}
+
+.cf-removal-model-title span {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.cf-removal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: #94a3b8;
+  font-size: 11px;
+  margin: 10px 0 14px;
+}
+
+.cf-removal-filename {
+  overflow-wrap: anywhere;
+  color: #94a3b8;
+  margin-bottom: 12px;
+  font-family: monospace;
+  font-size: 11px;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #1e293b;
+}
+
+.cf-removal-status {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 16px;
+  min-width: 0;
+  padding: 12px 16px;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid #334155;
+  border-radius: 10px;
+}
+
+.cf-removal-status span {
+  flex: 1;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: #93c5fd;
+  font-weight: 500;
+}
+
+.cf-removal-settings .cf-removal-ready {
+  color: #6ee7b7;
+}
+
+.cf-removal-error {
+  color: #fda4af;
+  overflow-wrap: anywhere;
+  margin-top: 10px;
+}
+
+.cf-removal-layer {
+  min-width: 0;
+}
+
+.cf-removal-keep-original {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #cbd5e1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cf-removal-keep-original input {
+  width: 14px;
+  height: 14px;
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
+.cf-removal-hint {
+  color: #94a3b8;
+  line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .cf-removal-models {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cf-removal-controls {
+    grid-template-columns: 85px minmax(0, 1fr);
+    gap: 10px;
+  }
 }

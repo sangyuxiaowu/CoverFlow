@@ -1,20 +1,31 @@
 // 模块：图层面板与属性检查器
 import React, { useState, useCallback, useRef, useEffect, useMemo, useLayoutEffect } from 'react';
-import { Layer, ProjectState, TextGradient, TextShadow } from '../types.ts';
+import { Layer, ProjectState, TextGradient, TextShadow, ImageFilters } from '../types.ts';
 import { translations, Language } from '../translations.ts';
 import { PRESET_COLORS, TEXT_GRADIENT_PRESETS } from '../constants.ts';
 import { sanitizeDecorationContent } from '../utils/decorationStyles.ts';
 import { parseColor } from '../utils/colors.ts';
+import {
+  DEFAULT_IMAGE_CROP,
+  DEFAULT_IMAGE_FILTERS,
+  computeCroppedLayerGeometry,
+  computeLayerFlipUpdates,
+  hasActiveImageCrop,
+  hasActiveImageFilters,
+  normalizeImageFilters,
+} from '../utils/imageLayer.ts';
 import ColorPicker from './ColorPicker.tsx';
 import DecorationContent from './DecorationContent.tsx';
 import DecorationCodeEditor from './DecorationCodeEditor.tsx';
+import ImageLayerCropModal from './ImageLayerCropModal.tsx';
 import RemoveBackgroundButton from '../features/background-removal/RemoveBackgroundButton.tsx';
 import type { RemovalResult } from '../features/background-removal/types.ts';
 import { 
   Eye, EyeOff, Lock, Unlock, Trash2, Hash, RotateCw, Maximize2, 
   Type as TextIcon, Image as ImageIcon, GripVertical, Link as LinkIcon, Link2Off, MoveHorizontal, MoveVertical,
   Palette, Sliders, AlignLeft, AlignCenter, AlignRight, Type, Search, ChevronDown, Check, Folder,
-  Copy, Trash, ArrowUpToLine, ArrowDownToLine, Layers, Ungroup, PanelRightClose, PanelRightOpen
+  Copy, Trash, ArrowUpToLine, ArrowDownToLine, Layers, Ungroup, PanelRightClose, PanelRightOpen,
+  FlipHorizontal2, FlipVertical2, Crop as CropIcon, RotateCcw
 } from 'lucide-react';
 
 interface LayersPanelProps {
@@ -37,6 +48,7 @@ interface LayersPanelProps {
   onGroupLayers: (ids: string[]) => void;
   onUngroupLayer: (id: string) => void;
   onCommit: () => void;
+  onOpenImageCrop?: (layerId: string) => void;
 }
 
 interface LocalFont {
@@ -102,7 +114,8 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   onMoveLayersBottom,
   onGroupLayers,
   onUngroupLayer,
-  onCommit
+  onCommit,
+  onOpenImageCrop
 }) => {
   const selectedLayer = project.layers.find(l => l.id === project.selectedLayerId);
   const t = translations[lang];
@@ -111,6 +124,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   const [editValue, setEditValue] = useState("");
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [internalCropLayerId, setInternalCropLayerId] = useState<string | null>(null);
   
   // 字体相关状态
   const [localFonts, setLocalFonts] = useState<LocalFont[]>([]);
@@ -591,19 +605,224 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                 </div>
               </div>
 
-              {selectedLayer.type === 'image' && (
-                <div className="space-y-2 pt-2 border-t border-slate-800/80">
-                  <RemoveBackgroundButton key={`${project.id}:${selectedLayer.id}`} layer={selectedLayer} english={lang === 'en'} onApply={onRemoveBackground} />
-                  <div className="space-y-1">
-                    <label htmlFor={`image-source-${selectedLayer.id}`} className="block text-[9px] text-slate-500 font-bold">{t.imageSource}</label>
-                    <input id={`image-source-${selectedLayer.id}`} type="text" maxLength={200} value={selectedLayer.imageSource || ''} onChange={event => onUpdateLayer(selectedLayer.id, { imageSource: event.target.value })} onBlur={onCommit} className="w-full min-w-0 bg-slate-800/50 rounded-md px-2 py-1 text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none" />
+              {selectedLayer.type === 'image' && (() => {
+                const filters = normalizeImageFilters(selectedLayer.imageFilters);
+                const filtersActive = hasActiveImageFilters(selectedLayer.imageFilters);
+                const cropActive = hasActiveImageCrop(selectedLayer.imageCrop);
+                const updateFilter = (patch: Partial<ImageFilters>, record = false) => {
+                  const next = normalizeImageFilters({ ...filters, ...patch });
+                  onUpdateLayer(
+                    selectedLayer.id,
+                    { imageFilters: hasActiveImageFilters(next) ? next : undefined },
+                    record
+                  );
+                };
+
+                return (
+                  <div className="space-y-3 pt-2 border-t border-slate-800/80">
+                    {/* 翻转与非破坏性裁剪 */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">
+                          {t.imageTransformAndCrop}
+                        </span>
+                        {cropActive && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdateLayer(
+                                selectedLayer.id,
+                                computeCroppedLayerGeometry(selectedLayer, DEFAULT_IMAGE_CROP),
+                                true
+                              )
+                            }
+                            title={t.resetCrop}
+                            className="flex items-center gap-1 text-[10px] font-bold text-blue-400 hover:text-blue-300 transition-colors"
+                          >
+                            <RotateCcw className="w-2.5 h-2.5" />
+                            <span>{t.resetCrop}</span>
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateLayer(
+                              selectedLayer.id,
+                              computeLayerFlipUpdates(selectedLayer, 'horizontal'),
+                              true
+                            )
+                          }
+                          className={`flex items-center justify-center gap-1 py-1.5 px-1.5 rounded-lg text-[10px] font-bold border transition-all truncate ${
+                            selectedLayer.flipX
+                              ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                              : 'bg-slate-800/80 text-slate-300 border-slate-700/70 hover:bg-slate-800 hover:text-white'
+                          }`}
+                          title={t.flipHorizontal}
+                        >
+                          <FlipHorizontal2 className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{t.flipHorizontal}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateLayer(
+                              selectedLayer.id,
+                              computeLayerFlipUpdates(selectedLayer, 'vertical'),
+                              true
+                            )
+                          }
+                          className={`flex items-center justify-center gap-1 py-1.5 px-1.5 rounded-lg text-[10px] font-bold border transition-all truncate ${
+                            selectedLayer.flipY
+                              ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                              : 'bg-slate-800/80 text-slate-300 border-slate-700/70 hover:bg-slate-800 hover:text-white'
+                          }`}
+                          title={t.flipVertical}
+                        >
+                          <FlipVertical2 className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{t.flipVertical}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onOpenImageCrop) {
+                              onOpenImageCrop(selectedLayer.id);
+                            } else {
+                              setInternalCropLayerId(selectedLayer.id);
+                            }
+                          }}
+                          title={cropActive ? t.editCrop : t.cropLayerImage}
+                          className={`flex items-center justify-center gap-1 py-1.5 px-1.5 rounded-lg text-[10px] font-bold border transition-all truncate ${
+                            cropActive
+                              ? 'bg-blue-500/15 text-blue-300 border-blue-500/40 hover:bg-blue-500/25'
+                              : 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-700/70'
+                          }`}
+                        >
+                          <CropIcon className="w-3 h-3 text-blue-400 shrink-0" />
+                          <span className="truncate">{cropActive ? t.editCrop : t.cropLayerImage}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 基础滤镜（亮度、对比度、灰度、模糊） */}
+                    <div className="space-y-2 pt-2 border-t border-slate-800/60">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-[9px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                          <Sliders className="w-3 h-3" />
+                          <span>{t.imageFilters}</span>
+                        </h4>
+                        {filtersActive && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdateLayer(selectedLayer.id, { imageFilters: undefined }, true)
+                            }
+                            className="flex items-center gap-1 text-[10px] font-bold text-blue-400 hover:text-blue-300 transition-colors"
+                          >
+                            <RotateCcw className="w-2.5 h-2.5" />
+                            <span>{t.resetFilters}</span>
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-x-2.5 gap-y-2">
+                        {/* 亮度 */}
+                        <div className="space-y-0.5 min-w-0">
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-slate-400 font-semibold truncate">{t.filterBrightness}</span>
+                            <span className="font-mono text-slate-300 tabular-nums">{Math.round(filters.brightness)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0}
+                            max={200}
+                            step={1}
+                            aria-label={t.filterBrightness}
+                            value={filters.brightness}
+                            onChange={(e) => updateFilter({ brightness: Number(e.target.value) }, false)}
+                            onMouseUp={onCommit}
+                            onTouchEnd={onCommit}
+                            className="w-full accent-blue-600 h-2.5 cursor-pointer"
+                          />
+                        </div>
+
+                        {/* 对比度 */}
+                        <div className="space-y-0.5 min-w-0">
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-slate-400 font-semibold truncate">{t.filterContrast}</span>
+                            <span className="font-mono text-slate-300 tabular-nums">{Math.round(filters.contrast)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0}
+                            max={200}
+                            step={1}
+                            aria-label={t.filterContrast}
+                            value={filters.contrast}
+                            onChange={(e) => updateFilter({ contrast: Number(e.target.value) }, false)}
+                            onMouseUp={onCommit}
+                            onTouchEnd={onCommit}
+                            className="w-full accent-blue-600 h-2.5 cursor-pointer"
+                          />
+                        </div>
+
+                        {/* 灰度 */}
+                        <div className="space-y-0.5 min-w-0">
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-slate-400 font-semibold truncate">{t.filterGrayscale}</span>
+                            <span className="font-mono text-slate-300 tabular-nums">{Math.round(filters.grayscale)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            step={1}
+                            aria-label={t.filterGrayscale}
+                            value={filters.grayscale}
+                            onChange={(e) => updateFilter({ grayscale: Number(e.target.value) }, false)}
+                            onMouseUp={onCommit}
+                            onTouchEnd={onCommit}
+                            className="w-full accent-blue-600 h-2.5 cursor-pointer"
+                          />
+                        </div>
+
+                        {/* 模糊 */}
+                        <div className="space-y-0.5 min-w-0">
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-slate-400 font-semibold truncate">{t.filterBlur}</span>
+                            <span className="font-mono text-slate-300 tabular-nums">{Number(filters.blur.toFixed(1))}px</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0}
+                            max={20}
+                            step={0.5}
+                            aria-label={t.filterBlur}
+                            value={filters.blur}
+                            onChange={(e) => updateFilter({ blur: Number(e.target.value) }, false)}
+                            onMouseUp={onCommit}
+                            onTouchEnd={onCommit}
+                            className="w-full accent-blue-600 h-2.5 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 pt-2 border-t border-slate-800/60">
+                      <RemoveBackgroundButton key={`${project.id}:${selectedLayer.id}`} layer={selectedLayer} english={lang === 'en'} onApply={onRemoveBackground} />
+                      <div className="space-y-1">
+                        <label htmlFor={`image-source-${selectedLayer.id}`} className="block text-[9px] text-slate-500 font-bold">{t.imageSource}</label>
+                        <input id={`image-source-${selectedLayer.id}`} type="text" maxLength={200} value={selectedLayer.imageSource || ''} onChange={event => onUpdateLayer(selectedLayer.id, { imageSource: event.target.value })} onBlur={onCommit} className="w-full min-w-0 bg-slate-800/50 rounded-md px-2 py-1 text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none" />
+                      </div>
+                      <div className="space-y-1">
+                        <label htmlFor={`image-description-${selectedLayer.id}`} className="block text-[9px] text-slate-500 font-bold">{t.imageDescription}</label>
+                        <textarea id={`image-description-${selectedLayer.id}`} rows={4} maxLength={10000} value={selectedLayer.imageDescription || ''} onChange={event => onUpdateLayer(selectedLayer.id, { imageDescription: event.target.value })} onBlur={onCommit} className="block w-full min-w-0 resize-y bg-slate-800/50 rounded-md px-2 py-1 text-[11px] leading-relaxed text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none" />
+                      </div>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <label htmlFor={`image-description-${selectedLayer.id}`} className="block text-[9px] text-slate-500 font-bold">{t.imageDescription}</label>
-                    <textarea id={`image-description-${selectedLayer.id}`} rows={4} maxLength={10000} value={selectedLayer.imageDescription || ''} onChange={event => onUpdateLayer(selectedLayer.id, { imageDescription: event.target.value })} onBlur={onCommit} className="block w-full min-w-0 resize-y bg-slate-800/50 rounded-md px-2 py-1 text-[11px] leading-relaxed text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none" />
-                  </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* 文本专属属性区 */}
               {selectedLayer.type === 'text' && (
@@ -1210,6 +1429,27 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
           </button>
         </div>
       )}
+      <ImageLayerCropModal
+        isOpen={Boolean(internalCropLayerId)}
+        layer={project.layers.find((l) => l.id === internalCropLayerId && l.type === 'image') || null}
+        lang={lang}
+        onCancel={() => setInternalCropLayerId(null)}
+        onConfirm={(crop, flipX, flipY) => {
+          const target = project.layers.find((l) => l.id === internalCropLayerId && l.type === 'image');
+          if (target) {
+            onUpdateLayer(
+              target.id,
+              {
+                ...computeCroppedLayerGeometry(target, crop),
+                flipX,
+                flipY,
+              },
+              true
+            );
+          }
+          setInternalCropLayerId(null);
+        }}
+      />
       </div>
       )}
     </div>

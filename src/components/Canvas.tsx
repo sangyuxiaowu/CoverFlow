@@ -4,6 +4,7 @@ import { Layer, ProjectState } from '../types.ts';
 import { applySvgAspectRatio } from '../utils/helpers.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
 import DecorationContent from './DecorationContent.tsx';
+import ImageLayerContent from './ImageLayerContent.tsx';
 import { translations, Language } from '../translations.ts';
 import { RotateCw } from 'lucide-react';
 
@@ -18,12 +19,13 @@ interface CanvasProps {
   onSelectLayer: (id: string | null) => void;
   updateLayer: (id: string, updates: Partial<Layer>, record?: boolean) => void;
   onCommit: () => void;
+  onOpenImageCrop?: (layerId: string) => void;
 }
 
 const SNAP_THRESHOLD = 8;
 
 // 画布交互与渲染组件。
-const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLayer, onCommit }) => {
+const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLayer, onCommit, onOpenImageCrop }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fittedProjectIdRef = useRef<string | null>(null);
   const [zoom, setZoom] = useState(0.8);
@@ -115,7 +117,14 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
   };
 
   const handleLayerDoubleClick = (e: React.MouseEvent, layer: Layer) => {
-    if (layer.locked || layer.type !== 'text') return;
+    if (layer.locked) return;
+    if (layer.type === 'image' && onOpenImageCrop) {
+      e.stopPropagation();
+      onSelectLayer(layer.id);
+      onOpenImageCrop(layer.id);
+      return;
+    }
+    if (layer.type !== 'text') return;
     e.stopPropagation();
     onSelectLayer(layer.id);
     setEditingLayerId(layer.id);
@@ -434,13 +443,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                         <DecorationContent content={layer.content} format={layer.decorationFormat} />
                       </div>
                     ) : (
-                      <img
-                        src={layer.content}
-                        className={`w-full h-full ${layer.ratioLocked ? 'object-contain' : 'object-fill'} pointer-events-none`}
-                        style={{ opacity: layer.opacity }}
-                        draggable={false}
-                        alt="layer"
-                      />
+                      <ImageLayerContent layer={layer} />
                     )}
                     {project.selectedLayerId === layer.id && !layer.locked && (
                       <>

@@ -2,6 +2,7 @@ import React, { useLayoutEffect, useRef, useState } from 'react';
 import { ProjectState } from '../types.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
 import DecorationContent from './DecorationContent.tsx';
+import ImageLayerContent from './ImageLayerContent.tsx';
 import { applySvgAspectRatio } from '../utils/helpers.ts';
 
 // 实时缩放预览组件。
@@ -141,12 +142,7 @@ const LivePreview: React.FC<{
                     <DecorationContent content={layer.content} format={layer.decorationFormat} />
                   </div>
                 ) : layer.type === 'image' ? (
-                  <img
-                    src={layer.content}
-                    alt="layer"
-                    className={`w-full h-full ${layer.ratioLocked ? 'object-contain' : 'object-fill'}`}
-                    style={{ opacity: layer.opacity }}
-                  />
+                  <ImageLayerContent layer={layer} />
                 ) : null}
               </div>
             );

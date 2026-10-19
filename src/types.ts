@@ -27,6 +27,20 @@ export interface TextShadow {
   offsetX: number;
   offsetY: number;
 }
+export interface ImageFilters {
+  brightness: number;
+  contrast: number;
+  grayscale: number;
+  blur: number;
+}
+
+export interface ImageCrop {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 // 模块：类型定义
 export interface Layer {
   id: string;
@@ -37,6 +51,10 @@ export interface Layer {
   imageSource?: string;
   imageDescription?: string;
   backgroundRemoved?: boolean;
+  flipX?: boolean;
+  flipY?: boolean;
+  imageFilters?: ImageFilters;
+  imageCrop?: ImageCrop;
   x: number;
   y: number;
   width: number;

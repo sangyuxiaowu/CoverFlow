@@ -6,6 +6,7 @@ import LayersPanel from './components/LayersPanel.tsx';
 import Toast from './components/Toast.tsx';
 import ConfirmModal from './components/ConfirmModal.tsx';
 import BackgroundCropModal from './components/BackgroundCropModal.tsx';
+import ImageLayerCropModal from './components/ImageLayerCropModal.tsx';
 import LandingView from './views/LandingView.tsx';
 import ProjectPresetModal from './components/ProjectPresetModal.tsx';
 import ExportModal from './components/ExportModal.tsx';
@@ -38,6 +39,7 @@ import { generateId, downloadFile, normalizeSVG, formatCanvasRatio } from './uti
 import { buildProjectSvg } from './utils/svgExport.ts';
 import { clampDecorationSize } from './utils/decorationStyles.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
+import { computeCroppedLayerGeometry } from './utils/imageLayer.ts';
 import { encodeWebp, MAX_IMAGE_EDGE } from './features/ai/services/imageAttachments.ts';
 import { type Area } from 'react-easy-crop';
 import {
@@ -114,6 +116,7 @@ const App: React.FC = () => {
   const [bgCropFlip, setBgCropFlip] = useState({ horizontal: false, vertical: false });
   const [bgCropAreaPixels, setBgCropAreaPixels] = useState<Area | null>(null);
   const [bgCropSaving, setBgCropSaving] = useState(false);
+  const [croppingImageLayerId, setCroppingImageLayerId] = useState<string | null>(null);
 
 
   const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
@@ -1583,6 +1586,27 @@ const App: React.FC = () => {
         isSaving={bgCropSaving}
         lang={lang}
       />
+      <ImageLayerCropModal
+        isOpen={Boolean(croppingImageLayerId)}
+        layer={project.layers.find(l => l.id === croppingImageLayerId && l.type === 'image') || null}
+        lang={lang}
+        onCancel={() => setCroppingImageLayerId(null)}
+        onConfirm={(crop, flipX, flipY) => {
+          const target = project.layers.find(l => l.id === croppingImageLayerId && l.type === 'image');
+          if (target) {
+            updateLayer(
+              target.id,
+              {
+                ...computeCroppedLayerGeometry(target, crop),
+                flipX,
+                flipY
+              },
+              true
+            );
+          }
+          setCroppingImageLayerId(null);
+        }}
+      />
       <header className="h-14 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between px-6 z-50">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <button
@@ -1807,6 +1831,7 @@ const App: React.FC = () => {
             onSelectLayer={(id) => handleSelectLayer(id, 'replace')}
             updateLayer={updateLayer}
             onCommit={saveHistorySnapshot}
+            onOpenImageCrop={(id) => setCroppingImageLayerId(id)}
           />
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl px-2 py-1 shadow-xl z-40">
             <button
@@ -1846,6 +1871,7 @@ const App: React.FC = () => {
           onGroupLayers={handleGroupLayers}
           onUngroupLayer={handleUngroupLayer}
           onCommit={saveHistorySnapshot}
+          onOpenImageCrop={(id) => setCroppingImageLayerId(id)}
         />
       </main>
     </div>

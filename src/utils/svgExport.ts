@@ -2,6 +2,7 @@ import { BackgroundConfig, Layer, ProjectState } from '../types.ts';
 import { applySvgAspectRatio, normalizeSVG } from './helpers.ts';
 import { detectDecorationFormat, sanitizeBackgroundCss, sanitizeDecorationHtml } from './customContent.ts';
 import { sanitizeDecorationCss } from './decorationStyles.ts';
+import { buildImageFilterCss, hasActiveImageCrop, normalizeImageCrop } from './imageLayer.ts';
 
 const escapeXml = (value: string): string =>
   value
@@ -363,8 +364,35 @@ export const buildProjectSvg = (project: ProjectState): string => {
     } else if (layer.type === 'text') {
       innerMarkup = buildTextLayerSvg(layer);
     } else if (layer.type === 'image') {
-      const par = layer.ratioLocked ? 'xMidYMid meet' : 'none';
-      innerMarkup = `<image href="${escapeXml(layer.content)}" x="0" y="0" width="${layer.width}" height="${layer.height}" preserveAspectRatio="${par}" />`;
+      const filterCss = buildImageFilterCss(layer.imageFilters);
+      const filterStyleAttr = filterCss ? ` style="filter: ${escapeXml(filterCss)};"` : '';
+      const hasFlip = Boolean(layer.flipX || layer.flipY);
+      const sx = layer.flipX ? -1 : 1;
+      const sy = layer.flipY ? -1 : 1;
+
+      if (hasActiveImageCrop(layer.imageCrop)) {
+        const crop = normalizeImageCrop(layer.imageCrop);
+        const clipId = `cf-crop-${layer.id}`.replace(/[^a-z0-9-_]/gi, '');
+        allDefs.push(
+          `<clipPath id="${escapeXml(clipId)}"><rect x="0" y="0" width="${layer.width}" height="${layer.height}" /></clipPath>`
+        );
+        const imgX = Number(((-crop.x / crop.width) * layer.width).toFixed(3));
+        const imgY = Number(((-crop.y / crop.height) * layer.height).toFixed(3));
+        const imgW = Number(((100 / crop.width) * layer.width).toFixed(3));
+        const imgH = Number(((100 / crop.height) * layer.height).toFixed(3));
+        const imgCx = Number((imgX + imgW / 2).toFixed(3));
+        const imgCy = Number((imgY + imgH / 2).toFixed(3));
+        const imgTransformAttr = hasFlip
+          ? ` transform="translate(${imgCx}, ${imgCy}) scale(${sx}, ${sy}) translate(${-imgCx}, ${-imgCy})"`
+          : '';
+        innerMarkup = `<g clip-path="url(#${escapeXml(clipId)})"><image href="${escapeXml(layer.content)}" x="${imgX}" y="${imgY}" width="${imgW}" height="${imgH}" preserveAspectRatio="none"${imgTransformAttr}${filterStyleAttr} /></g>`;
+      } else {
+        const par = layer.ratioLocked ? 'xMidYMid meet' : 'none';
+        const imgTransformAttr = hasFlip
+          ? ` transform="translate(${cx}, ${cy}) scale(${sx}, ${sy}) translate(${-cx}, ${-cy})"`
+          : '';
+        innerMarkup = `<image href="${escapeXml(layer.content)}" x="0" y="0" width="${layer.width}" height="${layer.height}" preserveAspectRatio="${par}"${imgTransformAttr}${filterStyleAttr} />`;
+      }
     } else if (layer.type === 'decoration') {
       innerMarkup = buildDecorationLayerSvg(layer);
     }

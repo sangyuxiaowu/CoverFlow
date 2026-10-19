@@ -42,7 +42,7 @@ export function layerPatch(value: unknown): Partial<Layer> {
   const input = record(value);
   const output: Record<string, unknown> = {};
   const strings = ['name', 'content', 'color', 'fontFamily', 'imageSource', 'imageDescription'];
-  const booleans = ['visible', 'locked', 'ratioLocked'];
+  const booleans = ['visible', 'locked', 'ratioLocked', 'flipX', 'flipY'];
   const numeric = ['x', 'y', 'rotation', 'width', 'height', 'opacity', 'fontSize', 'zIndex'];
   for (const [field, raw] of Object.entries(input)) {
     if (strings.includes(field)) {
@@ -55,7 +55,27 @@ export function layerPatch(value: unknown): Partial<Layer> {
     else if (field === 'textAlign') output[field] = choice(raw, field, ['left', 'center', 'right']);
     else if (field === 'writingMode') output[field] = choice(raw, field, ['horizontal', 'vertical']);
     else if (field === 'decorationFormat') output[field] = choice(raw, field, ['css', 'html']);
-    else if (field === 'textGradient' || field === 'textShadow') {
+    else if (field === 'imageFilters') {
+      const nested = record(raw);
+      const allowed = ['brightness', 'contrast', 'grayscale', 'blur'];
+      if (Object.keys(nested).some(key => !allowed.includes(key)) || allowed.some(key => nested[key] === undefined)) throw new Error('Provide every field of ' + field);
+      output[field] = {
+        brightness: number(nested.brightness, 'brightness', 0, 200),
+        contrast: number(nested.contrast, 'contrast', 0, 200),
+        grayscale: number(nested.grayscale, 'grayscale', 0, 100),
+        blur: number(nested.blur, 'blur', 0, 50)
+      };
+    } else if (field === 'imageCrop') {
+      const nested = record(raw);
+      const allowed = ['x', 'y', 'width', 'height'];
+      if (Object.keys(nested).some(key => !allowed.includes(key)) || allowed.some(key => nested[key] === undefined)) throw new Error('Provide every field of ' + field);
+      output[field] = {
+        x: number(nested.x, 'x', 0, 100),
+        y: number(nested.y, 'y', 0, 100),
+        width: number(nested.width, 'width', 1, 100),
+        height: number(nested.height, 'height', 1, 100)
+      };
+    } else if (field === 'textGradient' || field === 'textShadow') {
       const nested = record(raw);
       const allowed = field === 'textGradient' ? ['enabled', 'from', 'to', 'angle'] : ['enabled', 'color', 'blur', 'offsetX', 'offsetY'];
       if (Object.keys(nested).some(key => !allowed.includes(key)) || allowed.some(key => nested[key] === undefined)) throw new Error('Provide every field of ' + field);

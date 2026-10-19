@@ -483,10 +483,10 @@ describe('image tools and persistence', () => {
     }
     expect(JSON.stringify(imageToolDefinitions([model, second]))).not.toContain(model.description);
   });
-  it('requires explicit model selection when several are enabled and resolves existing UUIDs through short IDs', async () => {
+  it('requires explicit model selection and keeps legacy long configuration IDs behind short aliases', async () => {
     mockCanvas();
     const { context, model, config, getProject } = toolContext();
-    model.id = 'b31da620-4183-43de-8b60-6c65405182f5';
+    model.id = 'legacy-config-id-123456789';
     const other = { ...createImageModel('kolors'), enabled: true, endpointId: 'endpoint' };
     config.imageModels!.push(other);
     const mock = vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] }));
@@ -494,10 +494,10 @@ describe('image tools and persistence', () => {
     await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('ambiguous');
     expect(mock).not.toHaveBeenCalled();
     const result = await executeImageTool('generate_image', { projectId: 'project', modelConfigId: imageModelToolId(model), prompt: 'City' }, context, new AbortController().signal);
-    expect(imageModelToolId(model)).toBe('b31da6204');
+    expect(imageModelToolId(model)).toBe('legacycon');
     expect(JSON.parse(mock.mock.calls[0][1].body).model).toBe('agnes-image-2.5-flash');
     expect(result.value).toMatchObject({ layerId: getProject().layers[0].id });
-    expect(model.id).toBe('b31da620-4183-43de-8b60-6c65405182f5');
+    expect(model.id).toBe('legacy-config-id-123456789');
   });
   it('rejects colliding short model IDs before saving configuration', () => {
     const profiles = defaultConfig();

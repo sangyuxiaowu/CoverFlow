@@ -28,6 +28,7 @@ describe('imageModelForTool', () => {
   it('resolves the displayed model from the tool model configuration ID', () => {
     const configured = model('config-id-123');
     expect(imageModelForTool(tool('generate_image', '{"modelConfigId":"configid1"}'), [configured])).toBe(configured);
+    expect(imageModelForTool(tool('generate_image', '{"modelConfigId":"config-id-123"}'), [configured])).toBeUndefined();
   });
 
   it('uses the only enabled model when the single-model tool omits its ID', () => {

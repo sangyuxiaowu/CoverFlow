@@ -29,7 +29,7 @@ function appendAssistantText(entry: ChatEntry, text: string): ChatEntry {
   const activity = [...(entry.activity || [])];
   const last = activity.at(-1);
   if (last?.type === 'text') activity[activity.length - 1] = { ...last, text: last.text + text };
-  else activity.push({ id: crypto.randomUUID(), type: 'text', text });
+  else activity.push({ id: generateId(), type: 'text', text });
   return { ...entry, content: entry.content + text, activity };
 }
 
@@ -79,7 +79,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     setActiveSessionId(session.id);
     setEntries(session.entries);
   };
-  const freshSession = (): ChatSession => ({ id: crypto.randomUUID(), title: '新对话', projectId: workspaceRef.current.project?.id, createdAt: Date.now(), updatedAt: Date.now(), entries: [], responseItems: [], requests: [] });
+  const freshSession = (): ChatSession => ({ id: generateId(), title: '新对话', projectId: workspaceRef.current.project?.id, createdAt: Date.now(), updatedAt: Date.now(), entries: [], responseItems: [], requests: [] });
   const upsert = (session: ChatSession) => setSessions(previous => [session, ...previous.filter(item => item.id !== session.id)].sort((left, right) => right.updatedAt - left.updatedAt));
   const persist = async (session: ChatSession, target = store) => {
     await target.saveSession(session);
@@ -221,7 +221,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     controllerRef.current = controller;
     setBusy(true);
     onBusyChange(true);
-    const id = crypto.randomUUID();
+    const id = generateId();
     const targetStore = store;
     let working = structuredClone(sessionRef.current);
     working.entries = working.entries.map(entry => entry.continuable ? { ...entry, continuable: false } : entry);
@@ -245,7 +245,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     working.projectId = workspaceRef.current.project?.id;
     working.responseItems = [...working.responseItems, user];
     working.entries.push(
-      { id: crypto.randomUUID(), role: 'user', content: prompt.trim(), ...(images.length ? { images } : {}) },
+      { id: generateId(), role: 'user', content: prompt.trim(), ...(images.length ? { images } : {}) },
       { id, role: 'assistant', content: '', tools: [], projectSnapshot, previousResponseItems }
     );
     const publish = () => {

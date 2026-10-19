@@ -75,8 +75,10 @@ it('keeps chat accessible when API keys cannot be decrypted without overwriting 
   expect(harness.getAssistant().keyError).toBe(true);
   expect(harness.getAssistant().config.endpoints[0].apiKey).toBe('');
   expect(harness.getAssistant().sessions).toHaveLength(1);
+  expect(harness.getAssistant().sessions[0].id).toMatch(/^[0-9a-z]{9}$/);
   await act(async () => { await harness.getAssistant().newSession(); });
   expect(harness.getAssistant().sessions).toHaveLength(2);
+  expect(harness.getAssistant().activeSessionId).toMatch(/^[0-9a-z]{9}$/);
   expect(store.saveConfig).not.toHaveBeenCalled();
   await act(async () => { await harness.getAssistant().send('Do not send while locked'); });
   expect(runConversation).not.toHaveBeenCalled();

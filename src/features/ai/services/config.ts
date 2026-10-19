@@ -1,4 +1,5 @@
 import type { AiConfig, AiEndpointConfig, AiModelConfig, AiRequestConfig, ReasoningEffort } from '../types.ts';
+import { generateId } from '../../../utils/helpers.ts';
 import { loadStoredConfig, saveStoredConfig } from './configStore.ts';
 import { availableImageModels, createImageModel, IMAGE_MODEL_PRESETS, imageModelToolId, imageTimeoutSeconds, validateImageModel } from '../image-generation/index.ts';
 
@@ -78,7 +79,7 @@ export function createModel(modelId = 'gpt-4o-mini'): AiModelConfig {
     : ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
   const defaultEffort: ReasoningEffort = deepseek ? 'high' : 'medium';
   return {
-    id: crypto.randomUUID(),
+    id: generateId(),
     label: modelId,
     modelId,
     maxTokens: deepseek ? 16384 : 4096,
@@ -97,7 +98,7 @@ export function createEndpoint(provider: 'openai' | 'deepseek' | 'local' | 'cust
   const preset = provider === 'deepseek' ? { name: 'DeepSeek', endpoint: 'https://api.deepseek.com', models: [createModel('deepseek-flash'), createModel('deepseek-v4-pro')] }
     : provider === 'local' ? { name: 'Ollama', endpoint: 'http://localhost:11434/v1', models: [createModel('qwen3')] }
     : { name: provider === 'custom' ? 'Custom' : 'OpenAI', endpoint: 'https://api.openai.com/v1', models: [createModel('gpt-4o-mini'), createModel('gpt-4o')] };
-  return { id: crypto.randomUUID(), apiKey: '', ...preset };
+  return { id: generateId(), apiKey: '', ...preset };
 }
 
 export function defaultConfig(): AiConfig {

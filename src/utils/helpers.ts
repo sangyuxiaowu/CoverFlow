@@ -1,6 +1,10 @@
 // 模块：通用工具（导出、SVG 处理）
 // 生成短随机 ID。
-export const generateId = () => Math.random().toString(36).substr(2, 9);
+const ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
+export const generateId = () => {
+  const bytes = crypto.getRandomValues(new Uint8Array(9));
+  return Array.from(bytes, byte => ID_ALPHABET[byte % ID_ALPHABET.length]).join('');
+};
 
 // 触发浏览器下载。
 export const downloadFile = (content: string, fileName: string, contentType: string) => {

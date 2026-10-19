@@ -1,4 +1,5 @@
 import type { Layer, ProjectState } from '../../../types.ts';
+import { generateId } from '../../../utils/helpers.ts';
 import {
   computeCroppedLayerGeometry,
   hasActiveImageCrop,
@@ -149,7 +150,7 @@ export function editLayers(project: ProjectState, action: LayerAction, ids: stri
     result.layers = result.layers.map(layer => layer.type === 'group' ? { ...layer, ...groupBounds(result.layers, layer.children || []) } : layer);
     if (result.selectedLayerId && !result.layers.some(layer => layer.id === result.selectedLayerId)) result.selectedLayerId = null;
   } else if (action === 'duplicate') {
-    const idMap = new Map([...expanded].map(id => [id, crypto.randomUUID()]));
+    const idMap = new Map([...expanded].map(id => [id, generateId()]));
     const baseZ = Math.max(0, ...result.layers.map(layer => layer.zIndex));
     const clones = result.layers.filter(layer => expanded.has(layer.id)).map((layer, index) => ({
       ...layer, id: idMap.get(layer.id)!, name: layer.name + ' (copy)', x: layer.x + 20, y: layer.y + 20, zIndex: baseZ + index + 1,
@@ -160,7 +161,7 @@ export function editLayers(project: ProjectState, action: LayerAction, ids: stri
     result.selectedLayerId = idMap.get(selected[0].id)!;
   } else if (action === 'group') {
     if (selected.length < 2 || selected.some(layer => layer.parentId || layer.type === 'group')) throw new Error('Group at least two ungrouped layers.');
-    const id = crypto.randomUUID();
+    const id = generateId();
     result.layers = result.layers.map(layer => expanded.has(layer.id) ? { ...layer, parentId: id } : layer);
     result.layers.push({ id, name: patch.name || 'Group', type: 'group', content: '', ...groupBounds(result.layers, ids), rotation: 0, zIndex: Math.max(0, ...result.layers.map(layer => layer.zIndex)) + 1, visible: true, locked: false, opacity: 1, children: selected.map(layer => layer.id) });
     result.selectedLayerId = id;

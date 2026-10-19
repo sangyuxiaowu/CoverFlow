@@ -13,13 +13,16 @@ test('background removal status survives ordinary edits and resets for a replace
   assert.equal(updateProjectLayer(original, 'a', { x: 30 }).layers[0].backgroundRemoved, true);
   assert.equal(updateProjectLayer(original, 'a', { content: 'replacement' }).layers[0].backgroundRemoved, false);
   assert.equal(updateProjectLayer(original, 'a', { content: 'result', backgroundRemoved: true }).layers[0].backgroundRemoved, true);
-  assert.equal(editLayers(original, 'duplicate', ['a']).layers.at(-1)!.backgroundRemoved, true);
+  const duplicated = editLayers(original, 'duplicate', ['a']).layers.at(-1)!;
+  assert.equal(duplicated.backgroundRemoved, true);
+  assert.match(duplicated.id, /^[0-9a-z]{9}$/);
   assert.equal(JSON.parse(JSON.stringify(original)).layers[0].backgroundRemoved, true);
 });
 
 test('group transforms propagate and updating a child recomputes bounds', () => {
   const grouped = editLayers(project(), 'group', ['a', 'b']);
   const groupId = grouped.selectedLayerId!;
+  assert.match(groupId, /^[0-9a-z]{9}$/);
   const moved = updateProjectLayer(grouped, groupId, { x: 100, width: 600 });
   assert.equal(moved.layers.find(item => item.id === 'a')!.x, 100);
   assert.equal(moved.layers.find(item => item.id === 'a')!.width, 200);
@@ -33,8 +36,12 @@ test('group duplication remaps parent and child IDs', () => {
   const grouped = editLayers(project(), 'group', ['a', 'b']);
   const cloned = editLayers(grouped, 'duplicate', [grouped.selectedLayerId!]);
   const group = cloned.layers.find(item => item.id === cloned.selectedLayerId)!;
+  assert.match(group.id, /^[0-9a-z]{9}$/);
   assert.equal(group.children!.length, 2);
-  group.children!.forEach(id => assert.equal(cloned.layers.find(item => item.id === id)!.parentId, group.id));
+  group.children!.forEach(id => {
+    assert.match(id, /^[0-9a-z]{9}$/);
+    assert.equal(cloned.layers.find(item => item.id === id)!.parentId, group.id);
+  });
   assert.equal(cloned.layers.length, 7);
 });
 

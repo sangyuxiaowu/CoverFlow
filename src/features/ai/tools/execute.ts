@@ -7,6 +7,7 @@ import { detectDecorationFormat, sanitizeBackgroundCss } from '../../../utils/cu
 import { hasActiveImageCrop, hasActiveImageFilters, normalizeImageCrop, normalizeImageFilters } from '../../../utils/imageLayer.ts';
 import { parseEditLayersRequest, parseManageProjectsRequest } from './requests.ts';
 import { executeBackgroundRemovalTool } from './backgroundRemoval.ts';
+import { generateId } from '../../../utils/helpers.ts';
 
 function hasTextOnlyFields(patch: Partial<Layer>): boolean {
   return patch.fontFamily !== undefined || patch.fontWeight !== undefined || patch.fontSize !== undefined ||
@@ -85,7 +86,7 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     if (type === 'decoration' && patch.color !== undefined) throw new Error('Decoration colors must be changed in content via CSS variables, not layer.color.');
     const content = validateContent(type, text(patch.content, 'content'), patch.decorationFormat);
     if (type === 'decoration') patch.decorationFormat ??= detectDecorationFormat(content);
-    const layer: Layer = { id: crypto.randomUUID(), name: type, type, content, x: 40, y: 40, width: 300, height: 100, rotation: 0, zIndex: Math.max(0, ...project.layers.map(item => item.zIndex)) + 1, visible: true, locked: false, opacity: 1, ...(type === 'text' ? { fontSize: 48, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: '#ffffff', textAlign: 'left' } : {}), ...patch };
+    const layer: Layer = { id: generateId(), name: type, type, content, x: 40, y: 40, width: 300, height: 100, rotation: 0, zIndex: Math.max(0, ...project.layers.map(item => item.zIndex)) + 1, visible: true, locked: false, opacity: 1, ...(type === 'text' ? { fontSize: 48, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: '#ffffff', textAlign: 'left' } : {}), ...patch };
     if (type === 'image') {
       layer.imageSource ??= 'unknown';
       layer.imageDescription ??= '';

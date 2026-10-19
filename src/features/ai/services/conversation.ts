@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import type { Response, ResponseFunctionCallOutputItemList, ResponseStreamEvent } from 'openai/resources/responses/responses';
 import type { AiConfig, AiRequestConfig, ChatImageRef, RequestUsage, ResponseItem, TokenUsage, ToolEvent, WorkspaceBridge } from '../types.ts';
+import { generateId } from '../../../utils/helpers.ts';
 import { imageToolDefinitions, IMAGE_TOOL_DEFINITIONS, TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
 import { executeImageTool } from '../tools/imageTools.ts';
 import { executeTool } from '../tools/execute.ts';
@@ -143,7 +144,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
     let reported = false;
     let streamedText = '';
     const startTime = Date.now();
-    const request = { id: crypto.randomUUID(), endpoint: baseURL, model: config.model, createdAt: startTime, inputEstimate: estimateInput(input, config.systemPrompt, config.supportsVision, tools.some(tool => tool.function.name === 'generate_image'), config.imageToolModels) };
+    const request = { id: generateId(), endpoint: baseURL, model: config.model, createdAt: startTime, inputEstimate: estimateInput(input, config.systemPrompt, config.supportsVision, tools.some(tool => tool.function.name === 'generate_image'), config.imageToolModels) };
     try {
       const stream = await client.responses.create({
         model: config.model, instructions: config.systemPrompt, input: await hydrateImageReferences(input, options.loadImage),

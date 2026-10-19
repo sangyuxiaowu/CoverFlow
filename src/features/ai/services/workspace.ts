@@ -2,6 +2,7 @@ import type { ProjectState } from '../../../types.ts';
 import type { StorageAdapter } from '../../../storage/StorageAdapter.ts';
 import type { WorkspaceBridge } from '../types.ts';
 import { parseManageProjectsRequest } from '../tools/requests.ts';
+import { generateId } from '../../../utils/helpers.ts';
 
 export interface WorkspaceOptions {
   project: ProjectState | null;
@@ -104,7 +105,7 @@ export function createWorkspaceBridge(
       if (args.action === 'create') {
         const width = args.width ?? 1200;
         const height = args.height ?? 630;
-        const project: ProjectState = { id: crypto.randomUUID(), title: args.title ?? 'Untitled', layers: [], background: { type: 'color', value: '#18181b', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0.1, overlayScale: 20 }, canvasConfig: { width, height, ratio: `${width}x${height}` }, selectedLayerId: null, updatedAt: Date.now() };
+        const project: ProjectState = { id: generateId(), title: args.title ?? 'Untitled', layers: [], background: { type: 'color', value: '#18181b', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0.1, overlayScale: 20 }, canvasConfig: { width, height, ratio: `${width}x${height}` }, selectedLayerId: null, updatedAt: Date.now() };
         await save(project);
         signal.throwIfAborted();
         options.onUpsert(project);
@@ -136,8 +137,8 @@ export function createWorkspaceBridge(
         return { success: true, projectId: id, title: project.title };
       }
       const project = structuredClone(target.project);
-      const idMap = new Map(project.layers.map(layer => [layer.id, crypto.randomUUID()]));
-      project.id = crypto.randomUUID();
+      const idMap = new Map(project.layers.map(layer => [layer.id, generateId()]));
+      project.id = generateId();
       project.title = args.title ?? project.title + ' (copy)';
       project.updatedAt = Date.now();
       project.selectedLayerId = null;

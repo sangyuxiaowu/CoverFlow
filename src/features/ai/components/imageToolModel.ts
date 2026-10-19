@@ -14,7 +14,7 @@ export function imageModelForTool(tool: ToolEvent, models: ImageModelConfig[] | 
   const enabledModels = models?.filter(model => model.enabled) || [];
   if ('modelConfigId' in args) {
     if (typeof args.modelConfigId !== 'string') return undefined;
-    return enabledModels.find(model => model.id === args.modelConfigId || imageModelToolId(model) === args.modelConfigId);
+    return enabledModels.find(model => imageModelToolId(model) === args.modelConfigId);
   }
   return enabledModels.length === 1 ? enabledModels[0] : undefined;
 }

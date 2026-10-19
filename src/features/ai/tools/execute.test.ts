@@ -113,6 +113,7 @@ test('tools read live state between consecutive edits', async () => {
   const { bridge, signal } = setup();
   await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { content: 'Hello', text: { fontSize: 64 } } }, bridge, signal);
   const id = bridge.getProject()!.selectedLayerId!;
+  assert.match(id, /^[0-9a-z]{9}$/);
   await executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [id], properties: { content: 'Updated', opacity: 0.5 } }, bridge, signal);
   assert.equal(bridge.getProject()!.layers[0].content, 'Updated');
   assert.equal(bridge.getProject()!.layers[0].opacity, 0.5);

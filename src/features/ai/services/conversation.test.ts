@@ -28,6 +28,15 @@ const configuredConfig = () => {
 };
 const bridge: WorkspaceBridge = { getProject: () => null, getSelection: () => [], commit: async () => {}, manageProjects: async () => ({ items: [] }) };
 
+test('AI endpoint and model configuration IDs are short', () => {
+  const profiles = defaultConfig();
+  assert.match(profiles.endpoints[0].id, /^[0-9a-z]{9}$/);
+  assert.match(profiles.endpoints[0].models[0].id, /^[0-9a-z]{9}$/);
+  const endpoint = createEndpoint('deepseek');
+  assert.match(endpoint.id, /^[0-9a-z]{9}$/);
+  assert.ok(endpoint.models.every(model => /^[0-9a-z]{9}$/.test(model.id)));
+});
+
 const responsePayload = (output: unknown[], overrides = {}) => ({ id: 'resp-test', object: 'response', status: 'completed', output, usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120, input_tokens_details: { cached_tokens: 50 }, output_tokens_details: { reasoning_tokens: 10 } }, ...overrides });
 const textOutput = { type: 'message', id: 'msg-test', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] };
 async function* eventsFrom(events: unknown[]) { for (const event of events) yield event as ResponseStreamEvent; }

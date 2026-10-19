@@ -19,7 +19,6 @@ export const SYSTEM_PROMPT = `你是 CoverFlow 封面设计助手。请直接操
 ## 流程
 1. get_context 读当前项目；无项目则 manage_projects create。
 2. 修改已有图层内容前 read_layers。
-3. add_layer → edit_layers → update_canvas，完成后 get_canvas_preview 自检。
 
 ## 硬约束
 - 图层/项目 ID 只能取自工具返回，禁止编造。

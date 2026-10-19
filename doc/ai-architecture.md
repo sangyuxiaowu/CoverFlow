@@ -125,8 +125,6 @@ chat/
 
 装饰使用 `decorationFormat: css/html`，切换格式时同时提交完整 `content`。调色前通过 `read_layers` 读取源码，再用 `edit_layers/update` 更新相应 CSS 变量，保留其他样式和 alpha；不接受装饰的 `color` 字段，避免无效调色返回成功。文字与 SVG 继续使用 `color`。变量颜色支持 HEX（含透明度）、RGB/RGBA、HSL/HSLA、OKLCH 与命名颜色，人工拾色器不是 AI 操作目标，不需要新增界面控制工具。背景自定义 CSS 使用 `background: {type: css, value: 声明文本}`，不支持 HTML 背景。
 
-`config.ts` 的 `VISUAL_CONTENT_GUIDE` 记录当前能力和约束，默认系统提示词包含该说明。`toRequestConfig` 在实际请求中为缺少说明的自定义提示词追加一次，不覆盖已保存的用户文本；实际请求和上下文预算使用同一个合成提示词。
-
 ## 安全边界
 
 - 浏览器 AI 配置存入独立 IndexedDB 数据库 coverflow-ai：settings 保存剔除 Key 的配置，encryption-key 保存不可导出的 AES-GCM 256 位 CryptoKey，endpoint-secrets 保存各接入点的随机 12 字节 IV 和密文。文件模式仅主密钥仍留在本机 encryption-key，其余配置和密文在 chat/config.json。接入点 ID 作为附加认证数据，避免密文被换到其他连接。

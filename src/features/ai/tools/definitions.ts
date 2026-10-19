@@ -8,6 +8,7 @@ const boolean = (description: string) => ({ type: 'boolean', description });
 const enumeration = (description: string, values: string[]) => ({ type: 'string', description, enum: values });
 const object = (description: string, properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', description, properties, required, additionalProperties: false });
 const layerIds = (description: string) => ({ type: 'array', description, items: string('来自 get_context 或 read_layers 的图层 ID，不可编造。'), minItems: 1, maxItems: 500 });
+const noParameters = { type: 'object', properties: {} };
 const tool = (name: string, description: string, parameters: Record<string, unknown>): ToolDefinition => ({ type: 'function', function: { name, description, parameters } });
 const projectId = string('当前活动项目 ID，来自 get_context；活动项目改变后应重新读取。');
 const conditional = <Schema extends { description: string }>(rules: Parameters<typeof fieldUsage>[0], field: string, schema: Schema) => ({ ...schema, description: fieldUsage(rules, field) + schema.description });
@@ -79,8 +80,8 @@ const patch = object('图层属性的部分更新；省略字段保持原值。�
 });
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
-  tool('get_context', '读取当前项目、画布、背景、选区及图层元数据；不含图层源码，源码请用 read_layers 读取。', object('无需参数。', {})),
-  tool('get_cover_size_recommendations', '获取常见封面尺寸、比例及适配建议，供新建封面或选择画布尺寸时参考。', object('无需参数。', {})),
+  tool('get_context', '读取当前项目、画布、背景、选区及图层元数据；不含图层源码，源码请用 read_layers 读取。', noParameters),
+  tool('get_cover_size_recommendations', '获取常见封面尺寸、比例及适配建议，供新建封面或选择画布尺寸时参考。', noParameters),
   tool('manage_projects', '搜索和管理项目。新建会自动打开；删除需用户确认，本地文件项目只移除最近记录而不删除磁盘文件。', object('项目管理请求；除 action 外的字段是否需要取决于所选操作。', {
     action: enumeration('list 为分页搜索；create 为新建；open 为打开；rename 为重命名；duplicate 为复制；delete 为删除；save 为保存。', Object.keys(PROJECT_RULES)),
     projectId: conditional(PROJECT_RULES, 'projectId', string('来自 manage_projects/list 或 get_context，不可编造。')),
@@ -96,7 +97,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     layerIds: layerIds('可选图层 ID 列表；省略时读取所有匹配图层。'),
     query: string('可选名称或内容关键词，不区分大小写；省略时不过滤，提供时不得为空白。')
   }, ['projectId'])),
-  tool('get_selected_layers', '读取当前选中图层的属性，包括图片来源、描述或提示词；视觉模型还会收到图片预览。用户输入有明确指代时使用。', object('无需参数', {})),
+  tool('get_selected_layers', '读取当前选中图层的属性，包括图片来源、描述或提示词；视觉模型还会收到图片预览。用户输入有明确指代时使用。', noParameters),
   tool('remove_background', '移除图片图层背景，成功后返回结果图层 ID；已抠图图片不可重复处理。', object('处理当前项目的一个图片图层。', {
     projectId,
     layerId: string('当前项目的 image 图层 ID，来自 get_context、get_selected_layers 或 read_layers，不可编造。锁定图层须先获用户许可解锁。'),
@@ -135,11 +136,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
 ];
 
 export const VISION_TOOL_DEFINITIONS: ToolDefinition[] = [
-  tool('get_canvas_preview', '预览当前画布效果，用于视觉分析；返回缩放后的 WebP 图片。', object('无需参数。', {}))
+  tool('get_canvas_preview', '预览当前画布效果，用于视觉分析；返回缩放后的 WebP 图片。', noParameters)
 ];
 
 export const IMAGE_TOOL_DEFINITIONS: ToolDefinition[] = [
-  tool('list_image_models', '读取可用生图模型、介绍和参数能力；按需求选择模型。', object('无需参数。', {})),
+  tool('list_image_models', '读取可用生图模型、介绍和参数能力；按需求选择模型。', noParameters),
   tool('generate_image', '文本生成图像或单图参考生成图像，成功后自动添加图片图层并返回图层 ID，可继续用 edit_layers 调整。', object('图片生成请求', {
     projectId,
     modelConfigId: { ...string('来自 list_image_models 的模型配置 ID，不是 API 模型 ID。'), maxLength: 9 },

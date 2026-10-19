@@ -701,8 +701,6 @@ describe('image tools and persistence', () => {
     expect(JSON.stringify(requests[0].tools)).toContain(model.description);
     expect(JSON.stringify(requests[0].tools)).not.toContain('[主体]');
     expect(JSON.stringify(requests[0].tools)).not.toContain('[改变要求]');
-    expect(String(requests[0].instructions).split('### 文生图提示词')).toHaveLength(2);
-    expect(String(requests[0].instructions).split('### 参考图提示词')).toHaveLength(2);
     expect(JSON.stringify(toRequestConfig(profiles).imageToolModels)).not.toContain('textPromptDescription');
     expect(JSON.stringify(toRequestConfig(profiles).imageToolModels)).not.toContain('referencePromptDescription');
     const outputs = (requests.at(-1)!.input as { type: string; output?: string }[])

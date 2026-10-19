@@ -5,7 +5,7 @@ import type { ProjectState } from '../../../types.ts';
 import type { WorkspaceBridge } from '../types.ts';
 import { executeTool } from './execute.ts';
 import { layerPatch, safeImage } from './validation.ts';
-import { TOOL_DEFINITIONS } from './definitions.ts';
+import { IMAGE_TOOL_DEFINITIONS, TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from './definitions.ts';
 import { PRESET_RATIOS } from '../../../constants.ts';
 import { ALIGN_MODES, DISTRIBUTE_MODES, EDIT_LAYER_RULES, PROJECT_RULES, fieldUsage, parseEditLayersRequest, parseManageProjectsRequest } from './requests.ts';
 
@@ -44,7 +44,7 @@ test('dedicated tool provides cover size recommendations with and without an ope
   }
   const definition = TOOL_DEFINITIONS.find(item => item.function.name === 'get_cover_size_recommendations');
   assert.ok(definition);
-  assert.deepEqual(definition.function.parameters.required, []);
+  assert.deepEqual(definition.function.parameters, { type: 'object', properties: {} });
 });
 
 test('selected image layers expose metadata and only request a preview for vision models', async () => {
@@ -79,7 +79,13 @@ test('tool schemas describe every parameter and nested field with valid required
     if (schema.items) inspect(schema.items as Record<string, unknown>, `${path}[]`);
     if (Array.isArray(schema.anyOf)) schema.anyOf.forEach((child, index) => inspect(child, `${path}.anyOf[${index}]`));
   };
-  for (const definition of TOOL_DEFINITIONS) inspect(definition.function.parameters, definition.function.name);
+  const noParameterNames = ['get_context', 'get_cover_size_recommendations', 'get_selected_layers', 'get_canvas_preview', 'list_image_models'];
+  const definitions = [...TOOL_DEFINITIONS, ...VISION_TOOL_DEFINITIONS, ...IMAGE_TOOL_DEFINITIONS];
+  for (const definition of definitions) {
+    if (noParameterNames.includes(definition.function.name)) {
+      assert.deepEqual(definition.function.parameters, { type: 'object', properties: {} }, definition.function.name);
+    } else inspect(definition.function.parameters, definition.function.name);
+  }
   const add = TOOL_DEFINITIONS.find(definition => definition.function.name === 'add_layer')!.function;
   const edit = TOOL_DEFINITIONS.find(definition => definition.function.name === 'edit_layers')!.function;
   const canvas = TOOL_DEFINITIONS.find(definition => definition.function.name === 'update_canvas')!.function;

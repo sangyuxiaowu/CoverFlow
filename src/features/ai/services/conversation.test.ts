@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
 import { ConversationAbortError, conversationAbortDetails, readResponse, runConversation, normalizeUsage, sanitizeResponseItems } from './conversation.ts';
 import type { Response as AiResponse, ResponseStreamEvent } from 'openai/resources/responses/responses';
-import { DEFAULT_IMAGE_TOOL_PROMPT, SYSTEM_PROMPT, VISUAL_CONTENT_GUIDE, defaultConfig, saveConfig, normalizeConfig, normalizeEndpoint, selectModel, toRequestConfig, reasoningPayload, loadConfig, createEndpoint, validateRequestConfig } from './config.ts';
+import { DEFAULT_IMAGE_TOOL_PROMPT, SYSTEM_PROMPT, defaultConfig, saveConfig, normalizeConfig, normalizeEndpoint, selectModel, toRequestConfig, reasoningPayload, loadConfig, createEndpoint, validateRequestConfig } from './config.ts';
 import type { ProjectState } from '../../../types.ts';
 import type { AiRequestConfig, ChatEntry, ChatSession, RequestUsage, ResponseItem, ToolEvent, WorkspaceBridge } from '../types.ts';
 import { AI_DATABASE_NAME, listStoredSessions, saveStoredImage, loadStoredImage, saveStoredSession, deleteStoredSession, replaceEncryptionKey } from './configStore.ts';
@@ -163,6 +163,21 @@ for (const outcome of ['success', 'error', 'aborted'] as const) {
   });
 }
 
+test('Responses function definitions provide empty parameters for tools without arguments', async () => {
+  const originalFetch = globalThis.fetch;
+  let sentTools: Record<string, unknown>[] = [];
+  globalThis.fetch = async (_url, options) => {
+    sentTools = JSON.parse(options!.body as string).tools;
+    return streamResponse(responsePayload([textOutput]));
+  };
+  try {
+    await runConversation({ config: { ...config, supportsVision: true }, input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {} });
+    const noArgumentTools = sentTools.filter(tool => ['get_context', 'get_cover_size_recommendations', 'get_selected_layers', 'get_canvas_preview'].includes(String(tool.name)));
+    assert.equal(noArgumentTools.length, 4);
+    assert.ok(noArgumentTools.every(tool => JSON.stringify(tool.parameters) === JSON.stringify({ type: 'object', properties: {} })));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('custom prompts are not silently extended with visual capability instructions', async () => {
   const profiles = configuredConfig();
   profiles.imageModels = profiles.imageModels?.map(model => ({ ...model, enabled: true, endpointId: profiles.endpoints[0].id }));
@@ -171,13 +186,10 @@ test('custom prompts are not silently extended with visual capability instructio
   const requestConfig = toRequestConfig(profiles);
   assert.equal(profiles.systemPrompt, original);
   assert.equal(requestConfig.systemPrompt, `${original}\n\n${DEFAULT_IMAGE_TOOL_PROMPT}`);
-  assert.equal(requestConfig.systemPrompt.split('### 文生图提示词').length, 2);
-  assert.equal(requestConfig.systemPrompt.split('### 参考图提示词').length, 2);
   assert.equal(toRequestConfig({ ...profiles, systemPrompt: requestConfig.systemPrompt }).systemPrompt, requestConfig.systemPrompt);
   assert.equal(toRequestConfig({ ...configuredConfig(), imageModels: [] }).systemPrompt, SYSTEM_PROMPT);
   assert.equal(toRequestConfig({ ...profiles, systemPrompt: SYSTEM_PROMPT, imageToolPrompt: '自定义生图规则' }).systemPrompt, `${SYSTEM_PROMPT}\n\n自定义生图规则`);
   assert.equal(toRequestConfig({ ...configuredConfig(), imageModels: [], imageToolPrompt: '自定义生图规则' }).systemPrompt, SYSTEM_PROMPT);
-  assert.ok(SYSTEM_PROMPT.includes(VISUAL_CONTENT_GUIDE));
   const originalFetch = globalThis.fetch;
   let sentInstructions = '';
   let sentTools: unknown[] = [];
@@ -192,6 +204,7 @@ test('custom prompts are not silently extended with visual capability instructio
     await runConversation({ config: requestConfig, input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}, onUsage: usage => { inputEstimate = usage.inputEstimate ?? 0; } });
     assert.equal(sentInstructions, requestConfig.systemPrompt);
     assert.deepEqual(sentTools, [...TOOL_DEFINITIONS, ...VISION_TOOL_DEFINITIONS].map(definition => ({ type: 'function', ...definition.function, strict: false })));
+    assert.ok(sentTools.filter((tool: { name: string; parameters: unknown }) => ['get_context', 'get_cover_size_recommendations', 'get_selected_layers', 'get_canvas_preview'].includes(tool.name)).every(tool => JSON.stringify(tool.parameters) === JSON.stringify({ type: 'object', properties: {} })));
     assert.equal(inputEstimate, estimateInput([], requestConfig.systemPrompt, requestConfig.supportsVision));
     assert.ok(inputEstimate > estimateInput([], original));
   } finally { globalThis.fetch = originalFetch; }

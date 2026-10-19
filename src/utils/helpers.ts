@@ -196,3 +196,33 @@ export const applySvgAspectRatio = (svgContent: string, ratioLocked: boolean): s
     return `<svg${nextAttrs} width="100%" height="100%" preserveAspectRatio="none">`;
   });
 };
+
+// 格式化画布宽高比展示文案（优先匹配常用比例或约分整数比，兜底显示小数比）。
+export const formatCanvasRatio = (width: number, height: number, rawRatio?: string): string => {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return rawRatio || '1:1';
+  }
+
+  const trimmed = rawRatio?.trim();
+  if (trimmed && trimmed.includes(':')) {
+    const [rw, rh] = trimmed.split(':').map(Number);
+    if (Number.isFinite(rw) && Number.isFinite(rh) && rw > 0 && rh > 0) {
+      if (Math.abs(width / height - rw / rh) < 0.02) {
+        return trimmed;
+      }
+    }
+  }
+
+  const w = Math.round(width);
+  const h = Math.round(height);
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+  const divisor = gcd(w, h);
+  const simpW = w / divisor;
+  const simpH = h / divisor;
+
+  if (simpW <= 32 && simpH <= 32) {
+    return `${simpW}:${simpH}`;
+  }
+
+  return `${Number((w / h).toFixed(2))}:1`;
+};

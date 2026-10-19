@@ -34,7 +34,7 @@ import {
 } from './storage/storage.ts';
 import { translations, Language } from './translations.ts';
 import { PRESET_RATIOS } from './constants.ts';
-import { generateId, downloadFile, normalizeSVG } from './utils/helpers.ts';
+import { generateId, downloadFile, normalizeSVG, formatCanvasRatio } from './utils/helpers.ts';
 import { buildProjectSvg } from './utils/svgExport.ts';
 import { clampDecorationSize } from './utils/decorationStyles.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
@@ -1584,23 +1584,40 @@ const App: React.FC = () => {
         lang={lang}
       />
       <header className="h-14 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between px-6 z-50">
-        <div className="flex items-center gap-4 flex-1 min-w-0">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
           <button
             onClick={() => {
               performAutoSave('leave');
               setProject(null);
               setView('landing');
             }}
-            className="p-2 hover:bg-slate-800 rounded-lg"
+            className="p-2 hover:bg-slate-800 rounded-lg shrink-0"
           >
             <ArrowLeft className="w-5 h-5 text-slate-400" />
           </button>
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <input
-              value={project.title}
-              onChange={(e) => modifyProject(p => ({ ...p, title: e.target.value }))}
-              className="bg-transparent font-bold text-sm outline-none hover:bg-slate-800 rounded px-1 w-full max-w-sm"
-            />
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="inline-grid items-center min-w-[60px] max-w-xs">
+              <span className="invisible col-start-1 row-start-1 px-1.5 py-1 font-bold text-sm whitespace-pre truncate pointer-events-none">
+                {project.title || ' '}
+              </span>
+              <input
+                value={project.title}
+                onChange={(e) => modifyProject(p => ({ ...p, title: e.target.value }))}
+                className="col-start-1 row-start-1 bg-transparent font-bold text-sm outline-none hover:bg-slate-800 focus:bg-slate-800 rounded px-1.5 py-1 w-full min-w-0 transition-colors"
+              />
+            </div>
+            <div
+              data-testid="editor-canvas-info"
+              title={`${t.canvasSize}: ${project.canvasConfig.width} × ${project.canvasConfig.height} px · ${t.canvasRatio}: ${formatCanvasRatio(project.canvasConfig.width, project.canvasConfig.height, project.canvasConfig.ratio)}`}
+              className="flex items-center gap-2 px-2.5 py-1 rounded-lg border border-slate-700/70 text-xs shrink-0"
+            >
+              <span className="font-mono font-semibold text-slate-200 tabular-nums">
+                {project.canvasConfig.width} × {project.canvasConfig.height}
+              </span>
+              <span className="px-1.5 py-0.5 rounded bg-blue-500/15 border border-blue-500/30 text-[11px] font-mono font-bold text-blue-400 tabular-nums leading-none">
+                {formatCanvasRatio(project.canvasConfig.width, project.canvasConfig.height, project.canvasConfig.ratio)}
+              </span>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">

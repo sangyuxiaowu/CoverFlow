@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Check,
   Image as ImageIcon,
+  ImagePlus,
   MessageSquare,
   Pencil,
   Plus,
@@ -25,17 +26,27 @@ import {
 } from 'lucide-react';
 import type { ChatSession } from '../types.ts';
 
+export interface InsertGalleryImageInput {
+  sessionId: string;
+  imageId: string;
+  name: string;
+  category: 'generated' | 'attachment';
+  prompt?: string;
+}
+
 interface Props {
   sessions: ChatSession[];
   activeId: string | null;
   disabled: boolean;
   english: boolean;
+  canInsertImage?: boolean;
   onNew: () => Promise<void>;
   onSelect: (id: string) => Promise<void>;
   onRename: (id: string, title: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onLoadImage?: (sessionId: string, imageId: string) => Promise<Blob | null>;
   onDeleteImages?: (images: { sessionId: string; imageId: string }[]) => Promise<boolean>;
+  onInsertImage?: (item: InsertGalleryImageInput) => Promise<unknown>;
 }
 
 export type ImageCategory = 'all' | 'generated' | 'preview' | 'attachment';
@@ -50,6 +61,17 @@ interface GalleryItem {
   size: number;
   category: 'generated' | 'preview' | 'attachment';
   timestamp: number;
+  prompt?: string;
+}
+
+function extractToolPrompt(argumentsText?: string): string | undefined {
+  if (!argumentsText) return undefined;
+  try {
+    const parsed = JSON.parse(argumentsText) as Record<string, unknown>;
+    return typeof parsed.prompt === 'string' && parsed.prompt.trim() ? parsed.prompt.trim() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export default function SessionList({
@@ -57,12 +79,14 @@ export default function SessionList({
   activeId,
   disabled,
   english,
+  canInsertImage = false,
   onNew,
   onSelect,
   onRename,
   onDelete,
   onLoadImage,
-  onDeleteImages
+  onDeleteImages,
+  onInsertImage
 }: Props) {
   const [view, setView] = useState<'sessions' | 'gallery'>('sessions');
   const [galleryCategory, setGalleryCategory] = useState<ImageCategory>('all');
@@ -75,9 +99,13 @@ export default function SessionList({
   const [confirmingImages, setConfirmingImages] = useState(false);
   const [deletingImages, setDeletingImages] = useState(false);
   const [imageDeleteError, setImageDeleteError] = useState('');
+  const [insertingId, setInsertingId] = useState<string | null>(null);
+  const [insertedId, setInsertedId] = useState<string | null>(null);
+  const [imageInsertError, setImageInsertError] = useState('');
 
   // 放大查看大图模态框
   const [previewingImage, setPreviewingImage] = useState<{
+    item: GalleryItem;
     name: string;
     url: string;
     size: number;
@@ -124,9 +152,10 @@ export default function SessionList({
         entry.images?.forEach(img => {
           const key = `${session.id}:${img.id}`;
           if (!itemsMap.has(key)) {
-            const isGen =
-              img.name.startsWith('generated-') ||
-              entry.tools?.some(t => t.name === 'generate_image' && t.image?.id === img.id);
+            const genTool =
+              entry.tools?.find(t => t.name === 'generate_image' && t.image?.id === img.id) ||
+              (img.name.startsWith('generated-') ? entry.tools?.find(t => t.name === 'generate_image') : undefined);
+            const isGen = Boolean(img.name.startsWith('generated-') || genTool);
             const isPrev =
               img.name.includes('preview') ||
               img.name.startsWith('layer-') ||
@@ -143,7 +172,8 @@ export default function SessionList({
               type: img.type,
               size: img.size,
               category: isGen ? 'generated' : isPrev ? 'preview' : 'attachment',
-              timestamp: session.updatedAt
+              timestamp: session.updatedAt,
+              prompt: isGen ? extractToolPrompt(genTool?.arguments) : undefined
             });
           }
         });
@@ -170,7 +200,8 @@ export default function SessionList({
                 type: img.type,
                 size: img.size,
                 category: isGen ? 'generated' : isPrev ? 'preview' : 'attachment',
-                timestamp: session.updatedAt
+                timestamp: session.updatedAt,
+                prompt: isGen ? extractToolPrompt(tool.arguments) : undefined
               });
             }
           }
@@ -330,6 +361,35 @@ export default function SessionList({
     }
   };
 
+  // 将生图或附件插入到当前画布
+  const handleInsertImage = async (item: GalleryItem, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!onInsertImage || !canInsertImage || imageControlsDisabled || insertingId === item.id) return;
+    if (item.category !== 'generated' && item.category !== 'attachment') return;
+
+    setInsertingId(item.id);
+    setImageInsertError('');
+    try {
+      await onInsertImage({
+        sessionId: item.sessionId,
+        imageId: item.imageId,
+        name: item.name,
+        category: item.category,
+        prompt: item.prompt
+      });
+      setInsertedId(item.id);
+      window.setTimeout(() => {
+        setInsertedId(prev => (prev === item.id ? null : prev));
+      }, 1800);
+    } catch (error) {
+      setImageInsertError(
+        error instanceof Error ? error.message : label('插入到画布失败。', 'Failed to insert image into canvas.')
+      );
+    } finally {
+      setInsertingId(null);
+    }
+  };
+
   /* ========================================================================= */
   /*                               画廊视图                                    */
   /* ========================================================================= */
@@ -376,6 +436,20 @@ export default function SessionList({
               <button type="button" disabled={deletingImages} onClick={() => setConfirmingImages(false)} className="rounded-md bg-slate-800 px-3 py-1.5 text-slate-300">{label('取消', 'Cancel')}</button>
               <button type="button" disabled={imageControlsDisabled || !selectedItems.length} onClick={() => void deleteSelectedImages()} className="rounded-md bg-rose-600 px-3 py-1.5 text-white disabled:opacity-40">{deletingImages ? label('删除中...', 'Deleting...') : label('确认删除', 'Delete')}</button>
             </div>
+          </div>
+        )}
+
+        {imageInsertError && (
+          <div role="alert" className="flex items-center justify-between gap-2 rounded-lg border border-rose-500/30 bg-rose-950/30 px-3 py-2 text-xs text-rose-200">
+            <span className="truncate">{imageInsertError}</span>
+            <button
+              type="button"
+              onClick={() => setImageInsertError('')}
+              className="p-0.5 text-rose-300 hover:text-white cursor-pointer"
+              aria-label={label('关闭错误提示', 'Dismiss error')}
+            >
+              <X size={13} />
+            </button>
           </div>
         )}
 
@@ -505,6 +579,7 @@ export default function SessionList({
                     }
                     if (url) {
                       setPreviewingImage({
+                        item,
                         name: item.name,
                         url,
                         size: item.size,
@@ -555,16 +630,40 @@ export default function SessionList({
                       )}
                     </div>
 
-                    {/* 右上角快捷下载按钮 */}
-                    <button
-                      type="button"
-                      onClick={e => handleSaveImage(item, e)}
-                      className="absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-slate-900/90 hover:bg-blue-600 text-slate-300 hover:text-white transition-all shadow-md opacity-90 group-hover:opacity-100 cursor-pointer"
-                      title={label('点击保存到本地', 'Save to disk')}
-                      aria-label={`${label('保存', 'Save')}: ${item.name}`}
-                    >
-                      <Download size={13} />
-                    </button>
+                    {/* 右上角快捷操作按钮（插入画布 + 下载） */}
+                    <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+                      {onInsertImage && (item.category === 'generated' || item.category === 'attachment') && (
+                        <button
+                          type="button"
+                          disabled={imageControlsDisabled || !canInsertImage || insertingId === item.id}
+                          onClick={e => void handleInsertImage(item, e)}
+                          className={`p-1.5 rounded-lg transition-all shadow-md opacity-90 group-hover:opacity-100 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                            insertedId === item.id
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-slate-900/90 hover:bg-emerald-600 text-slate-300 hover:text-white'
+                          }`}
+                          title={
+                            !canInsertImage
+                              ? label('请先打开一个项目画布', 'Open a project canvas first')
+                              : insertedId === item.id
+                              ? label('已插入到当前画布', 'Inserted into current canvas')
+                              : label('插入到当前画布', 'Insert into current canvas')
+                          }
+                          aria-label={`${label('插入到当前画布', 'Insert into current canvas')}: ${item.name}`}
+                        >
+                          {insertedId === item.id ? <Check size={13} /> : <ImagePlus size={13} />}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={e => handleSaveImage(item, e)}
+                        className="p-1.5 rounded-lg bg-slate-900/90 hover:bg-blue-600 text-slate-300 hover:text-white transition-all shadow-md opacity-90 group-hover:opacity-100 cursor-pointer"
+                        title={label('点击保存到本地', 'Save to disk')}
+                        aria-label={`${label('保存', 'Save')}: ${item.name}`}
+                      >
+                        <Download size={13} />
+                      </button>
+                    </div>
                   </div>
 
                   {/* 底部信息栏 */}
@@ -621,29 +720,51 @@ export default function SessionList({
                 />
               </div>
 
-              <div className="px-4 py-3 border-t border-slate-800 bg-slate-900/80 flex items-center justify-between">
-                <span className="text-[11px] text-slate-400">
+              <div className="px-4 py-3 border-t border-slate-800 bg-slate-900/80 flex items-center justify-between gap-2">
+                <span className="text-[11px] text-slate-400 truncate">
                   {previewingImage.category === 'generated'
                     ? label('AI 生成图片', 'AI Generated')
                     : previewingImage.category === 'preview'
                     ? label('画布排版预览图', 'Canvas Preview')
                     : label('图片附件', 'Image Attachment')}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const a = document.createElement('a');
-                    a.href = previewingImage.url;
-                    a.download = previewingImage.name;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                  }}
-                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-900/30 transition-all cursor-pointer"
-                >
-                  <Download size={13} />
-                  <span>{label('保存此图片', 'Save Image')}</span>
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {onInsertImage && (previewingImage.category === 'generated' || previewingImage.category === 'attachment') && (
+                    <button
+                      type="button"
+                      disabled={imageControlsDisabled || !canInsertImage || insertingId === previewingImage.item.id}
+                      onClick={() => void handleInsertImage(previewingImage.item)}
+                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-900/30 transition-all cursor-pointer"
+                      title={
+                        !canInsertImage
+                          ? label('请先打开一个项目画布', 'Open a project canvas first')
+                          : label('插入到当前画布', 'Insert into current canvas')
+                      }
+                    >
+                      {insertedId === previewingImage.item.id ? <Check size={13} /> : <ImagePlus size={13} />}
+                      <span>
+                        {insertedId === previewingImage.item.id
+                          ? label('已插入画布', 'Inserted')
+                          : label('插入到当前画布', 'Insert to Canvas')}
+                      </span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const a = document.createElement('a');
+                      a.href = previewingImage.url;
+                      a.download = previewingImage.name;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                    }}
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-900/30 transition-all cursor-pointer"
+                  >
+                    <Download size={13} />
+                    <span>{label('保存此图片', 'Save Image')}</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>

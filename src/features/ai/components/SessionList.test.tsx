@@ -49,3 +49,91 @@ it('selects and inverts only the current category and confirms before deleting',
     vi.unstubAllGlobals();
   }
 });
+
+it('shows insert-to-canvas action for generated and attachment images but not preview images', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const onInsertImage = vi.fn(async () => true);
+  const session: ChatSession = {
+    id: 'session',
+    title: 'Test',
+    createdAt: 1,
+    updatedAt: 1,
+    requests: [],
+    responseItems: [],
+    entries: [
+      {
+        id: 'user-entry',
+        role: 'user',
+        content: 'upload attachment',
+        images: [{ id: 'att1', name: 'logo.png', type: 'image/png', size: 120 }],
+      },
+      {
+        id: 'assistant-entry',
+        role: 'assistant',
+        content: '',
+        images: [{ id: 'p1', name: 'canvas-preview-1.webp', type: 'image/webp', size: 100 }],
+        tools: [
+          {
+            id: 'tool-1',
+            name: 'generate_image',
+            arguments: JSON.stringify({ prompt: 'a cute cat' }),
+            status: 'done',
+            summary: 'generated image',
+            image: { id: 'gen1', name: 'generated-1.png', type: 'image/png', size: 300 },
+          },
+        ],
+      },
+    ],
+  };
+  const click = async (selector: string) => {
+    const element = host.querySelector<HTMLElement>(selector);
+    expect(element, selector).not.toBeNull();
+    await act(async () => { element!.click(); });
+  };
+  try {
+    await act(async () => {
+      root.render(
+        <SessionList
+          sessions={[session]}
+          activeId="session"
+          disabled={false}
+          english={false}
+          canInsertImage={true}
+          onNew={async () => {}}
+          onSelect={async () => {}}
+          onRename={async () => {}}
+          onDelete={async () => {}}
+          onInsertImage={onInsertImage}
+        />
+      );
+    });
+    await click('[title="点击打开图片画廊并预览保存"]');
+    const insertButtons = host.querySelectorAll<HTMLButtonElement>('[title="插入到当前画布"]');
+    expect(insertButtons).toHaveLength(2);
+    await act(async () => {
+      insertButtons[0]!.click();
+    });
+    expect(onInsertImage).toHaveBeenCalledWith({
+      sessionId: 'session',
+      imageId: 'att1',
+      name: 'logo.png',
+      category: 'attachment',
+      prompt: undefined,
+    });
+    await act(async () => {
+      insertButtons[1]!.click();
+    });
+    expect(onInsertImage).toHaveBeenCalledWith({
+      sessionId: 'session',
+      imageId: 'gen1',
+      name: 'generated-1.png',
+      category: 'generated',
+      prompt: 'a cute cat',
+    });
+  } finally {
+    await act(async () => { root.unmount(); });
+    vi.unstubAllGlobals();
+  }
+});

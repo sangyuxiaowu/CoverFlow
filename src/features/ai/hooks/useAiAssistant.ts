@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ProjectState } from '../../../types.ts';
 import type { AiConfig, ChatEntry, ChatImageRef, ChatImageUpload, ChatSession, ExecutionError, ResponseItem, ToolEvent } from '../types.ts';
 import type { ResponseInputMessageContentList } from 'openai/resources/responses/responses';
 import { ConversationAbortError, conversationAbortDetails, runConversation, sanitizeResponseItems } from '../services/conversation.ts';
@@ -8,7 +9,7 @@ import type { ChatStore } from '../services/chatStore.ts';
 import { removeSessionImages } from '../services/chatStore.ts';
 import { sumUsage } from '../services/usage.ts';
 import { generateId } from '../../../utils/helpers.ts';
-import { imageMimeType } from '../services/imageAttachments.ts';
+import { blobToDataUrl, imageMimeType } from '../services/imageAttachments.ts';
 import { ConfigDecryptionError } from '../services/configStore.ts';
 
 interface Confirmation { message: string; resolve: (accepted: boolean) => void }
@@ -572,9 +573,94 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     await send(promptToRerun, await loadUploads(working.id, lastUserEntry.images));
   };
 
+  const insertImageToCanvas = async (input: {
+    sessionId: string;
+    imageId: string;
+    name: string;
+    category: 'generated' | 'attachment';
+    prompt?: string;
+    modelId?: string;
+  }) => {
+    const project = bridgeRef.current?.getProject() || workspaceRef.current.project;
+    if (!project) throw new Error('当前未打开画布项目，请先打开或创建一个项目。');
+    const blob = await storeRef.current.loadImage(input.sessionId, input.imageId);
+    if (!blob) throw new Error('图片资源不存在或已被清理。');
+    const content = await blobToDataUrl(blob);
+
+    let sourceWidth = 0;
+    let sourceHeight = 0;
+    if (typeof createImageBitmap === 'function') {
+      try {
+        const bitmap = await createImageBitmap(blob);
+        sourceWidth = bitmap.width;
+        sourceHeight = bitmap.height;
+        bitmap.close();
+      } catch {
+        // fallback below
+      }
+    }
+
+    let width: number;
+    let height: number;
+    if (sourceWidth > 0 && sourceHeight > 0) {
+      if (sourceWidth * sourceHeight > 67108864) {
+        throw new Error('图片尺寸超出 6400 万像素限制。');
+      }
+      const scale = Math.min(1, project.canvasConfig.width / sourceWidth, project.canvasConfig.height / sourceHeight);
+      width = Math.max(1, Math.round(sourceWidth * scale));
+      height = Math.max(1, Math.round(sourceHeight * scale));
+    } else {
+      const fallbackSize = Math.max(1, Math.round(Math.min(320, project.canvasConfig.width * 0.6, project.canvasConfig.height * 0.6)));
+      width = fallbackSize;
+      height = fallbackSize;
+    }
+
+    const latestProject = bridgeRef.current?.getProject() || workspaceRef.current.project;
+    if (!latestProject || latestProject.id !== project.id) {
+      throw new Error('当前画布项目已切换，请重试。');
+    }
+
+    const layerName = input.name.replace(/\.[a-z0-9]+$/i, '') || (input.category === 'generated' ? 'AI 生图' : '附件图片');
+    const imageSource = input.category === 'generated' ? (input.modelId || 'ai-generated') : 'upload';
+    const imageDescription = input.prompt || input.name;
+
+    const layer = {
+      id: generateId(),
+      type: 'image' as const,
+      name: layerName,
+      content,
+      width,
+      height,
+      imageSource,
+      imageDescription,
+      x: Math.round((latestProject.canvasConfig.width - width) / 2),
+      y: Math.round((latestProject.canvasConfig.height - height) / 2),
+      visible: true,
+      locked: false,
+      rotation: 0,
+      opacity: 1,
+      ratioLocked: true,
+      zIndex: Math.max(0, ...latestProject.layers.map(item => item.zIndex)) + 1
+    };
+
+    const nextProject: ProjectState = {
+      ...latestProject,
+      updatedAt: Date.now(),
+      layers: [...latestProject.layers, layer],
+      selectedLayerId: layer.id
+    };
+
+    if (bridgeRef.current) {
+      await bridgeRef.current.commit(nextProject);
+    } else {
+      workspaceRef.current.onCommit(nextProject);
+    }
+    return layer.id;
+  };
+
   return {
     config, configure, entries, sessions, activeSessionId, newSession, selectSession,
-    renameSession, deleteSession, deleteImages, busy, loading, saving, loadError, keyError, configError,
+    renameSession, deleteSession, deleteImages, insertImageToCanvas, busy, loading, saving, loadError, keyError, configError,
     reloadConfig, send, clear, confirmation,
     stop: (source: 'user_stop' | 'panel_closed' = 'user_stop') => controllerRef.current?.abort(new ConversationAbortError(source)),
     executionError, clearExecutionError, retry, regenerate

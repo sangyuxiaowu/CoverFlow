@@ -440,6 +440,7 @@ export default function AiAssistant({
                   activeId={assistant.activeSessionId}
                   disabled={controlsDisabled}
                   english={english}
+                  canInsertImage={Boolean(workspace.project)}
                   onNew={async () => {
                     await assistant.newSession();
                     setShowSessions(false);
@@ -451,6 +452,7 @@ export default function AiAssistant({
                   onRename={assistant.renameSession}
                   onDelete={assistant.deleteSession}
                   onDeleteImages={assistant.deleteImages}
+                  onInsertImage={assistant.insertImageToCanvas}
                   onLoadImage={(sessionId, imageId) => chatStore.loadImage(sessionId, imageId)}
                 />
               ) : (

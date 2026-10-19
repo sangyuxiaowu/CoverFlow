@@ -60,6 +60,11 @@ export const translations = {
     copyBase64: "复制 Base64",
     copyBase64Success: "Base64 已复制到剪贴板",
     copyBase64Failed: "复制 Base64 失败",
+    copyImage: "复制图片到剪贴板",
+    copyImageSuccess: "图片已复制到剪贴板，可直接 Ctrl+V 粘贴",
+    copyImageFailed: "复制图片到剪贴板失败",
+    exportSvgVectorBadge: "矢量",
+    exportSvgVectorHint: "纯矢量 SVG 原生导出，支持无限无损缩放与专业排版软件编辑",
     exportCompressionHint: "PNG 为无损格式，压缩选项仅对 JPEG/WebP 生效",
     exportCompressionLevels: {
       lossless: "无损",
@@ -365,6 +370,11 @@ export const translations = {
     copyBase64: "Copy Base64",
     copyBase64Success: "Base64 copied to clipboard",
     copyBase64Failed: "Failed to copy Base64",
+    copyImage: "Copy Image to Clipboard",
+    copyImageSuccess: "Image copied to clipboard, ready to paste (Ctrl+V)",
+    copyImageFailed: "Failed to copy image to clipboard",
+    exportSvgVectorBadge: "Vector",
+    exportSvgVectorHint: "Native vector SVG export — infinitely scalable & editable in vector tools",
     exportCompressionHint: "PNG is lossless. Compression applies to JPEG/WebP only",
     exportCompressionLevels: {
       lossless: "Lossless",

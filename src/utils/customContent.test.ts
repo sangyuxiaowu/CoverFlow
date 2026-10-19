@@ -9,6 +9,7 @@ import { backgroundCssStyle, detectDecorationFormat, sanitizeBackgroundCss, sani
 import { PRESET_DECORATIONS } from '../constants.ts';
 import { buildDecorationLayerStyle, sanitizeDecorationContent } from './decorationStyles.ts';
 import { buildBackgroundStyles } from './backgroundStyles.ts';
+import { buildProjectSvg } from './svgExport.ts';
 
 describe('custom backgrounds', () => {
   it('accepts layered gradients and variables without splitting function values', () => {
@@ -45,6 +46,49 @@ describe('decoration rendering boundaries', () => {
     { name: 'canvas', render: (state: ProjectState) => createElement(Canvas, { project: state, lang: 'zh', onSelectLayer: () => {}, updateLayer: () => {}, onCommit: () => {} }) },
     { name: 'live preview', render: (state: ProjectState) => createElement(LivePreview, { project: state }) }
   ];
+
+  it('exports complete CSS decorations instead of reducing them to rectangles', () => {
+    const svg = buildProjectSvg({ ...project, layers: [{ ...project.layers[0], content: `--moon: #fbeec9; background: radial-gradient(circle, var(--moon), #eed080); border-radius: 50%; box-shadow: ${shadow}; filter: blur(1px);` }] });
+    const xml = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    expect(xml.querySelector('parsererror')).toBeNull();
+    const decoration = Array.from(xml.querySelectorAll('div')).find(element => element.getAttribute('style')?.includes('radial-gradient'));
+    expect(decoration).toBeDefined();
+    expect(decoration!.getAttribute('style')).toContain('box-shadow:');
+    expect(decoration!.getAttribute('style')).toMatch(/filter:\s*blur\(1px\)/);
+    expect(decoration!.getAttribute('style')).toContain('--moon:');
+  });
+
+  it('preserves nested background variable fallbacks for the browser to resolve', () => {
+    const svg = buildProjectSvg({ ...project, layers: [], background: { ...project.background, type: 'css', value: '--Moon: #fbeec9; background: radial-gradient(var(--Moon, var(--fallback, #fff)), transparent);' } });
+    const xml = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    expect(xml.querySelector('parsererror')).toBeNull();
+    expect(xml.querySelector('foreignObject div')?.getAttribute('style')).toContain('var(--Moon,var(--fallback,#fff))');
+  });
+
+  it('exports HTML with matching scoped styles and XML-safe void elements', () => {
+    const svg = buildProjectSvg({ ...project, layers: [{ ...project.layers[0], decorationFormat: 'html', content: '<style>.moon{background:gold} .moon::before{content:"Moon"}</style><div class="moon">Hello<br>World &amp; stars</div>' }] });
+    const xml = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    expect(xml.querySelector('parsererror')).toBeNull();
+    const scope = xml.querySelector('[data-cf-fragment]');
+    expect(scope).not.toBeNull();
+    expect(scope!.querySelector('.moon')?.textContent).toBe('HelloWorld & stars');
+    expect(scope!.querySelector('style')?.textContent).toContain(`[data-cf-fragment="${scope!.getAttribute('data-cf-fragment')}"] .moon`);
+    expect(scope!.querySelector('br')?.namespaceURI).toBe('http://www.w3.org/1999/xhtml');
+    expect(xml.documentElement.querySelector('style')?.textContent).toContain('box-sizing:border-box;margin:0;padding:0;');
+  });
+
+  it.each(['horizontal', 'vertical'] as const)('exports %s text using the canvas wrapping box', (writingMode) => {
+    const svg = buildProjectSvg({ ...project, layers: [{ ...project.layers[0], type: 'text', content: '中秋快乐', width: 72, height: 300, fontSize: 40, writingMode, textGradient: { enabled: true, from: '#ff0', to: '#fa0', angle: 90 }, textShadow: { enabled: true, blur: 8, offsetX: 0, offsetY: 4, color: '#333' } }] });
+    const xml = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    expect(xml.querySelector('parsererror')).toBeNull();
+    const text = Array.from(xml.querySelectorAll('div')).find(element => element.textContent === '中秋快乐');
+    expect(text).toBeDefined();
+    expect(text!.getAttribute('style')).toMatch(/word-break:\s*break-word/);
+    expect(text!.getAttribute('style')).toMatch(/line-height:\s*1\.1/);
+    expect(text!.getAttribute('style')).toContain('text-shadow:');
+    expect(text!.getAttribute('style')).toMatch(/background-clip:\s*text/);
+    if (writingMode === 'vertical') expect(text!.getAttribute('style')).toMatch(/writing-mode:\s*vertical-rl/);
+  });
 
   it.each(renderers)('$name lets CSS shadows extend beyond the layer but clips at the canvas', ({ render }) => {
     const container = document.createElement('div');

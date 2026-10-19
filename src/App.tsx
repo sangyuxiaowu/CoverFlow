@@ -35,6 +35,7 @@ import {
 import { translations, Language } from './translations.ts';
 import { PRESET_RATIOS } from './constants.ts';
 import { generateId, downloadFile, normalizeSVG } from './utils/helpers.ts';
+import { buildProjectSvg } from './utils/svgExport.ts';
 import { clampDecorationSize } from './utils/decorationStyles.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
 import { encodeWebp, MAX_IMAGE_EDGE } from './features/ai/services/imageAttachments.ts';
@@ -50,7 +51,7 @@ const GITHUB_REPO_URL = 'https://github.com/sangyuxiaowu/CoverFlow';
 const isCloudMode = import.meta.env.VITE_APP_MODE === 'cloud';
 const CLOUD_PAGE_SIZE = 9;
 
-type ExportFormat = 'png' | 'jpeg' | 'webp';
+type ExportFormat = 'png' | 'jpeg' | 'webp' | 'svg';
 type ExportCompression = 'lossless' | 'balanced' | 'small';
 
 const App: React.FC = () => {
@@ -101,6 +102,7 @@ const App: React.FC = () => {
     compression: 'lossless'
   });
   const [exportEstimatedSize, setExportEstimatedSize] = useState<number | null>(null);
+  const [exportPreviewUrl, setExportPreviewUrl] = useState<string | null>(null);
   const [exportEstimating, setExportEstimating] = useState(false);
   
   const { initProjectHistory, modifyProject, saveHistorySnapshot, handleUndo, handleRedo, canUndo, canRedo } = useProjectHistory(project, setProject);
@@ -378,7 +380,7 @@ const App: React.FC = () => {
   const updateExportSettings = useCallback((updates: Partial<typeof exportSettings>) => {
     setExportSettings(prev => {
       const next = { ...prev, ...updates };
-      if (next.format === 'png') {
+      if (next.format === 'png' || next.format === 'svg') {
         next.compression = 'lossless';
       }
       return next;
@@ -386,7 +388,7 @@ const App: React.FC = () => {
   }, []);
 
   const getExportQuality = (settings: typeof exportSettings) => {
-    if (settings.format === 'png') return undefined;
+    if (settings.format === 'png' || settings.format === 'svg') return undefined;
     if (settings.compression === 'lossless') return 0.92;
     if (settings.compression === 'balanced') return 0.8;
     return 0.6;
@@ -435,6 +437,11 @@ const App: React.FC = () => {
     targetProject: ProjectState,
     settings: typeof exportSettings
   ) => {
+    if (settings.format === 'svg') {
+      const svgMarkup = buildProjectSvg(targetProject);
+      return new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
+    }
+
     const options = buildExportOptions(targetProject, settings.pixelRatio);
     const quality = getExportQuality(settings);
 
@@ -458,6 +465,16 @@ const App: React.FC = () => {
     targetProject: ProjectState,
     settings: typeof exportSettings
   ) => {
+    if (settings.format === 'svg') {
+      const svgMarkup = buildProjectSvg(targetProject);
+      const bytes = new TextEncoder().encode(svgMarkup);
+      let binary = '';
+      bytes.forEach((b) => {
+        binary += String.fromCharCode(b);
+      });
+      return `data:image/svg+xml;base64,${btoa(binary)}`;
+    }
+
     const options = buildExportOptions(targetProject, settings.pixelRatio);
     const quality = getExportQuality(settings);
 
@@ -887,6 +904,37 @@ const App: React.FC = () => {
     });
   };
 
+  const handleCopyExportImageWithDeselect = async (
+    previewNode: HTMLDivElement | null,
+    targetProject: ProjectState,
+    settings: typeof exportSettings
+  ) => {
+    await withDeselectedExportPreview(async () => {
+      try {
+        if (!previewNode) {
+          showToast(t.exportPreviewMissing, 'error');
+          return;
+        }
+        if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+          throw new Error('Clipboard image write unsupported');
+        }
+        setIsExporting(true);
+        const options = buildExportOptions(targetProject, settings.pixelRatio);
+        const rawBlob = await htmlToImage.toBlob(previewNode, options);
+        if (!rawBlob) {
+          throw new Error('Failed to generate PNG blob');
+        }
+        const blob = rawBlob.type === 'image/png' ? rawBlob : new Blob([rawBlob], { type: 'image/png' });
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        showToast(t.copyImageSuccess);
+      } catch (e) {
+        showToast(t.copyImageFailed, 'error');
+      } finally {
+        setIsExporting(false);
+      }
+    });
+  };
+
   const addTextLayerWithContent = (text: string) => {
     if (!project) return;
     const newId = generateId();
@@ -1302,7 +1350,13 @@ const App: React.FC = () => {
   }, [projectSearchTerm, isCloudMode, loadCloudProjects]);
 
   useEffect(() => {
-    if (!isExportModalOpen || !project) return;
+    if (!isExportModalOpen || !project) {
+      setExportPreviewUrl(prev => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      return;
+    }
     const node = document.getElementById('export-target') as HTMLDivElement | null;
     if (!node) return;
 
@@ -1311,13 +1365,22 @@ const App: React.FC = () => {
     const handle = window.setTimeout(async () => {
       try {
         const blob = await buildExportBlob(node, project, exportSettings);
-        if (!cancelled) setExportEstimatedSize(blob.size);
+        if (!cancelled) {
+          setExportEstimatedSize(blob.size);
+          const nextUrl = URL.createObjectURL(blob);
+          setExportPreviewUrl(prev => {
+            if (prev) URL.revokeObjectURL(prev);
+            return nextUrl;
+          });
+        }
       } catch (err) {
-        if (!cancelled) setExportEstimatedSize(null);
+        if (!cancelled) {
+          setExportEstimatedSize(null);
+        }
       } finally {
         if (!cancelled) setExportEstimating(false);
       }
-    }, 300);
+    }, 240);
 
     return () => {
       cancelled = true;
@@ -1475,11 +1538,19 @@ const App: React.FC = () => {
       <ExportModal
         isOpen={isExportModalOpen}
         lang={lang}
+        project={project}
+        previewUrl={exportPreviewUrl}
         settings={exportSettings}
         estimatedSize={exportEstimatedSize}
         estimating={exportEstimating}
         onClose={() => setIsExportModalOpen(false)}
         onChange={updateExportSettings}
+        onCopyImage={() => {
+          const node = document.getElementById('export-target') as HTMLDivElement | null;
+          if (!project) return;
+          handleCopyExportImageWithDeselect(node, project, exportSettings);
+          setIsExportModalOpen(false);
+        }}
         onCopyBase64={() => {
           const node = document.getElementById('export-target') as HTMLDivElement | null;
           if (!project) return;
@@ -1715,7 +1786,7 @@ const App: React.FC = () => {
         <div className="flex-1 flex flex-col min-h-0 relative">
           <Canvas
             lang={lang}
-            project={project}
+            project={isExportModalOpen ? { ...project, selectedLayerId: null } : project}
             onSelectLayer={(id) => handleSelectLayer(id, 'replace')}
             updateLayer={updateLayer}
             onCommit={saveHistorySnapshot}

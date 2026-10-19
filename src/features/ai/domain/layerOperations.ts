@@ -1,4 +1,11 @@
 import type { Layer, ProjectState } from '../../../types.ts';
+import {
+  computeCroppedLayerGeometry,
+  hasActiveImageCrop,
+  hasActiveImageFilters,
+  normalizeImageCrop,
+  normalizeImageFilters,
+} from '../../../utils/imageLayer.ts';
 
 export type LayerAction = 'update' | 'delete' | 'duplicate' | 'group' | 'ungroup' | 'front' | 'back' | 'forward' | 'backward' | 'align' | 'distribute';
 
@@ -13,7 +20,14 @@ export function groupBounds(layers: Layer[], ids: string[]) {
 export function updateProjectLayer(project: ProjectState, id: string, updates: Partial<Layer>): ProjectState {
   const target = project.layers.find(layer => layer.id === id);
   if (!target) throw new Error('Layer not found: ' + id);
-  if (target.type !== 'image' && (updates.imageSource !== undefined || updates.imageDescription !== undefined)) throw new Error('Image source and description are only supported on image layers.');
+  const hasImageOnlyUpdates =
+    updates.imageSource !== undefined ||
+    updates.imageDescription !== undefined ||
+    updates.flipX !== undefined ||
+    updates.flipY !== undefined ||
+    updates.imageFilters !== undefined ||
+    updates.imageCrop !== undefined;
+  if (target.type !== 'image' && hasImageOnlyUpdates) throw new Error('Image source, description, flip, filters, and crop are only supported on image layers.');
   let layers: Layer[];
   if (target.type === 'group') {
     const baseWidth = Math.max(1, target.width);
@@ -45,10 +59,59 @@ export function updateProjectLayer(project: ProjectState, id: string, updates: P
     layers = project.layers.map(layer => {
       if (layer.id !== id) return layer;
       const next = { ...layer, ...updates };
-      if (layer.type === 'image' && updates.content !== undefined && updates.content !== layer.content) {
-        next.imageSource = updates.imageSource ?? 'unknown';
-        next.imageDescription = updates.imageDescription ?? '';
-        next.backgroundRemoved = updates.backgroundRemoved ?? false;
+      if (layer.type === 'image') {
+        if (updates.content !== undefined && updates.content !== layer.content) {
+          next.imageSource = updates.imageSource ?? 'unknown';
+          next.imageDescription = updates.imageDescription ?? '';
+          next.backgroundRemoved = updates.backgroundRemoved ?? false;
+        }
+        if ('imageFilters' in updates) {
+          if (updates.imageFilters === undefined) {
+            next.imageFilters = undefined;
+          } else {
+            const mergedFilters = normalizeImageFilters({
+              ...normalizeImageFilters(layer.imageFilters),
+              ...updates.imageFilters,
+            });
+            next.imageFilters = hasActiveImageFilters(mergedFilters) ? mergedFilters : undefined;
+          }
+        }
+        if ('imageCrop' in updates) {
+          if (updates.imageCrop === undefined) {
+            next.imageCrop = undefined;
+          } else {
+            const mergedCrop = normalizeImageCrop({
+              ...normalizeImageCrop(layer.imageCrop),
+              ...updates.imageCrop,
+            });
+            if (
+              updates.x === undefined &&
+              updates.y === undefined &&
+              updates.width === undefined &&
+              updates.height === undefined
+            ) {
+              const geometry = computeCroppedLayerGeometry(layer, mergedCrop);
+              next.x = geometry.x;
+              next.y = geometry.y;
+              next.width = geometry.width;
+              next.height = geometry.height;
+              next.imageCrop = geometry.imageCrop;
+            } else {
+              next.imageCrop = hasActiveImageCrop(mergedCrop) ? mergedCrop : undefined;
+            }
+          }
+        } else if (hasActiveImageCrop(layer.imageCrop)) {
+          const flipXChanged = updates.flipX !== undefined && Boolean(updates.flipX) !== Boolean(layer.flipX);
+          const flipYChanged = updates.flipY !== undefined && Boolean(updates.flipY) !== Boolean(layer.flipY);
+          if (flipXChanged || flipYChanged) {
+            const c = normalizeImageCrop(layer.imageCrop);
+            next.imageCrop = normalizeImageCrop({
+              ...c,
+              x: flipXChanged ? 100 - c.x - c.width : c.x,
+              y: flipYChanged ? 100 - c.y - c.height : c.y,
+            });
+          }
+        }
       }
       if (layer.ratioLocked) {
         if (updates.width !== undefined && updates.height === undefined) next.height = updates.width * layer.height / layer.width;

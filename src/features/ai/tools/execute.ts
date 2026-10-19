@@ -4,8 +4,14 @@ import { PRESET_RATIOS } from '../../../constants.ts';
 import { editLayers } from '../domain/layerOperations.ts';
 import { backgroundPatch, choice, ids, layerPatch, number, record, safeImage, text, validateContent } from './validation.ts';
 import { detectDecorationFormat, sanitizeBackgroundCss } from '../../../utils/customContent.ts';
+import { hasActiveImageCrop, hasActiveImageFilters, normalizeImageCrop, normalizeImageFilters } from '../../../utils/imageLayer.ts';
 import { parseEditLayersRequest, parseManageProjectsRequest } from './requests.ts';
 import { executeBackgroundRemovalTool } from './backgroundRemoval.ts';
+
+function hasTextOnlyFields(patch: Partial<Layer>): boolean {
+  return patch.fontFamily !== undefined || patch.fontWeight !== undefined || patch.fontSize !== undefined ||
+    patch.textAlign !== undefined || patch.writingMode !== undefined || patch.textGradient !== undefined || patch.textShadow !== undefined;
+}
 
 export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false): Promise<unknown> {
   signal.throwIfAborted();
@@ -67,7 +73,15 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
   if (name === 'add_layer') {
     const type = choice(args.type, 'type', ['text', 'svg', 'image', 'decoration']);
     const patch = layerPatch(args.properties);
-    if (type !== 'image' && (patch.imageSource !== undefined || patch.imageDescription !== undefined)) throw new Error('Image source and description are only supported on image layers.');
+    const hasImageOnlyFields =
+      patch.imageSource !== undefined ||
+      patch.imageDescription !== undefined ||
+      patch.flipX !== undefined ||
+      patch.flipY !== undefined ||
+      patch.imageFilters !== undefined ||
+      patch.imageCrop !== undefined;
+    if (type !== 'image' && hasImageOnlyFields) throw new Error('Image source, description, flip, filters, and crop are only supported on image layers.');
+    if (type !== 'text' && hasTextOnlyFields(patch)) throw new Error('Font and text style properties are only supported on text layers.');
     if (type === 'decoration' && patch.color !== undefined) throw new Error('Decoration colors must be changed in content via CSS variables, not layer.color.');
     const content = validateContent(type, text(patch.content, 'content'), patch.decorationFormat);
     if (type === 'decoration') patch.decorationFormat ??= detectDecorationFormat(content);
@@ -75,12 +89,23 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     if (type === 'image') {
       layer.imageSource ??= 'unknown';
       layer.imageDescription ??= '';
+      if (patch.imageFilters !== undefined) {
+        const normalizedFilters = normalizeImageFilters(patch.imageFilters);
+        layer.imageFilters = hasActiveImageFilters(normalizedFilters) ? normalizedFilters : undefined;
+      }
+      if (patch.imageCrop !== undefined) {
+        const normalizedCrop = normalizeImageCrop(patch.imageCrop);
+        layer.imageCrop = hasActiveImageCrop(normalizedCrop) ? normalizedCrop : undefined;
+      }
     }
     next = { ...project, layers: [...project.layers, layer], selectedLayerId: layer.id };
   } else if (name === 'edit_layers') {
     const request = parseEditLayersRequest(args);
     const { action, layerIds: selected } = request;
     const patch = request.action === 'update' ? request.properties : request.action === 'group' && request.name !== undefined ? { name: request.name } : {};
+    if (action === 'update' && hasTextOnlyFields(patch) && selected.some(id => project.layers.find(layer => layer.id === id)?.type !== 'text')) {
+      throw new Error('Font and text style properties are only supported on text layers.');
+    }
     if (action === 'update' && patch.color !== undefined && selected.some(id => project.layers.find(layer => layer.id === id)?.type === 'decoration')) {
       throw new Error('Decoration colors must be changed in content via CSS variables, not layer.color.');
     }

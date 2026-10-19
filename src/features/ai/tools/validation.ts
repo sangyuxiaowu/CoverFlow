@@ -33,18 +33,44 @@ function boolean(value: unknown, field: string): boolean {
 
 export function safeImage(value: string): string {
   if (/^data:image\/(png|jpeg|webp|gif);base64,[a-z0-9+/=\s]+$/i.test(value)) return value;
-  const url = new URL(value);
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('Images require an HTTP(S) URL or bitmap data URL.');
+  const errorMessage = 'Images require an HTTP(S) URL or bitmap data URL.';
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(errorMessage);
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error(errorMessage);
   return value;
 }
 
 export function layerPatch(value: unknown): Partial<Layer> {
   const input = record(value);
+  const fields: Record<string, unknown> = {};
+  const groupedFields = {
+    image: ['imageSource', 'imageDescription', 'flipX', 'flipY', 'imageFilters', 'imageCrop'],
+    text: ['fontFamily', 'fontWeight', 'fontSize', 'textAlign', 'writingMode', 'textGradient', 'textShadow']
+  };
+  for (const [key, raw] of Object.entries(input)) {
+    if (key === 'image' || key === 'text') {
+      const nested = record(raw);
+      const allowed = groupedFields[key];
+      const keys = Object.keys(nested);
+      if (!keys.length || keys.some(field => !allowed.includes(field))) throw new Error('Invalid ' + key + ' properties');
+      for (const [field, fieldValue] of Object.entries(nested)) {
+        if (Object.hasOwn(fields, field)) throw new Error('Duplicate layer field: ' + field);
+        fields[field] = fieldValue;
+      }
+    } else {
+      if (Object.values(groupedFields).some(group => group.includes(key))) throw new Error(`${key} must be nested under image or text.`);
+      fields[key] = raw;
+    }
+  }
   const output: Record<string, unknown> = {};
   const strings = ['name', 'content', 'color', 'fontFamily', 'imageSource', 'imageDescription'];
   const booleans = ['visible', 'locked', 'ratioLocked', 'flipX', 'flipY'];
   const numeric = ['x', 'y', 'rotation', 'width', 'height', 'opacity', 'fontSize', 'zIndex'];
-  for (const [field, raw] of Object.entries(input)) {
+  for (const [field, raw] of Object.entries(fields)) {
     if (strings.includes(field)) {
       const limit = field === 'imageSource' ? 200 : field === 'imageDescription' ? 10000 : 200000;
       if (typeof raw !== 'string' || raw.length > limit) throw new Error('Invalid ' + field);
@@ -57,24 +83,33 @@ export function layerPatch(value: unknown): Partial<Layer> {
     else if (field === 'decorationFormat') output[field] = choice(raw, field, ['css', 'html']);
     else if (field === 'imageFilters') {
       const nested = record(raw);
-      const allowed = ['brightness', 'contrast', 'grayscale', 'blur'];
-      if (Object.keys(nested).some(key => !allowed.includes(key)) || allowed.some(key => nested[key] === undefined)) throw new Error('Provide every field of ' + field);
-      output[field] = {
-        brightness: number(nested.brightness, 'brightness', 0, 200),
-        contrast: number(nested.contrast, 'contrast', 0, 200),
-        grayscale: number(nested.grayscale, 'grayscale', 0, 100),
-        blur: number(nested.blur, 'blur', 0, 50)
-      };
+      const allowed = ['brightness', 'contrast', 'grayscale', 'blur'] as const;
+      const keys = Object.keys(nested);
+      if (!keys.length || keys.some(key => !allowed.includes(key as typeof allowed[number]))) {
+        throw new Error('Invalid imageFilters');
+      }
+      const filters: Record<string, number> = {};
+      if (nested.brightness !== undefined) filters.brightness = number(nested.brightness, 'brightness', 0, 200);
+      if (nested.contrast !== undefined) filters.contrast = number(nested.contrast, 'contrast', 0, 200);
+      if (nested.grayscale !== undefined) filters.grayscale = number(nested.grayscale, 'grayscale', 0, 100);
+      if (nested.blur !== undefined) filters.blur = number(nested.blur, 'blur', 0, 20);
+      output[field] = filters;
     } else if (field === 'imageCrop') {
       const nested = record(raw);
-      const allowed = ['x', 'y', 'width', 'height'];
-      if (Object.keys(nested).some(key => !allowed.includes(key)) || allowed.some(key => nested[key] === undefined)) throw new Error('Provide every field of ' + field);
-      output[field] = {
-        x: number(nested.x, 'x', 0, 100),
-        y: number(nested.y, 'y', 0, 100),
-        width: number(nested.width, 'width', 1, 100),
-        height: number(nested.height, 'height', 1, 100)
-      };
+      const allowed = ['x', 'y', 'width', 'height'] as const;
+      const keys = Object.keys(nested);
+      if (!keys.length || keys.some(key => !allowed.includes(key as typeof allowed[number]))) {
+        throw new Error('Invalid imageCrop');
+      }
+      const crop: Record<string, number> = {};
+      if (nested.x !== undefined) crop.x = number(nested.x, 'x', 0, 100);
+      if (nested.y !== undefined) crop.y = number(nested.y, 'y', 0, 100);
+      if (nested.width !== undefined) crop.width = number(nested.width, 'width', 1, 100);
+      if (nested.height !== undefined) crop.height = number(nested.height, 'height', 1, 100);
+      if ((crop.x ?? 0) + (crop.width ?? 0) > 100.001 || (crop.y ?? 0) + (crop.height ?? 0) > 100.001) {
+        throw new Error('Invalid imageCrop: crop bounds cannot exceed 100%.');
+      }
+      output[field] = crop;
     } else if (field === 'textGradient' || field === 'textShadow') {
       const nested = record(raw);
       const allowed = field === 'textGradient' ? ['enabled', 'from', 'to', 'angle'] : ['enabled', 'color', 'blur', 'offsetX', 'offsetY'];

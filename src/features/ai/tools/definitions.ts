@@ -14,8 +14,47 @@ const conditional = <Schema extends { description: string }>(rules: Parameters<t
 
 const patch = object('图层属性的部分更新；省略字段保持原值。不要提交 id、type、parentId 或 children 等结构字段。', {
   name: string('图层名称，用于图层列表与搜索。'),
-  imageSource: { ...string('仅图片图层，用来描述来源，例如 upload、import 或实际生图模型 ID。'), maxLength: 200 },
-  imageDescription: { ...string('仅图片图层，用来记录图片描述或实际生成该图片的提示词。'), maxLength: 10000 },
+  image: { ...object('图片图层属性；仅 image 图层可提供。', {
+    imageSource: { ...string('图片来源，例如 upload、import 或实际生图模型 ID。'), maxLength: 200 },
+    imageDescription: { ...string('图片描述或实际生成该图片的提示词。'), maxLength: 10000 },
+    flipX: boolean('是否水平（左右）翻转；开启已有非破坏性裁剪时会自动镜像裁剪区域。'),
+    flipY: boolean('是否垂直（上下）翻转；开启已有非破坏性裁剪时会自动镜像裁剪区域。'),
+    imageFilters: { ...object('基础滤镜配置，可提交部分或全部子字段；省略子字段保持当前值。全部恢复默认值（brightness:100, contrast:100, grayscale:0, blur:0）即可重置滤镜。', {
+      brightness: numeric('亮度百分比，100 为原始亮度，0 为全黑，200 为两倍亮度。', 0, 200),
+      contrast: numeric('对比度百分比，100 为原始对比度，0 为无对比度，200 为两倍对比度。', 0, 200),
+      grayscale: numeric('灰度百分比，0 为原色，100 为完全黑白灰度。', 0, 100),
+      blur: numeric('高斯模糊半径，单位为像素，0 为不模糊。', 0, 20)
+    }), minProperties: 1 },
+    imageCrop: { ...object('非破坏性裁剪区域（基于原图宽高的百分比），可提交部分或全部子字段；未同时传入图层宽高时会自动按裁剪区域同步图层尺寸与中心。设为 x:0, y:0, width:100, height:100 可重置裁剪并恢复完整原图。', {
+      x: numeric('裁剪区域左上角水平起始百分比（0-100）。', 0, 100),
+      y: numeric('裁剪区域左上角垂直起始百分比（0-100）。', 0, 100),
+      width: numeric('裁剪区域宽度占原图宽度的百分比（1-100），且 x + width 不超过 100。', 1, 100),
+      height: numeric('裁剪区域高度占原图高度的百分比（1-100），且 y + height 不超过 100。', 1, 100)
+    }), minProperties: 1 }
+  }), minProperties: 1 },
+  text: { ...object('文字图层属性；仅 text 图层可提供。', {
+    fontFamily: string('CSS font-family 值，可包含字体族及回退字体，例如 "Microsoft YaHei", sans-serif。'),
+    fontWeight: {
+      description: 'CSS 字重，可使用数字或字符串。',
+      anyOf: [string('CSS 字重关键字，例如 normal、bold。'), numeric('数字字重，例如 400 或 700。', 1, 1000)]
+    },
+    fontSize: numeric('字号，单位为像素。', 1),
+    textAlign: enumeration('水平文本对齐方式。', ['left', 'center', 'right']),
+    writingMode: enumeration('horizontal 为横排，vertical 为竖排。', ['horizontal', 'vertical']),
+    textGradient: object('完整渐变配置，提交时必须包含全部子字段。', {
+      enabled: boolean('是否启用文字渐变；关闭时恢复 color 主色。'),
+      from: string('渐变起始颜色，使用 CSS 颜色值。'),
+      to: string('渐变结束颜色，使用 CSS 颜色值。'),
+      angle: numeric('线性渐变方向，单位为度。')
+    }, ['enabled', 'from', 'to', 'angle']),
+    textShadow: object('完整阴影配置，提交时必须包含全部子字段。', {
+      enabled: boolean('是否启用文字阴影。'),
+      color: string('阴影的 CSS 颜色值，可含透明度。'),
+      blur: numeric('阴影模糊半径，单位为像素，不得为负。', 0),
+      offsetX: numeric('阴影水平偏移，单位为像素，负值向左。'),
+      offsetY: numeric('阴影垂直偏移，单位为像素，负值向上。')
+    }, ['enabled', 'color', 'blur', 'offsetX', 'offsetY'])
+  }), minProperties: 1 },
   content: string([
     '图层完整内容；修改前先 read_layers，保留无关结构与样式，不接受差异补丁。',
     'text：纯文本。image：已有 HTTP(S) URL 或 PNG/JPEG/WebP/GIF 的 base64 数据 URL。',
@@ -26,11 +65,6 @@ const patch = object('图层属性的部分更新；省略字段保持原值。�
     '装饰颜色定义为具体 CSS 变量后用 var() 引用，例如 --accent:#38bdf8; --surface:rgba(255,255,255,0.24)。支持 HEX、RGBA、HSL、OKLCH 和命名颜色。调色时更新相应变量并保留 alpha，不使用图层 color 或 currentColor 主色绑定。'
   ].join('\n')),
   color: string('仅用于文字和 SVG 的主色。装饰图层禁止此字段，必须修改 content 中的颜色变量。'),
-  fontFamily: string('仅用于文字：CSS font-family 值，可包含字体族及回退字体，例如 "Microsoft YaHei", sans-serif。'),
-  fontWeight: {
-    description: '仅用于文字：CSS 字重，可使用数字或字符串。',
-    anyOf: [string('CSS 字重关键字，例如 normal、bold。'), numeric('数字字重，例如 400 或 700。', 1, 1000)]
-  },
   x: numeric('图层左上角水平位置，单位为画布像素。'),
   y: numeric('图层左上角垂直位置，单位为画布像素。'),
   width: numeric('图层宽度，单位为画布像素；等比锁定时只改宽度会同步高度。', 1),
@@ -38,26 +72,10 @@ const patch = object('图层属性的部分更新；省略字段保持原值。�
   rotation: numeric('图层旋转角度，单位为度。'),
   zIndex: numeric('图层堆叠顺序，值越大越靠前；置顶/置底用 front/back，上移/下移一层用 forward/backward。'),
   opacity: numeric('整层透明度，0 为完全透明、1 为完全不透明；与颜色 alpha 叠加。', 0, 1),
-  fontSize: numeric('仅用于文字：字号，单位为像素。', 1),
   visible: boolean('是否显示图层。'),
   locked: boolean('是否锁定图层；编辑锁定图层前须获用户许可并单独提交 locked:false 解锁。'),
   ratioLocked: boolean('是否锁定宽高比例。'),
-  textAlign: enumeration('仅用于文字：水平文本对齐方式。', ['left', 'center', 'right']),
-  writingMode: enumeration('仅用于文字：horizontal 为横排，vertical 为竖排。', ['horizontal', 'vertical']),
   decorationFormat: enumeration('仅用于装饰：css 是单元素外观声明，html 是静态多节点标记。新增时省略则自动识别；更新时保留原格式。切换格式须同时提交完整 content。', ['css', 'html']),
-  textGradient: object('仅用于文字：完整渐变配置，提交时必须包含全部子字段。', {
-    enabled: boolean('是否启用文字渐变；关闭时恢复 color 主色。'),
-    from: string('渐变起始颜色，使用 CSS 颜色值。'),
-    to: string('渐变结束颜色，使用 CSS 颜色值。'),
-    angle: numeric('线性渐变方向，单位为度。')
-  }, ['enabled', 'from', 'to', 'angle']),
-  textShadow: object('仅用于文字：完整阴影配置，提交时必须包含全部子字段。', {
-    enabled: boolean('是否启用文字阴影。'),
-    color: string('阴影的 CSS 颜色值，可含透明度。'),
-    blur: numeric('阴影模糊半径，单位为像素，不得为负。', 0),
-    offsetX: numeric('阴影水平偏移，单位为像素，负值向左。'),
-    offsetY: numeric('阴影垂直偏移，单位为像素，负值向上。')
-  }, ['enabled', 'color', 'blur', 'offsetX', 'offsetY'])
 });
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [

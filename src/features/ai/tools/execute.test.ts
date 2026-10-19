@@ -85,12 +85,25 @@ test('tool schemas describe every parameter and nested field with valid required
   const canvas = TOOL_DEFINITIONS.find(definition => definition.function.name === 'update_canvas')!.function;
   const addProperties = (add.parameters.properties as Record<string, Record<string, unknown>>).properties;
   const editProperties = (edit.parameters.properties as Record<string, Record<string, unknown>>).properties;
+  const editLayerProperties = editProperties.properties as Record<string, Record<string, unknown>>;
+  const imageProperties = editLayerProperties.image.properties as Record<string, Record<string, unknown>>;
+  const textProperties = editLayerProperties.text.properties as Record<string, Record<string, unknown>>;
   const canvasProperties = canvas.parameters.properties as Record<string, Record<string, unknown>>;
   const backgroundProperties = (canvasProperties.background.properties as Record<string, Record<string, unknown>>);
   const overlayProperties = backgroundProperties.overlay.properties as Record<string, unknown>;
   assert.deepEqual(addProperties.required, ['content']);
   assert.deepEqual(editProperties.required, []);
   assert.deepEqual(Object.keys(overlayProperties), ['type', 'color', 'opacity', 'scale']);
+  assert.deepEqual(Object.keys(editLayerProperties).filter(key => ['image', 'text'].includes(key)), ['image', 'text']);
+  assert.equal(editLayerProperties.image.minProperties, 1);
+  assert.equal(editLayerProperties.text.minProperties, 1);
+  assert.equal(imageProperties.imageFilters.minProperties, 1);
+  assert.equal(imageProperties.imageCrop.minProperties, 1);
+  assert.ok((editLayerProperties.image.description as string).includes('仅 image 图层'));
+  assert.ok((editLayerProperties.text.description as string).includes('仅 text 图层'));
+  assert.ok(!Object.hasOwn(editLayerProperties, 'fontSize'));
+  assert.ok(!Object.hasOwn(editLayerProperties, 'flipX'));
+  assert.ok(Object.hasOwn(textProperties, 'fontSize'));
   assert.equal(add.description.includes('6000'), false);
   assert.equal(add.description.includes('url()'), false);
   assert.ok(((addProperties.properties as Record<string, Record<string, unknown>>).content.description as string).includes('6000'));
@@ -98,7 +111,7 @@ test('tool schemas describe every parameter and nested field with valid required
 
 test('tools read live state between consecutive edits', async () => {
   const { bridge, signal } = setup();
-  await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { content: 'Hello', fontSize: 64 } }, bridge, signal);
+  await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { content: 'Hello', text: { fontSize: 64 } } }, bridge, signal);
   const id = bridge.getProject()!.selectedLayerId!;
   await executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [id], properties: { content: 'Updated', opacity: 0.5 } }, bridge, signal);
   assert.equal(bridge.getProject()!.layers[0].content, 'Updated');
@@ -118,7 +131,8 @@ test('stale project IDs, aborts and invalid fields never commit', async () => {
 });
 
 test('unsafe image sources are rejected', () => {
-  assert.throws(() => safeImage('javascript:alert(1)'));
+  assert.throws(() => safeImage('javascript:alert(1)'), /Images require an HTTP\(S\) URL or bitmap data URL\./);
+  assert.throws(() => safeImage('not a URL'), /Images require an HTTP\(S\) URL or bitmap data URL\./);
   assert.throws(() => safeImage('data:image/svg+xml,<svg/>'));
   assert.equal(safeImage('https://example.com/cover.png'), 'https://example.com/cover.png');
 });
@@ -275,16 +289,92 @@ test('forward and backward execute through the tool without extra parameters', a
 
 test('image source and description are editable, readable and restricted to image layers', async () => {
   const { bridge, signal } = setup();
-  await executeTool('add_layer', { projectId: 'p1', type: 'image', properties: { content: 'https://example.com/photo.png', imageSource: 'upload', imageDescription: 'A user description' } }, bridge, signal);
+  await executeTool('add_layer', { projectId: 'p1', type: 'image', properties: { content: 'https://example.com/photo.png', image: { imageSource: 'upload', imageDescription: 'A user description' } } }, bridge, signal);
   const id = bridge.getProject()!.selectedLayerId!;
-  await executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [id], properties: { imageDescription: 'Revised description' } }, bridge, signal);
+  await executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [id], properties: { image: { imageDescription: 'Revised description' } } }, bridge, signal);
   const selected = await executeTool('get_selected_layers', {}, { ...bridge, getSelection: () => [id] }, signal) as { layers: { imageSource: string; imageDescription: string }[]; images: unknown[] };
   assert.equal(selected.layers[0].imageSource, 'upload');
   assert.equal(selected.layers[0].imageDescription, 'Revised description');
   assert.deepEqual(selected.images, []);
   const saved = JSON.parse(JSON.stringify(bridge.getProject())) as ProjectState;
   assert.equal(saved.layers[0].imageDescription, 'Revised description');
-  assert.throws(() => layerPatch({ imageSource: 'x'.repeat(201) }), /Invalid/);
-  assert.throws(() => layerPatch({ imageDescription: 'x'.repeat(10001) }), /Invalid/);
-  await assert.rejects(executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { content: 'Text', imageSource: 'upload' } }, bridge, signal), /only supported/);
+  assert.throws(() => layerPatch({ image: { imageSource: 'x'.repeat(201) } }), /Invalid/);
+  assert.throws(() => layerPatch({ image: { imageDescription: 'x'.repeat(10001) } }), /Invalid/);
+  await assert.rejects(executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { content: 'Text', image: { imageSource: 'upload' } } }, bridge, signal), /only supported/);
+});
+
+test('image layer flip, filters, and non-destructive crop are controllable via AI tools and restricted to image layers', async () => {
+  const { bridge, signal } = setup();
+  await executeTool('add_layer', {
+    projectId: 'p1',
+    type: 'image',
+    properties: {
+      content: 'https://example.com/photo.png',
+      width: 400,
+      height: 300,
+      image: {
+        flipX: true,
+        imageFilters: { brightness: 120, contrast: 110 },
+        imageCrop: { x: 10, y: 20, width: 50, height: 50 }
+      }
+    }
+  }, bridge, signal);
+
+  const id = bridge.getProject()!.selectedLayerId!;
+  let layer = bridge.getProject()!.layers[0];
+  assert.equal(layer.flipX, true);
+  assert.deepEqual(layer.imageFilters, { brightness: 120, contrast: 110, grayscale: 0, blur: 0 });
+  assert.deepEqual(layer.imageCrop, { x: 10, y: 20, width: 50, height: 50 });
+
+  // Partial filter update preserves existing brightness/contrast and updates grayscale/blur
+  await executeTool('edit_layers', {
+    projectId: 'p1',
+    action: 'update',
+    layerIds: [id],
+    properties: { image: { imageFilters: { grayscale: 40, blur: 2.5 } } }
+  }, bridge, signal);
+  layer = bridge.getProject()!.layers[0];
+  assert.deepEqual(layer.imageFilters, { brightness: 120, contrast: 110, grayscale: 40, blur: 2.5 });
+
+  // Flipping horizontally mirrors active crop X coordinate
+  await executeTool('edit_layers', {
+    projectId: 'p1',
+    action: 'update',
+    layerIds: [id],
+    properties: { image: { flipX: false, flipY: true } }
+  }, bridge, signal);
+  layer = bridge.getProject()!.layers[0];
+  assert.equal(layer.flipX, false);
+  assert.equal(layer.flipY, true);
+  assert.deepEqual(layer.imageCrop, { x: 40, y: 30, width: 50, height: 50 });
+
+  // Resetting filters and crop via default values clears imageFilters and imageCrop and restores dimensions
+  await executeTool('edit_layers', {
+    projectId: 'p1',
+    action: 'update',
+    layerIds: [id],
+    properties: {
+      image: {
+        imageFilters: { brightness: 100, contrast: 100, grayscale: 0, blur: 0 },
+        imageCrop: { x: 0, y: 0, width: 100, height: 100 }
+      }
+    }
+  }, bridge, signal);
+  layer = bridge.getProject()!.layers[0];
+  assert.equal(layer.imageFilters, undefined);
+  assert.equal(layer.imageCrop, undefined);
+  assert.equal(layer.width, 800);
+  assert.equal(layer.height, 600);
+
+  // Reject image-only properties on non-image layers and out-of-bounds crop/filter values
+  await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { content: 'Title' } }, bridge, signal);
+  const textId = bridge.getProject()!.selectedLayerId!;
+  await assert.rejects(executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [textId], properties: { image: { flipX: true } } }, bridge, signal), /only supported/);
+  await assert.rejects(executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [textId], properties: { image: { imageFilters: { brightness: 110 } } } }, bridge, signal), /only supported/);
+  assert.throws(() => layerPatch({ image: { imageFilters: { brightness: 250 } } }), /Invalid/);
+  assert.throws(() => layerPatch({ image: { imageFilters: {} } }), /Invalid imageFilters/);
+  assert.throws(() => layerPatch({ image: { imageCrop: {} } }), /Invalid imageCrop/);
+  assert.throws(() => layerPatch({ image: { imageCrop: { x: 60, width: 50 } } }), /exceed 100%/);
+  await assert.rejects(executeTool('add_layer', { projectId: 'p1', type: 'image', properties: { content: 'https://example.com/other.png', text: { fontSize: 32 } } }, bridge, signal), /only supported on text layers/);
+  await assert.rejects(executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [id], properties: { text: { fontSize: 32 } } }, bridge, signal), /only supported on text layers/);
 });

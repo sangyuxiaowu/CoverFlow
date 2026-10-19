@@ -14,7 +14,7 @@ import {
   Eye, EyeOff, Lock, Unlock, Trash2, Hash, RotateCw, Maximize2, 
   Type as TextIcon, Image as ImageIcon, GripVertical, Link as LinkIcon, Link2Off, MoveHorizontal, MoveVertical,
   Palette, Sliders, AlignLeft, AlignCenter, AlignRight, Type, Search, ChevronDown, Check, Folder,
-  Copy, Trash, ArrowUpToLine, ArrowDownToLine, Layers, Ungroup
+  Copy, Trash, ArrowUpToLine, ArrowDownToLine, Layers, Ungroup, PanelRightClose, PanelRightOpen
 } from 'lucide-react';
 
 interface LayersPanelProps {
@@ -127,6 +127,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const [collapsedGroupIds, setCollapsedGroupIds] = useState<string[]>([]);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const latestSelectedLayerRef = useRef(selectedLayer);
   const onUpdateLayerRef = useRef(onUpdateLayer);
@@ -488,11 +489,34 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   }, [isWeightPickerOpen]);
 
   return (
-    <div className="w-72 bg-slate-900 border-l border-slate-800 flex flex-col flex-shrink-0 shadow-2xl relative z-20 h-full">
+    <div className={`${isCollapsed ? 'w-0 border-l-0' : 'w-72 border-l border-slate-800'} bg-slate-900 flex flex-col flex-shrink-0 shadow-2xl relative z-20 h-full transition-[width] duration-200 ease-in-out`}>
+      {isCollapsed ? (
+        <button
+          type="button"
+          onClick={() => setIsCollapsed(false)}
+          className="absolute right-0 top-2.5 z-30 flex items-center justify-center w-8 h-8 bg-slate-900/95 hover:bg-slate-800 text-slate-400 hover:text-white border border-r-0 border-slate-800 rounded-l-lg shadow-lg transition-colors"
+          title={t.expandPanel}
+          aria-label={t.expandPanel}
+          aria-expanded={false}
+        >
+          <PanelRightOpen className="w-4 h-4" />
+        </button>
+      ) : (
+      <div className="w-72 h-full flex flex-col overflow-hidden">
       {/* 属性检查器区域 */}
       <div className="h-[62%] flex flex-col border-b border-slate-800">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800/50 bg-slate-900 flex-shrink-0">
           <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t.inspector}</h3>
+          <button
+            type="button"
+            onClick={() => setIsCollapsed(true)}
+            className="p-1 rounded-md text-slate-500 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+            title={t.collapsePanel}
+            aria-label={t.collapsePanel}
+            aria-expanded={true}
+          >
+            <PanelRightClose className="w-3.5 h-3.5" />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-hide">
@@ -1185,6 +1209,8 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
             {t.deleteLayer}
           </button>
         </div>
+      )}
+      </div>
       )}
     </div>
   );

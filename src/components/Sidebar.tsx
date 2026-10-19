@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { CATEGORIZED_ASSETS, PRESET_COLORS, PRESET_GRADIENTS } from '../constants.ts';
 import { BackgroundConfig, DecorationTemplate, Layer, FAIconMetadata, FACategory, ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
-import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash, HelpCircle, Keyboard, ChevronDown, ChevronRight, ChevronLeft, Flower, Plus } from 'lucide-react';
+import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash, HelpCircle, Keyboard, ChevronDown, ChevronRight, Flower, Plus } from 'lucide-react';
 import * as yaml from 'js-yaml';
 import { normalizeSVG } from '../utils/helpers.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
@@ -1592,14 +1592,6 @@ const Sidebar: React.FC<SidebarProps> = ({
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => setActiveTab(null)}
-                className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800/80 rounded-md transition-all ml-0.5"
-                title={lang === 'zh' ? '收起面板' : 'Collapse panel'}
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
             </div>
           </div>
           <div className={`flex-1 min-h-0 ${activeTab === 'decorations' ? 'overflow-hidden' : activeTab === 'assets' || activeTab === 'fa' ? 'overflow-hidden p-5' : 'overflow-y-auto scrollbar-hide p-5'}`}>

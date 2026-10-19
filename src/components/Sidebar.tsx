@@ -8,6 +8,8 @@ import * as yaml from 'js-yaml';
 import { normalizeSVG } from '../utils/helpers.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
 import { backgroundCssStyle, sanitizeBackgroundCss } from '../utils/customContent.ts';
+import { formatColor, parseColor } from '../utils/colors.ts';
+import ColorPicker from './ColorPicker.tsx';
 import DecorationLibrary from './DecorationLibrary.tsx';
 import {
   clearFaCache,
@@ -733,23 +735,71 @@ const Sidebar: React.FC<SidebarProps> = ({
     setDeletingIndex(null);
   };
 
+  const parseLinearGradient = (value: string): { angle: number; start: string; end: string } => {
+    const fallback = { angle: 135, start: '#3b82f6', end: '#8b5cf6' };
+    const match = value.trim().match(/^linear-gradient\((.*)\)$/i);
+    if (!match) {
+      const hexMatch = value.match(/#[a-fA-F0-9]{3,8}/gi) || [];
+      const degMatch = value.match(/(-?\d+(?:\.\d+)?)deg/i);
+      return {
+        angle: degMatch ? Math.round(Number.parseFloat(degMatch[1])) : fallback.angle,
+        start: hexMatch[0] || fallback.start,
+        end: hexMatch[1] || fallback.end
+      };
+    }
+
+    const parts: string[] = [];
+    let depth = 0;
+    let current = '';
+    for (const ch of match[1]) {
+      if (ch === '(') depth += 1;
+      else if (ch === ')') depth = Math.max(0, depth - 1);
+      if (ch === ',' && depth === 0) {
+        parts.push(current.trim());
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    if (current.trim()) parts.push(current.trim());
+
+    let angle = fallback.angle;
+    let colorParts = parts;
+    if (parts.length > 0 && /deg$/i.test(parts[0])) {
+      const parsedAngle = Number.parseFloat(parts[0]);
+      if (Number.isFinite(parsedAngle)) angle = Math.round(parsedAngle);
+      colorParts = parts.slice(1);
+    }
+
+    const extractStopColor = (stop: string | undefined, defaultColor: string) => {
+      if (!stop) return defaultColor;
+      const withoutStop = stop.replace(/\s+-?\d+(?:\.\d+)?%\s*$/, '').trim();
+      return withoutStop || defaultColor;
+    };
+
+    return {
+      angle,
+      start: extractStopColor(colorParts[0], fallback.start),
+      end: extractStopColor(colorParts[1], fallback.end)
+    };
+  };
+
   const handleTypeChange = (newType: BackgroundConfig['type']) => {
     let newValue = background.value;
     if (background.type === 'css' && newType !== 'css') {
       const style = backgroundCssStyle(background.value);
       newValue = String(newType === 'gradient' && style.backgroundImage ? style.backgroundImage : style.backgroundColor || '#1e293b');
     }
-    const hexMatch = newValue.match(/#[a-fA-F0-9]{3,6}/gi) || [];
     const isGradient = newValue.includes('gradient');
     const isImage = newValue.startsWith('http') || newValue.startsWith('data:');
 
     if (newType === 'color') {
-      if (isGradient && hexMatch.length > 0) newValue = hexMatch[0];
-      else if (isImage || !newValue.startsWith('#')) newValue = '#1e293b';
+      if (isGradient) newValue = parseLinearGradient(newValue).start;
+      else if (isImage || !parseColor(newValue)) newValue = '#1e293b';
     } else if (newType === 'gradient') {
       if (!isGradient) {
-        const start = hexMatch.length > 0 ? hexMatch[0] : '#3b82f6';
-        const end = hexMatch.length > 1 ? hexMatch[1] : (start.toLowerCase() === '#ffffff' ? '#000000' : '#8b5cf6');
+        const start = parseColor(newValue) ? newValue : '#3b82f6';
+        const end = formatColor(start, 'hex').toLowerCase() === '#ffffff' ? '#000000' : '#8b5cf6';
         newValue = `linear-gradient(135deg, ${start} 0%, ${end} 100%)`;
       }
     } else if (newType === 'image') {
@@ -1046,9 +1096,14 @@ const Sidebar: React.FC<SidebarProps> = ({
           )}
           {background.type === 'color' && (
             <div className="space-y-2.5 animate-in fade-in zoom-in-95 duration-200">
-              <div className="flex gap-2">
-                <input type="color" value={background.value.startsWith('#') && !background.value.includes('gradient') ? background.value : '#ffffff'} onChange={(e) => onUpdateBackground({ value: e.target.value })} className="w-12 h-8 rounded-md bg-slate-900 border border-slate-700 cursor-pointer overflow-hidden p-0.5 flex-shrink-0" />
-                <input type="text" value={background.value} onChange={(e) => onUpdateBackground({ value: e.target.value })} className="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded-md px-2 text-xs text-slate-200 font-mono focus:ring-1 focus:ring-blue-500 outline-none" placeholder="#FFFFFF" />
+              <div className="flex items-center gap-2">
+                <ColorPicker
+                  lang={lang}
+                  name={t.bgTypeColor}
+                  value={parseColor(background.value) ? background.value : '#ffffff'}
+                  onChange={(value) => onUpdateBackground({ value })}
+                />
+                <input type="text" value={background.value} onChange={(e) => onUpdateBackground({ value: e.target.value })} className="flex-1 min-w-0 h-7 bg-slate-800 border border-slate-700 rounded-md px-2 text-xs text-slate-200 font-mono focus:ring-1 focus:ring-blue-500 outline-none" placeholder="#FFFFFF" />
               </div>
               <div className="grid grid-cols-4 gap-1">
                 {PRESET_COLORS.map(c => (
@@ -1057,40 +1112,62 @@ const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </div>
           )}
-          {background.type === 'gradient' && (
-            <div className="space-y-2.5 animate-in fade-in zoom-in-95 duration-200">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">{t.startColor}</span>
-                  <input type="color" value={(background.value.match(/#[a-fA-F0-9]{3,6}/gi) || [])[0] || '#3b82f6'} onChange={(e) => {
-                    const deg = (background.value.match(/(\d+)deg/) || [])[1] || 135;
-                    const end = (background.value.match(/#[a-fA-F0-9]{3,6}/gi) || [])[1] || '#8b5cf6';
-                    onUpdateBackground({ value: `linear-gradient(${deg}deg, ${e.target.value} 0%, ${end} 100%)` });
-                  }} className="w-full h-7 rounded-md bg-slate-900 border border-slate-700 cursor-pointer" />
+          {background.type === 'gradient' && (() => {
+            const { angle, start, end } = parseLinearGradient(background.value);
+            return (
+              <div className="space-y-2.5 animate-in fade-in zoom-in-95 duration-200">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">{t.startColor}</span>
+                    <div className="flex items-center gap-1.5">
+                      <ColorPicker
+                        lang={lang}
+                        name={t.startColor}
+                        value={parseColor(start) ? start : '#3b82f6'}
+                        onChange={(nextStart) => onUpdateBackground({ value: `linear-gradient(${angle}deg, ${nextStart} 0%, ${end} 100%)` })}
+                      />
+                      <input
+                        type="text"
+                        aria-label={t.startColor}
+                        value={start}
+                        onChange={(e) => onUpdateBackground({ value: `linear-gradient(${angle}deg, ${e.target.value} 0%, ${end} 100%)` })}
+                        className="flex-1 min-w-0 h-7 bg-slate-800 border border-slate-700 rounded-md px-1.5 text-[11px] text-slate-200 font-mono focus:ring-1 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">{t.endColor}</span>
+                    <div className="flex items-center gap-1.5">
+                      <ColorPicker
+                        lang={lang}
+                        name={t.endColor}
+                        value={parseColor(end) ? end : '#8b5cf6'}
+                        onChange={(nextEnd) => onUpdateBackground({ value: `linear-gradient(${angle}deg, ${start} 0%, ${nextEnd} 100%)` })}
+                      />
+                      <input
+                        type="text"
+                        aria-label={t.endColor}
+                        value={end}
+                        onChange={(e) => onUpdateBackground({ value: `linear-gradient(${angle}deg, ${start} 0%, ${e.target.value} 100%)` })}
+                        className="flex-1 min-w-0 h-7 bg-slate-800 border border-slate-700 rounded-md px-1.5 text-[11px] text-slate-200 font-mono focus:ring-1 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                  </div>
                 </div>
                 <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">{t.endColor}</span>
-                  <input type="color" value={(background.value.match(/#[a-fA-F0-9]{3,6}/gi) || [])[1] || '#8b5cf6'} onChange={(e) => {
-                    const deg = (background.value.match(/(\d+)deg/) || [])[1] || 135;
-                    const start = (background.value.match(/#[a-fA-F0-9]{3,6}/gi) || [])[0] || '#3b82f6';
-                    onUpdateBackground({ value: `linear-gradient(${deg}deg, ${start} 0%, ${e.target.value} 100%)` });
-                  }} className="w-full h-7 rounded-md bg-slate-900 border border-slate-700 cursor-pointer" />
+                  <div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase"><span>{t.angle}</span><span>{angle}°</span></div>
+                  <input type="range" min="0" max="360" value={angle} onChange={(e) => {
+                    onUpdateBackground({ value: `linear-gradient(${e.target.value}deg, ${start} 0%, ${end} 100%)` });
+                  }} className="w-full accent-blue-600" />
+                </div>
+                <div className="grid grid-cols-2 gap-1">
+                  {PRESET_GRADIENTS.map(g => (
+                    <button key={g} onClick={() => onUpdateBackground({ value: g })} className="h-6 rounded-md border border-slate-700 transition-all hover:border-slate-500" style={{ background: g }} />
+                  ))}
                 </div>
               </div>
-              <div className="space-y-1">
-                <div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase"><span>{t.angle}</span><span>{(background.value.match(/(\d+)deg/) || [])[1] || '135'}°</span></div>
-                <input type="range" min="0" max="360" value={(background.value.match(/(\d+)deg/) || [])[1] || 135} onChange={(e) => {
-                  const colors = background.value.match(/#[a-fA-F0-9]{3,6}/gi) || ['#3b82f6', '#8b5cf6'];
-                  onUpdateBackground({ value: `linear-gradient(${e.target.value}deg, ${colors[0]} 0%, ${colors[1]} 100%)` });
-                }} className="w-full accent-blue-600" />
-              </div>
-              <div className="grid grid-cols-2 gap-1">
-                {PRESET_GRADIENTS.map(g => (
-                  <button key={g} onClick={() => onUpdateBackground({ value: g })} className="h-6 rounded-md border border-slate-700 transition-all hover:border-slate-500" style={{ background: g }} />
-                ))}
-              </div>
-            </div>
-          )}
+            );
+          })()}
           {background.type === 'image' && (
             <div className="space-y-2.5 animate-in fade-in zoom-in-95 duration-200">
               <label className="flex flex-col items-center justify-center w-full h-16 border-2 border-dashed border-slate-700 rounded-lg cursor-pointer hover:bg-slate-800 transition-colors group">
@@ -1138,9 +1215,14 @@ const Sidebar: React.FC<SidebarProps> = ({
           <div className="space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-300">
             <div className="space-y-1">
               <span className="text-[9px] font-bold text-slate-500 uppercase">{t.overlayColor}</span>
-              <div className="flex gap-2">
-                <input type="color" value={background.overlayColor} onChange={(e) => onUpdateBackground({ overlayColor: e.target.value })} className="w-12 h-8 rounded-md bg-slate-900 border border-slate-700 p-0.5 cursor-pointer flex-shrink-0" />
-                <input type="text" value={background.overlayColor} onChange={(e) => onUpdateBackground({ overlayColor: e.target.value })} className="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200 font-mono focus:ring-1 focus:ring-blue-500 outline-none" />
+              <div className="flex items-center gap-2">
+                <ColorPicker
+                  lang={lang}
+                  name={t.overlayColor}
+                  value={parseColor(background.overlayColor) ? background.overlayColor : '#ffffff'}
+                  onChange={(overlayColor) => onUpdateBackground({ overlayColor })}
+                />
+                <input type="text" value={background.overlayColor} onChange={(e) => onUpdateBackground({ overlayColor: e.target.value })} className="flex-1 min-w-0 h-7 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200 font-mono focus:ring-1 focus:ring-blue-500 outline-none" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">

@@ -4,6 +4,8 @@ import { Layer, ProjectState, TextGradient, TextShadow } from '../types.ts';
 import { translations, Language } from '../translations.ts';
 import { PRESET_COLORS, TEXT_GRADIENT_PRESETS } from '../constants.ts';
 import { sanitizeDecorationContent } from '../utils/decorationStyles.ts';
+import { parseColor } from '../utils/colors.ts';
+import ColorPicker from './ColorPicker.tsx';
 import DecorationContent from './DecorationContent.tsx';
 import DecorationCodeEditor from './DecorationCodeEditor.tsx';
 import RemoveBackgroundButton from '../features/background-removal/RemoveBackgroundButton.tsx';
@@ -743,11 +745,39 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                         <div className="grid grid-cols-2 gap-2">
                           <div className="space-y-1">
                             <label className="text-[9px] text-slate-500 uppercase font-bold">{t.startColor}</label>
-                            <input type="color" value={selectedLayer.textGradient.from} onChange={(e) => handleUpdateTextGradient({ from: e.target.value })} className="w-full h-7 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer p-0.5" />
+                            <div className="flex items-center gap-1.5">
+                              <ColorPicker
+                                lang={lang}
+                                name={t.startColor}
+                                value={parseColor(selectedLayer.textGradient.from) ? selectedLayer.textGradient.from : '#3b82f6'}
+                                onChange={(from) => handleUpdateTextGradient({ from })}
+                              />
+                              <input
+                                type="text"
+                                aria-label={t.startColor}
+                                value={selectedLayer.textGradient.from}
+                                onChange={(e) => handleUpdateTextGradient({ from: e.target.value })}
+                                className="flex-1 min-w-0 h-7 bg-slate-800 border border-slate-700 rounded-md px-1.5 text-[11px] text-slate-200 font-mono focus:border-blue-500 outline-none"
+                              />
+                            </div>
                           </div>
                           <div className="space-y-1">
                             <label className="text-[9px] text-slate-500 uppercase font-bold">{t.endColor}</label>
-                            <input type="color" value={selectedLayer.textGradient.to} onChange={(e) => handleUpdateTextGradient({ to: e.target.value })} className="w-full h-7 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer p-0.5" />
+                            <div className="flex items-center gap-1.5">
+                              <ColorPicker
+                                lang={lang}
+                                name={t.endColor}
+                                value={parseColor(selectedLayer.textGradient.to) ? selectedLayer.textGradient.to : '#8b5cf6'}
+                                onChange={(to) => handleUpdateTextGradient({ to })}
+                              />
+                              <input
+                                type="text"
+                                aria-label={t.endColor}
+                                value={selectedLayer.textGradient.to}
+                                onChange={(e) => handleUpdateTextGradient({ to: e.target.value })}
+                                className="flex-1 min-w-0 h-7 bg-slate-800 border border-slate-700 rounded-md px-1.5 text-[11px] text-slate-200 font-mono focus:border-blue-500 outline-none"
+                              />
+                            </div>
                           </div>
                         </div>
                         <div className="space-y-1">
@@ -763,9 +793,14 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                     ) : (
                       <div className="space-y-1 !mt-0 animate-in fade-in duration-200">
                         <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.primaryColor}</label>
-                        <div className="flex gap-2">
-                          <input type="color" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="h-7 w-7 bg-slate-900 border border-slate-700 cursor-pointer rounded-md p-1" />
-                          <input type="text" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="flex-1 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 font-mono focus:border-blue-500 outline-none" />
+                        <div className="flex items-center gap-2">
+                          <ColorPicker
+                            lang={lang}
+                            name={t.primaryColor}
+                            value={parseColor(selectedLayer.color || '#3b82f6') ? (selectedLayer.color || '#3b82f6') : '#3b82f6'}
+                            onChange={(color) => onUpdateLayer(selectedLayer.id, { color })}
+                          />
+                          <input type="text" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="flex-1 min-w-0 h-7 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 font-mono focus:border-blue-500 outline-none" />
                         </div>
                         <div className="grid grid-cols-8 gap-x-1 gap-y-3 pt-2">
                           {PRESET_COLORS.map(c => (
@@ -795,9 +830,14 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                       <div className="space-y-2 !mt-0 animate-in fade-in duration-200">
                         <div className="space-y-1">
                           <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.shadowColor}</label>
-                          <div className="flex gap-2">
-                            <input type="color" value={selectedLayer.textShadow.color} onChange={(e) => handleUpdateTextShadow({ color: e.target.value })} className="h-7 w-7 bg-slate-900 border border-slate-700 cursor-pointer rounded-md p-1" />
-                            <input type="text" value={selectedLayer.textShadow.color} onChange={(e) => handleUpdateTextShadow({ color: e.target.value })} className="flex-1 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 font-mono focus:border-blue-500 outline-none" />
+                          <div className="flex items-center gap-2">
+                            <ColorPicker
+                              lang={lang}
+                              name={t.shadowColor}
+                              value={parseColor(selectedLayer.textShadow.color) ? selectedLayer.textShadow.color : '#000000'}
+                              onChange={(color) => handleUpdateTextShadow({ color })}
+                            />
+                            <input type="text" value={selectedLayer.textShadow.color} onChange={(e) => handleUpdateTextShadow({ color: e.target.value })} className="flex-1 min-w-0 h-7 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 font-mono focus:border-blue-500 outline-none" />
                           </div>
                         </div>
                         <div className="grid grid-cols-3 gap-2">
@@ -836,9 +876,14 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
               {selectedLayer.type === 'svg' && (
                 <div className="space-y-1.5 pt-2 border-t border-slate-800">
                   <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.primaryColor}</label>
-                  <div className="flex gap-2">
-                    <input type="color" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="h-7 w-7 bg-slate-900 border border-slate-700 cursor-pointer rounded-md p-1" />
-                    <input type="text" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="flex-1 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 font-mono focus:border-blue-500 outline-none" />
+                  <div className="flex items-center gap-2">
+                    <ColorPicker
+                      lang={lang}
+                      name={t.primaryColor}
+                      value={parseColor(selectedLayer.color || '#3b82f6') ? (selectedLayer.color || '#3b82f6') : '#3b82f6'}
+                      onChange={(color) => onUpdateLayer(selectedLayer.id, { color })}
+                    />
+                    <input type="text" value={selectedLayer.color || '#3b82f6'} onChange={(e) => onUpdateLayer(selectedLayer.id, { color: e.target.value })} className="flex-1 min-w-0 h-7 bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-200 font-mono focus:border-blue-500 outline-none" />
                   </div>
                   <div className="grid grid-cols-8 gap-x-1 gap-y-3 pt-2">
                     {PRESET_COLORS.map(c => (

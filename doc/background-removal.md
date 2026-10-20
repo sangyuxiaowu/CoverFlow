@@ -25,7 +25,12 @@
 
 U2NetP 放在 `public/models/u2netp.onnx`，约 4.57 MB，随 Web/PWA/Tauri 构建分发。PWA 根据文件内容生成缓存版本；更新文件后重新构建即可。上游 Apache-2.0 许可证与模型一起分发。
 
-BiRefNet FP16 不打包，当前下载约 489.67 MB。支持用户手动导入，以及浏览器从 ModelScope 直接下载；不经过应用服务器。
+本地 BiRefNet 使用 `birefnet-lite-512`，不打包模型，默认 FP16 下载约 98.48 MB。也可导入同仓库约 191.88 MB 的 FP32 版本；两者均为固定 512×512 输入。支持本地导入，默认从 ModelScope 镜像直接下载，不经过应用服务器。旧版 1024 模型及曾导入到同一入口的其他模型不会复用为 Lite 512，需在 BiRefNet 入口重新导入；原版 BiRefNet 的 API 接入不在本地模块中实现。
+
+- FP16：https://www.modelscope.cn/models/sangsq/birefnet-lite-512/resolve/master/model_fp16.onnx?view=false
+- FP32：https://www.modelscope.cn/models/sangsq/birefnet-lite-512/resolve/master/model.onnx?view=false
+
+两种精度共用一张 `BiRefNet Lite 512` 卡片，分别提供“下载 FP16”和“下载 FP32”按钮，并显示各自下载体积。安装后卡片和模型选择框按实际文件显示体积，不用默认 FP16 名称标注 FP32；导入文件不通过名称或精确大小猜测精度。一次保留一个已验证版本，下载及推理验证成功后才替换原文件。“查看源权重”打开模型仓库，不固定下载某个精度。
 
 ONNX Runtime Web 1.23.2 不进入主构建，首次在设置页从 jsDelivr 下载约 24 MB，之后保存在 IndexedDB。也可从设置页列出的链接下载以下三个同版本文件，选中后一起导入：
 
@@ -40,7 +45,7 @@ ONNX Runtime Web 1.23.2 不进入主构建，首次在设置页从 jsDelivr 下�
 `models.ts` 的 size 仅作下载体积展示，不作为版本锁。导入不校验固定 SHA-256 或精确文件大小；只做大小上限、明显 HTML/JSON/LFS 指针检查，然后通过实际推理验证接口。
 
 - U2NetP：RGB 320×320，按最大 RGB 值缩放，再做 ImageNet 归一化；使用第一个输出并做 min-max 归一化。
-- BiRefNet：RGB 1024×1024，除以 255 后做 ImageNet 归一化；第一个输出为 logits，使用 sigmoid。
+- BiRefNet Lite 512：RGB 直接缩放到 512×512，除以 255 后做 ImageNet 归一化；第一个输出为 logits，使用 sigmoid，不叠加额外阈值或柔边。
 - 支持单个 NCHW float32/float16 输入及单通道 float32/float16 输出。不是任意 ONNX 模型的通用加载器；外置权重文件不支持。
 - 输出保留原图像素尺寸，将遮罩乘入原有 alpha，编码为 PNG；不裁切主体。
 
@@ -58,7 +63,8 @@ ONNX Runtime Web 1.23.2 不进入主构建，首次在设置页从 jsDelivr 下�
 模型来源：
 
 - https://www.modelscope.cn/models/budaoshou/U2NetP-ONNX
-- https://www.modelscope.cn/models/onnx-community/BiRefNet-ONNX
+- https://huggingface.co/JONNYVERSE/birefnet-lite-512
+- https://www.modelscope.cn/models/sangsq/birefnet-lite-512
 - https://github.com/xuebinqin/U-2-Net
 - https://github.com/ZhengPeng7/BiRefNet
 

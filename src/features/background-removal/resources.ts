@@ -1,4 +1,4 @@
-import { getModel, validateModel, type ModelId } from './models.ts';
+import { getModel, validateModel, type ModelId, type ModelPrecision } from './models.ts';
 import { readModel, readRuntime, RUNTIME_VERSION, saveRuntime } from './storage.ts';
 import type { Progress, RuntimeFiles } from './types.ts';
 
@@ -87,8 +87,12 @@ export async function loadResources(id: ModelId, signal: AbortSignal): Promise<{
   return { model, runtime };
 }
 
-export async function downloadModel(id: ModelId, signal: AbortSignal, onProgress?: (progress: Progress) => void): Promise<Blob> {
-  const model = await download(getModel(id).url, 1024 * 1024 * 1024, signal, onProgress);
+export async function downloadModel(id: ModelId, signal: AbortSignal, onProgress?: (progress: Progress) => void,
+  precision?: ModelPrecision): Promise<Blob> {
+  const profile = getModel(id);
+  const variant = precision === undefined ? profile : profile.variants?.find(item => item.precision === precision);
+  if (!variant) throw new Error('Unsupported model precision');
+  const model = await download(variant.url, 1024 * 1024 * 1024, signal, onProgress);
   await validateModel(id, model);
   return model;
 }

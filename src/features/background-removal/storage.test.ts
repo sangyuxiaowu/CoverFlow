@@ -29,4 +29,23 @@ describe('independent background-removal storage', () => {
     await deleteRuntime();
     expect(await readRuntime()).toBeUndefined();
   });
+  it('does not reuse old 1024 or unrelated binaries under the Lite 512 profile', async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('coverflow-background-removal', 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction('resources', 'readwrite');
+      transaction.objectStore('resources').put({ blob: new Blob(['old-model']), name: 'old.onnx', provider: 'wasm', importedAt: 1 }, 'model-birefnet');
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+    db.close();
+    expect(await readModel('birefnet')).toBeUndefined();
+    await saveModel('birefnet', { blob: new Blob(['lite-512']), name: 'model_fp16.onnx', provider: 'webgpu', importedAt: 2 });
+    expect(await (await readModel('birefnet'))?.blob.text()).toBe('lite-512');
+    await deleteModel('birefnet');
+    expect(await readModel('birefnet')).toBeUndefined();
+  });
 });

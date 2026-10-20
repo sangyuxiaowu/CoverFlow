@@ -39,9 +39,10 @@ export async function readSettings(): Promise<RemovalSettings> {
     device: saved?.device === 'wasm' || saved?.device === 'webgpu' ? saved.device : 'auto' };
 }
 export const saveSettings = (settings: RemovalSettings) => access('readwrite', store => store.put(settings, 'settings'));
-export const readModel = (id: ModelId) => access<StoredModel | undefined>('readonly', store => store.get(`model-${id}`));
-export const saveModel = (id: ModelId, model: StoredModel) => access('readwrite', store => store.put(model, `model-${id}`));
-export const deleteModel = (id: ModelId) => access('readwrite', store => store.delete(`model-${id}`));
+const modelKey = (id: ModelId) => id === 'birefnet' ? 'model-birefnet-lite-512' : `model-${id}`;
+export const readModel = (id: ModelId) => access<StoredModel | undefined>('readonly', store => store.get(modelKey(id)));
+export const saveModel = (id: ModelId, model: StoredModel) => access('readwrite', store => store.put(model, modelKey(id)));
+export const deleteModel = (id: ModelId) => access('readwrite', store => store.delete(modelKey(id)));
 export const readRuntime = () => access<RuntimeFiles | undefined>('readonly', store => store.get(RUNTIME_KEY));
 export const saveRuntime = (files: RuntimeFiles) => access('readwrite', store => store.put(files, RUNTIME_KEY));
 export const deleteRuntime = () => access('readwrite', store => store.delete(RUNTIME_KEY));

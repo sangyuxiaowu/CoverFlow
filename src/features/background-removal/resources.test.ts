@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { download, importRuntime, RUNTIME_ASSETS, validateRuntime } from './resources.ts';
+import { download, downloadModel, importRuntime, RUNTIME_ASSETS, validateRuntime } from './resources.ts';
 import type { RuntimeFiles } from './types.ts';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -23,6 +23,25 @@ describe('optional removal resources', () => {
       signal, credentials: 'omit', referrerPolicy: 'no-referrer'
     });
     expect(report).toHaveBeenCalledWith({ stage: 'download', loaded: 3, total: 3 });
+  });
+  it.each([
+    ['fp16', 'model_fp16.onnx'], ['fp32', 'model.onnx']
+  ] as const)('downloads the explicitly selected %s binary', async (precision, filename) => {
+    const fetch = vi.fn(async () => new Response(new Uint8Array(1024)));
+    vi.stubGlobal('fetch', fetch);
+    const signal = new AbortController().signal;
+    expect((await downloadModel('birefnet', signal, undefined, precision)).size).toBe(1024);
+    expect(fetch).toHaveBeenCalledWith(`https://www.modelscope.cn/models/sangsq/birefnet-lite-512/resolve/master/${filename}?view=false`,
+      { signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
+  });
+  it('keeps FP16 as the default and rejects unsupported precisions without fetching', async () => {
+    const fetch = vi.fn(async () => new Response(new Uint8Array(1024)));
+    vi.stubGlobal('fetch', fetch);
+    await downloadModel('birefnet', new AbortController().signal);
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/model_fp16.onnx?view=false'), expect.any(Object));
+    fetch.mockClear();
+    await expect(downloadModel('u2netp', new AbortController().signal, undefined, 'fp32')).rejects.toThrow('precision');
+    expect(fetch).not.toHaveBeenCalled();
   });
   it('rejects HTTP errors, empty and oversized downloads', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('denied', { status: 403 })));

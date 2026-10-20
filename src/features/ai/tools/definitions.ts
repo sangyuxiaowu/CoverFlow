@@ -101,8 +101,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   tool('remove_background', '移除图片图层背景，成功后返回结果图层 ID；已抠图图片不可重复处理。', object('处理当前项目的一个图片图层。', {
     projectId,
     layerId: string('当前项目的 image 图层 ID，来自 get_context、get_selected_layers 或 read_layers，不可编造。锁定图层须先获用户许可解锁。'),
-    modelId: enumeration('可选，默认 u2netp。u2netp：内置约 4.6 MB 的轻量模型，优先用于快速处理、普通主体。birefnet：约 490 MB 的高质量候选，适合毛发或复杂边缘，耗时和内存较高。', ['u2netp', 'birefnet']),
-    keepOriginal: boolean('可选，默认 true：成功后保留并隐藏原图，在相同位置创建已抠图副本并选中；false 为原地替换。失败或取消不改图层，成功变更可一次撤销。'),
+    modelId: enumeration('可选，默认 u2netp，内置的轻量模型，优先用于快速处理、普通主体。birefnet：Lite 512 版本，适合普通主体和复杂边缘处理。', ['u2netp', 'birefnet']),
+    keepOriginal: boolean('可选，默认 true：成功后保留并隐藏原图，在相同位置创建已抠图副本并选中。'),
     device: enumeration('可选，默认 auto：优先 WebGPU，失败回退 CPU/WASM。', ['auto', 'webgpu', 'wasm'])
   }, ['projectId', 'layerId'])),
   tool('add_layer', '在当前项目添加一个图层并选中；不会自动编组，多图层组合请使用 edit_layers。', object('新图层创建参数。', {

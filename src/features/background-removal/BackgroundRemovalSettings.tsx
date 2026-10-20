@@ -18,7 +18,7 @@ import {
   FileCode, 
   AlertCircle 
 } from 'lucide-react';
-import { MODELS, type ModelId } from './models.ts';
+import { getModel, MODELS, type ModelId } from './models.ts';
 import { installModel, verifyModel } from './index.ts';
 import { downloadModel, importRuntime, installRuntime, loadResources, RUNTIME_ASSETS, RUNTIME_BASE } from './resources.ts';
 import { deleteModel, deleteRuntime, readSettings, RUNTIME_VERSION, saveSettings } from './storage.ts';
@@ -26,6 +26,8 @@ import { errorText, progressText } from './status.ts';
 import { useResources } from './useResources.ts';
 import type { DeviceMode, Progress } from './types.ts';
 import './background-removal.css';
+
+const birefnetModel = getModel('birefnet');
 
 export default function BackgroundRemovalSettings({ english }: { english: boolean }) {
   const state = useResources();
@@ -144,14 +146,14 @@ export default function BackgroundRemovalSettings({ english }: { english: boolea
                   U2NetP · {text('轻量快速（4.5 MB · 随包内置）', 'Lightweight (4.5 MB · Bundled)')}
                 </option>
                 <option value="birefnet" disabled={!state.models.birefnet}>
-                  BiRefNet FP16 · {text('发丝级高清（489 MB · 高精度）', 'High Quality (489 MB · High precision)')}
+                  {birefnetModel.name} · {((state.models.birefnet?.blob.size ?? birefnetModel.size) / 1_000_000).toFixed(1)} MB
                   {!state.models.birefnet ? text(' [未安装]', ' [Not installed]') : ''}
                 </option>
               </select>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed">
               {state.settings.modelId === 'birefnet'
-                ? text('双边参考网络，发丝、毛发与半透明细节边缘绝佳。', 'Bilateral reference network, outstanding for fine hair and translucent edges.')
+                ? text('BiRefNet 轻量 512 本地版；导入对应 Lite 512 模型，旧模型需重新导入。', 'Local BiRefNet Lite 512; import the matching 512 model. Older cached models must be re-imported.')
                 : text('快速轻量，日常人像、商品电商与扁平图标首选。', 'Fast and compact, great for everyday portraits, merchandise, and icons.')}
             </p>
           </div>
@@ -301,7 +303,7 @@ export default function BackgroundRemovalSettings({ english }: { english: boolea
                     <div className="cf-removal-model-title flex items-center gap-2">
                       <strong className="text-sm font-bold text-white">{model.name}</strong>
                       <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-slate-800 text-slate-300 border border-slate-700/60">
-                        {model.id === 'u2netp' ? text('轻量通用', 'Lightweight') : text('高精发丝级', 'High Precision')}
+                        {model.id === 'u2netp' ? text('轻量通用', 'Lightweight') : text('本地 512', 'Local 512')}
                       </span>
                     </div>
 
@@ -316,7 +318,7 @@ export default function BackgroundRemovalSettings({ english }: { english: boolea
                   <p className="text-xs text-slate-400 leading-relaxed mb-3">
                     {model.id === 'u2netp'
                       ? text('轻巧极速，适合常规商品展架、人物轮廓与扁平图标，无需额外下载。', 'Fast and compact, ideal for products, portraits, and flat graphics.')
-                      : text('双边参考网络，发丝边缘纤毫毕现，适合复杂背景、动物绒毛与半透明主体。', 'Bilateral reference network for ultra-fine hair, fur, and translucent objects.')}
+                      : text('BiRefNet Lite 512，512 输入降低本地推理内存需求；实际边缘效果请用原图对比。', 'BiRefNet Lite 512. The 512 input reduces memory usage; compare edge quality on your own images.')}
                   </p>
 
                   <div className="cf-removal-meta flex flex-wrap gap-2 text-[11px] text-slate-400 mb-3">
@@ -356,20 +358,22 @@ export default function BackgroundRemovalSettings({ english }: { english: boolea
 
                 <div className="pt-3 border-t border-slate-800/80">
                   <div className="cf-removal-actions flex items-center gap-2 flex-wrap">
-                    {model.id === 'birefnet' && (
+                    {model.variants?.map(variant => (
                       <button
+                        key={variant.precision}
                         type="button"
                         disabled={busy || !state.runtime}
                         onClick={() => void perform(async (signal, report) => {
-                          const blob = await downloadModel(model.id, signal, report);
-                          await acceptModel(model.id, blob, 'model_fp16.onnx', signal, report);
+                          const blob = await downloadModel(model.id, signal, report, variant.precision);
+                          const name = new URL(variant.url).pathname.split('/').at(-1) || `${model.id}_${variant.precision}.onnx`;
+                          await acceptModel(model.id, blob, name, signal, report);
                         })}
                         className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
                       >
                         <Download size={13} />
-                        <span>{stored ? text('重新下载', 'Download again') : text('下载模型', 'Download')}</span>
+                        <span>{text('下载', 'Download')} {variant.precision.toUpperCase()} · {(variant.size / 1_000_000).toFixed(1)} MB</span>
                       </button>
-                    )}
+                    ))}
 
                     <button
                       type="button"
@@ -417,10 +421,10 @@ export default function BackgroundRemovalSettings({ english }: { english: boolea
                     )}
 
                     <a
-                      href={model.url}
+                      href={model.sourceUrl ?? model.url}
                       target="_blank"
                       rel="noreferrer"
-                      title={text('在 ModelScope 查看源权重', 'Open source model page')}
+                      title={text('查看源权重', 'Open source model page')}
                       className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700/80 transition-colors"
                     >
                       <ExternalLink size={13} />

@@ -1,4 +1,11 @@
 export type ModelId = 'u2netp' | 'birefnet';
+export type ModelPrecision = 'fp16' | 'fp32';
+
+export interface ModelVariant {
+  precision: ModelPrecision;
+  size: number;
+  url: string;
+}
 
 export interface RemovalModel {
   id: ModelId;
@@ -6,7 +13,16 @@ export interface RemovalModel {
   size: number;
   inputSize: number;
   url: string;
+  variants?: readonly ModelVariant[];
+  sourceUrl?: string;
 }
+
+const birefnetVariants: readonly ModelVariant[] = [
+  { precision: 'fp16', size: 98484532,
+    url: 'https://www.modelscope.cn/models/sangsq/birefnet-lite-512/resolve/master/model_fp16.onnx?view=false' },
+  { precision: 'fp32', size: 191877254,
+    url: 'https://www.modelscope.cn/models/sangsq/birefnet-lite-512/resolve/master/model.onnx?view=false' }
+];
 
 export const MODELS: readonly RemovalModel[] = [
   {
@@ -14,8 +30,9 @@ export const MODELS: readonly RemovalModel[] = [
     url: 'https://www.modelscope.cn/models/budaoshou/U2NetP-ONNX/resolve/master/u2netp.onnx?view=false'
   },
   {
-    id: 'birefnet', name: 'BiRefNet FP16', size: 489666272, inputSize: 1024,
-    url: 'https://www.modelscope.cn/models/onnx-community/BiRefNet-ONNX/resolve/master/onnx/model_fp16.onnx?view=false'
+    id: 'birefnet', name: 'BiRefNet Lite 512', size: birefnetVariants[0].size, inputSize: 512,
+    url: birefnetVariants[0].url, variants: birefnetVariants,
+    sourceUrl: 'https://www.modelscope.cn/models/sangsq/birefnet-lite-512'
   }
 ];
 

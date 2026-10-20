@@ -94,7 +94,6 @@ describe('image generation adapters', () => {
     expect(properties.prompt.description).toContain(first.description);
     expect(properties.prompt.description).not.toContain('[主体]');
     expect(properties.prompt.description).not.toContain('[改变要求]');
-    expect(properties.size.enum).toEqual(['1024x1024', '960x1280', '768x1024', '720x1440', '720x1280']);
     expect(properties).not.toHaveProperty('modelConfigId');
     expect(properties).not.toHaveProperty('ratio');
     expect(parameters.required).toEqual(['projectId', 'prompt']);
@@ -317,9 +316,7 @@ describe('GPT-Image adapters', () => {
       const definition = imageToolDefinitions([model])[0];
       const properties = definition.function.parameters.properties as Record<string, Record<string, unknown>>;
       expect(properties.quality.enum).toEqual(qualities);
-      expect(properties.size.description).toContain('655360');
       expect(properties).not.toHaveProperty('ratio');
-      expect(properties.n).toMatchObject({ minimum: 1, maximum: 10 });
       if (model.modelId === 'gpt-image-2') {
         expect(() => validateImageModel({ ...model, quality: 'max' }, config)).toThrow('quality');
         expect(() => validateImageModel({ ...model, quality: 'auto' }, config)).toThrow('quality');
@@ -327,7 +324,7 @@ describe('GPT-Image adapters', () => {
       else expect(() => validateImageModel({ ...model, quality: 'max' }, config)).not.toThrow();
     }
     const listed = await executeImageTool('list_image_models', {}, context, new AbortController().signal);
-    expect(listed.value).toMatchObject({ models: config.imageModels.map(model => ({ id: model.id, qualities: imageCapabilities(model).qualities, defaultQuality: 'high', defaultCount: 1, maxImages: 10 })) });
+    expect(listed.value).toMatchObject({ models: config.imageModels.map(model => ({ id: model.id, qualities: imageCapabilities(model).qualities, defaultQuality: 'high', maxImages: 10 })) });
     const profiles = defaultConfig();
     profiles.imageModels = config.imageModels.map(model => ({ ...model, endpointId: profiles.endpoints[0].id }));
     const request = toRequestConfig(profiles);
@@ -411,10 +408,10 @@ describe('image tools and persistence', () => {
   it('saves and places every GPT-Image result and returns all image and layer IDs', async () => {
     mockCanvas();
     const { context, model, images, refs, getProject, commit } = toolContext();
-    Object.assign(model, createImageModel('gpt-image-2.5-sunburst'), { endpointId: 'endpoint', enabled: true });
+    Object.assign(model, createImageModel('gpt-image-2.5-sunburst'), { endpointId: 'endpoint', enabled: true, n: 2 });
     const mock = vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }, { b64_json: 'iVBORw0KGgo=' }] }));
     vi.stubGlobal('fetch', mock);
-    const result = await executeImageTool('generate_image', { projectId: 'project', prompt: 'City', n: 2, quality: 'max' }, context, new AbortController().signal);
+    const result = await executeImageTool('generate_image', { projectId: 'project', prompt: 'City', quality: 'max' }, context, new AbortController().signal);
     expect(mock).toHaveBeenCalledTimes(1);
     expect(JSON.parse(mock.mock.calls[0][1].body)).toMatchObject({ n: 2, quality: 'max' });
     expect(images.size).toBe(2);
@@ -427,11 +424,11 @@ describe('image tools and persistence', () => {
   it('keeps every generated image saved if multi-image placement fails', async () => {
     mockCanvas();
     const { context, model, images, refs, commit } = toolContext();
-    Object.assign(model, createImageModel('gpt-image-2'), { endpointId: 'endpoint', enabled: true });
+    Object.assign(model, createImageModel('gpt-image-2'), { endpointId: 'endpoint', enabled: true, n: 2 });
     commit.mockRejectedValueOnce(new Error('Storage unavailable'));
     const mock = vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }, { b64_json: 'iVBORw0KGgo=' }] }));
     vi.stubGlobal('fetch', mock);
-    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City', n: 2 }, context, new AbortController().signal)).rejects.toThrow('was generated and saved, but placement failed');
+    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('was generated and saved, but placement failed');
     expect(images.size).toBe(2);
     expect(refs).toHaveLength(2);
     expect(mock).toHaveBeenCalledTimes(1);
@@ -538,7 +535,7 @@ describe('image tools and persistence', () => {
   it('lists descriptions and capabilities without leaking endpoint credentials', async () => {
     const { context, model } = toolContext();
     const result = await executeImageTool('list_image_models', {}, context, new AbortController().signal);
-    expect(result.value).toMatchObject({ models: [{ id: model.id, description: model.description, modes: ['text_to_image', 'single_reference'] }] });
+    expect(result.value).toMatchObject({ models: [{ id: model.id, description: model.description }] });
     expect(JSON.stringify(result)).not.toContain('secret');
     expect(JSON.stringify(result)).not.toContain('https://example.com');
   });

@@ -136,21 +136,20 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
 ];
 
 export const VISION_TOOL_DEFINITIONS: ToolDefinition[] = [
-  tool('get_canvas_preview', '预览当前画布效果，用于视觉分析；返回缩放后的 WebP 图片。', noParameters)
+  tool('get_canvas_preview', '预览当前画布效果，用于视觉分析；返回缩放后的图片。', noParameters)
 ];
 
 export const IMAGE_TOOL_DEFINITIONS: ToolDefinition[] = [
-  tool('list_image_models', '读取可用生图模型、介绍和参数能力；按需求选择模型。', noParameters),
-  tool('generate_image', '文本生成图像或单图参考生成图像，成功后自动添加图片图层并返回图层 ID，可继续用 edit_layers 调整。', object('图片生成请求', {
+  tool('list_image_models', '读取可用生图模型，能力及参数信息', noParameters),
+  tool('generate_image', '生成或修改图像。成功后自动添加图片图层并返回图层 ID，可继续用 edit_layers 调整。注意：referenceImageId 和 referenceLayerId 互斥，都不传则为文生图。', object('生图请求', {
     projectId,
-    modelConfigId: { ...string('来自 list_image_models 的模型配置 ID，不是 API 模型 ID。'), maxLength: 9 },
+    modelConfigId: { ...string('模型 ID'), maxLength: 9 },
     prompt: { type: 'string', maxLength: 10000, minLength: 1, description: '生图提示词' },
-    size: string('可选输出尺寸，仅使用该模型公布的支持值；省略使用配置默认值。根据用法素材或背景图，选择合适的尺寸即可，不建议超过画布大小，以此优化生图速度。'),
-    ratio: string('可选比例，仅模型公布的档位尺寸支持；省略使用默认比例。精确尺寸不使用此字段。'),
-    quality: string('可选生成质量，仅支持该模型公布的选项；省略使用配置默认值。质量越高生成越慢。'),
-    n: { type: 'integer', minimum: 1, maximum: 10, description: '生成数量，一般为1，仅支持该参数的模型可用；省略使用配置默认值。最多 10 张，接入服务可能有更低上限。' },
-    referenceImageId: string('可选当前会话附件 ID，来自上传消息或已有工具结果。不得与 referenceLayerId 同时提供；省略两者则文生图。'),
-    referenceLayerId: string('可选当前项目的 image 图层 ID；可使用 get_selected_layers 获取当前选中图层；不得与 referenceImageId 同时提供。')
+    size: string('输出尺寸，省略使用配置默认值。根据用法选择合适的尺寸即可，分辨率越高生图越慢。'),
+    ratio: string('宽高比(如16:9)。仅部分模型支持，当不传 size 时生效'),
+    quality: string('生成质量。越高越慢，省略用默认值。'),
+    referenceImageId: string('[可选] 当前会话附件 ID。与 referenceLayerId 互斥。'),
+    referenceLayerId: string('[可选] 项目 image 图层 ID，可查 get_selected_layers。与 referenceImageId 互斥。')
   }, ['projectId', 'modelConfigId', 'prompt']))
 ];
 
@@ -167,21 +166,14 @@ export function imageToolDefinitions(models: ImagePromptConfig[] = []): ToolDefi
       required = ['projectId', 'prompt'];
       next.prompt = { ...properties.prompt, description: [
         `生图提示词。${single.label}：${single.description}`,
-        `版本：${single.version?.trim() || '未提供'}；发布日期：${single.releasedAt || '未提供'}；生成等待超时：${imageTimeoutSeconds(single)} 秒。版本和日期仅作选择参考，未知信息不得推测。`
+        `版本：${single.version?.trim() || '未提供'}；发布日期：${single.releasedAt || '未提供'}；生成等待超时：${imageTimeoutSeconds(single)} 秒`
       ].join('\n\n') };
       const capabilities = imageCapabilities(single);
-      next.size = { type: 'string', description: `输出尺寸；省略为 ${single.size}。${capabilities.sizeDescription}`, ...(capabilities.exactSizeSupported
-        ? { anyOf: [
-            { type: 'string', description: '推荐尺寸。', enum: capabilities.sizes },
-            { type: 'string', description: capabilities.sizeDescription, pattern: capabilities.sizePattern }
-          ] }
-        : { enum: capabilities.sizes }) };
+      next.size = { ...properties.size, description: `${properties.size.description} 默认值：${single.size}；${capabilities.exactSizeSupported ? '推荐尺寸' : '支持尺寸'}：${capabilities.sizes.join('、')}。` };
       if (!capabilities.ratios) delete next.ratio;
       else next.ratio = { type: 'string', description: `仅档位尺寸使用；省略为 ${single.ratio}。`, enum: capabilities.ratios };
       if (!capabilities.qualities) delete next.quality;
-      else next.quality = { type: 'string', description: `输出质量；省略为 ${single.quality ?? 'high'}。`, enum: capabilities.qualities };
-      if (!capabilities.maxImages) delete next.n;
-      else next.n = { ...properties.n, maximum: capabilities.maxImages, description: `生成数量；省略为 ${single.n ?? 1}，最多 ${capabilities.maxImages} 张，接入服务可能有更低上限，每张均可能计费。` };
+      else next.quality = { type: 'string', description: `生成质量。越高越慢，省略为 ${single.quality ?? 'high'}。`, enum: capabilities.qualities };
     } else {
       next.modelConfigId = { ...properties.modelConfigId, ...(models.length ? { enum: models.map(model => model.id) } : {}) };
     }

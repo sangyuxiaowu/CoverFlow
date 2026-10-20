@@ -70,7 +70,7 @@ export async function generateImages(config: AiConfig, input: GenerateImageInput
   const selected = { ...model, size: input.size ?? model.size, ratio: input.ratio ?? model.ratio, quality: input.quality ?? model.quality, n: input.n ?? model.n };
   const capabilities = imageCapabilities(selected);
   if (input.ratio !== undefined && !capabilities.ratios?.length) throw new Error('ratio is not supported by this image model.');
-  if (input.ratio !== undefined && !capabilities.sizes.includes(selected.size)) throw new Error('ratio is only supported with Agnes tier sizes.');
+  if (input.ratio !== undefined && !capabilities.sizes.includes(selected.size)) throw new Error(`ratio is only supported with Agnes tier sizes. Omit ratio for exact dimensions, or set size to one of: ${capabilities.sizes.join(', ')}.`);
   validateImageModel(selected, config);
   const endpoint = config.endpoints.find(item => item.id === model.endpointId)!;
   const adapter = getImageAdapter(model.adapter);

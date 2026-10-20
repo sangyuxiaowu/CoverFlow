@@ -18,7 +18,7 @@ export const gptImage: ImageAdapter = {
     const height = Number(match?.[2]);
     const pixels = width * height;
     if (!match || width % 16 || height % 16 || Math.max(width, height) > 3840 || width / height < 1 / 3 || width / height > 3 || pixels < 655360 || pixels > 8294400) {
-      throw new Error('GPT-Image size requires multiples of 16, edges <= 3840, ratio 1:3 to 3:1 and 655360 to 8294400 pixels.');
+      throw new Error(`GPT-Image size requires WIDTHxHEIGHT, multiples of 16, edges <= 3840, ratio 1:3 to 3:1 and 655360 to 8294400 pixels. Adjust size "${model.size}" to meet these constraints, for example 1024x1024.`);
     }
     if (!qualities(model.modelId).includes(model.quality ?? 'high')) throw new Error('Unsupported GPT-Image quality.');
     if (!Number.isInteger(model.n ?? 1) || (model.n ?? 1) < 1 || (model.n ?? 1) > 10) throw new Error('Image count must be between 1 and 10; provider limits may be lower.');

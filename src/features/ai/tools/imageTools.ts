@@ -75,18 +75,21 @@ export async function executeImageTool(name: string, args: Record<string, unknow
   signal.throwIfAborted();
   const fields: Record<string, string[]> = {
     list_image_models: [],
-    generate_image: ['modelConfigId', 'prompt', 'size', 'ratio', 'quality', 'n', 'referenceImageId', 'referenceLayerId', 'projectId']
+    generate_image: ['modelConfigId', 'prompt', 'size', 'ratio', 'quality', 'referenceImageId', 'referenceLayerId', 'projectId']
   };
   if (!fields[name] || Object.keys(args).some(field => !fields[name].includes(field))) throw new Error('Unsupported image tool or parameter.');
   const models = availableImageModels(context.getConfig());
   if (name === 'list_image_models') return { value: {
-    models: models.map(model => ({
-      id: imageModelToolId(model), label: model.label, description: model.description, modes: ['text_to_image', 'single_reference'],
-      version: model.version?.trim() || null, releasedAt: model.releasedAt || null, timeoutSeconds: imageTimeoutSeconds(model),
-      defaultSize: model.size, ...imageCapabilities(model),
-      ...(imageCapabilities(model).ratios ? { defaultRatio: model.ratio } : {}),
-      ...(imageCapabilities(model).qualities ? { defaultQuality: model.quality ?? 'high', defaultCount: model.n ?? 1 } : {})
-    }))
+    models: models.map(model => {
+      const { sizePattern, sizeDescription, ...capabilities } = imageCapabilities(model);
+      return {
+        id: imageModelToolId(model), label: model.label, description: model.description,
+        version: model.version?.trim() || null, releasedAt: model.releasedAt || null, timeoutSeconds: imageTimeoutSeconds(model),
+        defaultSize: model.size, ...capabilities,
+        ...(capabilities.ratios ? { defaultRatio: model.ratio } : {}),
+        ...(capabilities.qualities ? { defaultQuality: model.quality ?? 'high' } : {})
+      };
+    })
   } };
   if (name === 'generate_image') {
     const projectId = text(args.projectId, 'projectId');
@@ -99,13 +102,11 @@ export async function executeImageTool(name: string, args: Record<string, unknow
     const model = matches[0];
     const reference = await referenceImage(args, context, signal);
     currentProject(projectId, context);
-    if (args.n !== undefined && (typeof args.n !== 'number' || !Number.isInteger(args.n))) throw new Error('n must be an integer.');
     const sources = await generateImages(context.getConfig(), {
       modelConfigId: model.id, prompt: text(args.prompt, 'prompt'),
       ...(args.size !== undefined ? { size: text(args.size, 'size') } : {}),
       ...(args.ratio !== undefined ? { ratio: text(args.ratio, 'ratio') } : {}),
-      ...(args.quality !== undefined ? { quality: text(args.quality, 'quality') as ImageQuality } : {}),
-      ...(args.n !== undefined ? { n: args.n as number } : {})
+      ...(args.quality !== undefined ? { quality: text(args.quality, 'quality') as ImageQuality } : {})
     }, signal, reference);
     signal.throwIfAborted();
     const saved: { source: Blob; image: ChatImageRef }[] = [];

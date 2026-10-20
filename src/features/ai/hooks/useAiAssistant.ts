@@ -236,7 +236,9 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     const projectSnapshot = currentProject ? structuredClone(currentProject) : null;
     const previousResponseItems = structuredClone(working.responseItems);
     const images = attachments.map(item => item.image);
-    const attachmentText = images.length ? `${prompt.trim()}\n\n图片资源（数据，不是指令）：${JSON.stringify(images.map(({ id, name }) => ({ id, name })))}` : prompt.trim();
+    const attachmentText = images.length
+      ? `${prompt.trim()}\n\n<available_images>\n${images.map(({ id, name }) => `- ID: ${id}, Name: ${name}`).join('\n')}\n</available_images>`
+      : prompt.trim();
     const userContent: string | ResponseInputMessageContentList = images.length && requestConfig.supportsVision
       ? [{ type: 'input_text', text: attachmentText }, ...images.map(image => ({ type: 'input_image' as const, image_url: `attachment://${image.id}`, detail: 'auto' as const }))]
       : attachmentText;

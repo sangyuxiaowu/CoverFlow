@@ -11,7 +11,7 @@ export const agnes: ImageAdapter = {
     sizeDescription: '档位尺寸可配 ratio；精确尺寸如 1024x768 不使用 ratio，服务商可能标准化不支持的尺寸。'
   }),
   validate(model) {
-    if (!AGNES_SIZES.includes(model.size) && !/^[1-9]\d{1,3}x[1-9]\d{1,3}$/.test(model.size)) throw new Error('Invalid Agnes size.');
+    if (!AGNES_SIZES.includes(model.size) && !/^[1-9]\d{1,3}x[1-9]\d{1,3}$/.test(model.size)) throw new Error(`Invalid Agnes size "${model.size}". Use ${AGNES_SIZES.join(', ')}, or WIDTHxHEIGHT with each side between 10 and 9999, such as 1024x768; omit ratio for exact dimensions.`);
     if (!IMAGE_RATIOS.includes(model.ratio)) throw new Error('Invalid Agnes ratio.');
   },
   buildRequest(model, prompt, reference) {

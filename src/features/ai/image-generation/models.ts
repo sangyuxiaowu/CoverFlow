@@ -21,8 +21,8 @@ export function imageCapabilities(model: Pick<ImageModelConfig, 'adapter' | 'mod
 }
 
 export const IMAGE_MODEL_PRESETS = [
-  { id: 'kolors', adapter: 'kolors', label: 'Kolors', modelId: 'Kwai-Kolors/Kolors', version: '', releasedAt: '2024-07-06', timeoutSeconds: 180, size: '1024x1024', description: '快手 Kolors 团队开发的基于潜在扩散的大规模文本到图像生成模型；固定尺寸。' },
-  { id: 'agnes', adapter: 'agnes', label: 'Agnes Image 2.5 Flash', modelId: 'agnes-image-2.5-flash', version: '2.5 Flash', releasedAt: '2026-07-13', timeoutSeconds: 180, size: '1K', description: 'Agnes AI 最新一代图像生成模型，高信息密度图像生成、编辑时保持原构图。适用于创意设计、营销内容、产品可视化和社交媒体素材生成。' },
+  { id: 'kolors', adapter: 'kolors', label: 'Kolors', modelId: 'Kwai-Kolors/Kolors', version: '', releasedAt: '2024-07-06', timeoutSeconds: 180, size: '1024x1024', description: '快手 Kolors 团队开发的基于潜在扩散的大规模文本到图像生成模型' },
+  { id: 'agnes', adapter: 'agnes', label: 'Agnes Image 2.5 Flash', modelId: 'agnes-image-2.5-flash', version: '2.5 Flash', releasedAt: '2026-07-13', timeoutSeconds: 180, size: '1K', description: 'Agnes AI 最新一代图像生成模型，适用于创意设计、营销内容、产品可视化和社交媒体素材生成。' },
   { id: 'gpt-image-2.5-sunburst', adapter: 'gpt-image', label: 'GPT-Image-2.5-Sunburst', modelId: 'gpt-image-2.5-sunburst', version: '2.5 Sunburst', releasedAt: '2026-09-08', timeoutSeconds: 600, size: '1024x1024', description: '图像生成和编辑能力最强的模型，尤其适用于对编辑精度要求最高的场景。' },
   { id: 'gpt-image-2.5-flare', adapter: 'gpt-image', label: 'GPT-Image-2.5-Flare', modelId: 'gpt-image-2.5-flare', version: '2.5 Flare', releasedAt: '2026-09-08', timeoutSeconds: 300, size: '1024x1024', description: '用于高质量、日常图像生成的最快模型。' },
   { id: 'gpt-image-2', adapter: 'gpt-image', label: 'GPT-Image-2', modelId: 'gpt-image-2', version: '2', releasedAt: '2026-04-21', timeoutSeconds: 600, size: '1024x1024', description: '适合高分辨率和 4K 生成，支持改进的图像编辑、宽纵横比和高级人脸保留，实现逼真、一致的结果。' }

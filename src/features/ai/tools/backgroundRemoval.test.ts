@@ -66,6 +66,16 @@ describe('static AI background-removal execution', () => {
     expect(download).not.toHaveBeenCalled();
     expect(context.commit).not.toHaveBeenCalled();
   });
+  it('requires installed MODNet and forwards its model profile without changing defaults', async () => {
+    const context = setup();
+    expect(await context.run({ ...args, modelId: 'modnet' })).toMatchObject({ success: false, code: 'MODEL_NOT_READY', error: expect.stringContaining('MODNet') });
+    expect(download).not.toHaveBeenCalled();
+    expect(installRuntime).not.toHaveBeenCalled();
+    vi.mocked(readModel).mockResolvedValue({ blob: new Blob(['portrait']), name: 'model.onnx', provider: 'webgpu', importedAt: 1 });
+    expect(await context.run({ ...args, modelId: 'modnet' })).toMatchObject({ success: true, modelId: 'modnet' });
+    expect(removeBackground).toHaveBeenCalledWith(expect.any(Blob), expect.objectContaining({ modelId: 'modnet' }));
+    expect(context.commit).toHaveBeenCalledOnce();
+  });
   it('returns runtime download failures and their underlying cause without modifying layers', async () => {
     vi.mocked(readRuntime).mockResolvedValue(undefined);
     vi.mocked(installRuntime).mockRejectedValue(new Error('Download HTTP 403', { cause: new Error('CDN denied access') }));

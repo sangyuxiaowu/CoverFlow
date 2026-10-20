@@ -1,4 +1,4 @@
-export type ModelId = 'u2netp' | 'birefnet';
+export type ModelId = 'u2netp' | 'birefnet' | 'modnet';
 export type ModelPrecision = 'fp16' | 'fp32';
 
 export interface ModelVariant {
@@ -24,6 +24,13 @@ const birefnetVariants: readonly ModelVariant[] = [
     url: 'https://www.modelscope.cn/models/sangsq/birefnet-lite-512/resolve/master/model.onnx?view=false' }
 ];
 
+const modnetVariants: readonly ModelVariant[] = [
+  { precision: 'fp32', size: 25888640,
+    url: 'https://www.modelscope.cn/models/onnx-community/modnet-webnn/resolve/master/onnx/model.onnx?view=false' },
+  { precision: 'fp16', size: 12984781,
+    url: 'https://www.modelscope.cn/models/onnx-community/modnet-webnn/resolve/master/onnx/model_fp16.onnx?view=false' }
+];
+
 export const MODELS: readonly RemovalModel[] = [
   {
     id: 'u2netp', name: 'U2NetP', size: 4574861, inputSize: 320,
@@ -33,6 +40,11 @@ export const MODELS: readonly RemovalModel[] = [
     id: 'birefnet', name: 'BiRefNet Lite 512', size: birefnetVariants[0].size, inputSize: 512,
     url: birefnetVariants[0].url, variants: birefnetVariants,
     sourceUrl: 'https://www.modelscope.cn/models/sangsq/birefnet-lite-512'
+  },
+  {
+    id: 'modnet', name: 'MODNet', size: modnetVariants[0].size, inputSize: 256,
+    url: modnetVariants[0].url, variants: modnetVariants,
+    sourceUrl: 'https://www.modelscope.cn/models/onnx-community/modnet-webnn'
   }
 ];
 

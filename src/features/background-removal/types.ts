@@ -40,5 +40,5 @@ export interface OrtSession {
 export interface OrtRuntime {
   env: { wasm: { numThreads: number; proxy: boolean; wasmPaths: { mjs: string; wasm: string } } };
   Tensor: new (type: string, values: Float32Array | Uint16Array, dims: number[]) => OrtTensor;
-  InferenceSession: { create(bytes: Uint8Array, options: { executionProviders: Provider[] }): Promise<OrtSession> };
+  InferenceSession: { create(bytes: Uint8Array, options: { executionProviders: Provider[]; freeDimensionOverrides?: Record<string, number> }): Promise<OrtSession> };
 }

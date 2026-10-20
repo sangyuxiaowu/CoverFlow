@@ -5,6 +5,7 @@ import { download, installRuntime } from '../../background-removal/resources.ts'
 import { readModel, readRuntime } from '../../background-removal/storage.ts';
 import { applyRemovalResult } from '../../background-removal/layerResult.ts';
 import { generateId } from '../../../utils/helpers.ts';
+import type { ModelId } from '../../background-removal/models.ts';
 
 function target(bridge: WorkspaceBridge, projectId: string, layerId: string, originalContent?: string) {
   const project = bridge.getProject();
@@ -34,7 +35,7 @@ export async function executeBackgroundRemovalTool(input: unknown, bridge: Works
   let code = 'INVALID_REQUEST';
   let projectId: string | undefined;
   let layerId: string | undefined;
-  let modelId: 'u2netp' | 'birefnet' = 'u2netp';
+  let modelId: ModelId = 'u2netp';
   let runtimeDownloaded = false;
   let resultLayerId: string | undefined;
   let runtimeFile = '';
@@ -45,7 +46,7 @@ export async function executeBackgroundRemovalTool(input: unknown, bridge: Works
     if (Object.keys(args).some(key => !allowed.includes(key))) throw new Error('Unsupported background-removal parameter.');
     projectId = text(args.projectId, 'projectId');
     layerId = text(args.layerId, 'layerId');
-    modelId = args.modelId === undefined ? 'u2netp' : choice(args.modelId, 'modelId', ['u2netp', 'birefnet']);
+    modelId = args.modelId === undefined ? 'u2netp' : choice(args.modelId, 'modelId', ['u2netp', 'birefnet', 'modnet']);
     const device = args.device === undefined ? 'auto' : choice(args.device, 'device', ['auto', 'webgpu', 'wasm']);
     if (args.keepOriginal !== undefined && typeof args.keepOriginal !== 'boolean') throw new Error('keepOriginal must be a boolean.');
     const keepOriginal = args.keepOriginal !== false;
@@ -57,8 +58,9 @@ export async function executeBackgroundRemovalTool(input: unknown, bridge: Works
 
     stage = 'model';
     code = 'MODEL_NOT_READY';
-    if (modelId === 'birefnet' && !await readModel(modelId)) {
-      throw new Error('BiRefNet is not ready. Import or download the model in AI Settings > Background Removal; the large model was not downloaded automatically.');
+    if (modelId !== 'u2netp' && !await readModel(modelId)) {
+      const name = modelId === 'modnet' ? 'MODNet' : 'BiRefNet';
+      throw new Error(`${name} is not ready. Import or download the model in AI Settings > Background Removal; the large model was not downloaded automatically.`);
     }
     signal.throwIfAborted();
     stage = 'runtime';

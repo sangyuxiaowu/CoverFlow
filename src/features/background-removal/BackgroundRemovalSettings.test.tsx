@@ -73,6 +73,18 @@ describe('model activation settings', () => {
     expect([...card.querySelectorAll('button')].filter(button => button.textContent?.includes('下载 FP'))).toHaveLength(2);
     expect(card.querySelector('a')?.href).toBe('https://www.modelscope.cn/models/sangsq/birefnet-lite-512');
   });
+  it.each(['fp32', 'fp16'] as const)('downloads MODNet %s in its own portrait card', async precision => {
+    const card = [...container.querySelectorAll('article')].find(article => article.querySelector('strong')?.textContent === 'MODNet')!;
+    expect(card.textContent).toContain('人像专用');
+    expect(card.textContent).toContain('256 × 256');
+    vi.mocked(downloadModel).mockResolvedValue(new Blob(['portrait']));
+    vi.mocked(installModel).mockResolvedValue();
+    const button = [...card.querySelectorAll('button')].find(button => button.textContent?.includes(`下载 ${precision.toUpperCase()}`))!;
+    await act(async () => button.click());
+    expect(downloadModel).toHaveBeenCalledWith('modnet', expect.any(AbortSignal), expect.any(Function), precision);
+    expect(installModel).toHaveBeenCalledWith('modnet', expect.any(Blob), precision === 'fp32' ? 'model.onnx' : 'model_fp16.onnx', 'wasm', expect.any(Object));
+    expect(saveSettings).toHaveBeenCalledExactlyOnceWith({ modelId: 'modnet', device: 'wasm' });
+  });
   it('activates a newly imported model only after inference validation succeeds', async () => {
     vi.mocked(installModel).mockResolvedValue();
     await importFile();

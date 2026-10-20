@@ -1,4 +1,4 @@
-import type { ModelId } from './models.ts';
+import { MODELS, type ModelId } from './models.ts';
 import type { RemovalSettings, RuntimeFiles, StoredModel } from './types.ts';
 
 const DB_NAME = 'coverflow-background-removal';
@@ -35,7 +35,7 @@ async function access<T>(mode: IDBTransactionMode, operation: (store: IDBObjectS
 
 export async function readSettings(): Promise<RemovalSettings> {
   const saved = await access<RemovalSettings | undefined>('readonly', store => store.get('settings'));
-  return { modelId: saved?.modelId === 'birefnet' ? 'birefnet' : 'u2netp',
+  return { modelId: MODELS.find(model => model.id === saved?.modelId)?.id ?? 'u2netp',
     device: saved?.device === 'wasm' || saved?.device === 'webgpu' ? saved.device : 'auto' };
 }
 export const saveSettings = (settings: RemovalSettings) => access('readwrite', store => store.put(settings, 'settings'));

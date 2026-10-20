@@ -17,6 +17,8 @@
 
 参数：`projectId` 和 `layerId` 必填；`modelId` 可选 `u2netp`（默认，内置轻量、速度优先）或 `birefnet`（高质量候选，适合复杂边缘，要求提前安装且消耗更多内存）；`keepOriginal` 默认 true；`device` 可选 auto（默认）、webgpu 或 wasm。这些参数只影响本次调用，不更改用户设置。
 
+另支持 `modelId:modnet`，用于人像 alpha 抠图，不用于商品或插画。与 BiRefNet 一样，使用前需先在抠图设置中下载或导入验证；工具不会自动下载模型，也不会改变默认模型选择。
+
 调用时先检查目标及模型。缺少大模型不自动下载，通过 `MODEL_NOT_READY` 结果提示用户导入。目标和模型就绪但缺少运行时，会自动尝试下载约 24 MB 并缓存，下载等待最多 180 秒，用户可停止操作。成功返回结果图层 ID、模型、实际计算设备及是否下载运行时。
 
 失败返回 `success:false`、`code`、`stage`、原始错误信息及可用的错误原因，模型可以直接据此反馈。包括校验、模型、运行时、下载、图片读取、推理、应用结果和保存失败；失败工具在聊天中标记为错误。若保存失败，返回可能已应用的结果图层 ID，须先读取上下文，不可盲目重复抠图。取消沿用现有对话中断原因处理。
@@ -32,6 +34,11 @@ U2NetP 放在 `public/models/u2netp.onnx`，约 4.57 MB，随 Web/PWA/Tauri 构�
 
 两种精度共用一张 `BiRefNet Lite 512` 卡片，分别提供“下载 FP16”和“下载 FP32”按钮，并显示各自下载体积。安装后卡片和模型选择框按实际文件显示体积，不用默认 FP16 名称标注 FP32；导入文件不通过名称或精确大小猜测精度。一次保留一个已验证版本，下载及推理验证成功后才替换原文件。“查看源权重”打开模型仓库，不固定下载某个精度。
 
+MODNet 使用 `onnx-community/modnet-webnn`，新增独立的人像模型卡片与缓存，不打包权重。默认 FP32 约 25.89 MB，可选 FP16 约 12.98 MB；支持 WebGPU 和 CPU/WASM，仓库名中的 `webnn` 不代表必须使用 WebNN。两种精度共用一张卡片，安装前均须实际推理验证。模型仓库标注 Apache-2.0。
+
+- MODNet FP32：https://www.modelscope.cn/models/onnx-community/modnet-webnn/resolve/master/onnx/model.onnx?view=false
+- MODNet FP16：https://www.modelscope.cn/models/onnx-community/modnet-webnn/resolve/master/onnx/model_fp16.onnx?view=false
+
 ONNX Runtime Web 1.23.2 不进入主构建，首次在设置页从 jsDelivr 下载约 24 MB，之后保存在 IndexedDB。也可从设置页列出的链接下载以下三个同版本文件，选中后一起导入：
 
 - `ort.webgpu.bundle.min.mjs`
@@ -46,6 +53,7 @@ ONNX Runtime Web 1.23.2 不进入主构建，首次在设置页从 jsDelivr 下�
 
 - U2NetP：RGB 320×320，按最大 RGB 值缩放，再做 ImageNet 归一化；使用第一个输出并做 min-max 归一化。
 - BiRefNet Lite 512：RGB 直接缩放到 512×512，除以 255 后做 ImageNet 归一化；第一个输出为 logits，使用 sigmoid，不叠加额外阈值或柔边。
+- MODNet：按仓库 `preprocessor_config.json` 将 RGB 直接缩放至 256×256，使用 `(RGB / 255 - 0.5) / 0.5` 归一化；按 `config.json` 固定动态输入维度。输出已经是 alpha，仅截断到 `[0,1]`，不再使用 sigmoid 或 min-max 归一化。
 - 支持单个 NCHW float32/float16 输入及单通道 float32/float16 输出。不是任意 ONNX 模型的通用加载器；外置权重文件不支持。
 - 输出保留原图像素尺寸，将遮罩乘入原有 alpha，编码为 PNG；不裁切主体。
 
@@ -67,5 +75,7 @@ ONNX Runtime Web 1.23.2 不进入主构建，首次在设置页从 jsDelivr 下�
 - https://www.modelscope.cn/models/sangsq/birefnet-lite-512
 - https://github.com/xuebinqin/U-2-Net
 - https://github.com/ZhengPeng7/BiRefNet
+- https://www.modelscope.cn/models/onnx-community/modnet-webnn
+- https://github.com/ZHKKKe/MODNet
 
 运行时来源及许可： https://github.com/microsoft/onnxruntime （MIT）。

@@ -13,6 +13,20 @@ describe('background-removal pixels', () => {
     expect(preprocess(new Uint8ClampedArray([128, 0, 0, 255]), 'u2netp')[0]).toBeCloseTo((1 - 0.485) / 0.229);
     expect(Number.isFinite(preprocess(new Uint8ClampedArray(4), 'u2netp')[0])).toBe(true);
   });
+  it('normalizes MODNet RGB to [-1,1] rather than ImageNet channels', () => {
+    const values = preprocess(new Uint8ClampedArray([0, 128, 255, 0, 255, 0, 128, 255]), 'modnet');
+    expect([...values.slice(0, 2)]).toEqual([-1, 1]);
+    expect(values[2]).toBeCloseTo(128 / 127.5 - 1);
+    expect(values[3]).toBe(-1);
+    expect(values[4]).toBe(1);
+    expect(values[5]).toBeCloseTo(128 / 127.5 - 1);
+  });
+  it('uses MODNet alpha directly without sigmoid or min-max normalization', () => {
+    const mask = createMask(new Float32Array([-1, 0, 0.25, 0.5, 1, 2]), 'modnet');
+    expect(Array.from({ length: 6 }, (_, index) => mask[index * 4])).toEqual([0, 0, 64, 128, 255, 255]);
+    const fp16 = createMask(new Uint16Array([0, 0x3800, 0x3c00]), 'modnet');
+    expect([fp16[0], fp16[4], fp16[8]]).toEqual([0, 128, 255]);
+  });
   it('normalizes U2Net masks and applies sigmoid to BiRefNet logits', () => {
     expect(Array.from(createMask(new Float32Array([0.2, 0.8]), 'u2netp'))).toEqual([0, 0, 0, 255, 255, 255, 255, 255]);
     expect(createMask(new Float32Array([0]), 'birefnet')[0]).toBe(128);

@@ -43,6 +43,20 @@ describe('optional removal resources', () => {
     await expect(downloadModel('u2netp', new AbortController().signal, undefined, 'fp32')).rejects.toThrow('precision');
     expect(fetch).not.toHaveBeenCalled();
   });
+  it.each([
+    ['fp32', 'model.onnx'], ['fp16', 'model_fp16.onnx']
+  ] as const)('downloads MODNet %s from its own model repository', async (precision, filename) => {
+    const fetch = vi.fn(async () => new Response(new Uint8Array(1024)));
+    vi.stubGlobal('fetch', fetch);
+    await downloadModel('modnet', new AbortController().signal, undefined, precision);
+    expect(fetch).toHaveBeenCalledWith(`https://www.modelscope.cn/models/onnx-community/modnet-webnn/resolve/master/onnx/${filename}?view=false`, expect.any(Object));
+  });
+  it('defaults MODNet to the upstream FP32 model', async () => {
+    const fetch = vi.fn(async () => new Response(new Uint8Array(1024)));
+    vi.stubGlobal('fetch', fetch);
+    await downloadModel('modnet', new AbortController().signal);
+    expect(fetch).toHaveBeenCalledWith('https://www.modelscope.cn/models/onnx-community/modnet-webnn/resolve/master/onnx/model.onnx?view=false', expect.any(Object));
+  });
   it('rejects HTTP errors, empty and oversized downloads', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('denied', { status: 403 })));
     await expect(download('https://example.com', 100, new AbortController().signal)).rejects.toThrow('403');

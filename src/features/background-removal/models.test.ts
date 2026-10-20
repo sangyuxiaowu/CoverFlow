@@ -3,7 +3,7 @@ import { getModel, MODELS, validateModel } from './models.ts';
 
 describe('background-removal model registry', () => {
   it('keeps both verified external downloads outside application assets', () => {
-    expect(MODELS.map(model => model.size)).toEqual([4574861, 98484532]);
+    expect(MODELS.map(model => model.size)).toEqual([4574861, 98484532, 25888640]);
     for (const model of MODELS) {
       expect(new URL(model.url).pathname).toMatch(/\/resolve\/(master|main)\//);
     }
@@ -15,6 +15,11 @@ describe('background-removal model registry', () => {
       { precision: 'fp16', size: 98484532, url: 'https://www.modelscope.cn/models/sangsq/birefnet-lite-512/resolve/master/model_fp16.onnx?view=false' },
       { precision: 'fp32', size: 191877254, url: 'https://www.modelscope.cn/models/sangsq/birefnet-lite-512/resolve/master/model.onnx?view=false' }
     ]);
+    expect(getModel('modnet')).toMatchObject({ name: 'MODNet', inputSize: 256, size: 25888640 });
+    expect(getModel('modnet').variants?.map(variant => [variant.precision, variant.size])).toEqual([
+      ['fp32', 25888640], ['fp16', 12984781]
+    ]);
+    expect(getModel('modnet').url).toBe('https://www.modelscope.cn/models/onnx-community/modnet-webnn/resolve/master/onnx/model.onnx?view=false');
     expect(() => getModel('other')).toThrow('Unknown');
   });
 

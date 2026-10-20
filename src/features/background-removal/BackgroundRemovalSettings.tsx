@@ -18,7 +18,7 @@ import {
   FileCode, 
   AlertCircle 
 } from 'lucide-react';
-import { getModel, MODELS, type ModelId } from './models.ts';
+import { MODELS, type ModelId } from './models.ts';
 import { installModel, verifyModel } from './index.ts';
 import { downloadModel, importRuntime, installRuntime, loadResources, RUNTIME_ASSETS, RUNTIME_BASE } from './resources.ts';
 import { deleteModel, deleteRuntime, readSettings, RUNTIME_VERSION, saveSettings } from './storage.ts';
@@ -26,8 +26,6 @@ import { errorText, progressText } from './status.ts';
 import { useResources } from './useResources.ts';
 import type { DeviceMode, Progress } from './types.ts';
 import './background-removal.css';
-
-const birefnetModel = getModel('birefnet');
 
 export default function BackgroundRemovalSettings({ english }: { english: boolean }) {
   const state = useResources();
@@ -142,17 +140,16 @@ export default function BackgroundRemovalSettings({ english }: { english: boolea
                 onChange={event => void update({ modelId: event.target.value as ModelId })}
                 className="w-full bg-slate-950/80 border border-slate-800 focus:border-blue-500/80 focus:ring-1 focus:ring-blue-500/30 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 outline-none transition-all cursor-pointer"
               >
-                <option value="u2netp">
-                  U2NetP · {text('轻量快速（4.5 MB · 随包内置）', 'Lightweight (4.5 MB · Bundled)')}
-                </option>
-                <option value="birefnet" disabled={!state.models.birefnet}>
-                  {birefnetModel.name} · {((state.models.birefnet?.blob.size ?? birefnetModel.size) / 1_000_000).toFixed(1)} MB
-                  {!state.models.birefnet ? text(' [未安装]', ' [Not installed]') : ''}
-                </option>
+                {MODELS.map(model => <option key={model.id} value={model.id} disabled={model.id !== 'u2netp' && !state.models[model.id]}>
+                  {model.name} · {((state.models[model.id]?.blob.size ?? model.size) / 1_000_000).toFixed(1)} MB
+                  {model.id === 'u2netp' ? text(' [内置]', ' [Bundled]') : !state.models[model.id] ? text(' [未安装]', ' [Not installed]') : ''}
+                </option>)}
               </select>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed">
-              {state.settings.modelId === 'birefnet'
+              {state.settings.modelId === 'modnet'
+                ? text('人像专用 alpha 抠图，默认 FP32；不适合商品或插画主体。', 'Portrait alpha matting, FP32 by default; not intended for products or illustrations.')
+                : state.settings.modelId === 'birefnet'
                 ? text('BiRefNet 轻量 512 本地版；导入对应 Lite 512 模型，旧模型需重新导入。', 'Local BiRefNet Lite 512; import the matching 512 model. Older cached models must be re-imported.')
                 : text('快速轻量，日常人像、商品电商与扁平图标首选。', 'Fast and compact, great for everyday portraits, merchandise, and icons.')}
             </p>
@@ -303,7 +300,7 @@ export default function BackgroundRemovalSettings({ english }: { english: boolea
                     <div className="cf-removal-model-title flex items-center gap-2">
                       <strong className="text-sm font-bold text-white">{model.name}</strong>
                       <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-slate-800 text-slate-300 border border-slate-700/60">
-                        {model.id === 'u2netp' ? text('轻量通用', 'Lightweight') : text('本地 512', 'Local 512')}
+                        {model.id === 'modnet' ? text('人像专用', 'Portraits') : model.id === 'u2netp' ? text('轻量通用', 'Lightweight') : text('本地 512', 'Local 512')}
                       </span>
                     </div>
 
@@ -316,7 +313,9 @@ export default function BackgroundRemovalSettings({ english }: { english: boolea
                   </div>
 
                   <p className="text-xs text-slate-400 leading-relaxed mb-3">
-                    {model.id === 'u2netp'
+                    {model.id === 'modnet'
+                      ? text('MODNet 人像抠图，使用官方 256 输入配置，直接输出 alpha 蒙版；不依赖 WebNN，也可使用 WebGPU 或 CPU。', 'MODNet portrait matting with the official 256 input and direct alpha output. Runs on WebGPU or CPU without requiring WebNN.')
+                      : model.id === 'u2netp'
                       ? text('轻巧极速，适合常规商品展架、人物轮廓与扁平图标，无需额外下载。', 'Fast and compact, ideal for products, portraits, and flat graphics.')
                       : text('BiRefNet Lite 512，512 输入降低本地推理内存需求；实际边缘效果请用原图对比。', 'BiRefNet Lite 512. The 512 input reduces memory usage; compare edge quality on your own images.')}
                   </p>

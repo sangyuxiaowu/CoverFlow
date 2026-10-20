@@ -15,7 +15,9 @@ export function preprocess(rgba: Uint8ClampedArray, modelId: ModelId): Float32Ar
   }
   for (let pixel = 0; pixel < pixels; pixel++) {
     for (let channel = 0; channel < 3; channel++) {
-      tensor[channel * pixels + pixel] = (rgba[pixel * 4 + channel] / scale - MEAN[channel]) / STD[channel];
+      tensor[channel * pixels + pixel] = modelId === 'modnet'
+        ? (rgba[pixel * 4 + channel] / 255 - 0.5) / 0.5
+        : (rgba[pixel * 4 + channel] / scale - MEAN[channel]) / STD[channel];
     }
   }
   return tensor;
@@ -44,7 +46,7 @@ export function createMask(data: Float32Array | Uint16Array, modelId: ModelId): 
   for (let index = 0; index < values.length; index++) {
     const probability = modelId === 'u2netp'
       ? (maximum > minimum ? (values[index] - minimum) / (maximum - minimum) : Math.max(0, Math.min(1, values[index])))
-      : 1 / (1 + Math.exp(-values[index]));
+      : modelId === 'modnet' ? Math.max(0, Math.min(1, values[index])) : 1 / (1 + Math.exp(-values[index]));
     mask[index * 4] = mask[index * 4 + 1] = mask[index * 4 + 2] = probability * 255;
     mask[index * 4 + 3] = 255;
   }

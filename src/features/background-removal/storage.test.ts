@@ -22,6 +22,17 @@ describe('independent background-removal storage', () => {
     expect(changes).toBe(2);
     unsubscribe();
   });
+  it('persists MODNet selection and keeps its binary separate from BiRefNet', async () => {
+    const previous = await readSettings();
+    await saveSettings({ modelId: 'modnet', device: 'auto' });
+    expect(await readSettings()).toEqual({ modelId: 'modnet', device: 'auto' });
+    await saveModel('modnet', { blob: new Blob(['portrait']), name: 'model.onnx', importedAt: 1, provider: 'webgpu' });
+    expect(await (await readModel('modnet'))?.blob.text()).toBe('portrait');
+    await deleteModel('birefnet');
+    expect(await readModel('modnet')).toBeDefined();
+    await deleteModel('modnet');
+    await saveSettings(previous);
+  });
   it('keeps model deletion independent from runtime cache', async () => {
     await saveRuntime({ script: new Blob(['script']), loader: new Blob(['loader']), wasm: new Blob(['wasm']) });
     await deleteModel('u2netp');

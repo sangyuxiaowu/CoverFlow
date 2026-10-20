@@ -22,9 +22,10 @@ test('background removal is a static tool with model selection guidance and no r
   const parameters = definitions[0].function.parameters;
   const properties = parameters.properties as Record<string, Record<string, unknown>>;
   assert.deepEqual(parameters.required, ['projectId', 'layerId']);
-  assert.deepEqual(properties.modelId.enum, ['u2netp', 'birefnet']);
+  assert.deepEqual(properties.modelId.enum, ['u2netp', 'birefnet', 'modnet']);
   assert.match(String(properties.modelId.description), /轻量|快速/);
   assert.match(String(properties.modelId.description), /毛发|复杂边缘/);
+  assert.match(String(properties.modelId.description), /modnet.*人像/);
   assert.equal('backgroundRemoved' in (properties || {}), false);
 });
 

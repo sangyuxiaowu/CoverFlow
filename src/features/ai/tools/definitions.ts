@@ -120,16 +120,16 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   }, ['projectId', 'action', 'layerIds'])),
   tool('update_canvas', '更新当前画布及背景。调整画布尺寸不会缩放已有图层。', object('画布与背景的部分更新；省略的字段保持不变。', {
     projectId,
-    width: numeric('画布宽度，单位为像素。', 10, 10000),
-    height: numeric('画布高度，单位为像素。', 10, 10000),
-    background: object('背景部分更新。切换 type 时应同时提供对应格式的 value；不支持 HTML 背景。CSS 模式省略 overlay。', {
-      type: enumeration('color 为纯色，gradient 为 CSS 渐变值，image 为已有图片，css 为自定义背景声明；CSS 模式不能提供 overlay。', ['color', 'gradient', 'image', 'css']),
-      value: string('随 type 变化：color 为 CSS 颜色；gradient 为渐变值；image 为已有 HTTP(S) URL 或 PNG/JPEG/WebP/GIF base64 数据 URL；css 为最多 6000 字符的 CSS 声明，仅允许背景属性和变量，不含选择器。自定义 CSS 禁止外部资源、url()/image-set()、CSS at-rule、动画和视口单位；颜色可用含 alpha 的字面量变量。'),
-      overlay: object('非 CSS 背景的叠加纹理设置；CSS 背景省略此对象。', {
-        type: enumeration('none 为无纹理，dots 为波点，grid 为网格，stripes 为条纹。', ['none', 'dots', 'grid', 'stripes']),
-        color: string('纹理颜色，建议使用 #RRGGBB。'),
-        opacity: numeric('纹理透明度，0 为完全透明、1 为完全不透明。', 0, 1),
-        scale: numeric('纹理尺寸与间距，单位为像素。', 20, 1000)
+    width: numeric('画布宽度（px）。', 10, 10000),
+    height: numeric('画布高度（px）。', 10, 10000),
+    background: object('背景部分更新。切换 type 时应同时提供对应格式的 value。', {
+      type: enumeration('背景类型：color(纯色), gradient(CSS渐变), image(图片), css(自定义CSS)。', ['color', 'gradient', 'image', 'css']),
+      value: string('随 type 变化：\n1. color: CSS 颜色\n2. gradient: CSS 渐变\n3. image: HTTP(S) URL 或 PNG/JPEG/WebP/GIF Base64\n4. css: CSS 声明（≤6000字符，仅限背景属性和变量，禁止选择器）。注意：禁止外部资源、url()/image-set()、@rule、动画、视口单位。'),
+      overlay: object('叠加纹理设置，使用css背景时不支持', {
+        type: enumeration('纹理类型：none(无), dots(波点), grid(网格), stripes(条纹)。', ['none', 'dots', 'grid', 'stripes']),
+        color: string('纹理颜色，如 #RRGGBB。'),
+        opacity: numeric('透明度（0-1）', 0, 1),
+        scale: numeric('尺寸与间距（px）', 20, 1000)
       })
     })
   }, ['projectId']))

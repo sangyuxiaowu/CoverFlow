@@ -31,7 +31,10 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
   if (name === 'get_context') return project ? {
     projectId: project.id, title: project.title, canvas: project.canvasConfig,
     background: { ...project.background, value: project.background.value.startsWith('data:') ? '[embedded image]' : project.background.value },
-    selectedLayerIds: bridge.getSelection(), layers: project.layers.map(({ content, ...layer }) => ({ ...layer, contentLength: content.length }))
+    selectedLayerIds: bridge.getSelection(),
+    layers: project.layers.map(({ id, name, type, x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked, parentId, children }) => ({
+      id, name, type, x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked, parentId, children
+    }))
   } : { projectId: null, message: '当前未打开项目。请区分修改和新建，然后使用 manage_projects 列出或创建新项目；新建前建议调用 get_cover_size_recommendations 获取常见封面尺寸及适配建议。' };
   if (!project) throw new Error('No project open.');
   if (name === 'get_selected_layers') {

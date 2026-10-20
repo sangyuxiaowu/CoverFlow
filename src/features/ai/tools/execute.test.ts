@@ -48,6 +48,31 @@ test('dedicated tool provides cover size recommendations with and without an ope
   assert.deepEqual(definition.function.parameters, { type: 'object', properties: {} });
 });
 
+test('context exposes only common layer properties and preserves group relationships', async () => {
+  const common = { x: 10, y: 20, width: 300, height: 200, rotation: 15, zIndex: 2, visible: true, locked: false, opacity: 0.8, ratioLocked: true };
+  const layers: ProjectState['layers'] = [
+    { ...common, id: 'group', name: 'Group', type: 'group', content: '', children: ['text', 'decoration'] },
+    { ...common, id: 'text', name: 'Title', type: 'text', content: 'Hello', parentId: 'group', fontSize: 64, fontFamily: 'sans-serif', fontWeight: 700, textAlign: 'center', color: '#fff' },
+    { ...common, id: 'decoration', name: 'Decoration', type: 'decoration', content: '--accent:#fff;background:var(--accent);', decorationFormat: 'css', parentId: 'group' },
+    { ...common, id: 'image', name: 'Photo', type: 'image', content: 'data:image/png;base64,abc', imageSource: 'upload', imageDescription: 'A photo', imageCrop: { x: 10, y: 10, width: 80, height: 80 }, backgroundRemoved: true },
+    { ...common, id: 'svg', name: 'Icon', type: 'svg', content: '<svg></svg>', color: '#000' }
+  ];
+  const { bridge, signal } = setup(layers, ['group']);
+  const context = await executeTool('get_context', {}, bridge, signal) as { layers: Record<string, unknown>[]; selectedLayerIds: string[] };
+  assert.deepEqual(context.selectedLayerIds, ['group']);
+  assert.deepEqual(JSON.parse(JSON.stringify(context.layers)), [
+    { ...common, id: 'group', name: 'Group', type: 'group', children: ['text', 'decoration'] },
+    { ...common, id: 'text', name: 'Title', type: 'text', parentId: 'group' },
+    { ...common, id: 'decoration', name: 'Decoration', type: 'decoration', parentId: 'group' },
+    { ...common, id: 'image', name: 'Photo', type: 'image' },
+    { ...common, id: 'svg', name: 'Icon', type: 'svg' }
+  ]);
+  const details = await executeTool('read_layers', { projectId: 'p1' }, bridge, signal);
+  assert.deepEqual(details, layers.map(layer => ({ ...layer, content: layer.type === 'image' ? '[embedded image]' : layer.content })));
+  const filtered = await executeTool('read_layers', { projectId: 'p1', layerIds: ['text', 'decoration'], query: 'Hello' }, bridge, signal);
+  assert.deepEqual(filtered, [layers[1]]);
+});
+
 test('selected image layers expose metadata and only request a preview for vision models', async () => {
   const imageLayer: ProjectState['layers'][number] = { id: 'image-1', name: 'Photo', type: 'image', content: 'data:image/png;base64,abc', x: 10, y: 20, width: 300, height: 200, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 };
   const { bridge, signal } = setup([imageLayer], ['image-1']);

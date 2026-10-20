@@ -7,10 +7,10 @@ const numeric = (description: string, minimum = -100000, maximum = 100000) => ({
 const boolean = (description: string) => ({ type: 'boolean', description });
 const enumeration = (description: string, values: string[]) => ({ type: 'string', description, enum: values });
 const object = (description: string, properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', description, properties, required, additionalProperties: false });
-const layerIds = (description: string) => ({ type: 'array', description, items: string('来自 get_context 或 read_layers 的图层 ID，不可编造。'), minItems: 1, maxItems: 500 });
+const layerIds = (description: string) => ({ type: 'array', description, items: string('图层 ID，须来自上下文，不可编造。'), minItems: 1, maxItems: 500 });
 const noParameters = { type: 'object', properties: {} };
 const tool = (name: string, description: string, parameters: Record<string, unknown>): ToolDefinition => ({ type: 'function', function: { name, description, parameters } });
-const projectId = string('当前活动项目 ID，来自 get_context；活动项目改变后应重新读取。');
+const projectId = string('当前活动项目 ID，来自 get_context。');
 const conditional = <Schema extends { description: string }>(rules: Parameters<typeof fieldUsage>[0], field: string, schema: Schema) => ({ ...schema, description: fieldUsage(rules, field) + schema.description });
 
 const patch = object('图层属性的部分更新；省略字段保持原值。不要提交 id、type、parentId 或 children 等结构字段。', {
@@ -80,7 +80,7 @@ const patch = object('图层属性的部分更新；省略字段保持原值。�
 });
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
-  tool('get_context', '读取当前项目、画布、背景、选区及图层元数据；不含图层源码，源码请用 read_layers 读取。', noParameters),
+  // 项目管理
   tool('get_cover_size_recommendations', '获取常见封面尺寸、比例及适配建议，供新建封面或选择画布尺寸时参考。', noParameters),
   tool('manage_projects', '搜索和管理项目。新建会自动打开；删除需用户确认，本地文件项目只移除最近记录而不删除磁盘文件。', object('项目管理请求；除 action 外的字段是否需要取决于所选操作。', {
     action: enumeration('list 为分页搜索；create 为新建；open 为打开；rename 为重命名；duplicate 为复制；delete 为删除；save 为保存。', Object.keys(PROJECT_RULES)),
@@ -92,19 +92,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     width: conditional(PROJECT_RULES, 'width', numeric('画布宽度，单位为像素，省略为 1200。', 10, 10000)),
     height: conditional(PROJECT_RULES, 'height', numeric('画布高度，单位为像素，省略为 630。', 10, 10000))
   }, ['action'])),
-  tool('read_layers', '读取图层源码及属性，可按 ID 或名称/内容关键词筛选。修改已有源码前先调用此工具。', object('读取当前活动项目内的图层；ID 与关键词过滤同时提供时取交集。', {
+  // 图层管理
+  tool('get_context', '读取当前项目、画布、背景、选区及图层通用属性和分组关系。', noParameters),
+  tool('read_layers', '读取图层完整属性及内容，内嵌图片仅返回占位符；可按 ID 或名称/内容关键词筛选。修改已有内容前先调用此工具。', object('读取当前活动项目内的图层；ID 与关键词过滤同时提供时取交集。', {
     projectId,
     layerIds: layerIds('可选图层 ID 列表；省略时读取所有匹配图层。'),
     query: string('可选名称或内容关键词，不区分大小写；省略时不过滤，提供时不得为空白。')
   }, ['projectId'])),
   tool('get_selected_layers', '读取当前选中图层的属性，包括图片来源、描述或提示词；视觉模型还会收到图片预览。用户输入有明确指代时使用。', noParameters),
-  tool('remove_background', '移除图片图层背景，成功后返回结果图层 ID；已抠图图片不可重复处理。', object('处理当前项目的一个图片图层。', {
-    projectId,
-    layerId: string('当前项目的 image 图层 ID，来自 get_context、get_selected_layers 或 read_layers，不可编造。锁定图层须先获用户许可解锁。'),
-    modelId: enumeration('可选，默认 u2netp，内置的轻量模型，优先用于快速处理、普通主体。birefnet：Lite 512 版本，适合普通主体和复杂边缘处理。modnet：人像专用抠图', ['u2netp', 'birefnet', 'modnet']),
-    keepOriginal: boolean('可选，默认 true：成功后保留并隐藏原图，在相同位置创建已抠图副本并选中。'),
-    device: enumeration('可选，默认 auto：优先 WebGPU，失败回退 CPU/WASM。', ['auto', 'webgpu', 'wasm'])
-  }, ['projectId', 'layerId'])),
   tool('add_layer', '在当前项目添加一个图层并选中；不会自动编组，多图层组合请使用 edit_layers。', object('新图层创建参数。', {
     projectId,
     type: enumeration('图层类型：text 为纯文本，svg 为矢量标记，image 为已有位图，decoration 为 CSS/HTML 装饰。', ['text', 'svg', 'image', 'decoration']),
@@ -132,7 +127,15 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         scale: numeric('尺寸与间距（px）', 20, 1000)
       })
     })
-  }, ['projectId']))
+  }, ['projectId'])),
+  // 图片处理
+  tool('remove_background', '移除图片图层背景，成功后返回结果图层 ID；已抠图图片不可重复处理。', object('处理当前项目的一个图片图层。', {
+    projectId,
+    layerId: string('当前项目的 image 图层 ID，来自 get_context、get_selected_layers 或 read_layers，不可编造。锁定图层须先获用户许可解锁。'),
+    modelId: enumeration('可选，默认 u2netp，内置的轻量模型，优先用于快速处理、普通主体。birefnet：Lite 512 版本，适合普通主体和复杂边缘处理。modnet：人像专用抠图', ['u2netp', 'birefnet', 'modnet']),
+    keepOriginal: boolean('可选，默认 true：成功后保留并隐藏原图，在相同位置创建已抠图副本并选中。'),
+    device: enumeration('可选，默认 auto：优先 WebGPU，失败回退 CPU/WASM。', ['auto', 'webgpu', 'wasm'])
+  }, ['projectId', 'layerId'])),
 ];
 
 export const VISION_TOOL_DEFINITIONS: ToolDefinition[] = [

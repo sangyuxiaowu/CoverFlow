@@ -24,6 +24,15 @@ describe('optional removal resources', () => {
     });
     expect(report).toHaveBeenCalledWith({ stage: 'download', loaded: 3, total: 3 });
   });
+  it('does not compare decoded stream bytes with a compressed content length', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array(100), {
+      headers: { 'content-length': '20', 'content-encoding': 'gzip' }
+    })));
+    const report = vi.fn();
+    const blob = await download('https://example.com/runtime.wasm', 1000, new AbortController().signal, report);
+    expect(blob.size).toBe(100);
+    expect(report).toHaveBeenCalledWith({ stage: 'download', loaded: 100, total: undefined });
+  });
   it.each([
     ['fp16', 'model_fp16.onnx'], ['fp32', 'model.onnx']
   ] as const)('downloads the explicitly selected %s binary', async (precision, filename) => {

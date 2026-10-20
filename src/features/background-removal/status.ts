@@ -4,6 +4,7 @@ export function progressText(progress: Progress | undefined, english: boolean): 
   if (!progress) return '';
   const labels: Record<string, [string, string]> = {
     runtime: ['初始化运行时', 'Initializing runtime'], model: ['加载模型', 'Loading model'],
+    runtime_download: ['下载运行时', 'Downloading runtime'],
     webgpu: ['GPU 推理中', 'Running on GPU'], wasm: ['CPU 推理中', 'Running on CPU'],
     fallback: ['GPU 不兼容，切换 CPU', 'GPU unavailable, switching to CPU'],
     download: ['下载模型', 'Downloading model'], verify: ['验证模型', 'Verifying model']

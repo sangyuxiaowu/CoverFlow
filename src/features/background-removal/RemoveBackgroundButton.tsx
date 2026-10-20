@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { 
   Check, 
   CheckCircle2, 
+  ChevronDown,
   Cpu, 
   Info, 
   LoaderCircle, 
@@ -12,8 +13,10 @@ import {
   AlertCircle 
 } from 'lucide-react';
 import type { Layer } from '../../types.ts';
+import { getModel, MODELS, type ModelId } from './models.ts';
 import { blobDataUrl, removeBackground } from './index.ts';
-import { download } from './resources.ts';
+import { download, installRuntime } from './resources.ts';
+import { readRuntime } from './storage.ts';
 import { errorText, progressText } from './status.ts';
 import { useResources } from './useResources.ts';
 import type { Progress, RemovalResult } from './types.ts';
@@ -29,6 +32,7 @@ export default function RemoveBackgroundButton({ layer, english, onApply }: {
   const [progress, setProgress] = useState<Progress>();
   const [error, setError] = useState('');
   const [keepOriginal, setKeepOriginal] = useState(true);
+  const [modelOverride, setModelOverride] = useState<ModelId>();
   const hintId = useId();
   const latest = useRef({ layer, onApply });
   const controller = useRef<AbortController | null>(null);
@@ -39,15 +43,16 @@ export default function RemoveBackgroundButton({ layer, english, onApply }: {
     mounted.current = true;
     return () => { mounted.current = false; controller.current?.abort(); };
   }, []);
+  useEffect(() => { setModelOverride(undefined); }, [layer.id, layer.content, resources.settings.modelId]);
 
   const text = (zh: string, en: string) => english ? en : zh;
+  const modelId = modelOverride ?? resources.settings.modelId;
 
   const disabledReason = layer.backgroundRemoved
     ? text('此图片已完成抠图，不可重复处理。', 'Background already removed. This image cannot be processed again.')
     : layer.locked ? text('请先解锁图片图层。', 'Unlock the image layer first.')
     : resources.loading ? text('正在读取抠图设置…', 'Loading background-removal settings...')
-    : !resources.runtime ? text('请前往 AI 助手 > 配置中心 > 抠图，下载或导入运行时。', 'Go to AI Assistant > Settings > Background Removal to download or import the runtime.')
-    : resources.settings.modelId === 'birefnet' && !resources.models.birefnet
+    : modelId !== 'u2netp' && !resources.models[modelId]
       ? text('所选模型未安装，请前往 AI 助手 > 配置中心 > 抠图导入模型。', 'Install the selected model in AI Assistant > Settings > Background Removal.')
     : '';
 
@@ -57,21 +62,44 @@ export default function RemoveBackgroundButton({ layer, english, onApply }: {
     controller.current = abort;
     const original = layer.content;
     const id = layer.id;
+    const currentImage = () => {
+      const current = latest.current;
+      if (!mounted.current || current.layer.id !== id || current.layer.content !== original || current.layer.locked || current.layer.backgroundRemoved) {
+        throw new Error(text('原图已更改，未替换抠图结果。', 'The original image changed; result was not applied.'));
+      }
+      return current;
+    };
     setBusy(true);
     setError('');
     try {
       const url = new URL(original, window.location.href);
       if (!['data:', 'blob:', 'https:', 'http:'].includes(url.protocol)) throw new Error('Unsupported image URL');
+      if (!await readRuntime()) {
+        setProgress({ stage: 'runtime_download' });
+        let runtimeFile = '';
+        try {
+          await installRuntime(AbortSignal.any([abort.signal, AbortSignal.timeout(180_000)]), value => {
+            runtimeFile = value.stage;
+            if (mounted.current) setProgress({ ...value, stage: 'runtime_download' });
+          });
+        } catch (reason) {
+          if (abort.signal.aborted) throw reason;
+          throw new Error(`${text('运行时下载失败，请重试', 'Runtime download failed; try again')}${runtimeFile ? ` (${runtimeFile})` : ''}: ${errorText(reason, english)}`, { cause: reason });
+        }
+        abort.signal.throwIfAborted();
+        if (!await readRuntime()) throw new Error(text('运行时下载完成但缓存不可用，请重试。', 'Runtime download completed but cached resources are unavailable. Try again.'));
+      }
+      abort.signal.throwIfAborted();
+      currentImage();
       const image = await download(url.href, 50 * 1024 * 1024, abort.signal);
-      const result = await removeBackground(image, { signal: abort.signal, onProgress: value => {
+      abort.signal.throwIfAborted();
+      currentImage();
+      const result = await removeBackground(image, { signal: abort.signal, modelId, device: resources.settings.device, onProgress: value => {
         if (mounted.current) setProgress(value);
       } });
       const content = await blobDataUrl(result.blob);
       abort.signal.throwIfAborted();
-      const current = latest.current;
-      if (!mounted.current || current.layer.id !== id || current.layer.content !== original || current.layer.locked || current.layer.backgroundRemoved) {
-        throw new Error(text('原图已更改，未替换抠图结果。', 'The original image changed; result was not applied.'));
-      }
+      const current = currentImage();
       current.onApply({ layerId: id, originalContent: original, content, keepOriginal });
     } catch (reason) {
       if (mounted.current && !abort.signal.aborted) setError(errorText(reason, english));
@@ -81,7 +109,7 @@ export default function RemoveBackgroundButton({ layer, english, onApply }: {
     }
   };
 
-  const modelBadgeName = resources.settings.modelId === 'birefnet' ? 'BiRefNet' : 'U2NetP';
+  const modelBadgeName = getModel(modelId).name;
   const deviceBadge = resources.settings.device === 'auto'
     ? 'GPU / Auto'
     : resources.settings.device === 'webgpu'
@@ -103,7 +131,7 @@ export default function RemoveBackgroundButton({ layer, english, onApply }: {
           <span>{text('AI 智能抠图', 'AI Background Removal')}</span>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex min-w-0 max-w-[55%] items-center gap-1">
           {layer.backgroundRemoved ? (
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
               <Check className="w-2.5 h-2.5" />
@@ -111,18 +139,24 @@ export default function RemoveBackgroundButton({ layer, english, onApply }: {
             </span>
           ) : resources.loading ? (
             <span className="text-[9px] text-slate-500">{text('检测中...', 'Checking...')}</span>
-          ) : resources.runtime ? (
-            <span 
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-medium bg-blue-500/10 text-blue-300 border border-blue-500/20"
-              title={`${modelBadgeName} · ${deviceBadge}`}
-            >
-              <Zap className="w-2.5 h-2.5 text-blue-400" />
-              {modelBadgeName}
-            </span>
           ) : (
-            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
-              {text('未就绪', 'Unready')}
-            </span>
+            <div className="relative inline-flex w-32 max-w-full items-center">
+              <Zap className="pointer-events-none absolute left-1.5 w-2.5 h-2.5 text-blue-400" />
+              <select
+                aria-label={text('本次抠图模型', 'Model for this image')}
+                title={`${modelBadgeName} · ${deviceBadge} · ${text('临时切换，不修改默认模型', 'Temporary selection; does not change the default model')}`}
+                value={modelId}
+                disabled={busy}
+                onChange={event => { setModelOverride(event.target.value as ModelId); setError(''); }}
+                className="w-full min-w-0 cursor-pointer appearance-none truncate rounded border border-blue-500/20 bg-blue-500/10 py-0.5 pl-5 pr-4 text-[9px] font-mono font-medium text-blue-300 outline-none focus:border-blue-400 disabled:cursor-wait disabled:opacity-60"
+              >
+                {MODELS.map(model => <option key={model.id} value={model.id}
+                  disabled={model.id !== 'u2netp' && !resources.models[model.id]} className="bg-slate-900 text-slate-200">
+                  {model.name}{model.id !== 'u2netp' && !resources.models[model.id] ? text(' [未安装]', ' [Not installed]') : ''}
+                </option>)}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-1 w-2.5 h-2.5 text-blue-400" />
+            </div>
           )}
         </div>
       </div>

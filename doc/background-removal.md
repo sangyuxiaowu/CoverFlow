@@ -5,7 +5,8 @@
 ## 入口
 
 - AI 配置中心 > 抠图：管理模型、计算设备、运行时及缓存。
-- 图片图层属性 > 抠图：保留位置、大小、来源和描述。禁用时直接显示原因；缺少运行时会显示设置路径。
+- 图片图层属性 > 抠图：保留位置、大小、来源和描述。缺少运行时不会禁用按钮；点击后自动下载、校验并缓存运行时，再继续抠图，无需先进入配置中心。已有缓存直接复用，下载显示进度、最多等待 180 秒，可随时取消；失败可重试，不改变图片。模型未安装、图层锁定或已抠图时仍显示禁用原因。
+- 图片图层抠图区右上角的模型名可直接选择本图临时模型，只允许选择已安装模型（U2NetP 内置可直接选择），不会修改全局默认。切换图层、替换图片或修改全局默认模型后恢复跟随默认；推理期间禁止切换。此处显示完整注册模型名，包含 MODNet。
 - “保留原图”默认勾选：成功后隐藏原图，创建相同位置的已抠图副本，并选中副本；取消勾选则原地替换。整次变更作为一次撤销，失败或取消不复制、不隐藏原图。
 - 图片图层的 `backgroundRemoved` 标记随项目保存、复制和普通编辑保留；已处理图片不可再次抠图。替换为新图片时重置标记；旧版已处理但没有标记的图片无法自动识别。
 - 模型导入或下载后先实际推理验证，通过后自动激活；失败不覆盖旧模型。
@@ -39,11 +40,11 @@ MODNet 使用 `onnx-community/modnet-webnn`，新增独立的人像模型卡片�
 - MODNet FP32：https://www.modelscope.cn/models/onnx-community/modnet-webnn/resolve/master/onnx/model.onnx?view=false
 - MODNet FP16：https://www.modelscope.cn/models/onnx-community/modnet-webnn/resolve/master/onnx/model_fp16.onnx?view=false
 
-ONNX Runtime Web 1.23.2 不进入主构建，首次在设置页从 jsDelivr 下载约 24 MB，之后保存在 IndexedDB。也可从设置页列出的链接下载以下三个同版本文件，选中后一起导入：
+ONNX Runtime Web 1.23.2 不进入主构建，首次点击图片抠图或 AI 工具调用时会按需从 jsDelivr 下载约 24 MB，之后保存在 IndexedDB。设置页保留手动下载及离线导入入口，可下载以下三个同版本文件，选中后一起导入：
 
 - `ort.webgpu.bundle.min.mjs`
-- `ort-wasm-simd-threaded.jsep.mjs`
-- `ort-wasm-simd-threaded.jsep.wasm`
+- `ort-wasm-simd-threaded.asyncify.mjs`
+- `ort-wasm-simd-threaded.asyncify.wasm`
 
 运行时包含可执行 JavaScript，只应导入可信来源的文件。JS、加载器和 WASM 必须来自同一 ORT 版本。大模型和运行时也可放在网盘独立分发；网盘分享页不是可直接 fetch 的资源地址。
 

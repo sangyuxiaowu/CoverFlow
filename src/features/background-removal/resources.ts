@@ -13,7 +13,8 @@ export async function download(url: string, maximum: number, signal: AbortSignal
   onProgress?: (progress: Progress) => void): Promise<Blob> {
   const response = await fetch(url, { signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
   if (!response.ok) throw new Error(`Download HTTP ${response.status}`);
-  const total = Number(response.headers.get('content-length')) || undefined;
+  const encoding = response.headers.get('content-encoding')?.trim().toLowerCase();
+  const total = encoding && encoding !== 'identity' ? undefined : Number(response.headers.get('content-length')) || undefined;
   if (total && total > maximum) {
     await response.body?.cancel();
     throw new Error('Download exceeds size limit');

@@ -40,7 +40,7 @@ async function run(request: WorkerRequest): Promise<void> {
     const model = getModel(request.modelId);
     const bytes = new Uint8Array(await request.model.arrayBuffer());
     post({ type: 'progress', stage: 'model' });
-    const providers: Provider[] = request.device === 'auto'
+    const providers: Provider[] = model.forceCpu ? ['wasm'] : request.device === 'auto'
       ? ('gpu' in navigator ? ['webgpu', 'wasm'] : ['wasm']) : [request.device];
     let lastError: unknown;
     let result: Blob | undefined;
@@ -57,7 +57,7 @@ async function run(request: WorkerRequest): Promise<void> {
     for (const candidate of providers) {
       try {
         session = await ort.InferenceSession.create(bytes, { executionProviders: [candidate],
-          ...(model.id === 'modnet' ? { freeDimensionOverrides: { batch_size: 1, num_channels: 3, height: 256, width: 256 } } : {}) });
+          ...(model.id === 'modnet' ? { freeDimensionOverrides: { batch_size: 1, num_channels: 3, height: model.inputSize, width: model.inputSize } } : {}) });
         const metadata = session.inputMetadata[0];
         if (session.inputNames.length !== 1 || !metadata || !['float32', 'float16'].includes(metadata.type)) {
           throw new Error('Unsupported model input; expected a single RGB float tensor');

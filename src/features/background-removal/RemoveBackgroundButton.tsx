@@ -109,8 +109,9 @@ export default function RemoveBackgroundButton({ layer, english, onApply }: {
     }
   };
 
-  const modelBadgeName = getModel(modelId).name;
-  const deviceBadge = resources.settings.device === 'auto'
+  const selectedModel = getModel(modelId);
+  const modelBadgeName = selectedModel.name;
+  const deviceBadge = selectedModel.forceCpu ? 'CPU / WASM' : resources.settings.device === 'auto'
     ? 'GPU / Auto'
     : resources.settings.device === 'webgpu'
     ? 'WebGPU'

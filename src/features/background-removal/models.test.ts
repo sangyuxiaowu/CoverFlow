@@ -15,7 +15,9 @@ describe('background-removal model registry', () => {
       { precision: 'fp16', size: 98484532, url: 'https://www.modelscope.cn/models/sangsq/birefnet-lite-512/resolve/master/model_fp16.onnx?view=false' },
       { precision: 'fp32', size: 191877254, url: 'https://www.modelscope.cn/models/sangsq/birefnet-lite-512/resolve/master/model.onnx?view=false' }
     ]);
-    expect(getModel('modnet')).toMatchObject({ name: 'MODNet', inputSize: 256, size: 25888640 });
+    expect(getModel('modnet')).toMatchObject({ name: 'MODNet', inputSize: 512, size: 25888640, forceCpu: true });
+    expect(getModel('birefnet').forceCpu).not.toBe(true);
+    expect(getModel('u2netp').forceCpu).not.toBe(true);
     expect(getModel('modnet').variants?.map(variant => [variant.precision, variant.size])).toEqual([
       ['fp32', 25888640], ['fp16', 12984781]
     ]);

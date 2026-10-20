@@ -35,7 +35,7 @@ U2NetP 放在 `public/models/u2netp.onnx`，约 4.57 MB，随 Web/PWA/Tauri 构�
 
 两种精度共用一张 `BiRefNet Lite 512` 卡片，分别提供“下载 FP16”和“下载 FP32”按钮，并显示各自下载体积。安装后卡片和模型选择框按实际文件显示体积，不用默认 FP16 名称标注 FP32；导入文件不通过名称或精确大小猜测精度。一次保留一个已验证版本，下载及推理验证成功后才替换原文件。“查看源权重”打开模型仓库，不固定下载某个精度。
 
-MODNet 使用 `onnx-community/modnet-webnn`，新增独立的人像模型卡片与缓存，不打包权重。默认 FP32 约 25.89 MB，可选 FP16 约 12.98 MB；支持 WebGPU 和 CPU/WASM，仓库名中的 `webnn` 不代表必须使用 WebNN。两种精度共用一张卡片，安装前均须实际推理验证。模型仓库标注 Apache-2.0。
+MODNet 使用 `onnx-community/modnet-webnn`，独立的人像模型卡片与缓存，不打包权重。默认 FP32 约 25.89 MB，可选 FP16 约 12.98 MB；固定使用 CPU/WASM 稳定模式，仓库名中的 `webnn` 不代表必须使用 WebNN。当前 ORT WebGPU 在实际跑步原图上输出错误蒙版：相同权重和输入下，WASM 与 Python CPU 基本一致，而 WebGPU 有显著数值偏差。因此 MODNet 即使在全局选择 WebGPU 时也使用 WASM，其他模型不受影响。已有权重无需重新下载。两种精度共用一张卡片，安装前均须实际推理验证。模型仓库标注 Apache-2.0。
 
 - MODNet FP32：https://www.modelscope.cn/models/onnx-community/modnet-webnn/resolve/master/onnx/model.onnx?view=false
 - MODNet FP16：https://www.modelscope.cn/models/onnx-community/modnet-webnn/resolve/master/onnx/model_fp16.onnx?view=false
@@ -54,7 +54,7 @@ ONNX Runtime Web 1.23.2 不进入主构建，首次点击图片抠图或 AI 工�
 
 - U2NetP：RGB 320×320，按最大 RGB 值缩放，再做 ImageNet 归一化；使用第一个输出并做 min-max 归一化。
 - BiRefNet Lite 512：RGB 直接缩放到 512×512，除以 255 后做 ImageNet 归一化；第一个输出为 logits，使用 sigmoid，不叠加额外阈值或柔边。
-- MODNet：按仓库 `preprocessor_config.json` 将 RGB 直接缩放至 256×256，使用 `(RGB / 255 - 0.5) / 0.5` 归一化；按 `config.json` 固定动态输入维度。输出已经是 alpha，仅截断到 `[0,1]`，不再使用 sigmoid 或 min-max 归一化。
+- MODNet：将 RGB 直接缩放至已实测的 512×512 方形输入，使用 `(RGB / 255 - 0.5) / 0.5` 归一化；覆盖动态输入维度为 512。输出已经是 alpha，仅截断到 `[0,1]`，不再使用 sigmoid 或 min-max 归一化。
 - 支持单个 NCHW float32/float16 输入及单通道 float32/float16 输出。不是任意 ONNX 模型的通用加载器；外置权重文件不支持。
 - 输出保留原图像素尺寸，将遮罩乘入原有 alpha，编码为 PNG；不裁切主体。
 

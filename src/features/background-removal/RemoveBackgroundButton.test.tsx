@@ -75,6 +75,7 @@ describe('image layer removal action', () => {
     expect(select.value).toBe('modnet');
     expect(select.selectedOptions[0].textContent).toBe('MODNet');
     expect(select.title).toContain('MODNet');
+    expect(select.title).toContain('CPU / WASM');
   });
   it('passes the temporary model to inference without changing default settings', async () => {
     const state = { ...useResources(), models: { modnet: installed, birefnet: installed } };

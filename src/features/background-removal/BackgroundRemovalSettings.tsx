@@ -148,7 +148,7 @@ export default function BackgroundRemovalSettings({ english }: { english: boolea
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed">
               {state.settings.modelId === 'modnet'
-                ? text('人像专用 alpha 抠图，默认 FP32；不适合商品或插画主体。', 'Portrait alpha matting, FP32 by default; not intended for products or illustrations.')
+                ? text('人像专用，默认 FP32，512×512 输入，固定 CPU/WASM 稳定模式。', 'Portrait matting, FP32 by default, 512×512 input, fixed CPU/WASM stable mode.')
                 : state.settings.modelId === 'birefnet'
                 ? text('BiRefNet 轻量 512 本地版；导入对应 Lite 512 模型，旧模型需重新导入。', 'Local BiRefNet Lite 512; import the matching 512 model. Older cached models must be re-imported.')
                 : text('快速轻量，日常人像、商品电商与扁平图标首选。', 'Fast and compact, great for everyday portraits, merchandise, and icons.')}
@@ -173,7 +173,9 @@ export default function BackgroundRemovalSettings({ english }: { english: boolea
               </select>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed">
-              {text('推荐 Chrome 113+ 或 Edge 启用 WebGPU 获得极速推理体验。', 'Chrome 113+ or Edge with WebGPU recommended for maximum performance.')}
+              {state.settings.modelId === 'modnet'
+                ? text('MODNet 已固定使用 CPU/WASM，避免当前 WebGPU 输出异常；此设备选项仍保留给其他模型。', 'MODNet always uses CPU/WASM to avoid incorrect WebGPU output; this device preference still applies to other models.')
+                : text('推荐 Chrome 113+ 或 Edge 启用 WebGPU 获得极速推理体验。', 'Chrome 113+ or Edge with WebGPU recommended for maximum performance.')}
             </p>
           </div>
         </div>
@@ -314,10 +316,10 @@ export default function BackgroundRemovalSettings({ english }: { english: boolea
 
                   <p className="text-xs text-slate-400 leading-relaxed mb-3">
                     {model.id === 'modnet'
-                      ? text('MODNet 人像抠图，使用官方 256 输入配置，直接输出 alpha 蒙版；不依赖 WebNN，也可使用 WebGPU 或 CPU。', 'MODNet portrait matting with the official 256 input and direct alpha output. Runs on WebGPU or CPU without requiring WebNN.')
+                      ? text('MODNet 人像抠图，512 方形输入，直接输出 alpha。固定 CPU/WASM 稳定模式。', 'MODNet portrait matting with 512 square input and direct alpha. CPU/WASM stable mode.')
                       : model.id === 'u2netp'
                       ? text('轻巧极速，适合常规商品展架、人物轮廓与扁平图标，无需额外下载。', 'Fast and compact, ideal for products, portraits, and flat graphics.')
-                      : text('BiRefNet Lite 512，512 输入降低本地推理内存需求；实际边缘效果请用原图对比。', 'BiRefNet Lite 512. The 512 input reduces memory usage; compare edge quality on your own images.')}
+                      : text('BiRefNet Lite，轻量版的可实现高效抠图，适合普通主体和复杂边缘处理。', 'BiRefNet Lite. Lightweight version for efficient matting, suitable for ordinary subjects and complex edges.')}
                   </p>
 
                   <div className="cf-removal-meta flex flex-wrap gap-2 text-[11px] text-slate-400 mb-3">
@@ -342,7 +344,7 @@ export default function BackgroundRemovalSettings({ english }: { english: boolea
                     </span>
                     {stored && (
                       <span className="px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 font-medium">
-                        {stored.provider === 'webgpu' ? 'GPU 加速' : 'CPU WASM'}
+                        {!model.forceCpu && stored.provider === 'webgpu' ? 'GPU 加速' : 'CPU WASM'}
                       </span>
                     )}
                   </div>
@@ -436,7 +438,7 @@ export default function BackgroundRemovalSettings({ english }: { english: boolea
                         onClick={() => void update({ modelId: model.id })}
                         className="ml-auto text-xs text-blue-400 hover:text-blue-300 font-semibold cursor-pointer underline-offset-4 hover:underline"
                       >
-                        {text('设为活跃模型', 'Set as Active')}
+                        {text('设为默认', 'Set as Active')}
                       </button>
                     )}
                   </div>

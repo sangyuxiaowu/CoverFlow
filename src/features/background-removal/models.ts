@@ -15,6 +15,7 @@ export interface RemovalModel {
   url: string;
   variants?: readonly ModelVariant[];
   sourceUrl?: string;
+  forceCpu?: boolean;
 }
 
 const birefnetVariants: readonly ModelVariant[] = [
@@ -42,7 +43,7 @@ export const MODELS: readonly RemovalModel[] = [
     sourceUrl: 'https://www.modelscope.cn/models/sangsq/birefnet-lite-512'
   },
   {
-    id: 'modnet', name: 'MODNet', size: modnetVariants[0].size, inputSize: 256,
+    id: 'modnet', name: 'MODNet', size: modnetVariants[0].size, inputSize: 512, forceCpu: true,
     url: modnetVariants[0].url, variants: modnetVariants,
     sourceUrl: 'https://www.modelscope.cn/models/onnx-community/modnet-webnn'
   }

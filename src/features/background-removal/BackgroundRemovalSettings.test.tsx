@@ -76,7 +76,8 @@ describe('model activation settings', () => {
   it.each(['fp32', 'fp16'] as const)('downloads MODNet %s in its own portrait card', async precision => {
     const card = [...container.querySelectorAll('article')].find(article => article.querySelector('strong')?.textContent === 'MODNet')!;
     expect(card.textContent).toContain('人像专用');
-    expect(card.textContent).toContain('256 × 256');
+    expect(card.textContent).toContain('512 × 512');
+    expect(card.textContent).toContain('CPU/WASM');
     vi.mocked(downloadModel).mockResolvedValue(new Blob(['portrait']));
     vi.mocked(installModel).mockResolvedValue();
     const button = [...card.querySelectorAll('button')].find(button => button.textContent?.includes(`下载 ${precision.toUpperCase()}`))!;
@@ -84,6 +85,15 @@ describe('model activation settings', () => {
     expect(downloadModel).toHaveBeenCalledWith('modnet', expect.any(AbortSignal), expect.any(Function), precision);
     expect(installModel).toHaveBeenCalledWith('modnet', expect.any(Blob), precision === 'fp32' ? 'model.onnx' : 'model_fp16.onnx', 'wasm', expect.any(Object));
     expect(saveSettings).toHaveBeenCalledExactlyOnceWith({ modelId: 'modnet', device: 'wasm' });
+  });
+  it('does not advertise an old MODNet GPU verification record as the active backend', async () => {
+    vi.mocked(useResources).mockReturnValue({ ...useResources(), models: { modnet: {
+      blob: new Blob(['model']), name: 'model.onnx', importedAt: 1, provider: 'webgpu'
+    } } });
+    await act(async () => root.render(<BackgroundRemovalSettings english={false} />));
+    const card = [...container.querySelectorAll('article')].find(article => article.querySelector('strong')?.textContent === 'MODNet')!;
+    expect(card.querySelector('.cf-removal-meta')?.textContent).toContain('CPU WASM');
+    expect(card.querySelector('.cf-removal-meta')?.textContent).not.toContain('GPU 加速');
   });
   it('activates a newly imported model only after inference validation succeeds', async () => {
     vi.mocked(installModel).mockResolvedValue();

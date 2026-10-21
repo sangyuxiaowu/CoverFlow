@@ -144,15 +144,15 @@ export const VISION_TOOL_DEFINITIONS: ToolDefinition[] = [
 
 export const IMAGE_TOOL_DEFINITIONS: ToolDefinition[] = [
   tool('list_image_models', '读取可用生图模型，能力及参数信息', noParameters),
-  tool('generate_image', '生成或修改图像。成功后自动添加图片图层并返回图层 ID，可继续用 edit_layers 调整。注意：referenceImageId 和 referenceLayerId 互斥，都不传则为文生图。', object('生图请求', {
+  tool('generate_image', '生成或修改图像。成功后自动添加图片图层并返回图层 ID，可继续用 edit_layers 调整。', object('生图请求', {
     projectId,
     modelConfigId: { ...string('模型 ID'), maxLength: 9 },
     prompt: { type: 'string', maxLength: 10000, minLength: 1, description: '生图提示词' },
     size: string('输出尺寸，省略使用配置默认值。根据用法选择合适的尺寸即可，分辨率越高生图越慢。'),
     ratio: string('宽高比(如16:9)。仅部分模型支持，当不传 size 时生效'),
     quality: string('生成质量。越高越慢，省略用默认值。'),
-    referenceImageId: string('[可选] 当前会话附件 ID。与 referenceLayerId 互斥。'),
-    referenceLayerId: string('[可选] 项目 image 图层 ID，可查 get_selected_layers。与 referenceImageId 互斥。')
+    referenceImageId: string('[可选] 传入会话附件 ID 作为参考图。'),
+    referenceLayerId: string('[可选] 传入项目 image 图层 ID 作为参考图。')
   }, ['projectId', 'modelConfigId', 'prompt']))
 ];
 

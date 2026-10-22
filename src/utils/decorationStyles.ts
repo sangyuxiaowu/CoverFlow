@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { detectDecorationFormat, sanitizeDecorationHtml, sanitizeStaticCss, type ContentFormat, type DecorationFormat } from './customContent.ts';
+import { detectDecorationFormat, sanitizeDecorationHtml, sanitizeStaticCss } from './customContent.ts';
 
 export const MAX_DECORATION_CSS_LENGTH = 6000;
 export const MIN_DECORATION_SIZE = 24;
@@ -56,14 +56,12 @@ export interface DecorationSanitizeResult {
   issues: DecorationIssue[];
 }
 
-export const sanitizeDecorationContent = (source: string, format: ContentFormat = 'auto'): DecorationSanitizeResult & { format: DecorationFormat } => {
-  const resolved = format === 'auto' ? detectDecorationFormat(source) : format;
-  if (resolved === 'css') return { ...sanitizeDecorationCss(source), format: resolved };
+export const sanitizeDecorationContent = (source: string): DecorationSanitizeResult => {
+  if (detectDecorationFormat(source) === 'css') return sanitizeDecorationCss(source);
   const result = sanitizeDecorationHtml(source);
   return {
     cssText: source.trim(),
     style: {},
-    format: resolved,
     issues: result.issues.map((detail) => ({ code: 'unsafeValue', detail }))
   };
 };

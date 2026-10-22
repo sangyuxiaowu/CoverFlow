@@ -3,7 +3,6 @@ import * as csstree from 'css-tree';
 import type { CSSProperties } from 'react';
 
 export type DecorationFormat = 'css' | 'html';
-export type ContentFormat = DecorationFormat | 'auto';
 export interface CustomContentResult {
   source: string;
   issues: string[];

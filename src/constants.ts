@@ -140,7 +140,6 @@ export const PRESET_DECORATIONS: DecorationElement[] = [
     nameZh: '编辑徽章',
     width: 300,
     height: 160,
-    format: 'html',
     cssText: '<style>:root{--accent:#38bdf8;--paper:#f4f7f5}.badge{box-sizing:border-box;width:100%;height:100%;padding:24px;background:var(--paper);border-left:8px solid var(--accent);color:#162a2a;display:flex;flex-direction:column;justify-content:space-between}.label{font:700 12px sans-serif;color:var(--accent)}.title{font:700 30px Georgia,serif;margin:0}.rule{height:2px;background:var(--accent);width:48px}</style><div class="badge"><span class="label">COVER / 01</span><p class="title">New perspectives</p><div class="rule"></div></div>'
   }
 ];

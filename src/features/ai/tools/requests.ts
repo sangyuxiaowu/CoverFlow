@@ -8,7 +8,7 @@ export const DISTRIBUTE_MODES = ['horizontal', 'vertical'] as const;
 export type LayerUpdateProperties = Partial<Pick<Layer,
   'name' | 'content' | 'color' | 'fontFamily' | 'fontWeight' | 'x' | 'y' | 'width' | 'height' |
   'rotation' | 'zIndex' | 'opacity' | 'fontSize' | 'visible' | 'locked' | 'ratioLocked' |
-  'textAlign' | 'writingMode' | 'decorationFormat' | 'textGradient' | 'textShadow'
+  'textAlign' | 'writingMode' | 'textGradient' | 'textShadow'
 >>;
 
 interface ActionRule {

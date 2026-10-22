@@ -65,13 +65,12 @@ const patch = object('图层属性的部分更新；省略字段保持原值。�
   }), minProperties: 1 },
   decoration: { ...object('装饰图层属性；仅 decoration 图层可提供。颜色必须修改 content 中的 CSS 变量。', {
     content: string([
-      '完整装饰内容，按同组 decorationFormat 提供 CSS 声明或静态 HTML；修改前先 read_layers，保留无关结构与样式，不接受差异补丁。',
+      '完整装饰内容；根据内容自动识别 CSS 声明或静态 HTML。修改前先 read_layers，保留无关结构与样式，不接受差异补丁。',
       'CSS 仅支持背景、边框、圆角、阴影、轮廓、裁切、滤镜、混合、透明度和变量；最多 6000 字符、24 条声明（含变量），像素值限制在 -240px 到 240px。布局和尺寸使用图层字段；需要文字、flex/grid 或多节点时使用 HTML。',
       'HTML 最多 24000 字符、300 个元素，允许行内样式及自动隔离的 style 选择器；图片仅允许嵌入位图，不要生成 JSX、Tailwind/CDN 依赖或 data-cf-fragment 标识。',
       '装饰禁止脚本、事件、外部资源、url()/image-set()、CSS at-rule、动画/transition、fixed/sticky、pointer-events 和视口单位；使用百分比或像素。',
       '装饰颜色定义为具体 CSS 变量后用 var() 引用，例如 --accent:#38bdf8; --surface:rgba(255,255,255,0.24)。支持 HEX、RGBA、HSL、OKLCH 和命名颜色。调色时更新相应变量并保留 alpha，不使用图层 color 或 currentColor 主色绑定。'
-    ].join('\n')),
-    decorationFormat: enumeration('css 是单元素外观声明，html 是静态多节点标记。新增时省略则自动识别；更新时保留原格式。切换格式须同时提交同组完整 content。', ['css', 'html'])
+    ].join('\n'))
   }), minProperties: 1 },
   x: numeric('图层左上角水平位置，单位为画布像素。'),
   y: numeric('图层左上角垂直位置，单位为画布像素。'),

@@ -3,7 +3,6 @@ import { Plus, Save, X } from 'lucide-react';
 import { translations, Language } from '../translations.ts';
 import DecorationContent from './DecorationContent.tsx';
 import DecorationCodeEditor from './DecorationCodeEditor.tsx';
-import type { ContentFormat } from '../utils/customContent.ts';
 
 interface DecorationEditorModalProps {
   lang: Language;
@@ -13,8 +12,6 @@ interface DecorationEditorModalProps {
   width: number;
   height: number;
   cssText: string;
-  format: ContentFormat;
-  onChangeFormat: (format: ContentFormat) => void;
   previewCssText: string;
   issueMessages: string[];
   disabled: boolean;
@@ -35,8 +32,6 @@ const DecorationEditorModal: React.FC<DecorationEditorModalProps> = ({
   width,
   height,
   cssText,
-  format,
-  onChangeFormat,
   previewCssText,
   issueMessages,
   disabled,
@@ -99,7 +94,7 @@ const DecorationEditorModal: React.FC<DecorationEditorModalProps> = ({
               />
             </div>
 
-            <DecorationCodeEditor lang={lang} content={cssText} format={format} onChange={onChangeCssText} onChangeFormat={onChangeFormat} />
+            <DecorationCodeEditor lang={lang} content={cssText} onChange={onChangeCssText} />
           </div>
 
           <div className="p-5 space-y-4 bg-slate-950/30">
@@ -114,7 +109,7 @@ const DecorationEditorModal: React.FC<DecorationEditorModalProps> = ({
                     transformOrigin: 'center center'
                   }}
                 >
-                  <DecorationContent content={previewCssText} format={format} />
+                  <DecorationContent content={previewCssText} />
                 </div>
               </div>
             </div>

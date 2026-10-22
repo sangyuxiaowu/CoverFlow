@@ -3,7 +3,7 @@ import type { WorkspaceBridge } from '../types.ts';
 import { PRESET_RATIOS } from '../../../constants.ts';
 import { editLayers } from '../domain/layerOperations.ts';
 import { backgroundPatch, choice, ids, layerDetails, layerPatch, number, record, safeImage, text, validateContent, validateLayerGroups } from './validation.ts';
-import { detectDecorationFormat, sanitizeBackgroundCss } from '../../../utils/customContent.ts';
+import { sanitizeBackgroundCss } from '../../../utils/customContent.ts';
 import { hasActiveImageCrop, hasActiveImageFilters, normalizeImageCrop, normalizeImageFilters } from '../../../utils/imageLayer.ts';
 import { parseEditLayersRequest, parseManageProjectsRequest } from './requests.ts';
 import { executeBackgroundRemovalTool } from './backgroundRemoval.ts';
@@ -82,8 +82,7 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     const type = choice(args.type, 'type', ['text', 'svg', 'image', 'decoration']);
     const patch = layerPatch(args.properties);
     validateLayerGroups(args.properties, type);
-    const content = validateContent(type, text(patch.content, `properties.${type}.content`), patch.decorationFormat);
-    if (type === 'decoration') patch.decorationFormat ??= detectDecorationFormat(content);
+    const content = validateContent(type, text(patch.content, `properties.${type}.content`));
     const layer: Layer = { id: generateId(), name: type, type, content, x: 40, y: 40, width: 300, height: 100, rotation: 0, zIndex: Math.max(0, ...project.layers.map(item => item.zIndex)) + 1, visible: true, locked: false, opacity: 1, ...(type === 'text' ? { fontSize: 48, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: '#ffffff', textAlign: 'left' } : {}), ...patch };
     if (type === 'image') {
       layer.imageSource ??= 'unknown';
@@ -107,11 +106,12 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
       if (!target) throw new Error('Unknown layer: ' + id);
       validateLayerGroups(args.properties, target.type);
     });
-    if (patch.content !== undefined || patch.decorationFormat !== undefined) {
+    if (patch.content !== undefined) {
+      const content = text(patch.content, 'content');
       selected.forEach(id => {
         const target = project.layers.find(layer => layer.id === id);
         if (!target || target.type === 'group') throw new Error('Read the layer before changing content.');
-        validateContent(target.type, patch.content ?? target.content, patch.decorationFormat ?? target.decorationFormat);
+        validateContent(target.type, content);
       });
     }
     next = editLayers(project, action, selected, patch, request.action === 'align' || request.action === 'distribute' ? request.mode : undefined);

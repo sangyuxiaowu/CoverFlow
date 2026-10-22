@@ -1,15 +1,14 @@
 import React, { useId } from 'react';
-import { detectDecorationFormat, sanitizeDecorationHtml, type ContentFormat } from '../utils/customContent.ts';
+import { detectDecorationFormat, sanitizeDecorationHtml } from '../utils/customContent.ts';
 import { buildDecorationLayerStyle } from '../utils/decorationStyles.ts';
 
 interface DecorationContentProps {
   content: string;
-  format?: ContentFormat;
 }
 
-const DecorationContent: React.FC<DecorationContentProps> = ({ content, format = 'auto' }) => {
+const DecorationContent: React.FC<DecorationContentProps> = ({ content }) => {
   const instanceId = useId().replace(/[^a-z0-9-]/gi, '');
-  const resolved = format === 'auto' ? detectDecorationFormat(content) : format;
+  const resolved = detectDecorationFormat(content);
   if (resolved === 'css') return <div className="w-full h-full" style={buildDecorationLayerStyle(content)} />;
   const result = sanitizeDecorationHtml(content, instanceId);
   return (

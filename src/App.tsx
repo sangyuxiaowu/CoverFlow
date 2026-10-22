@@ -980,7 +980,7 @@ const App: React.FC = () => {
     canvasWidth: number,
     canvasHeight: number,
     layerName: string,
-    options?: { width?: number; height?: number; decorationFormat?: 'css' | 'html' }
+    options?: { width?: number; height?: number }
   ) => {
     const width = clampDecorationSize(options?.width ?? Math.min(280, canvasWidth * 0.4), 220);
     const height = clampDecorationSize(options?.height ?? Math.min(180, canvasHeight * 0.3), 120);
@@ -990,7 +990,6 @@ const App: React.FC = () => {
       name: layerName,
       type: 'decoration' as const,
       content: cssText,
-      decorationFormat: options?.decorationFormat,
       x: canvasWidth / 2 - width / 2,
       y: canvasHeight / 2 - height / 2,
       width,
@@ -1739,7 +1738,7 @@ const App: React.FC = () => {
                 project.canvasConfig.width,
                 project.canvasConfig.height,
                 l.name || t.defaultLayerName,
-                { width: l.width, height: l.height, decorationFormat: l.decorationFormat }
+                { width: l.width, height: l.height }
               );
               newLayer.zIndex = project.layers.length + 1;
 

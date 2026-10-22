@@ -48,7 +48,7 @@ export const LAYER_FIELD_GROUPS: Record<string, readonly (keyof Layer)[]> = {
   image: ['content', 'imageSource', 'imageDescription', 'flipX', 'flipY', 'imageFilters', 'imageCrop'],
   text: ['content', 'color', 'fontFamily', 'fontWeight', 'fontSize', 'textAlign', 'writingMode', 'textGradient', 'textShadow'],
   svg: ['content', 'color'],
-  decoration: ['content', 'decorationFormat']
+  decoration: ['content']
 };
 
 export function layerDetails(layer: Layer): Record<string, unknown> {
@@ -102,7 +102,6 @@ export function layerPatch(value: unknown): Partial<Layer> {
     else if (field === 'fontWeight') output[field] = typeof raw === 'string' ? text(raw, field) : number(raw, field, 1, 1000);
     else if (field === 'textAlign') output[field] = choice(raw, field, ['left', 'center', 'right']);
     else if (field === 'writingMode') output[field] = choice(raw, field, ['horizontal', 'vertical']);
-    else if (field === 'decorationFormat') output[field] = choice(raw, field, ['css', 'html']);
     else if (field === 'imageFilters') {
       const nested = record(raw);
       const allowed = ['brightness', 'contrast', 'grayscale', 'blur'] as const;
@@ -142,7 +141,7 @@ export function layerPatch(value: unknown): Partial<Layer> {
   return output as Partial<Layer>;
 }
 
-export function validateContent(type: Layer['type'], content: string, format?: Layer['decorationFormat']): string {
+export function validateContent(type: Layer['type'], content: string): string {
   if (type === 'image') return safeImage(content);
   if (type === 'svg') {
     const document = new DOMParser().parseFromString(content, 'image/svg+xml');
@@ -155,7 +154,7 @@ export function validateContent(type: Layer['type'], content: string, format?: L
     }
   }
   if (type === 'decoration') {
-    const result = sanitizeDecorationContent(content, format);
+    const result = sanitizeDecorationContent(content);
     if (result.issues.length) throw new Error(result.issues.map((issue) => issue.detail || issue.code).join('; '));
   }
   return content;

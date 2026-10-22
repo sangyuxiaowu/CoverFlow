@@ -90,7 +90,7 @@ chat/
 
 `edit_layers` 每个动作均要求 `projectId` 和非空 `layerIds`；仅 `update` 接受且必须提供非空 `properties`，仅 `group` 接受顶层可选 `name`，仅 `align/distribute` 接受且必须提供各自动作允许的 `mode`。不再接受通过 `group.properties.name` 命名组。`create_project` 的 `title/width/height` 可选；`search_projects` 的 `query/page/pageSize` 可选；`manage_projects` 只接受 `open/rename/duplicate/delete/save`，并要求 `projectId`。`rename.title` 必填，`duplicate.title` 可选，其余管理动作禁止。跨动作字段与未知字段均报错，不忽略。
 
-图层工具读写采用一致的类型分组，外层仅保留 `name/x/y/width/height/rotation/zIndex/opacity/visible/locked/ratioLocked` 等通用字段。内容分别位于 `text.content/image.content/svg.content/decoration.content`，不再提供外层 `content`。文字专属属性（含主色）位于 `text`，SVG 主色位于 `svg.color`，图片来源、描述、翻转、滤镜和裁剪位于 `image`，装饰格式位于 `decoration.decorationFormat`。例如新增文字使用 `properties: {x: 52, text: {content: "标题", fontSize: 78, color: "#fff6ea"}}`。不接受扁平专属字段或与目标类型不符的分组；混合类型批量更新在提交前完整校验，不会部分生效。项目存储仍使用内部扁平 Layer，工具边界负责转换，不迁移历史项目。
+图层工具读写采用一致的类型分组，外层仅保留 `name/x/y/width/height/rotation/zIndex/opacity/visible/locked/ratioLocked` 等通用字段。内容分别位于 `text.content/image.content/svg.content/decoration.content`，不再提供外层 `content`。文字专属属性（含主色）位于 `text`，SVG 主色位于 `svg.color`，图片来源、描述、翻转、滤镜和裁剪位于 `image`；装饰仅提供完整 `content`，并根据内容自动识别 CSS 声明或静态 HTML。例如新增文字使用 `properties: {x: 52, text: {content: "标题", fontSize: 78, color: "#fff6ea"}}`。不接受扁平专属字段或与目标类型不符的分组；混合类型批量更新在提交前完整校验，不会部分生效。项目存储仍使用内部扁平 Layer，工具边界负责转换，不迁移历史项目。
 
 `read_layers` 和 `get_selected_layers` 的图层使用相同分组；`get_context` 只返回公共摘要与关系。只读身份字段 `id/type/parentId` 保持外层，组合的子图层列表位于 `group.children`，组合不返回无意义的空内容。图片只读抠图标记位于 `image.backgroundRemoved`，选区图片的来源与预览状态位于 `image.imageInfo`；这些只读字段不可作为更新属性回传。`read_layers` 的内嵌图片占位位于 `image.content`；`get_selected_layers` 仍省略图片内容，视觉模型的图片预览机制不变。
 
@@ -129,7 +129,7 @@ chat/
 
 层级微调使用 `edit_layers` 的 `action: forward/backward`，分别上移/下移一层，仅需 `projectId` 和 `layerIds`，不接受 `properties/mode/name`。按实际堆叠顺序跨过相邻的一个未选中图层，不是简单增减 `zIndex`；多选保持相对顺序，到达顶层/底层不再移动。选中组合时包含子图层，沿用现有锁定校验；`front/back` 仍表示直接置顶/置底。
 
-装饰使用 `decoration: {decorationFormat: css/html, content: 完整内容}`，切换格式时同时提交同组完整 `content`。调色前通过 `read_layers` 读取源码，再用 `edit_layers/update` 更新相应 CSS 变量，保留其他样式和 alpha；装饰没有主色字段，避免无效调色返回成功。文字与 SVG 分别使用 `text.color` 和 `svg.color`。变量颜色支持 HEX（含透明度）、RGB/RGBA、HSL/HSLA、OKLCH 与命名颜色，人工拾色器不是 AI 操作目标，不需要新增界面控制工具。背景自定义 CSS 使用 `background: {type: css, value: 声明文本}`，不支持 HTML 背景。
+装饰只通过 `decoration.content` 读写，CSS/HTML 格式由内容自动识别，不保存或接受格式字段。调色前通过 `read_layers` 读取源码，再用 `edit_layers/update` 更新相应 CSS 变量，保留其他样式和 alpha；装饰没有主色字段，避免无效调色返回成功。文字与 SVG 分别使用 `text.color` 和 `svg.color`。变量颜色支持 HEX（含透明度）、RGB/RGBA、HSL/HSLA、OKLCH 与命名颜色，人工拾色器不是 AI 操作目标，不需要新增界面控制工具。背景自定义 CSS 使用 `background: {type: css, value: 声明文本}`，不支持 HTML 背景。
 
 ## 安全边界
 

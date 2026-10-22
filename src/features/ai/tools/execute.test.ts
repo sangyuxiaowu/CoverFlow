@@ -65,7 +65,7 @@ test('context exposes only common layer properties and preserves group relations
   const layers: ProjectState['layers'] = [
     { ...common, id: 'group', name: 'Group', type: 'group', content: '', children: ['text', 'decoration'] },
     { ...common, id: 'text', name: 'Title', type: 'text', content: 'Hello', parentId: 'group', fontSize: 64, fontFamily: 'sans-serif', fontWeight: 700, textAlign: 'center', color: '#fff' },
-    { ...common, id: 'decoration', name: 'Decoration', type: 'decoration', content: '--accent:#fff;background:var(--accent);', decorationFormat: 'css', parentId: 'group' },
+    { ...common, id: 'decoration', name: 'Decoration', type: 'decoration', content: '--accent:#fff;background:var(--accent);', parentId: 'group' },
     { ...common, id: 'image', name: 'Photo', type: 'image', content: 'data:image/png;base64,abc', imageSource: 'upload', imageDescription: 'A photo', imageCrop: { x: 10, y: 10, width: 80, height: 80 }, backgroundRemoved: true },
     { ...common, id: 'svg', name: 'Icon', type: 'svg', content: '<svg></svg>', color: '#000' }
   ];
@@ -83,7 +83,7 @@ test('context exposes only common layer properties and preserves group relations
   const expected = [
     { ...common, id: 'group', name: 'Group', type: 'group', group: { children: ['text', 'decoration'] } },
     { ...common, id: 'text', name: 'Title', type: 'text', parentId: 'group', text: { content: 'Hello', fontSize: 64, fontFamily: 'sans-serif', fontWeight: 700, textAlign: 'center', color: '#fff' } },
-    { ...common, id: 'decoration', name: 'Decoration', type: 'decoration', decoration: { content: layers[2].content, decorationFormat: 'css' }, parentId: 'group' },
+    { ...common, id: 'decoration', name: 'Decoration', type: 'decoration', decoration: { content: layers[2].content }, parentId: 'group' },
     { ...common, id: 'image', name: 'Photo', type: 'image', image: { content: '[embedded image]', imageSource: 'upload', imageDescription: 'A photo', imageCrop: { x: 10, y: 10, width: 80, height: 80 }, backgroundRemoved: true } },
     { ...common, id: 'svg', name: 'Icon', type: 'svg', svg: { content: '<svg></svg>', color: '#000' } }
   ];
@@ -174,9 +174,8 @@ test('tool schemas describe every parameter and nested field with valid required
   assert.ok(Object.hasOwn(textProperties, 'fontSize'));
   assert.ok(Object.hasOwn(textProperties, 'color'));
   assert.equal(Object.hasOwn(editLayerProperties, 'color'), false);
-  assert.equal(Object.hasOwn(editLayerProperties, 'decorationFormat'), false);
   assert.deepEqual(Object.keys(editLayerProperties.svg.properties as object), ['content', 'color']);
-  assert.deepEqual(Object.keys(editLayerProperties.decoration.properties as object), ['content', 'decorationFormat']);
+  assert.deepEqual(Object.keys(editLayerProperties.decoration.properties as object), ['content']);
   assert.equal(add.description.includes('6000'), false);
   assert.equal(add.description.includes('url()'), false);
   assert.ok((((addLayerProperties.decoration.properties as Record<string, Record<string, unknown>>).content).description as string).includes('6000'));
@@ -187,7 +186,7 @@ test('layer tools use matching type groups for input and output', async () => {
   const cases: [ProjectState['layers'][number]['type'], Record<string, unknown>][] = [
     ['text', { text: { content: 'Title', fontSize: 34, color: '#fff7ec' } }],
     ['svg', { svg: { content: '<svg xmlns="http://www.w3.org/2000/svg"></svg>', color: '#d8ab63' } }],
-    ['decoration', { decoration: { content: 'background:red;', decorationFormat: 'css' } }],
+    ['decoration', { decoration: { content: 'background:red;' } }],
     ['image', { image: { content: 'https://example.com/photo.png', imageSource: 'upload', flipX: true } }]
   ];
   for (const [type, properties] of cases) {
@@ -195,7 +194,7 @@ test('layer tools use matching type groups for input and output', async () => {
     const layerId = bridge.getProject()!.selectedLayerId!;
     const [details] = await executeTool('read_layers', { projectId: 'p1', layerIds: [layerId] }, bridge, signal) as Record<string, unknown>[];
     assert.deepEqual(details[type], { ...(type === 'text' ? { fontFamily: 'Inter, sans-serif', fontWeight: 700, textAlign: 'left' } : type === 'image' ? { imageDescription: '' } : {}), ...properties[type] as object });
-    for (const field of ['color', 'fontSize', 'fontFamily', 'imageSource', 'flipX', 'decorationFormat']) assert.equal(field in details, false);
+    for (const field of ['color', 'fontSize', 'fontFamily', 'imageSource', 'flipX']) assert.equal(field in details, false);
     await executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [layerId], properties }, bridge, signal);
   }
   assert.throws(() => layerPatch({ color: '#fff' }), /color.*text.*svg/);
@@ -311,11 +310,11 @@ test('custom CSS backgrounds and HTML decorations use the shared validation', as
   const source = '<style>:root{--accent:#38bdf8}.badge{color:var(--accent)}</style><div class="badge">Hello</div>';
   await executeTool('add_layer', { projectId: 'p1', type: 'decoration', properties: { decoration: { content: source } } }, bridge, signal);
   const layer = bridge.getProject()!.layers[0];
-  assert.equal(layer.decorationFormat, 'html');
+  assert.equal(layer.content, source);
   assert.equal(layer.content, source);
   await assert.rejects(executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [layer.id], properties: { decoration: { content: '<div onclick="alert(1)">Bad</div>' } } }, bridge, signal));
   assert.equal(bridge.getProject()!.layers[0].content, source);
-  await assert.rejects(executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [layer.id], properties: { decoration: { decorationFormat: 'css' } } }, bridge, signal));
+  await assert.rejects(executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [layer.id], properties: { decoration: { format: 'css' } } }, bridge, signal));
 });
 
 test('decoration color fields fail without committing while variable edits preserve alpha', async () => {
@@ -324,7 +323,7 @@ test('decoration color fields fail without committing while variable edits prese
   await assert.rejects(executeTool('add_layer', { projectId: 'p1', type: 'decoration', properties: { decoration: { content }, color: '#ff0000' } }, bridge, signal), /color.*text.*svg/);
   await assert.rejects(executeTool('add_layer', { projectId: 'p1', type: 'decoration', properties: { decoration: { content }, text: { color: '#ff0000' } } }, bridge, signal), /only supported/);
   assert.equal(bridge.getProject()!.layers.length, 0);
-  await executeTool('add_layer', { projectId: 'p1', type: 'decoration', properties: { decoration: { content, decorationFormat: 'css' } } }, bridge, signal);
+  await executeTool('add_layer', { projectId: 'p1', type: 'decoration', properties: { decoration: { content } } }, bridge, signal);
   const decorationId = bridge.getProject()!.selectedLayerId!;
   await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { text: { content: 'Title', color: '#ffffff' } } }, bridge, signal);
   const textId = bridge.getProject()!.selectedLayerId!;
@@ -333,7 +332,7 @@ test('decoration color fields fail without committing while variable edits prese
   const nextContent = content.replace('rgba(255,255,255,0.24)', 'oklch(0.6 0.1 220 / 0.24)');
   await executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [decorationId], properties: { decoration: { content: nextContent } } }, bridge, signal);
   assert.equal(bridge.getProject()!.layers.find(layer => layer.id === decorationId)!.content, nextContent);
-  assert.equal(bridge.getProject()!.layers.find(layer => layer.id === decorationId)!.decorationFormat, 'css');
+  assert.equal(bridge.getProject()!.layers.find(layer => layer.id === decorationId)!.content, nextContent);
   await executeTool('edit_layers', { projectId: 'p1', action: 'update', layerIds: [textId], properties: { text: { color: '#22c55e' } } }, bridge, signal);
   assert.equal(bridge.getProject()!.layers.find(layer => layer.id === textId)!.color, '#22c55e');
 });

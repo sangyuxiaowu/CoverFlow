@@ -318,7 +318,7 @@ const buildTextLayerSvg = (layer: Layer): string => {
 
 const buildDecorationLayerSvg = (layer: Layer): string => {
   const element = document.createElement('div');
-  const format = layer.decorationFormat || detectDecorationFormat(layer.content);
+  const format = detectDecorationFormat(layer.content);
   if (format === 'html') {
     const scopeId = `svg-${layer.id}`.replace(/[^a-z0-9-]/gi, '');
     const sanitized = sanitizeDecorationHtml(layer.content, scopeId);

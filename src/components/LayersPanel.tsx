@@ -1105,11 +1105,9 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
 
               {selectedLayer.type === 'decoration' && (
                 <div className="space-y-2 pt-2 border-t border-slate-800">
-                  <label className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{t.decorationCode}</label>
-                  <DecorationCodeEditor key={selectedLayer.id} lang={lang} content={selectedLayer.content} format={selectedLayer.decorationFormat || 'auto'}
-                    onChange={(content) => onUpdateLayer(selectedLayer.id, { content })}
-                    onChangeFormat={(format) => onUpdateLayer(selectedLayer.id, { decorationFormat: format === 'auto' ? undefined : format })} />
-                  {sanitizeDecorationContent(selectedLayer.content, selectedLayer.decorationFormat).issues.map((issue, index) => (
+                  <DecorationCodeEditor key={selectedLayer.id} lang={lang} content={selectedLayer.content}
+                    onChange={(content) => onUpdateLayer(selectedLayer.id, { content })} />
+                  {sanitizeDecorationContent(selectedLayer.content).issues.map((issue, index) => (
                     <div role="status" key={index} className="text-[10px] text-amber-400 break-words">{issue.detail || issue.code}</div>
                   ))}
                 </div>
@@ -1274,7 +1272,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                 ) : layer.type === 'text' ? (
                    <TextIcon className="w-3 h-3" /> 
                  ) : layer.type === 'decoration' ? (
-                   <div className="w-3.5 h-3.5 overflow-hidden rounded-[2px]"><DecorationContent content={layer.content} format={layer.decorationFormat} /></div>
+                   <div className="w-3.5 h-3.5 overflow-hidden rounded-[2px]"><DecorationContent content={layer.content} /></div>
                 ) : layer.type === 'image' ? (
                    <ImageIcon className="w-3 h-3" /> 
                 ) : (

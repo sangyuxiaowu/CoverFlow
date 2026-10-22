@@ -36,7 +36,7 @@ describe('decoration rendering boundaries', () => {
     canvasConfig: { width: 800, height: 600, ratio: '4:3' },
     background: { type: 'color', value: '#000000', overlayType: 'none', overlayColor: '#ffffff', overlayOpacity: 0, overlayScale: 20 },
     layers: [{
-      id: 'moon', name: 'Moon', type: 'decoration', decorationFormat: 'css',
+      id: 'moon', name: 'Moon', type: 'decoration',
       content: `background: #fbeec9; border-radius: 50%; box-shadow: ${shadow};`,
       x: 200, y: 100, width: 300, height: 300, rotation: 0, zIndex: 1,
       visible: true, locked: false, opacity: 0.6
@@ -66,7 +66,7 @@ describe('decoration rendering boundaries', () => {
   });
 
   it('exports HTML with matching scoped styles and XML-safe void elements', () => {
-    const svg = buildProjectSvg({ ...project, layers: [{ ...project.layers[0], decorationFormat: 'html', content: '<style>.moon{background:gold} .moon::before{content:"Moon"}</style><div class="moon">Hello<br>World &amp; stars</div>' }] });
+    const svg = buildProjectSvg({ ...project, layers: [{ ...project.layers[0], content: '<style>.moon{background:gold} .moon::before{content:"Moon"}</style><div class="moon">Hello<br>World &amp; stars</div>' }] });
     const xml = new DOMParser().parseFromString(svg, 'image/svg+xml');
     expect(xml.querySelector('parsererror')).toBeNull();
     const scope = xml.querySelector('[data-cf-fragment]');
@@ -113,7 +113,7 @@ describe('decoration rendering boundaries', () => {
 
   it.each(renderers)('$name preserves HTML fragment clipping and isolation', ({ render }) => {
     const container = document.createElement('div');
-    const htmlProject: ProjectState = { ...project, layers: [{ ...project.layers[0], decorationFormat: 'html', content: `<div style="width:100%;height:100%;box-shadow:${shadow}">Moon</div>` }] };
+    const htmlProject: ProjectState = { ...project, layers: [{ ...project.layers[0], content: `<div style="width:100%;height:100%;box-shadow:${shadow}">Moon</div>` }] };
     container.innerHTML = renderToStaticMarkup(render(htmlProject));
     const boundary = container.querySelector('[data-cf-fragment]')?.parentElement;
     expect(boundary).toBeTruthy();
@@ -159,9 +159,9 @@ describe('HTML decorations', () => {
   });
   it('preserves HTML source across repeated saves and scopes only during rendering', () => {
     const source = '<style>.badge{color:red}</style><div class="badge">Hello</div>';
-    const saved = sanitizeDecorationContent(source, 'html');
+    const saved = sanitizeDecorationContent(source);
     expect(saved.cssText).toBe(source);
-    expect(sanitizeDecorationContent(saved.cssText, saved.format).cssText).toBe(source);
+    expect(sanitizeDecorationContent(saved.cssText).cssText).toBe(source);
     expect(sanitizeDecorationHtml(saved.cssText, 'another').source).toContain('[data-cf-fragment="another"]');
   });
   it('keeps existing CSS presets and custom variables working', () => {
@@ -169,13 +169,13 @@ describe('HTML decorations', () => {
       expect(preset.cssText).not.toMatch(/currentColor/i);
       expect(sanitizeDecorationContent(preset.cssText).issues).toEqual([]);
     }
-    const custom = sanitizeDecorationContent('--accent: #ff0000; background: var(--accent);', 'css');
+    const custom = sanitizeDecorationContent('--accent: #ff0000; background: var(--accent);');
     expect(custom.issues).toEqual([]);
     expect((custom.style as Record<string, string>)['--accent']).toBe('#ff0000');
   });
   it('applies resource restrictions to CSS decorations too', () => {
-    expect(sanitizeDecorationContent('background: image-set("https://evil.test/x" 1x);', 'css').issues.length).toBeGreaterThan(0);
-    expect(sanitizeDecorationContent('background: u\\72l(https://evil.test);', 'css').issues.length).toBeGreaterThan(0);
+    expect(sanitizeDecorationContent('background: image-set("https://evil.test/x" 1x);').issues.length).toBeGreaterThan(0);
+    expect(sanitizeDecorationContent('background: u\\72l(https://evil.test);').issues.length).toBeGreaterThan(0);
     expect(sanitizeDecorationHtml('<style>.x{background:i\\6d age-set("https://evil.test" 1x)}</style><div class="x"></div>').issues.length).toBeGreaterThan(0);
   });
   it('uses source variables without injecting a fixed layer color', () => {

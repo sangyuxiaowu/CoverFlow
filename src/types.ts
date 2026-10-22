@@ -6,7 +6,6 @@ export interface DecorationElement {
   name: string;
   nameZh?: string;
   cssText: string;
-  format?: 'css' | 'html';
   width: number;
   height: number;
   createdAt?: number;
@@ -47,7 +46,6 @@ export interface Layer {
   name: string;
   type: LayerType;
   content: string; // SVG 代码、文字内容、图片 URL 或装饰 CSS/HTML
-  decorationFormat?: 'css' | 'html';
   imageSource?: string;
   imageDescription?: string;
   backgroundRemoved?: boolean;

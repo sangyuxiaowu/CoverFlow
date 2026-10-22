@@ -554,8 +554,8 @@ describe('image tools and persistence', () => {
     expect(images.size).toBe(1);
     const layer = getProject().layers[0];
     expect(layer).toMatchObject({ type: 'image', x: 180, y: 0, width: 840, height: 630, content: 'data:image/png;base64,iVBORw0KGgo=', imageSource: model.modelId, imageDescription: 'A city' });
-    const selected = await executeTool('get_selected_layers', {}, { ...context.bridge, getSelection: () => [layer.id] }, new AbortController().signal) as { layers: { imageSource: string; imageDescription: string }[]; images: unknown[] };
-    expect(selected.layers[0]).toMatchObject({ imageSource: model.modelId, imageDescription: 'A city' });
+    const selected = await executeTool('get_selected_layers', {}, { ...context.bridge, getSelection: () => [layer.id] }, new AbortController().signal) as { layers: { image: { imageSource: string; imageDescription: string } }[]; images: unknown[] };
+    expect(selected.layers[0].image).toMatchObject({ imageSource: model.modelId, imageDescription: 'A city' });
     expect(selected.images).toEqual([]);
     expect(layer.id).toMatch(/^[a-z0-9]{1,9}$/);
     expect(generated.value).toMatchObject({ projectId: 'project', layerId: layer.id });
@@ -614,8 +614,8 @@ describe('image tools and persistence', () => {
     context.bridge.getSelection = () => [original.id];
     const preview = vi.fn();
     context.bridge.getLayerPreview = preview;
-    const selected = await executeTool('get_selected_layers', {}, context.bridge, new AbortController().signal) as { layers: { id: string; imageSource: string; imageDescription: string }[] };
-    expect(selected.layers[0]).toMatchObject({ id: original.id, imageSource: 'upload', imageDescription: 'Street photo' });
+    const selected = await executeTool('get_selected_layers', {}, context.bridge, new AbortController().signal) as { layers: { id: string; image: { imageSource: string; imageDescription: string } }[] };
+    expect(selected.layers[0]).toMatchObject({ id: original.id, image: { imageSource: 'upload', imageDescription: 'Street photo' } });
     expect(preview).not.toHaveBeenCalled();
     const mock = vi.fn().mockImplementation(async (url: string) => url.startsWith('data:')
       ? new Response(new Blob(['original'], { type: 'image/png' }))
@@ -804,7 +804,7 @@ describe('image tools and persistence', () => {
     expect(result.layerId).toBe(getProject().layers[0].id);
     expect(result.layerId.length).toBeLessThanOrEqual(9);
     expect(getProject().layers).toHaveLength(1);
-    expect(JSON.parse(requests[2].input.at(-1)!.output!)).toMatchObject({ projectId: 'project', layers: [{ id: result.layerId, imageSource: model.modelId, imageDescription: 'City' }] });
+    expect(JSON.parse(requests[2].input.at(-1)!.output!)).toMatchObject({ projectId: 'project', layers: [{ id: result.layerId, image: { imageSource: model.modelId, imageDescription: 'City' } }] });
     expect(JSON.stringify(requests.map(request => request.input))).not.toContain('base64');
   });
 });

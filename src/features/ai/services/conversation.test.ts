@@ -276,6 +276,7 @@ test('selected image layers are sent as WebP input only to vision models', async
     const output = requests[1].input.at(-1).output;
     assert.equal(output[0].type, 'input_text');
     assert.equal(JSON.parse(output[0].text).layers[0].content, undefined);
+    assert.equal(JSON.parse(output[0].text).layers[0].image.content, undefined);
     assert.equal(output[1].type, 'input_image');
     assert.match(output[1].image_url, /^data:image\/webp;base64,/);
 
@@ -290,7 +291,8 @@ test('selected image layers are sent as WebP input only to vision models', async
     assert.equal(previewRequests, 0);
     assert.equal(typeof requests[1].input.at(-1).output, 'string');
     const metadata = JSON.parse(requests[1].input.at(-1).output);
-    assert.equal(metadata.layers[0].imageInfo.previewStatus, 'not_requested');
+    assert.equal(metadata.layers[0].image.content, undefined);
+    assert.equal(metadata.layers[0].image.imageInfo.previewStatus, 'not_requested');
   } finally { globalThis.fetch = originalFetch; }
 });
 

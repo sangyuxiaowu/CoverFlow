@@ -2,20 +2,21 @@ import type { ImagePromptConfig, ToolDefinition } from '../types.ts';
 import { imageCapabilities, imageTimeoutSeconds } from '../image-generation/index.ts';
 import { ALIGN_MODES, DISTRIBUTE_MODES, EDIT_LAYER_RULES, PROJECT_RULES, fieldUsage } from './requests.ts';
 
-const string = (description: string) => ({ type: 'string', description, maxLength: 200000 });
-const numeric = (description: string, minimum = -100000, maximum = 100000) => ({ type: 'number', description, minimum, maximum });
+const string = (description: string) => ({ type: 'string', description });
+const numeric = (description: string, minimum?: number, maximum?: number) => ({ type: 'number', description, ...(minimum !== undefined ? { minimum } : {}), ...(maximum !== undefined ? { maximum } : {}) });
 const boolean = (description: string) => ({ type: 'boolean', description });
 const enumeration = (description: string, values: string[]) => ({ type: 'string', description, enum: values });
-const object = (description: string, properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', description, properties, required, additionalProperties: false });
+const object = (description: string, properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', description, properties, ...(required.length ? { required } : {}) });
 const layerIds = (description: string) => ({ type: 'array', description, items: string('图层 ID，须来自上下文，不可编造。'), minItems: 1, maxItems: 500 });
 const noParameters = { type: 'object', properties: {} };
 const tool = (name: string, description: string, parameters: Record<string, unknown>): ToolDefinition => ({ type: 'function', function: { name, description, parameters } });
 const projectId = string('当前活动项目 ID，来自 get_context。');
 const conditional = <Schema extends { description: string }>(rules: Parameters<typeof fieldUsage>[0], field: string, schema: Schema) => ({ ...schema, description: fieldUsage(rules, field) + schema.description });
 
-const patch = object('图层属性的部分更新；省略字段保持原值。不要提交 id、type、parentId 或 children 等结构字段。', {
+const patch = object('图层属性的部分更新；省略字段保持原值。外层仅放通用字段，专属字段按图层类型放入 image/text/svg/decoration，读取结果使用相同分组。不要提交 id、type、parentId 或 group.children 等结构字段。', {
   name: string('图层名称，用于图层列表与搜索。'),
   image: { ...object('图片图层属性；仅 image 图层可提供。', {
+    content: string('图片完整内容，已有 HTTP(S) URL 或 PNG/JPEG/WebP/GIF 的 base64 数据 URL；修改前先 read_layers，不接受差异补丁。'),
     imageSource: { ...string('图片来源，例如 upload、import 或实际生图模型 ID。'), maxLength: 200 },
     imageDescription: { ...string('图片描述或实际生成该图片的提示词。'), maxLength: 10000 },
     flipX: boolean('是否水平（左右）翻转；开启已有非破坏性裁剪时会自动镜像裁剪区域。'),
@@ -34,6 +35,8 @@ const patch = object('图层属性的部分更新；省略字段保持原值。�
     }), minProperties: 1 }
   }), minProperties: 1 },
   text: { ...object('文字图层属性；仅 text 图层可提供。', {
+    content: string('完整纯文本内容；修改前先 read_layers，不接受差异补丁。'),
+    color: string('文字主色，使用 CSS 颜色值；必须放在 text.color，不得放在外层。'),
     fontFamily: string('CSS font-family 值，可包含字体族及回退字体，例如 "Microsoft YaHei", sans-serif。'),
     fontWeight: {
       description: 'CSS 字重，可使用数字或字符串。',
@@ -56,16 +59,20 @@ const patch = object('图层属性的部分更新；省略字段保持原值。�
       offsetY: numeric('阴影垂直偏移，单位为像素，负值向上。')
     }, ['enabled', 'color', 'blur', 'offsetX', 'offsetY'])
   }), minProperties: 1 },
-  content: string([
-    '图层完整内容；修改前先 read_layers，保留无关结构与样式，不接受差异补丁。',
-    'text：纯文本。image：已有 HTTP(S) URL 或 PNG/JPEG/WebP/GIF 的 base64 数据 URL。',
-    'svg：完整 SVG 标记，禁止脚本、事件、foreignObject、style、动画和外部引用。',
-    'decoration：按 decorationFormat 提供 CSS 声明或静态 HTML。CSS 仅支持背景、边框、圆角、阴影、轮廓、裁切、滤镜、混合、透明度和变量；最多 6000 字符、24 条声明（含变量），像素值限制在 -240px 到 240px。布局和尺寸使用图层字段；需要文字、flex/grid 或多节点时使用 HTML。',
-    'HTML 最多 24000 字符、300 个元素，允许行内样式及自动隔离的 style 选择器；图片仅允许嵌入位图，不要生成 JSX、Tailwind/CDN 依赖或 data-cf-fragment 标识。',
-    '装饰禁止脚本、事件、外部资源、url()/image-set()、CSS at-rule、动画/transition、fixed/sticky、pointer-events 和视口单位；使用百分比或像素。',
-    '装饰颜色定义为具体 CSS 变量后用 var() 引用，例如 --accent:#38bdf8; --surface:rgba(255,255,255,0.24)。支持 HEX、RGBA、HSL、OKLCH 和命名颜色。调色时更新相应变量并保留 alpha，不使用图层 color 或 currentColor 主色绑定。'
-  ].join('\n')),
-  color: string('仅用于文字和 SVG 的主色。装饰图层禁止此字段，必须修改 content 中的颜色变量。'),
+  svg: { ...object('SVG 图层属性；仅 svg 图层可提供。', {
+    content: string('完整 SVG 标记；修改前先 read_layers，保留无关结构与样式，不接受差异补丁。禁止脚本、事件、foreignObject、style、动画和外部引用。'),
+    color: string('SVG 主色，使用 CSS 颜色值；必须放在 svg.color，不得放在外层。')
+  }), minProperties: 1 },
+  decoration: { ...object('装饰图层属性；仅 decoration 图层可提供。颜色必须修改 content 中的 CSS 变量。', {
+    content: string([
+      '完整装饰内容，按同组 decorationFormat 提供 CSS 声明或静态 HTML；修改前先 read_layers，保留无关结构与样式，不接受差异补丁。',
+      'CSS 仅支持背景、边框、圆角、阴影、轮廓、裁切、滤镜、混合、透明度和变量；最多 6000 字符、24 条声明（含变量），像素值限制在 -240px 到 240px。布局和尺寸使用图层字段；需要文字、flex/grid 或多节点时使用 HTML。',
+      'HTML 最多 24000 字符、300 个元素，允许行内样式及自动隔离的 style 选择器；图片仅允许嵌入位图，不要生成 JSX、Tailwind/CDN 依赖或 data-cf-fragment 标识。',
+      '装饰禁止脚本、事件、外部资源、url()/image-set()、CSS at-rule、动画/transition、fixed/sticky、pointer-events 和视口单位；使用百分比或像素。',
+      '装饰颜色定义为具体 CSS 变量后用 var() 引用，例如 --accent:#38bdf8; --surface:rgba(255,255,255,0.24)。支持 HEX、RGBA、HSL、OKLCH 和命名颜色。调色时更新相应变量并保留 alpha，不使用图层 color 或 currentColor 主色绑定。'
+    ].join('\n')),
+    decorationFormat: enumeration('css 是单元素外观声明，html 是静态多节点标记。新增时省略则自动识别；更新时保留原格式。切换格式须同时提交同组完整 content。', ['css', 'html'])
+  }), minProperties: 1 },
   x: numeric('图层左上角水平位置，单位为画布像素。'),
   y: numeric('图层左上角垂直位置，单位为画布像素。'),
   width: numeric('图层宽度，单位为画布像素；等比锁定时只改宽度会同步高度。', 1),
@@ -76,7 +83,6 @@ const patch = object('图层属性的部分更新；省略字段保持原值。�
   visible: boolean('是否显示图层。'),
   locked: boolean('是否锁定图层；编辑锁定图层前须获用户许可并单独提交 locked:false 解锁。'),
   ratioLocked: boolean('是否锁定宽高比例。'),
-  decorationFormat: enumeration('仅用于装饰：css 是单元素外观声明，html 是静态多节点标记。新增时省略则自动识别；更新时保留原格式。切换格式须同时提交完整 content。', ['css', 'html']),
 });
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -87,7 +93,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     projectId: conditional(PROJECT_RULES, 'projectId', string('来自 manage_projects/list 或 get_context，不可编造。')),
     query: conditional(PROJECT_RULES, 'query', string('按项目名称搜索；省略表示不过滤，提供时不得为空白。')),
     title: conditional(PROJECT_RULES, 'title', string('项目名称，不得为空白。create 省略为 Untitled；duplicate 省略自动追加 (copy)。')),
-    page: conditional(PROJECT_RULES, 'page', { type: 'integer', description: '页码，从 1 开始，省略为 1。', minimum: 1, maximum: 100000 }),
+    page: conditional(PROJECT_RULES, 'page', { type: 'integer', description: '页码，从 1 开始，省略为 1。', minimum: 1 }),
     pageSize: conditional(PROJECT_RULES, 'pageSize', { type: 'integer', description: '每页项目数量，省略为 20。', minimum: 1, maximum: 50 }),
     width: conditional(PROJECT_RULES, 'width', numeric('画布宽度，单位为像素，省略为 1200。', 10, 10000)),
     height: conditional(PROJECT_RULES, 'height', numeric('画布高度，单位为像素，省略为 630。', 10, 10000))
@@ -103,13 +109,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   tool('add_layer', '在当前项目添加一个图层并选中；不会自动编组，多图层组合请使用 edit_layers。', object('新图层创建参数。', {
     projectId,
     type: enumeration('图层类型：text 为纯文本，svg 为矢量标记，image 为已有位图，decoration 为 CSS/HTML 装饰。', ['text', 'svg', 'image', 'decoration']),
-    properties: { ...patch, description: '新图层属性，content 必填；省略的位置默认为 (40,40)，宽高为 300×100，透明度为 1。', required: ['content'] }
+    properties: { ...patch, description: '新图层属性，必须提供与 type 一致的 image/text/svg/decoration 分组及其 content；外层仅通用字段，不接受外层 content。color 仅放 text.color 或 svg.color。省略的位置默认为 (40,40)，宽高为 300×100，透明度为 1。', properties: Object.fromEntries(Object.entries(patch.properties).map(([field, schema]) => [field, ['image', 'text', 'svg', 'decoration'].includes(field) ? { ...schema as Record<string, unknown>, required: ['content'] } : schema])) }
   }, ['projectId', 'type', 'properties'])),
   tool('edit_layers', '批量修改或组织图层。组合变换会传递到子图层；除单独解锁操作外，锁定图层须先解锁。', object('对当前项目的一组图层执行同一个操作。', {
     projectId,
     action: enumeration('update 更新属性；delete 删除；duplicate 复制；group 编组（至少两个未编组图层，不可嵌套）；ungroup 拆组；front/back 置顶/置底；forward/backward 上移/下移一层，跨过相邻的一个未选中图层，保持选中图层相对顺序，边界不再移动，选择组合时包含子图层；align 对齐画布；distribute 等间距分布（至少三个独立图层）。', Object.keys(EDIT_LAYER_RULES)),
     layerIds: layerIds('操作目标 ID 列表；同一 properties 会应用于全部目标，不应混合需要不同属性的图层。'),
-    properties: conditional(EDIT_LAYER_RULES, 'properties', { ...patch, minProperties: 1, description: '待修改字段，至少提供一个；省略的属性保持原值。' }),
+    properties: conditional(EDIT_LAYER_RULES, 'properties', { ...patch, minProperties: 1, description: '待修改字段，至少提供一个；省略的属性保持原值。外层仅通用字段，专属字段放入与目标类型一致的 image/text/svg/decoration，结构与读取结果一致；color 仅放 text.color 或 svg.color，读取中的 image.backgroundRemoved、image.imageInfo 和 group.children 为只读，不可回传。' }),
     name: conditional(EDIT_LAYER_RULES, 'name', string('组名，不得为空白；省略为 Group。')),
     mode: conditional(EDIT_LAYER_RULES, 'mode', enumeration('align 仅允许 left/center/right（水平对齐）或 top/middle/bottom（垂直对齐）；distribute 仅允许 horizontal/vertical。', [...ALIGN_MODES, ...DISTRIBUTE_MODES]))
   }, ['projectId', 'action', 'layerIds'])),

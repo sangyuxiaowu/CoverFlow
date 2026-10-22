@@ -2,17 +2,12 @@ import type { Layer } from '../../../types.ts';
 import type { WorkspaceBridge } from '../types.ts';
 import { PRESET_RATIOS } from '../../../constants.ts';
 import { editLayers } from '../domain/layerOperations.ts';
-import { backgroundPatch, choice, ids, layerPatch, number, record, safeImage, text, validateContent } from './validation.ts';
+import { backgroundPatch, choice, ids, layerDetails, layerPatch, number, record, safeImage, text, validateContent, validateLayerGroups } from './validation.ts';
 import { detectDecorationFormat, sanitizeBackgroundCss } from '../../../utils/customContent.ts';
 import { hasActiveImageCrop, hasActiveImageFilters, normalizeImageCrop, normalizeImageFilters } from '../../../utils/imageLayer.ts';
 import { parseEditLayersRequest, parseManageProjectsRequest } from './requests.ts';
 import { executeBackgroundRemovalTool } from './backgroundRemoval.ts';
 import { generateId } from '../../../utils/helpers.ts';
-
-function hasTextOnlyFields(patch: Partial<Layer>): boolean {
-  return patch.fontFamily !== undefined || patch.fontWeight !== undefined || patch.fontSize !== undefined ||
-    patch.textAlign !== undefined || patch.writingMode !== undefined || patch.textGradient !== undefined || patch.textShadow !== undefined;
-}
 
 export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false): Promise<unknown> {
   signal.throwIfAborted();
@@ -33,7 +28,7 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     background: { ...project.background, value: project.background.value.startsWith('data:') ? '[embedded image]' : project.background.value },
     selectedLayerIds: bridge.getSelection(),
     layers: project.layers.map(({ id, name, type, x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked, parentId, children }) => ({
-      id, name, type, x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked, parentId, children
+      id, name, type, x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked, parentId, ...(type === 'group' && children ? { group: { children } } : {})
     }))
   } : { projectId: null, message: '当前未打开项目。请区分修改和新建，然后使用 manage_projects 列出或创建新项目；新建前建议调用 get_cover_size_recommendations 获取常见封面尺寸及适配建议。' };
   if (!project) throw new Error('No project open.');
@@ -44,10 +39,10 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     for (const layer of project.layers) {
       if (!selected.has(layer.id)) continue;
       if (layer.type !== 'image') {
-        layers.push(layer);
+        layers.push(layerDetails(layer));
         continue;
       }
-      const { content, ...properties } = layer;
+      const { content } = layer;
       const imageInfo: Record<string, unknown> = {
         sourceType: content.startsWith('data:') ? 'embedded' : 'url',
         sourceLength: content.length,
@@ -63,7 +58,10 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
           signal.throwIfAborted();
         }
       }
-      layers.push({ ...properties, imageInfo });
+      const details = layerDetails(layer);
+      const imageProperties = record(details.image);
+      delete imageProperties.content;
+      layers.push({ ...details, image: { ...imageProperties, imageInfo } });
     }
     return { kind: 'selected_layers', projectId: project.id, layers, images };
   }
@@ -71,23 +69,14 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
   if (name === 'read_layers') {
     const selected = args.layerIds === undefined ? null : ids(args.layerIds);
     const query = args.query === undefined ? '' : text(args.query, 'query').toLowerCase();
-    return project.layers.filter(layer => (!selected || selected.includes(layer.id)) && (!query || (layer.name + ' ' + layer.content).toLowerCase().includes(query))).map(layer => ({ ...layer, content: layer.content.startsWith('data:') ? '[embedded image]' : layer.content }));
+    return project.layers.filter(layer => (!selected || selected.includes(layer.id)) && (!query || (layer.name + ' ' + layer.content).toLowerCase().includes(query))).map(layer => layerDetails({ ...layer, content: layer.content.startsWith('data:') ? '[embedded image]' : layer.content }));
   }
   let next = project;
   if (name === 'add_layer') {
     const type = choice(args.type, 'type', ['text', 'svg', 'image', 'decoration']);
     const patch = layerPatch(args.properties);
-    const hasImageOnlyFields =
-      patch.imageSource !== undefined ||
-      patch.imageDescription !== undefined ||
-      patch.flipX !== undefined ||
-      patch.flipY !== undefined ||
-      patch.imageFilters !== undefined ||
-      patch.imageCrop !== undefined;
-    if (type !== 'image' && hasImageOnlyFields) throw new Error('Image source, description, flip, filters, and crop are only supported on image layers.');
-    if (type !== 'text' && hasTextOnlyFields(patch)) throw new Error('Font and text style properties are only supported on text layers.');
-    if (type === 'decoration' && patch.color !== undefined) throw new Error('Decoration colors must be changed in content via CSS variables, not layer.color.');
-    const content = validateContent(type, text(patch.content, 'content'), patch.decorationFormat);
+    validateLayerGroups(args.properties, type);
+    const content = validateContent(type, text(patch.content, `properties.${type}.content`), patch.decorationFormat);
     if (type === 'decoration') patch.decorationFormat ??= detectDecorationFormat(content);
     const layer: Layer = { id: generateId(), name: type, type, content, x: 40, y: 40, width: 300, height: 100, rotation: 0, zIndex: Math.max(0, ...project.layers.map(item => item.zIndex)) + 1, visible: true, locked: false, opacity: 1, ...(type === 'text' ? { fontSize: 48, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: '#ffffff', textAlign: 'left' } : {}), ...patch };
     if (type === 'image') {
@@ -107,12 +96,11 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     const request = parseEditLayersRequest(args);
     const { action, layerIds: selected } = request;
     const patch = request.action === 'update' ? request.properties : request.action === 'group' && request.name !== undefined ? { name: request.name } : {};
-    if (action === 'update' && hasTextOnlyFields(patch) && selected.some(id => project.layers.find(layer => layer.id === id)?.type !== 'text')) {
-      throw new Error('Font and text style properties are only supported on text layers.');
-    }
-    if (action === 'update' && patch.color !== undefined && selected.some(id => project.layers.find(layer => layer.id === id)?.type === 'decoration')) {
-      throw new Error('Decoration colors must be changed in content via CSS variables, not layer.color.');
-    }
+    if (action === 'update') selected.forEach(id => {
+      const target = project.layers.find(layer => layer.id === id);
+      if (!target) throw new Error('Unknown layer: ' + id);
+      validateLayerGroups(args.properties, target.type);
+    });
     if (patch.content !== undefined || patch.decorationFormat !== undefined) {
       selected.forEach(id => {
         const target = project.layers.find(layer => layer.id === id);

@@ -44,25 +44,47 @@ export function safeImage(value: string): string {
   return value;
 }
 
+export const LAYER_FIELD_GROUPS: Record<string, readonly (keyof Layer)[]> = {
+  image: ['content', 'imageSource', 'imageDescription', 'flipX', 'flipY', 'imageFilters', 'imageCrop'],
+  text: ['content', 'color', 'fontFamily', 'fontWeight', 'fontSize', 'textAlign', 'writingMode', 'textGradient', 'textShadow'],
+  svg: ['content', 'color'],
+  decoration: ['content', 'decorationFormat']
+};
+
+export function layerDetails(layer: Layer): Record<string, unknown> {
+  const groupedFields = new Set([...Object.values(LAYER_FIELD_GROUPS).flat(), 'backgroundRemoved', 'children']);
+  const common = Object.fromEntries(Object.entries(layer).filter(([field]) => !groupedFields.has(field)));
+  const fields = layer.type === 'group' ? ['children'] : [...LAYER_FIELD_GROUPS[layer.type], ...(layer.type === 'image' ? ['backgroundRemoved'] : [])];
+  const specific = Object.fromEntries(fields.filter(field => layer[field as keyof Layer] !== undefined).map(field => [field, layer[field as keyof Layer]]));
+  return { ...common, ...(Object.keys(specific).length ? { [layer.type]: specific } : {}) };
+}
+
+export function validateLayerGroups(value: unknown, type: Layer['type']): void {
+  const input = record(value);
+  for (const group of Object.keys(LAYER_FIELD_GROUPS)) {
+    if (Object.hasOwn(input, group) && group !== type) throw new Error(`properties.${group} is only supported on ${group} layers; target type is ${type}.`);
+  }
+}
+
 export function layerPatch(value: unknown): Partial<Layer> {
   const input = record(value);
   const fields: Record<string, unknown> = {};
-  const groupedFields = {
-    image: ['imageSource', 'imageDescription', 'flipX', 'flipY', 'imageFilters', 'imageCrop'],
-    text: ['fontFamily', 'fontWeight', 'fontSize', 'textAlign', 'writingMode', 'textGradient', 'textShadow']
-  };
   for (const [key, raw] of Object.entries(input)) {
-    if (key === 'image' || key === 'text') {
+    if (Object.hasOwn(LAYER_FIELD_GROUPS, key)) {
       const nested = record(raw);
-      const allowed = groupedFields[key];
+      const allowed = LAYER_FIELD_GROUPS[key] as readonly string[];
       const keys = Object.keys(nested);
-      if (!keys.length || keys.some(field => !allowed.includes(field))) throw new Error('Invalid ' + key + ' properties');
+      if (!keys.length) throw new Error(`properties.${key} must contain at least one field.`);
+      for (const field of keys) {
+        if (!allowed.includes(field)) throw new Error(`Unsupported properties.${key}.${field}; allowed fields: ${allowed.join(', ')}.`);
+      }
       for (const [field, fieldValue] of Object.entries(nested)) {
         if (Object.hasOwn(fields, field)) throw new Error('Duplicate layer field: ' + field);
         fields[field] = fieldValue;
       }
     } else {
-      if (Object.values(groupedFields).some(group => group.includes(key))) throw new Error(`${key} must be nested under image or text.`);
+      const groups = Object.entries(LAYER_FIELD_GROUPS).filter(([, group]) => (group as readonly string[]).includes(key)).map(([group]) => group);
+      if (groups.length) throw new Error(`${key} must be nested under ${groups.map(group => `properties.${group}.${key}`).join(' or ')}.`);
       fields[key] = raw;
     }
   }

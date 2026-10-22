@@ -86,9 +86,9 @@ chat/
 
 工具采用分层 JSON Schema 描述：函数 `description` 只说明用途与整体行为；字段含义、单位、默认值、适用操作及内容限制写在对应参数的 `description` 中，包括嵌套属性、数组元素和联合类型分支。可执行约束用 `enum`、`required`、`minimum/maximum`、`minItems/maxItems` 等表达，执行器仍负责最终校验。新增图层必须提供与 `type` 一致的 `properties.text/image/svg/decoration` 分组及其 `content`，各组内容的格式与安全限制分别写在对应字段说明中；更新图层的 `properties` 则是部分字段补丁，组内 `content` 可省略。
 
-`edit_layers` 与 `manage_projects` 的动作字段规则集中在 `tools/requests.ts`，用于派生 TypeScript 可辨识联合类型、校验必填/白名单字段，并生成工具参数的条件说明。为兼容自定义模型端点，对外保留扁平对象 Schema 与 `strict:false`，不发送顶层 `oneOf`、OpenAPI `discriminator` 或文档引用；条件约束由运行时执行，不依赖模型遵守说明。所有请求先校验再产生存储或界面副作用。
+`edit_layers` 与 `manage_projects` 的动作字段规则集中在 `tools/requests.ts`，用于派生 TypeScript 可辨识联合类型、校验必填/白名单字段，并生成工具参数的条件说明。项目新建和搜索分别由 `create_project`、`search_projects` 提供，不再作为 `manage_projects` 动作。为兼容自定义模型端点，对外保留扁平对象 Schema 与 `strict:false`，不发送顶层 `oneOf`、OpenAPI `discriminator` 或文档引用；条件约束由运行时执行，不依赖模型遵守说明。所有请求先校验再产生存储或界面副作用。
 
-`edit_layers` 每个动作均要求 `projectId` 和非空 `layerIds`；仅 `update` 接受且必须提供非空 `properties`，仅 `group` 接受顶层可选 `name`，仅 `align/distribute` 接受且必须提供各自动作允许的 `mode`。不再接受通过 `group.properties.name` 命名组。`manage_projects` 的 `list/create` 禁止 `projectId`，其余动作必须提供；`rename.title` 必填，`create/duplicate.title` 可选，其余动作禁止。跨动作字段与未知字段均报错，不忽略。
+`edit_layers` 每个动作均要求 `projectId` 和非空 `layerIds`；仅 `update` 接受且必须提供非空 `properties`，仅 `group` 接受顶层可选 `name`，仅 `align/distribute` 接受且必须提供各自动作允许的 `mode`。不再接受通过 `group.properties.name` 命名组。`create_project` 的 `title/width/height` 可选；`search_projects` 的 `query/page/pageSize` 可选；`manage_projects` 只接受 `open/rename/duplicate/delete/save`，并要求 `projectId`。`rename.title` 必填，`duplicate.title` 可选，其余管理动作禁止。跨动作字段与未知字段均报错，不忽略。
 
 图层工具读写采用一致的类型分组，外层仅保留 `name/x/y/width/height/rotation/zIndex/opacity/visible/locked/ratioLocked` 等通用字段。内容分别位于 `text.content/image.content/svg.content/decoration.content`，不再提供外层 `content`。文字专属属性（含主色）位于 `text`，SVG 主色位于 `svg.color`，图片来源、描述、翻转、滤镜和裁剪位于 `image`，装饰格式位于 `decoration.decorationFormat`。例如新增文字使用 `properties: {x: 52, text: {content: "标题", fontSize: 78, color: "#fff6ea"}}`。不接受扁平专属字段或与目标类型不符的分组；混合类型批量更新在提交前完整校验，不会部分生效。项目存储仍使用内部扁平 Layer，工具边界负责转换，不迁移历史项目。
 
@@ -97,7 +97,9 @@ chat/
 | 工具 | 功能 |
 | --- | --- |
 | get_context | 当前项目、画布、背景、选区及图层元数据 |
-| manage_projects | list/create/open/rename/duplicate/delete/save |
+| create_project | 新建并打开项目 |
+| search_projects | 按名称搜索项目并返回分页结果 |
+| manage_projects | open/rename/duplicate/delete/save |
 | read_layers | 按 ID 或名称/内容关键词读取图层 |
 | add_layer | text/svg/image/decoration；装饰支持 CSS 声明或静态 HTML |
 | edit_layers | update/delete/duplicate/group/ungroup/front/back/forward/backward/align/distribute |

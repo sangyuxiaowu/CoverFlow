@@ -1,6 +1,6 @@
 import type { ImagePromptConfig, ToolDefinition } from '../types.ts';
 import { imageCapabilities, imageTimeoutSeconds } from '../image-generation/index.ts';
-import { ALIGN_MODES, DISTRIBUTE_MODES, EDIT_LAYER_RULES, PROJECT_RULES, fieldUsage } from './requests.ts';
+import { ALIGN_MODES, DISTRIBUTE_MODES, EDIT_LAYER_RULES, PROJECT_MANAGE_RULES, fieldUsage } from './requests.ts';
 
 const string = (description: string) => ({ type: 'string', description });
 const numeric = (description: string, minimum?: number, maximum?: number) => ({ type: 'number', description, ...(minimum !== undefined ? { minimum } : {}), ...(maximum !== undefined ? { maximum } : {}) });
@@ -87,25 +87,30 @@ const patch = object('图层属性的部分更新；省略字段保持原值。�
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   // 项目管理
-  tool('get_cover_size_recommendations', '获取常见封面尺寸、比例及适配建议，供新建封面或选择画布尺寸时参考。', noParameters),
-  tool('manage_projects', '搜索和管理项目。新建会自动打开；删除需用户确认，本地文件项目只移除最近记录而不删除磁盘文件。', object('项目管理请求；除 action 外的字段是否需要取决于所选操作。', {
-    action: enumeration('list 为分页搜索；create 为新建；open 为打开；rename 为重命名；duplicate 为复制；delete 为删除；save 为保存。', Object.keys(PROJECT_RULES)),
-    projectId: conditional(PROJECT_RULES, 'projectId', string('来自 manage_projects/list 或 get_context，不可编造。')),
-    query: conditional(PROJECT_RULES, 'query', string('按项目名称搜索；省略表示不过滤，提供时不得为空白。')),
-    title: conditional(PROJECT_RULES, 'title', string('项目名称，不得为空白。create 省略为 Untitled；duplicate 省略自动追加 (copy)。')),
-    page: conditional(PROJECT_RULES, 'page', { type: 'integer', description: '页码，从 1 开始，省略为 1。', minimum: 1 }),
-    pageSize: conditional(PROJECT_RULES, 'pageSize', { type: 'integer', description: '每页项目数量，省略为 20。', minimum: 1, maximum: 50 }),
-    width: conditional(PROJECT_RULES, 'width', numeric('画布宽度，单位为像素，省略为 1200。', 10, 10000)),
-    height: conditional(PROJECT_RULES, 'height', numeric('画布高度，单位为像素，省略为 630。', 10, 10000))
-  }, ['action'])),
+  tool('get_cover_size_recommendations', '获取常见封面尺寸、比例及适配建议。', noParameters),
+  tool('create_project', '新建并打开项目。', object('', {
+    title: string('项目名称，默认 Untitled。'),
+    width: numeric('画布宽度，默认 1200px。', 10, 10000),
+    height: numeric('画布高度，默认 630px。', 10, 10000)
+  })),
+  tool('search_projects', '按名称搜索项目。', object('查询条件', {
+    query: string('搜索关键词。默认为空，返回全部'),
+    page: { type: 'integer', description: '页码，默认 1。', minimum: 1 },
+    pageSize: { type: 'integer', description: '每页数量，默认 20。', minimum: 1, maximum: 50 }
+  })),
+  tool('manage_projects', '打开、重命名、复制、删除或保存项目。删除需用户确认。', object('', {
+    action: enumeration('操作', Object.keys(PROJECT_MANAGE_RULES)),
+    projectId,
+    title: string('项目名称，rename 必填，duplicate 省略时自动追加 (copy)。')
+  }, ['action', 'projectId'])),
   // 图层管理
   tool('get_context', '读取当前项目、画布、背景、选区及图层通用属性和分组关系。', noParameters),
-  tool('read_layers', '读取图层完整属性及内容，内嵌图片仅返回占位符；可按 ID 或名称/内容关键词筛选。修改已有内容前先调用此工具。', object('读取当前活动项目内的图层；ID 与关键词过滤同时提供时取交集。', {
+  tool('read_layers', '读取图层完整属性及内容，内嵌图片仅返回占位符；可按 ID 或名称/内容关键词筛选，同时提供时取交集。修改已有内容前先调用。', object('', {
     projectId,
-    layerIds: layerIds('可选图层 ID 列表；省略时读取所有匹配图层。'),
+    layerIds: layerIds('可选；省略时读取所有匹配图层。'),
     query: string('可选名称或内容关键词，不区分大小写；省略时不过滤，提供时不得为空白。')
   }, ['projectId'])),
-  tool('get_selected_layers', '读取当前选中图层的属性，包括图片来源、描述或提示词；视觉模型还会收到图片预览。用户输入有明确指代时使用。', noParameters),
+  tool('get_selected_layers', '读取当前选中图层的所有属性，视觉模型还会收到图片预览。用户输入有明确指代时使用。', noParameters),
   tool('add_layer', '在当前项目添加一个图层并选中；不会自动编组，多图层组合请使用 edit_layers。', object('新图层创建参数。', {
     projectId,
     type: enumeration('图层类型：text 为纯文本，svg 为矢量标记，image 为已有位图，decoration 为 CSS/HTML 装饰。', ['text', 'svg', 'image', 'decoration']),
@@ -119,6 +124,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: conditional(EDIT_LAYER_RULES, 'name', string('组名，不得为空白；省略为 Group。')),
     mode: conditional(EDIT_LAYER_RULES, 'mode', enumeration('align 仅允许 left/center/right（水平对齐）或 top/middle/bottom（垂直对齐）；distribute 仅允许 horizontal/vertical。', [...ALIGN_MODES, ...DISTRIBUTE_MODES]))
   }, ['projectId', 'action', 'layerIds'])),
+  // 画布与背景
   tool('update_canvas', '更新当前画布及背景。调整画布尺寸不会缩放已有图层。', object('画布与背景的部分更新；省略的字段保持不变。', {
     projectId,
     width: numeric('画布宽度（px）。', 10, 10000),
@@ -173,10 +179,6 @@ export function imageToolDefinitions(models: ImagePromptConfig[] = []): ToolDefi
     if (single) {
       delete next.modelConfigId;
       required = ['projectId', 'prompt'];
-      next.prompt = { ...properties.prompt, description: [
-        `生图提示词。${single.label}：${single.description}`,
-        `版本：${single.version?.trim() || '未提供'}；发布日期：${single.releasedAt || '未提供'}；生成等待超时：${imageTimeoutSeconds(single)} 秒`
-      ].join('\n\n') };
       const capabilities = imageCapabilities(single);
       next.size = { ...properties.size, description: `${properties.size.description} 默认值：${single.size}；${capabilities.exactSizeSupported ? '推荐尺寸' : '支持尺寸'}：${capabilities.sizes.join('、')}。` };
       if (!capabilities.ratios) delete next.ratio;

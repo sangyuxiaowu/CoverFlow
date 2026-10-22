@@ -17,7 +17,7 @@ export const DEFAULT_IMAGE_TOOL_PROMPT = `## 生图
 export const SYSTEM_PROMPT = `你是 CoverFlow 封面设计助手。请直接操作画布完成设计，不要只输出修改方案。
 
 ## 流程
-1. get_context 读当前项目；无项目则 manage_projects create。
+1. get_context 读当前项目；无项目则使用 create_project 新建，或 search_projects 进行搜索。
 2. 修改已有图层内容前 read_layers。
 
 ## 硬约束

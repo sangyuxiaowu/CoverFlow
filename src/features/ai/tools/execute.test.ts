@@ -7,7 +7,7 @@ import { executeTool } from './execute.ts';
 import { layerPatch, safeImage } from './validation.ts';
 import { IMAGE_TOOL_DEFINITIONS, TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from './definitions.ts';
 import { PRESET_RATIOS } from '../../../constants.ts';
-import { ALIGN_MODES, DISTRIBUTE_MODES, EDIT_LAYER_RULES, PROJECT_RULES, fieldUsage, parseEditLayersRequest, parseManageProjectsRequest } from './requests.ts';
+import { ALIGN_MODES, DISTRIBUTE_MODES, EDIT_LAYER_RULES, PROJECT_MANAGE_RULES, PROJECT_RULES, fieldUsage, parseEditLayersRequest, parseManageProjectsRequest } from './requests.ts';
 
 function setup(layers: ProjectState['layers'] = [], selectedLayerIds: string[] = []) {
   let current: ProjectState = { id: 'p1', title: 'Test', updatedAt: 0, selectedLayerId: null, layers, canvasConfig: { width: 800, height: 600, ratio: '4:3' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } };
@@ -46,6 +46,18 @@ test('dedicated tool provides cover size recommendations with and without an ope
   const definition = TOOL_DEFINITIONS.find(item => item.function.name === 'get_cover_size_recommendations');
   assert.ok(definition);
   assert.deepEqual(definition.function.parameters, { type: 'object', properties: {} });
+});
+
+test('project creation and search use dedicated tools and preserve bridge actions', async () => {
+  const { bridge, signal } = setup();
+  const requests: unknown[] = [];
+  const projectBridge = { ...bridge, manageProjects: async (args: unknown) => { requests.push(args); return args; } };
+  assert.deepEqual(await executeTool('create_project', { title: 'Cover', width: 900 }, projectBridge, signal), { title: 'Cover', width: 900, action: 'create' });
+  assert.deepEqual(await executeTool('search_projects', { query: 'Cover', page: 2 }, projectBridge, signal), { query: 'Cover', page: 2, action: 'list' });
+  assert.deepEqual(requests, [{ title: 'Cover', width: 900, action: 'create' }, { query: 'Cover', page: 2, action: 'list' }]);
+  await assert.rejects(executeTool('create_project', { action: 'delete', projectId: 'p1' }, projectBridge, signal), /unsupported field/);
+  await assert.rejects(executeTool('manage_projects', { action: 'create' }, projectBridge, signal), /Use create_project/);
+  await assert.rejects(executeTool('manage_projects', { action: 'list' }, projectBridge, signal), /search_projects/);
 });
 
 test('context exposes only common layer properties and preserves group relationships', async () => {
@@ -362,7 +374,7 @@ test('group uses a top-level name and alignment accepts its own modes', async ()
 });
 
 test('flat tool schemas and runtime action contracts stay aligned', () => {
-  for (const [name, rules] of [['edit_layers', EDIT_LAYER_RULES], ['manage_projects', PROJECT_RULES]] as const) {
+  for (const [name, rules] of [['edit_layers', EDIT_LAYER_RULES], ['manage_projects', PROJECT_MANAGE_RULES]] as const) {
     const schema = TOOL_DEFINITIONS.find(definition => definition.function.name === name)!.function.parameters;
     assert.equal(schema.type, 'object');
     assert.equal(schema.oneOf, undefined);
@@ -383,6 +395,10 @@ test('flat tool schemas and runtime action contracts stay aligned', () => {
       assert.deepEqual(fields.mode.enum, [...ALIGN_MODES, ...DISTRIBUTE_MODES]);
     }
   }
+  const create = TOOL_DEFINITIONS.find(definition => definition.function.name === 'create_project')!.function.parameters;
+  const search = TOOL_DEFINITIONS.find(definition => definition.function.name === 'search_projects')!.function.parameters;
+  assert.deepEqual(Object.keys(create.properties as object).sort(), ['height', 'title', 'width']);
+  assert.deepEqual(Object.keys(search.properties as object).sort(), ['page', 'pageSize', 'query']);
 });
 
 test('action parsers accept every valid action and reject every cross-action field', () => {

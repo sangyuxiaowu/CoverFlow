@@ -419,13 +419,13 @@ test.each([
   let count = 0;
   globalThis.fetch = async () => {
     count++;
-    return streamResponse(responsePayload(count === 1 ? [{ type: 'function_call', call_id: 'call', name: 'manage_projects', arguments: args }] : [textOutput]));
+    return streamResponse(responsePayload(count === 1 ? [{ type: 'function_call', call_id: 'call', name: 'search_projects', arguments: args }] : [textOutput]));
   };
   try {
     await runConversation({ config, input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: event => { tools.push(event); } });
     assert.equal(tools.length, 2);
-    assert.deepEqual(tools[0], { id: 'call', name: 'manage_projects', arguments: args, status: 'running', startedAt: tools[0].startedAt });
-    assert.deepEqual(tools[1], { id: 'call', name: 'manage_projects', arguments: args, status, result: tools[1].result, startedAt: tools[0].startedAt, durationMs: tools[1].durationMs });
+    assert.deepEqual(tools[0], { id: 'call', name: 'search_projects', arguments: args, status: 'running', startedAt: tools[0].startedAt });
+    assert.deepEqual(tools[1], { id: 'call', name: 'search_projects', arguments: args, status, result: tools[1].result, startedAt: tools[0].startedAt, durationMs: tools[1].durationMs });
     assert.ok(tools[1].result);
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -586,7 +586,7 @@ test('tool interruptions preserve the abort source and reason instead of claimin
       let requests = 0;
       globalThis.fetch = async () => {
         requests++;
-        return streamResponse(responsePayload([{ type: 'function_call', call_id: 'interrupted-call', name: 'manage_projects', arguments: '{"action":"list"}' }]));
+        return streamResponse(responsePayload([{ type: 'function_call', call_id: 'interrupted-call', name: 'search_projects', arguments: '{}' }]));
       };
       const interruptedBridge: WorkspaceBridge = { ...bridge, manageProjects: async () => { controller.abort(reason); throw reason; } };
       await assert.rejects(runConversation({ config, input: [], bridge: interruptedBridge, signal: controller.signal, onText: () => {}, onTool: event => tools.push(event), onHistory: input => { history = input; } }), error => error === reason);
@@ -611,7 +611,7 @@ test('user rejection pairs all pending tool calls without executing or retrying 
   let count = 0;
   let history: ResponseItem[] = [];
   const rejectingBridge = { ...bridge, manageProjects: async () => { throw new Error('User cancelled'); } };
-  globalThis.fetch = async () => { count++; return streamResponse(responsePayload(['first', 'second'].map(call_id => ({ type: 'function_call', call_id, name: 'manage_projects', arguments: '{"action":"list"}' })))); };
+  globalThis.fetch = async () => { count++; return streamResponse(responsePayload(['first', 'second'].map(call_id => ({ type: 'function_call', call_id, name: 'search_projects', arguments: '{}' })))); };
   try {
     const content = await runConversation({ config, input: [], bridge: rejectingBridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}, onHistory: input => { history = input; } });
     assert.equal(count, 1);

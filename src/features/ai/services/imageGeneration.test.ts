@@ -58,12 +58,13 @@ describe('image generation adapters', () => {
     const request = toRequestConfig(profiles);
     expect(request.imageToolModels![0]).toMatchObject({ version: model.version, releasedAt: model.releasedAt, timeoutSeconds: 270 });
     const properties = imageToolDefinitions(request.imageToolModels)[0].function.parameters.properties as Record<string, { description: string }>;
-    expect(properties.prompt.description).toContain('2.5 Flash custom');
-    expect(properties.prompt.description).toContain('2026-07-14');
-    expect(properties.prompt.description).toContain('270 秒');
+    expect(properties.prompt.description).toBe('生图提示词');
+    expect(properties.prompt.description).not.toContain('2026-07-14');
+    expect(properties.prompt.description).not.toContain('270 秒');
     const unknown = imageToolDefinitions([{ ...second, version: '', releasedAt: '' }])[0].function.parameters.properties as Record<string, { description: string }>;
-    expect(unknown.prompt.description).toContain('版本：未提供；发布日期：未提供');
-    expect(unknown.prompt.description).toContain('600 秒');
+    expect(unknown.prompt.description).toBe('生图提示词');
+    expect(unknown.prompt.description).not.toContain('版本：未提供');
+    expect(unknown.prompt.description).not.toContain('600 秒');
     expect(model.version).toBe('2.5 Flash custom');
     const mock = vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] }));
     vi.stubGlobal('fetch', mock);
@@ -91,7 +92,7 @@ describe('image generation adapters', () => {
     expect(single.map(tool => tool.function.name)).toEqual(['generate_image']);
     const parameters = single.find(tool => tool.function.name === 'generate_image')!.function.parameters;
     const properties = parameters.properties as Record<string, Record<string, unknown>>;
-    expect(properties.prompt.description).toContain(first.description);
+    expect(properties.prompt.description).toBe('生图提示词');
     expect(properties.prompt.description).not.toContain('[主体]');
     expect(properties.prompt.description).not.toContain('[改变要求]');
     expect(properties).not.toHaveProperty('modelConfigId');
@@ -695,7 +696,7 @@ describe('image tools and persistence', () => {
     expect(JSON.stringify(requests[0].tools)).toContain('generate_image');
     expect(JSON.stringify(requests[0].tools)).not.toContain('apply_image');
     expect(JSON.stringify(requests[0].tools)).not.toContain('list_image_models');
-    expect(JSON.stringify(requests[0].tools)).toContain(model.description);
+    expect(JSON.stringify(requests[0].tools)).not.toContain(model.description);
     expect(JSON.stringify(requests[0].tools)).not.toContain('[主体]');
     expect(JSON.stringify(requests[0].tools)).not.toContain('[改变要求]');
     expect(JSON.stringify(toRequestConfig(profiles).imageToolModels)).not.toContain('textPromptDescription');

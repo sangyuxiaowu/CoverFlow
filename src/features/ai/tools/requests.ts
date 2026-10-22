@@ -69,6 +69,14 @@ export const PROJECT_RULES = {
   save: { required: ['projectId'], optional: [] }
 } as const satisfies Record<string, { required: readonly (keyof ProjectFields)[]; optional: readonly (keyof ProjectFields)[] }>;
 
+export const PROJECT_MANAGE_RULES = {
+  open: PROJECT_RULES.open,
+  rename: PROJECT_RULES.rename,
+  duplicate: PROJECT_RULES.duplicate,
+  delete: PROJECT_RULES.delete,
+  save: PROJECT_RULES.save
+} as const;
+
 export type ManageProjectsRequest = RequestUnion<ProjectFields, typeof PROJECT_RULES>;
 
 export function fieldUsage(rules: Record<string, ActionRule>, field: string): string {

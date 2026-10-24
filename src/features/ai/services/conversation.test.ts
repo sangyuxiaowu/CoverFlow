@@ -204,6 +204,8 @@ test('custom prompts are not silently extended with visual capability instructio
     await runConversation({ config: requestConfig, input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}, onUsage: usage => { inputEstimate = usage.inputEstimate ?? 0; } });
     assert.equal(sentInstructions, requestConfig.systemPrompt);
     assert.deepEqual(sentTools, [...TOOL_DEFINITIONS, ...VISION_TOOL_DEFINITIONS].map(definition => ({ type: 'function', ...definition.function, strict: false })));
+    assert.doesNotMatch(JSON.stringify(sentTools), /"\$(?:defs|ref)"/);
+    assert.deepEqual(sentTools.filter(tool => (tool as { name: string }).name.startsWith('add_')).map(tool => (tool as { name: string }).name), ['add_layer']);
     assert.ok(sentTools.filter((tool: { name: string; parameters: unknown }) => ['get_context', 'get_cover_size_recommendations', 'get_selected_layers', 'get_canvas_preview'].includes(tool.name)).every(tool => JSON.stringify(tool.parameters) === JSON.stringify({ type: 'object', properties: {} })));
     assert.equal(inputEstimate, estimateInput([], requestConfig.systemPrompt, requestConfig.supportsVision));
     assert.ok(inputEstimate > estimateInput([], original));

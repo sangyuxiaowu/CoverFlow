@@ -52,12 +52,12 @@ export const LAYER_FIELD_GROUPS: Record<string, readonly (keyof Layer)[]> = {
 };
 
 export const LAYER_INFO_FIELDS: readonly (keyof Layer)[] = [
-  'name', 'x', 'y', 'width', 'height', 'rotation', 'zIndex', 'opacity', 'visible', 'locked', 'ratioLocked'
+  'x', 'y', 'width', 'height', 'rotation', 'zIndex', 'opacity', 'visible', 'locked', 'ratioLocked'
 ];
 
 export function layerDetails(layer: Layer): Record<string, unknown> {
   const groupedFields = new Set([...Object.values(LAYER_FIELD_GROUPS).flat(), ...LAYER_INFO_FIELDS, 'backgroundRemoved', 'children']);
-  const identity = Object.fromEntries(Object.entries(layer).filter(([field]) => ['id', 'type', 'parentId'].includes(field)));
+  const identity = Object.fromEntries(Object.entries(layer).filter(([field]) => ['id', 'name', 'type', 'parentId'].includes(field)));
   const layerInfo = Object.fromEntries(LAYER_INFO_FIELDS.filter(field => layer[field] !== undefined).map(field => [field, layer[field]]));
   const fields = layer.type === 'group' ? ['children'] : [...LAYER_FIELD_GROUPS[layer.type], ...(layer.type === 'image' ? ['backgroundRemoved'] : [])];
   const specific = Object.fromEntries(fields.filter(field => layer[field as keyof Layer] !== undefined).map(field => [field, layer[field as keyof Layer]]));

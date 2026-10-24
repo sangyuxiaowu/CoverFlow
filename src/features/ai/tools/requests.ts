@@ -5,12 +5,7 @@ import { choice, ids, layerPatch, number, record, text } from './validation.ts';
 export const ALIGN_MODES = ['left', 'center', 'right', 'top', 'middle', 'bottom'] as const;
 export const DISTRIBUTE_MODES = ['horizontal', 'vertical'] as const;
 export const REORDER_POSITIONS = ['front', 'back', 'forward', 'backward'] as const;
-export const ADD_LAYER_TOOLS = {
-  add_text_layer: 'text',
-  add_image_layer: 'image',
-  add_svg_layer: 'svg',
-  add_decoration_layer: 'decoration'
-} as const;
+export const ADD_LAYER_TYPES = ['text', 'image', 'svg', 'decoration'] as const;
 export const LAYER_TOOL_ACTIONS = {
   update_layers: 'update',
   delete_layers: 'delete',

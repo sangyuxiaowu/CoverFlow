@@ -84,15 +84,15 @@ chat/
 
 ## 工具能力
 
-工具采用分层 JSON Schema 描述：函数 `description` 只说明用途与整体行为；字段含义、单位、默认值、适用操作及内容限制写在对应参数的 `description` 中，包括嵌套属性、数组元素和联合类型分支。可执行约束用 `enum`、`required`、`minimum/maximum`、`minItems/maxItems` 等表达，执行器仍负责最终校验。创建图层使用 `add_text_layer`、`add_image_layer`、`add_svg_layer`、`add_decoration_layer`，不再传入 `type`；每个函数仅暴露对应的 `properties.text/image/svg/decoration` 分组并要求其 `content`，各组内容的格式与安全限制分别写在对应字段说明中；更新图层的 `properties` 则是部分字段补丁，组内 `content` 可省略。
+工具采用分层 JSON Schema 描述：函数 `description` 只说明用途与整体行为；字段含义、单位、默认值、适用操作及内容限制写在对应参数的 `description` 中，包括嵌套属性、数组元素和联合类型分支。可执行约束用 `enum`、`required`、`minimum/maximum`、`minItems/maxItems` 等表达，执行器仍负责最终校验。创建图层统一使用 `add_layer`，要求 `projectId`、`type` 和 `properties`；`type` 为 `text/image/svg/decoration`，必须提供对应的 `properties.<type>.content`，禁止提供其他类型的属性组。通用 `layerInfo` 与四类专属属性在同一个参数 Schema 中完整内联，不使用 `$defs/$ref`，以兼容不支持引用的远端。各组内容的格式与安全限制分别写在字段说明中。`update_layers.properties` 保持开放对象，不重复枚举字段，由创建/读取函数说明属性，运行时白名单负责校验；它仍是部分字段补丁，组内 `content` 可省略。
 
-图层函数与内部操作的映射、请求字段规则集中在 `tools/requests.ts`，独立函数的输入经白名单和必填校验后转换为内部可辨识动作联合类型，复用现有图层操作内核。对外不再注册或执行 `add_layer`、`edit_layers`，也不接受图层函数的 `action` 字段。项目新建和搜索分别由 `create_project`、`search_projects` 提供，不再作为 `manage_projects` 动作。为兼容自定义模型端点，对外保留扁平对象 Schema 与 `strict:false`，不发送顶层 `oneOf`、OpenAPI `discriminator` 或文档引用；条件约束由运行时执行，不依赖模型遵守说明。所有请求先校验再产生存储或界面副作用。
+图层函数与内部操作的映射、请求字段规则集中在 `tools/requests.ts`，独立函数的输入经白名单和必填校验后转换为内部可辨识动作联合类型，复用现有图层操作内核。对外不再注册或执行四个 `add_*_layer` 入口及 `edit_layers`，也不接受图层函数的 `action` 字段。项目新建和搜索分别由 `create_project`、`search_projects` 提供，不再作为 `manage_projects` 动作。为兼容自定义模型端点，对外保留对象 Schema 与 `strict:false`，不发送顶层 `oneOf`、`$defs/$ref` 或 OpenAPI `discriminator`。条件约束由运行时执行，不依赖模型遵守说明。所有请求先校验再产生存储或界面副作用。
 
 更新、组织和排列图层的函数均要求 `projectId` 和非空 `layerIds`；仅 `update_layers` 接受且必须提供非空 `properties`，它只更新属性，不负责编组、删除或排序，禁止提交 `zIndex`。仅 `group_layers` 接受顶层可选 `name`；`align_layers`、`distribute_layers` 必须提供各自允许的 `mode`；`reorder_layers` 必须提供 `position`。创建图层默认置顶，不接受 `zIndex`，后续排序统一使用 `reorder_layers`。`create_project` 的 `title/width/height` 可选；`search_projects` 的 `query/page/pageSize` 可选；`manage_projects` 只接受 `open/rename/duplicate/delete/save`，并要求 `projectId`。`rename.title` 必填，`duplicate.title` 可选，其余管理动作禁止。跨操作字段与未知字段均报错，不忽略。
 
-图层工具读写采用一致的属性分组：身份字段 `id/type/parentId` 在外层，通用属性统一位于 `layerInfo`（含名称、位置、尺寸、旋转、层级、透明度、显隐、锁定和比例锁定），类型专属属性分别位于 `text/image/svg/decoration`；组合子图层位于 `group.children`。新增时不允许设置 `zIndex`，更新时层级通过 `reorder_layers` 调整。内容位于对应类型分组的 `content`，不提供外层 `content`。例如新增文字调用 `add_text_layer`，使用 `properties: {layerInfo: {x: 52}, text: {content: "标题", fontSize: 78, color: "#fff6ea"}}`；更新通用属性也通过 `properties.layerInfo`，类型专属字段仍放对应分组。不接受扁平属性或与目标类型不符的分组；混合类型批量更新在提交前完整校验，不会部分生效。项目存储仍使用内部扁平 Layer，工具边界负责转换，不迁移历史项目。
+图层工具读写采用一致的属性分组：`name` 与身份字段 `id/type/parentId` 在外层，通用属性统一位于 `layerInfo`（含位置、尺寸、旋转、层级、透明度、显隐、锁定和比例锁定），类型专属属性分别位于 `text/image/svg/decoration`；组合子图层位于 `group.children`。新增时不允许设置 `zIndex`，更新时层级通过 `reorder_layers` 调整。内容位于对应类型分组的 `content`，不提供外层 `content`。例如新增文字调用 `add_layer`，传入 `type: "text"` 及 `properties: {name: "标题", layerInfo: {x: 52}, text: {content: "标题", fontSize: 78, color: "#fff6ea"}}`；更新时 `properties.name` 单独设置名称，其他通用属性通过 `properties.layerInfo`，类型专属字段仍放对应分组。不接受扁平属性或与目标类型不符的分组；混合类型批量更新在提交前完整校验，不会部分生效。项目存储仍使用内部扁平 Layer，工具边界负责转换，不迁移历史项目。
 
-`read_layers`、`get_selected_layers` 和 `get_context` 使用相同的通用属性 `layerInfo` 分组及类型专属分组；只读身份字段 `id/type/parentId` 保持外层，组合的子图层列表位于 `group.children`，组合不返回无意义的空内容。图片只读抠图标记位于 `image.backgroundRemoved`，选区图片的来源与预览状态位于 `image.imageInfo`；这些只读字段不可作为更新属性回传。`read_layers` 的内嵌图片占位位于 `image.content`；`get_selected_layers` 仍省略图片内容，视觉模型的图片预览机制不变。
+`read_layers`、`get_selected_layers` 和 `get_context` 将 `name` 与身份字段 `id/type/parentId` 放在外层；其余通用属性位于 `layerInfo`，类型专属属性位于各自分组。组合的子图层列表位于 `group.children`，组合不返回无意义的空内容。图片只读抠图标记位于 `image.backgroundRemoved`，选区图片的来源与预览状态位于 `image.imageInfo`；这些只读字段不可作为更新属性回传。`read_layers` 的内嵌图片占位位于 `image.content`；`get_selected_layers` 仍省略图片内容，视觉模型的图片预览机制不变。
 
 | 工具 | 功能 |
 | --- | --- |
@@ -101,10 +101,7 @@ chat/
 | search_projects | 按名称搜索项目并返回分页结果 |
 | manage_projects | open/rename/duplicate/delete/save |
 | read_layers | 按 ID 或名称/内容关键词读取图层 |
-| add_text_layer | 添加文字图层，例如标题 |
-| add_image_layer | 添加已有图片图层 |
-| add_svg_layer | 添加 SVG 图层 |
-| add_decoration_layer | 添加 CSS 声明或静态 HTML 装饰图层 |
+| add_layer | 按 type 添加文字、已有图片、SVG 或 CSS/HTML 装饰图层 |
 | update_layers | 仅更新图层属性，例如移动位置或修改图片 |
 | delete_layers / duplicate_layers | 删除或复制图层 |
 | group_layers / ungroup_layers | 编组或拆组 |

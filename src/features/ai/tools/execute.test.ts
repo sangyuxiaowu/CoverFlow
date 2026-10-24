@@ -7,7 +7,16 @@ import { executeTool } from './execute.ts';
 import { layerPatch, safeImage } from './validation.ts';
 import { IMAGE_TOOL_DEFINITIONS, TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from './definitions.ts';
 import { PRESET_RATIOS } from '../../../constants.ts';
-import { ADD_LAYER_TOOLS, ALIGN_MODES, DISTRIBUTE_MODES, EDIT_LAYER_RULES, LAYER_TOOL_ACTIONS, PROJECT_MANAGE_RULES, PROJECT_RULES, REORDER_POSITIONS, parseEditLayersRequest, parseLayerToolRequest, parseManageProjectsRequest } from './requests.ts';
+import { ADD_LAYER_TYPES, ALIGN_MODES, DISTRIBUTE_MODES, EDIT_LAYER_RULES, LAYER_TOOL_ACTIONS, PROJECT_MANAGE_RULES, PROJECT_RULES, REORDER_POSITIONS, parseEditLayersRequest, parseLayerToolRequest, parseManageProjectsRequest } from './requests.ts';
+
+test('add_layer uses an inline schema and creates the requested layer type', async () => {
+  const definitions = TOOL_DEFINITIONS.filter(item => item.function.name.startsWith('add_'));
+  assert.deepEqual(definitions.map(item => item.function.name), ['add_layer']);
+  assert.doesNotMatch(JSON.stringify(TOOL_DEFINITIONS), /"\$(?:defs|ref)"/);
+  const { bridge, signal } = setup();
+  await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { text: { content: 'Title' } } }, bridge, signal);
+  assert.equal(bridge.getProject()!.layers[0].type, 'text');
+});
 
 test('dedicated layer requests isolate updates, organization and ordering', () => {
   const target = { projectId: 'p1', layerIds: ['title'] };
@@ -42,7 +51,7 @@ test('every dedicated layer request rejects unrelated fields and requires its sc
 test('dedicated organization and layout tools preserve existing layer behavior', async () => {
   const { bridge, signal } = setup();
   for (const x of [0, 200, 600]) {
-    await executeTool('add_text_layer', { projectId: 'p1', properties: { layerInfo: { x, width: 100 }, text: { content: 'Title' } } }, bridge, signal);
+    await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { layerInfo: { x, width: 100 }, text: { content: 'Title' } } }, bridge, signal);
   }
   const layerIds = bridge.getProject()!.layers.map(layer => layer.id);
   await executeTool('distribute_layers', { projectId: 'p1', layerIds, mode: 'horizontal' }, bridge, signal);
@@ -71,14 +80,18 @@ test('removed entry points and cross-responsibility writes never commit', async 
   let commits = 0;
   const guarded = { ...bridge, commit: async () => { commits++; } };
   const names = TOOL_DEFINITIONS.map(item => item.function.name);
-  for (const name of ['add_layer', 'edit_layers']) {
+  for (const name of ['add_text_layer', 'add_image_layer', 'add_svg_layer', 'add_decoration_layer', 'edit_layers']) {
     assert.equal(names.includes(name), false);
     await assert.rejects(executeTool(name, { projectId: 'p1' }, guarded, signal), /Unknown tool/);
   }
-  for (const [name, type] of Object.entries(ADD_LAYER_TOOLS)) {
+  for (const type of ADD_LAYER_TYPES) {
     const properties = { [type]: { content: 'Title' } };
-    await assert.rejects(executeTool(name, { projectId: 'p1', type, properties }, guarded, signal), /unsupported field type/);
-    await assert.rejects(executeTool(name, { projectId: 'p1', properties: { ...properties, zIndex: 1 } }, guarded, signal), /reorder_layers/);
+    await assert.rejects(executeTool('add_layer', { projectId: 'p1', properties }, guarded, signal), /Invalid type/);
+    await assert.rejects(executeTool('add_layer', { projectId: 'p1', type, properties: { ...properties, zIndex: 1 } }, guarded, signal), /reorder_layers/);
+    await assert.rejects(executeTool('add_layer', { projectId: 'p1', type, action: 'create', properties }, guarded, signal), /unsupported field action/);
+  }
+  for (const type of ['group', 'unknown', null]) {
+    await assert.rejects(executeTool('add_layer', { projectId: 'p1', type, properties: {} }, guarded, signal), /Invalid type/);
   }
   for (const properties of [{ zIndex: 3 }, { parentId: 'group' }, { group: { children: ['a'] } }, { type: 'group' }]) {
     await assert.rejects(executeTool('update_layers', { projectId: 'p1', layerIds: ['a'], properties }, guarded, signal));
@@ -140,7 +153,7 @@ test('project creation and search use dedicated tools and preserve bridge action
 
 test('context exposes only common layer properties and preserves group relationships', async () => {
   const common = { x: 10, y: 20, width: 300, height: 200, rotation: 15, zIndex: 2, visible: true, locked: false, opacity: 0.8, ratioLocked: true };
-  const info = (name: string) => ({ ...common, name });
+  const info = () => common;
   const layers: ProjectState['layers'] = [
     { ...common, id: 'group', name: 'Group', type: 'group', content: '', children: ['text', 'decoration'] },
     { ...common, id: 'text', name: 'Title', type: 'text', content: 'Hello', parentId: 'group', fontSize: 64, fontFamily: 'sans-serif', fontWeight: 700, textAlign: 'center', color: '#fff' },
@@ -152,19 +165,19 @@ test('context exposes only common layer properties and preserves group relations
   const context = await executeTool('get_context', {}, bridge, signal) as { layers: Record<string, unknown>[]; selectedLayerIds: string[] };
   assert.deepEqual(context.selectedLayerIds, ['group']);
   assert.deepEqual(JSON.parse(JSON.stringify(context.layers)), [
-    { id: 'group', type: 'group', layerInfo: info('Group'), group: { children: ['text', 'decoration'] } },
-    { id: 'text', type: 'text', parentId: 'group', layerInfo: info('Title') },
-    { id: 'decoration', type: 'decoration', parentId: 'group', layerInfo: info('Decoration') },
-    { id: 'image', type: 'image', layerInfo: info('Photo') },
-    { id: 'svg', type: 'svg', layerInfo: info('Icon') }
+    { id: 'group', name: 'Group', type: 'group', layerInfo: info(), group: { children: ['text', 'decoration'] } },
+    { id: 'text', name: 'Title', type: 'text', parentId: 'group', layerInfo: info() },
+    { id: 'decoration', name: 'Decoration', type: 'decoration', parentId: 'group', layerInfo: info() },
+    { id: 'image', name: 'Photo', type: 'image', layerInfo: info() },
+    { id: 'svg', name: 'Icon', type: 'svg', layerInfo: info() }
   ]);
   const details = await executeTool('read_layers', { projectId: 'p1' }, bridge, signal);
   const expected = [
-    { id: 'group', type: 'group', layerInfo: info('Group'), group: { children: ['text', 'decoration'] } },
-    { id: 'text', type: 'text', parentId: 'group', layerInfo: info('Title'), text: { content: 'Hello', fontSize: 64, fontFamily: 'sans-serif', fontWeight: 700, textAlign: 'center', color: '#fff' } },
-    { id: 'decoration', type: 'decoration', parentId: 'group', layerInfo: info('Decoration'), decoration: { content: layers[2].content } },
-    { id: 'image', type: 'image', layerInfo: info('Photo'), image: { content: '[embedded image]', imageSource: 'upload', imageDescription: 'A photo', imageCrop: { x: 10, y: 10, width: 80, height: 80 }, backgroundRemoved: true } },
-    { id: 'svg', type: 'svg', layerInfo: info('Icon'), svg: { content: '<svg></svg>', color: '#000' } }
+    { id: 'group', name: 'Group', type: 'group', layerInfo: info(), group: { children: ['text', 'decoration'] } },
+    { id: 'text', name: 'Title', type: 'text', parentId: 'group', layerInfo: info(), text: { content: 'Hello', fontSize: 64, fontFamily: 'sans-serif', fontWeight: 700, textAlign: 'center', color: '#fff' } },
+    { id: 'decoration', name: 'Decoration', type: 'decoration', parentId: 'group', layerInfo: info(), decoration: { content: layers[2].content } },
+    { id: 'image', name: 'Photo', type: 'image', layerInfo: info(), image: { content: '[embedded image]', imageSource: 'upload', imageDescription: 'A photo', imageCrop: { x: 10, y: 10, width: 80, height: 80 }, backgroundRemoved: true } },
+    { id: 'svg', name: 'Icon', type: 'svg', layerInfo: info(), svg: { content: '<svg></svg>', color: '#000' } }
   ];
   assert.deepEqual(details, expected);
   const filtered = await executeTool('read_layers', { projectId: 'p1', layerIds: ['text', 'decoration'], query: 'Hello' }, bridge, signal);
@@ -224,58 +237,48 @@ test('tool schemas describe every parameter and nested field with valid required
       }
     }
   }
-  const add = TOOL_DEFINITIONS.find(definition => definition.function.name === 'add_decoration_layer')!.function;
+  const add = TOOL_DEFINITIONS.find(definition => definition.function.name === 'add_layer')!.function;
   const edit = TOOL_DEFINITIONS.find(definition => definition.function.name === 'update_layers')!.function;
   const canvas = TOOL_DEFINITIONS.find(definition => definition.function.name === 'update_canvas')!.function;
   const addProperties = (add.parameters.properties as Record<string, Record<string, unknown>>).properties;
   const editProperties = (edit.parameters.properties as Record<string, Record<string, unknown>>).properties;
-  const editLayerProperties = editProperties.properties as Record<string, Record<string, unknown>>;
-  const imageProperties = editLayerProperties.image.properties as Record<string, Record<string, unknown>>;
-  const textProperties = editLayerProperties.text.properties as Record<string, Record<string, unknown>>;
+  const updatePropertiesSchema = editProperties;
+  const updatePropertyFields = updatePropertiesSchema.properties as Record<string, unknown>;
+  const addLayerProperties = addProperties.properties as Record<string, Record<string, unknown>>;
+  const layerInfoDefinition = addLayerProperties.layerInfo;
+  const layerInfoProperties = layerInfoDefinition.properties as Record<string, Record<string, unknown>>;
+  const textProperties = addLayerProperties.text.properties as Record<string, Record<string, unknown>>;
+  const imageFields = addLayerProperties.image.properties as Record<string, Record<string, unknown>>;
+  const decorationFields = addLayerProperties.decoration.properties as Record<string, Record<string, unknown>>;
   const canvasProperties = canvas.parameters.properties as Record<string, Record<string, unknown>>;
   const backgroundProperties = (canvasProperties.background.properties as Record<string, Record<string, unknown>>);
   const overlayProperties = backgroundProperties.overlay.properties as Record<string, unknown>;
-  assert.deepEqual(addProperties.required, ['decoration']);
-  assert.equal(Object.hasOwn(editLayerProperties, 'content'), false);
-  const addLayerProperties = addProperties.properties as Record<string, Record<string, unknown>>;
+  assert.equal(Object.hasOwn(addProperties, 'required'), false);
+  assert.equal(updatePropertiesSchema.minProperties, 1);
+  assert.deepEqual(Object.keys(updatePropertyFields), []);
+  assert.match(String(updatePropertiesSchema.description), /add_layer/);
   assert.equal(Object.hasOwn(addLayerProperties, 'content'), false);
-  const layerInfoFields = ['name', 'x', 'y', 'width', 'height', 'rotation', 'opacity', 'visible', 'locked', 'ratioLocked'];
-  assert.deepEqual(Object.keys(addLayerProperties.layerInfo.properties as object), layerInfoFields);
-  assert.deepEqual(Object.keys(editLayerProperties.layerInfo.properties as object), layerInfoFields);
-  assert.equal(addLayerProperties.layerInfo.minProperties, 1);
-  assert.equal(editLayerProperties.layerInfo.minProperties, 1);
-  for (const type of ['image', 'text', 'svg', 'decoration']) {
-    const definition = TOOL_DEFINITIONS.find(item => item.function.name === `add_${type}_layer`)!.function;
-    assert.deepEqual(definition.parameters.required, ['projectId', 'properties']);
-    const parameters = definition.parameters.properties as Record<string, Record<string, unknown>>;
-    assert.equal('type' in parameters, false);
-    const properties = parameters.properties;
-    assert.deepEqual(properties.required, [type]);
-    const fields = properties.properties as Record<string, Record<string, unknown>>;
-    assert.ok(Object.hasOwn(fields, 'layerInfo'));
-    assert.deepEqual(fields[type].required, ['content']);
-    assert.deepEqual(Object.keys(fields).filter(field => ['image', 'text', 'svg', 'decoration'].includes(field)), [type]);
-    assert.equal('zIndex' in fields, false);
-    assert.equal(Object.hasOwn(editLayerProperties[type], 'required'), false);
-    assert.equal((editLayerProperties[type].properties as Record<string, Record<string, unknown>>).content.type, 'string');
+  const layerInfoFields = ['x', 'y', 'width', 'height', 'rotation', 'opacity', 'visible', 'locked', 'ratioLocked'];
+  assert.deepEqual(Object.keys(layerInfoProperties), layerInfoFields);
+  assert.equal(layerInfoDefinition.minProperties, 1);
+  assert.equal(Object.hasOwn(addLayerProperties, 'name'), true);
+  assert.deepEqual(add.parameters.required, ['projectId', 'type', 'properties']);
+  assert.deepEqual((add.parameters.properties as Record<string, Record<string, unknown>>).type.enum, [...ADD_LAYER_TYPES]);
+  assert.deepEqual(Object.keys(addLayerProperties), ['name', 'layerInfo', ...ADD_LAYER_TYPES]);
+  for (const type of ADD_LAYER_TYPES) {
+    assert.deepEqual(addLayerProperties[type].required, ['content']);
+    assert.equal((addLayerProperties[type].properties as Record<string, Record<string, unknown>>).content.type, 'string');
+    assert.match(String(addLayerProperties[type].description), new RegExp(`type 为 ${type} 时必填`));
   }
   assert.equal(Object.hasOwn(editProperties, 'required'), false);
-  assert.equal('zIndex' in editLayerProperties, false);
+  assert.equal('zIndex' in updatePropertyFields, false);
   assert.deepEqual(Object.keys(overlayProperties), ['type', 'color', 'opacity', 'scale']);
-  assert.deepEqual(Object.keys(editLayerProperties).filter(key => ['image', 'text', 'svg', 'decoration'].includes(key)), ['image', 'text', 'svg', 'decoration']);
-  assert.equal(editLayerProperties.image.minProperties, 1);
-  assert.equal(editLayerProperties.text.minProperties, 1);
-  assert.equal(imageProperties.imageFilters.minProperties, 1);
-  assert.equal(imageProperties.imageCrop.minProperties, 1);
-  assert.ok((editLayerProperties.image.description as string).includes('仅 image 图层'));
-  assert.ok((editLayerProperties.text.description as string).includes('仅 text 图层'));
-  assert.ok(!Object.hasOwn(editLayerProperties, 'fontSize'));
-  assert.ok(!Object.hasOwn(editLayerProperties, 'flipX'));
+  assert.equal(imageFields.imageFilters.minProperties, 1);
+  assert.equal(imageFields.imageCrop.minProperties, 1);
   assert.ok(Object.hasOwn(textProperties, 'fontSize'));
   assert.ok(Object.hasOwn(textProperties, 'color'));
-  assert.equal(Object.hasOwn(editLayerProperties, 'color'), false);
-  assert.deepEqual(Object.keys(editLayerProperties.svg.properties as object), ['content', 'color']);
-  assert.deepEqual(Object.keys(editLayerProperties.decoration.properties as object), ['content']);
+  assert.deepEqual(Object.keys(addLayerProperties.svg.properties as object), ['content', 'color']);
+  assert.deepEqual(Object.keys(decorationFields), ['content']);
   assert.equal(add.description.includes('6000'), false);
   assert.equal(add.description.includes('url()'), false);
   assert.ok((((addLayerProperties.decoration.properties as Record<string, Record<string, unknown>>).content).description as string).includes('6000'));
@@ -290,7 +293,7 @@ test('layer tools use matching type groups for input and output', async () => {
     ['image', { image: { content: 'https://example.com/photo.png', imageSource: 'upload', flipX: true } }]
   ];
   for (const [type, properties] of cases) {
-    await executeTool(`add_${type}_layer`, { projectId: 'p1', properties }, bridge, signal);
+    await executeTool('add_layer', { projectId: 'p1', type, properties }, bridge, signal);
     const layerId = bridge.getProject()!.selectedLayerId!;
     const [details] = await executeTool('read_layers', { projectId: 'p1', layerIds: [layerId] }, bridge, signal) as Record<string, unknown>[];
     assert.deepEqual(details[type], { ...(type === 'text' ? { fontFamily: 'Inter, sans-serif', fontWeight: 700, textAlign: 'left' } : type === 'image' ? { imageDescription: '' } : {}), ...properties[type] as object });
@@ -312,7 +315,7 @@ test('layer tools use matching type groups for input and output', async () => {
 
 test('text color, gradient and shadow update together under text without replacing unrelated fields', async () => {
   const { bridge, signal } = setup();
-  await executeTool('add_text_layer', { projectId: 'p1', properties: { text: { content: 'Keep title', fontFamily: 'serif' } } }, bridge, signal);
+  await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { text: { content: 'Keep title', fontFamily: 'serif' } } }, bridge, signal);
   const layerId = bridge.getProject()!.selectedLayerId!;
   const styles = {
     fontSize: 78, color: '#fff6ea', fontWeight: 500,
@@ -339,7 +342,7 @@ test('content belongs to each layer type for both writes and reads', async () =>
     ['decoration', 'background:red;', 'background:blue;']
   ];
   for (const [type, content, updated] of cases) {
-    await executeTool(`add_${type}_layer`, { projectId: 'p1', properties: { [type]: { content } } }, bridge, signal);
+    await executeTool('add_layer', { projectId: 'p1', type, properties: { [type]: { content } } }, bridge, signal);
     const id = bridge.getProject()!.selectedLayerId!;
     const [details] = await executeTool('read_layers', { projectId: 'p1', layerIds: [id] }, bridge, signal) as Record<string, unknown>[];
     assert.equal('content' in details, false);
@@ -349,15 +352,15 @@ test('content belongs to each layer type for both writes and reads', async () =>
     assert.equal((selected.layers[0][type] as { content?: string }).content, type === 'image' ? undefined : content);
     await executeTool('update_layers', { projectId: 'p1', layerIds: [id], properties: { [type]: { content: updated } } }, bridge, signal);
     assert.equal(bridge.getProject()!.layers.find(layer => layer.id === id)!.content, updated);
-    await assert.rejects(executeTool(`add_${type}_layer`, { projectId: 'p1', properties: { [type]: { color: '#fff' } } }, bridge, signal));
-    await assert.rejects(executeTool(`add_${type}_layer`, { projectId: 'p1', properties: { layerInfo: { width: 100 } } }, bridge, signal), new RegExp(`properties.${type}.content`));
+    await assert.rejects(executeTool('add_layer', { projectId: 'p1', type, properties: { [type]: { color: '#fff' } } }, bridge, signal));
+    await assert.rejects(executeTool('add_layer', { projectId: 'p1', type, properties: { layerInfo: { width: 100 } } }, bridge, signal), new RegExp(`properties.${type}.content`));
   }
   assert.throws(() => layerPatch({ content: 'Flat content' }), /content.*properties.text.content/);
 });
 
 test('tools read live state between consecutive edits', async () => {
   const { bridge, signal } = setup();
-  await executeTool('add_text_layer', { projectId: 'p1', properties: { text: { content: 'Hello', fontSize: 64 } } }, bridge, signal);
+  await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { text: { content: 'Hello', fontSize: 64 } } }, bridge, signal);
   const id = bridge.getProject()!.selectedLayerId!;
   assert.match(id, /^[0-9a-z]{9}$/);
   await executeTool('update_layers', { projectId: 'p1', layerIds: [id], properties: { text: { content: 'Updated' }, layerInfo: { opacity: 0.5 } } }, bridge, signal);
@@ -367,7 +370,7 @@ test('tools read live state between consecutive edits', async () => {
 
 test('stale project IDs, aborts and invalid fields never commit', async () => {
   const { bridge, signal } = setup();
-  await assert.rejects(executeTool('add_text_layer', { projectId: 'old', properties: { text: { content: 'Bad' } } }, bridge, signal), /changed/);
+  await assert.rejects(executeTool('add_layer', { projectId: 'old', type: 'text', properties: { text: { content: 'Bad' } } }, bridge, signal), /changed/);
   assert.throws(() => layerPatch({ id: 'overwrite' }), /Unsupported/);
   assert.throws(() => layerPatch({ layerInfo: { opacity: 2 } }), /Invalid/);
   assert.throws(() => layerPatch({ layerInfo: { width: Number.NaN } }), /Invalid/);
@@ -408,7 +411,7 @@ test('custom CSS backgrounds and HTML decorations use the shared validation', as
   assert.equal(bridge.getProject()!.background.overlayType, 'none');
   await assert.rejects(executeTool('update_canvas', { projectId: 'p1', background: { value: 'position:fixed;' } }, bridge, signal));
   const source = '<style>:root{--accent:#38bdf8}.badge{color:var(--accent)}</style><div class="badge">Hello</div>';
-  await executeTool('add_decoration_layer', { projectId: 'p1', properties: { decoration: { content: source } } }, bridge, signal);
+  await executeTool('add_layer', { projectId: 'p1', type: 'decoration', properties: { decoration: { content: source } } }, bridge, signal);
   const layer = bridge.getProject()!.layers[0];
   assert.equal(layer.content, source);
   assert.equal(layer.content, source);
@@ -420,12 +423,12 @@ test('custom CSS backgrounds and HTML decorations use the shared validation', as
 test('decoration color fields fail without committing while variable edits preserve alpha', async () => {
   const { bridge, signal } = setup();
   const content = '--accent: rgba(255,255,255,0.24); background: var(--accent);';
-  await assert.rejects(executeTool('add_decoration_layer', { projectId: 'p1', properties: { decoration: { content }, color: '#ff0000' } }, bridge, signal), /color.*text.*svg/);
-  await assert.rejects(executeTool('add_decoration_layer', { projectId: 'p1', properties: { decoration: { content }, text: { color: '#ff0000' } } }, bridge, signal), /only supported/);
+  await assert.rejects(executeTool('add_layer', { projectId: 'p1', type: 'decoration', properties: { decoration: { content }, color: '#ff0000' } }, bridge, signal), /color.*text.*svg/);
+  await assert.rejects(executeTool('add_layer', { projectId: 'p1', type: 'decoration', properties: { decoration: { content }, text: { color: '#ff0000' } } }, bridge, signal), /only supported/);
   assert.equal(bridge.getProject()!.layers.length, 0);
-  await executeTool('add_decoration_layer', { projectId: 'p1', properties: { decoration: { content } } }, bridge, signal);
+  await executeTool('add_layer', { projectId: 'p1', type: 'decoration', properties: { decoration: { content } } }, bridge, signal);
   const decorationId = bridge.getProject()!.selectedLayerId!;
-  await executeTool('add_text_layer', { projectId: 'p1', properties: { text: { content: 'Title', color: '#ffffff' } } }, bridge, signal);
+  await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { text: { content: 'Title', color: '#ffffff' } } }, bridge, signal);
   const textId = bridge.getProject()!.selectedLayerId!;
   await assert.rejects(executeTool('update_layers', { projectId: 'p1', layerIds: [decorationId, textId], properties: { text: { color: '#ff0000' } } }, bridge, signal), /only supported/);
   assert.equal(bridge.getProject()!.layers.find(layer => layer.id === textId)!.color, '#ffffff');
@@ -439,7 +442,7 @@ test('decoration color fields fail without committing while variable edits prese
 
 test('edit actions reject missing, empty and unrelated arguments without committing', async () => {
   const { bridge, signal } = setup();
-  await executeTool('add_text_layer', { projectId: 'p1', properties: { text: { content: 'Keep' } } }, bridge, signal);
+  await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { text: { content: 'Keep' } } }, bridge, signal);
   const before = structuredClone(bridge.getProject());
   const layerIds = [before!.layers[0].id];
   const invalid = [
@@ -466,7 +469,7 @@ test('edit actions reject missing, empty and unrelated arguments without committ
 
 test('group uses a top-level name and alignment accepts its own modes', async () => {
   const { bridge, signal } = setup();
-  for (const content of ['First', 'Second']) await executeTool('add_text_layer', { projectId: 'p1', properties: { text: { content } } }, bridge, signal);
+  for (const content of ['First', 'Second']) await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { text: { content } } }, bridge, signal);
   const layerIds = bridge.getProject()!.layers.map(layer => layer.id);
   await executeTool('group_layers', { projectId: 'p1', layerIds, name: 'Named group' }, bridge, signal);
   const group = bridge.getProject()!.layers.find(layer => layer.type === 'group')!;
@@ -540,7 +543,7 @@ test('action parsers accept every valid action and reject every cross-action fie
 
 test('forward and backward execute through the tool without extra parameters', async () => {
   const { bridge, signal } = setup();
-  for (const content of ['First', 'Second', 'Third']) await executeTool('add_text_layer', { projectId: 'p1', properties: { text: { content } } }, bridge, signal);
+  for (const content of ['First', 'Second', 'Third']) await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { text: { content } } }, bridge, signal);
   const [first, second, third] = bridge.getProject()!.layers.map(layer => layer.id);
   const args = { projectId: 'p1', layerIds: [first] };
   await executeTool('reorder_layers', { ...args, position: 'forward' }, bridge, signal);
@@ -555,7 +558,7 @@ test('forward and backward execute through the tool without extra parameters', a
 
 test('image source and description are editable, readable and restricted to image layers', async () => {
   const { bridge, signal } = setup();
-  await executeTool('add_image_layer', { projectId: 'p1', properties: { image: { content: 'https://example.com/photo.png', imageSource: 'upload', imageDescription: 'A user description' } } }, bridge, signal);
+  await executeTool('add_layer', { projectId: 'p1', type: 'image', properties: { image: { content: 'https://example.com/photo.png', imageSource: 'upload', imageDescription: 'A user description' } } }, bridge, signal);
   const id = bridge.getProject()!.selectedLayerId!;
   await executeTool('update_layers', { projectId: 'p1', layerIds: [id], properties: { image: { imageDescription: 'Revised description' } } }, bridge, signal);
   const selected = await executeTool('get_selected_layers', {}, { ...bridge, getSelection: () => [id] }, signal) as { layers: { image: { imageSource: string; imageDescription: string } }[]; images: unknown[] };
@@ -566,12 +569,12 @@ test('image source and description are editable, readable and restricted to imag
   assert.equal(saved.layers[0].imageDescription, 'Revised description');
   assert.throws(() => layerPatch({ image: { imageSource: 'x'.repeat(201) } }), /Invalid/);
   assert.throws(() => layerPatch({ image: { imageDescription: 'x'.repeat(10001) } }), /Invalid/);
-  await assert.rejects(executeTool('add_text_layer', { projectId: 'p1', properties: { text: { content: 'Text' }, image: { imageSource: 'upload' } } }, bridge, signal), /only supported/);
+  await assert.rejects(executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { text: { content: 'Text' }, image: { imageSource: 'upload' } } }, bridge, signal), /only supported/);
 });
 
 test('image layer flip, filters, and non-destructive crop are controllable via AI tools and restricted to image layers', async () => {
   const { bridge, signal } = setup();
-  await executeTool('add_image_layer', {
+  await executeTool('add_layer', { type: 'image',
     projectId: 'p1',
     properties: {
       layerInfo: { width: 400, height: 300 },
@@ -628,7 +631,7 @@ test('image layer flip, filters, and non-destructive crop are controllable via A
   assert.equal(layer.height, 600);
 
   // Reject image-only properties on non-image layers and out-of-bounds crop/filter values
-  await executeTool('add_text_layer', { projectId: 'p1', properties: { text: { content: 'Title' } } }, bridge, signal);
+  await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { text: { content: 'Title' } } }, bridge, signal);
   const textId = bridge.getProject()!.selectedLayerId!;
   await assert.rejects(executeTool('update_layers', { projectId: 'p1', layerIds: [textId], properties: { image: { flipX: true } } }, bridge, signal), /only supported/);
   await assert.rejects(executeTool('update_layers', { projectId: 'p1', layerIds: [textId], properties: { image: { imageFilters: { brightness: 110 } } } }, bridge, signal), /only supported/);
@@ -636,30 +639,33 @@ test('image layer flip, filters, and non-destructive crop are controllable via A
   assert.throws(() => layerPatch({ image: { imageFilters: {} } }), /Invalid imageFilters/);
   assert.throws(() => layerPatch({ image: { imageCrop: {} } }), /Invalid imageCrop/);
   assert.throws(() => layerPatch({ image: { imageCrop: { x: 60, width: 50 } } }), /exceed 100%/);
-  await assert.rejects(executeTool('add_image_layer', { projectId: 'p1', properties: { image: { content: 'https://example.com/other.png' }, text: { fontSize: 32 } } }, bridge, signal), /only supported on text layers/);
+  await assert.rejects(executeTool('add_layer', { projectId: 'p1', type: 'image', properties: { image: { content: 'https://example.com/other.png' }, text: { fontSize: 32 } } }, bridge, signal), /only supported on text layers/);
   await assert.rejects(executeTool('update_layers', { projectId: 'p1', layerIds: [id], properties: { text: { fontSize: 32 } } }, bridge, signal), /only supported on text layers/);
 });
 
 test('layerInfo groups common properties for create, update and reads', async () => {
   const { bridge, signal } = setup();
-  await executeTool('add_text_layer', {
+  await executeTool('add_layer', { type: 'text',
     projectId: 'p1',
     properties: {
-      layerInfo: { name: 'Heading', x: 24, y: 36, width: 420, opacity: 0.75 },
+      name: 'Heading',
+      layerInfo: { x: 24, y: 36, width: 420, opacity: 0.75 },
       text: { content: 'Title' }
     }
   }, bridge, signal);
   const layerId = bridge.getProject()!.selectedLayerId!;
   const read = async () => (await executeTool('read_layers', { projectId: 'p1', layerIds: [layerId] }, bridge, signal) as Record<string, unknown>[])[0];
+  assert.equal((await read()).name, 'Heading');
   assert.deepEqual((await read()).layerInfo, {
-    name: 'Heading', x: 24, y: 36, width: 420, height: 100, rotation: 0,
+    x: 24, y: 36, width: 420, height: 100, rotation: 0,
     zIndex: 1, visible: true, locked: false, opacity: 0.75
   });
   await executeTool('update_layers', {
     projectId: 'p1', layerIds: [layerId],
-    properties: { layerInfo: { x: 80, visible: false }, text: { color: '#fff' } }
+    properties: { name: 'New heading', layerInfo: { x: 80, visible: false }, text: { color: '#fff' } }
   }, bridge, signal);
   const updated = await read();
+  assert.equal(updated.name, 'New heading');
   assert.equal((updated.layerInfo as Record<string, unknown>).x, 80);
   assert.equal((updated.layerInfo as Record<string, unknown>).visible, false);
   assert.equal((updated.text as Record<string, unknown>).color, '#fff');

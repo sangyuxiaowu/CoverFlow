@@ -2,10 +2,10 @@ import type { Layer } from '../../../types.ts';
 import type { WorkspaceBridge } from '../types.ts';
 import { PRESET_RATIOS } from '../../../constants.ts';
 import { editLayers } from '../domain/layerOperations.ts';
-import { backgroundPatch, choice, ids, layerDetails, layerPatch, number, record, safeImage, text, validateContent, validateLayerGroups } from './validation.ts';
+import { backgroundPatch, ids, layerDetails, layerPatch, number, record, safeImage, text, validateContent, validateLayerGroups } from './validation.ts';
 import { sanitizeBackgroundCss } from '../../../utils/customContent.ts';
 import { hasActiveImageCrop, hasActiveImageFilters, normalizeImageCrop, normalizeImageFilters } from '../../../utils/imageLayer.ts';
-import { parseEditLayersRequest, parseManageProjectsRequest } from './requests.ts';
+import { ADD_LAYER_TOOLS, LAYER_TOOL_ACTIONS, parseLayerToolRequest, parseManageProjectsRequest } from './requests.ts';
 import { executeBackgroundRemovalTool } from './backgroundRemoval.ts';
 import { generateId } from '../../../utils/helpers.ts';
 
@@ -34,7 +34,7 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     background: { ...project.background, value: project.background.value.startsWith('data:') ? '[embedded image]' : project.background.value },
     selectedLayerIds: bridge.getSelection(),
     layers: project.layers.map(({ id, name, type, x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked, parentId, children }) => ({
-      id, name, type, x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked, parentId, ...(type === 'group' && children ? { group: { children } } : {})
+      id, type, parentId, layerInfo: { name, x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked }, ...(type === 'group' && children ? { group: { children } } : {})
     }))
   } : { projectId: null, message: '当前未打开项目。请区分修改和新建，然后使用 search_projects 查找已有项目或 create_project 新建项目；新建前建议调用 get_cover_size_recommendations 获取常见封面尺寸及适配建议。' };
   if (!project) throw new Error('No project open.');
@@ -78,8 +78,12 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     return project.layers.filter(layer => (!selected || selected.includes(layer.id)) && (!query || (layer.name + ' ' + layer.content).toLowerCase().includes(query))).map(layer => layerDetails({ ...layer, content: layer.content.startsWith('data:') ? '[embedded image]' : layer.content }));
   }
   let next = project;
-  if (name === 'add_layer') {
-    const type = choice(args.type, 'type', ['text', 'svg', 'image', 'decoration']);
+  if (Object.hasOwn(ADD_LAYER_TOOLS, name)) {
+    for (const field of Object.keys(args)) {
+      if (!['projectId', 'properties'].includes(field)) throw new Error(`${name}: unsupported field ${field}.`);
+    }
+    const type = ADD_LAYER_TOOLS[name as keyof typeof ADD_LAYER_TOOLS];
+    if (Object.hasOwn(record(args.properties), 'zIndex')) throw new Error(`${name}: unsupported field zIndex. Use reorder_layers after creation.`);
     const patch = layerPatch(args.properties);
     validateLayerGroups(args.properties, type);
     const content = validateContent(type, text(patch.content, `properties.${type}.content`));
@@ -97,8 +101,8 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
       }
     }
     next = { ...project, layers: [...project.layers, layer], selectedLayerId: layer.id };
-  } else if (name === 'edit_layers') {
-    const request = parseEditLayersRequest(args);
+  } else if (Object.hasOwn(LAYER_TOOL_ACTIONS, name)) {
+    const request = parseLayerToolRequest(name as keyof typeof LAYER_TOOL_ACTIONS, args);
     const { action, layerIds: selected } = request;
     const patch = request.action === 'update' ? request.properties : request.action === 'group' && request.name !== undefined ? { name: request.name } : {};
     if (action === 'update') selected.forEach(id => {

@@ -51,12 +51,17 @@ export const LAYER_FIELD_GROUPS: Record<string, readonly (keyof Layer)[]> = {
   decoration: ['content']
 };
 
+export const LAYER_INFO_FIELDS: readonly (keyof Layer)[] = [
+  'name', 'x', 'y', 'width', 'height', 'rotation', 'zIndex', 'opacity', 'visible', 'locked', 'ratioLocked'
+];
+
 export function layerDetails(layer: Layer): Record<string, unknown> {
-  const groupedFields = new Set([...Object.values(LAYER_FIELD_GROUPS).flat(), 'backgroundRemoved', 'children']);
-  const common = Object.fromEntries(Object.entries(layer).filter(([field]) => !groupedFields.has(field)));
+  const groupedFields = new Set([...Object.values(LAYER_FIELD_GROUPS).flat(), ...LAYER_INFO_FIELDS, 'backgroundRemoved', 'children']);
+  const identity = Object.fromEntries(Object.entries(layer).filter(([field]) => ['id', 'type', 'parentId'].includes(field)));
+  const layerInfo = Object.fromEntries(LAYER_INFO_FIELDS.filter(field => layer[field] !== undefined).map(field => [field, layer[field]]));
   const fields = layer.type === 'group' ? ['children'] : [...LAYER_FIELD_GROUPS[layer.type], ...(layer.type === 'image' ? ['backgroundRemoved'] : [])];
   const specific = Object.fromEntries(fields.filter(field => layer[field as keyof Layer] !== undefined).map(field => [field, layer[field as keyof Layer]]));
-  return { ...common, ...(Object.keys(specific).length ? { [layer.type]: specific } : {}) };
+  return { ...identity, layerInfo, ...(Object.keys(specific).length ? { [layer.type]: specific } : {}) };
 }
 
 export function validateLayerGroups(value: unknown, type: Layer['type']): void {
@@ -70,7 +75,16 @@ export function layerPatch(value: unknown): Partial<Layer> {
   const input = record(value);
   const fields: Record<string, unknown> = {};
   for (const [key, raw] of Object.entries(input)) {
-    if (Object.hasOwn(LAYER_FIELD_GROUPS, key)) {
+    if (key === 'layerInfo') {
+      const nested = record(raw);
+      const allowed = LAYER_INFO_FIELDS.filter(field => field !== 'zIndex') as readonly string[];
+      const keys = Object.keys(nested);
+      if (!keys.length) throw new Error('properties.layerInfo must contain at least one field.');
+      for (const field of keys) {
+        if (!allowed.includes(field)) throw new Error(`Unsupported properties.layerInfo.${field}; allowed fields: ${allowed.join(', ')}.`);
+        fields[field] = nested[field];
+      }
+    } else if (Object.hasOwn(LAYER_FIELD_GROUPS, key)) {
       const nested = record(raw);
       const allowed = LAYER_FIELD_GROUPS[key] as readonly string[];
       const keys = Object.keys(nested);
@@ -85,6 +99,7 @@ export function layerPatch(value: unknown): Partial<Layer> {
     } else {
       const groups = Object.entries(LAYER_FIELD_GROUPS).filter(([, group]) => (group as readonly string[]).includes(key)).map(([group]) => group);
       if (groups.length) throw new Error(`${key} must be nested under ${groups.map(group => `properties.${group}.${key}`).join(' or ')}.`);
+      if (LAYER_INFO_FIELDS.includes(key as keyof Layer)) throw new Error(`${key} must be nested under properties.layerInfo.${key}.`);
       fields[key] = raw;
     }
   }

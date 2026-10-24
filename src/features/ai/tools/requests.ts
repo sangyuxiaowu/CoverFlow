@@ -4,6 +4,23 @@ import { choice, ids, layerPatch, number, record, text } from './validation.ts';
 
 export const ALIGN_MODES = ['left', 'center', 'right', 'top', 'middle', 'bottom'] as const;
 export const DISTRIBUTE_MODES = ['horizontal', 'vertical'] as const;
+export const REORDER_POSITIONS = ['front', 'back', 'forward', 'backward'] as const;
+export const ADD_LAYER_TOOLS = {
+  add_text_layer: 'text',
+  add_image_layer: 'image',
+  add_svg_layer: 'svg',
+  add_decoration_layer: 'decoration'
+} as const;
+export const LAYER_TOOL_ACTIONS = {
+  update_layers: 'update',
+  delete_layers: 'delete',
+  duplicate_layers: 'duplicate',
+  group_layers: 'group',
+  ungroup_layers: 'ungroup',
+  reorder_layers: 'front',
+  align_layers: 'align',
+  distribute_layers: 'distribute'
+} as const;
 
 export type LayerUpdateProperties = Partial<Pick<Layer,
   'name' | 'content' | 'color' | 'fontFamily' | 'fontWeight' | 'x' | 'y' | 'width' | 'height' |
@@ -112,6 +129,19 @@ export function parseEditLayersRequest(input: unknown): EditLayersRequest {
     mode: value => choice(value, 'mode', record(input).action === 'align' ? ALIGN_MODES : DISTRIBUTE_MODES)
   });
   return args as EditLayersRequest;
+}
+
+export function parseLayerToolRequest(name: keyof typeof LAYER_TOOL_ACTIONS, input: unknown): EditLayersRequest {
+  const args = record(input);
+  if (Object.hasOwn(args, 'action')) throw new Error(`${name}: unsupported field action.`);
+  if (name === 'update_layers' && Object.hasOwn(record(args.properties), 'zIndex')) {
+    throw new Error('update_layers: unsupported field zIndex. Use reorder_layers.');
+  }
+  if (name === 'reorder_layers') {
+    const { position, ...rest } = args;
+    return parseEditLayersRequest({ ...rest, action: choice(position, 'position', REORDER_POSITIONS) });
+  }
+  return parseEditLayersRequest({ ...args, action: LAYER_TOOL_ACTIONS[name] });
 }
 
 export function parseManageProjectsRequest(input: unknown): ManageProjectsRequest {

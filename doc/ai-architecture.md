@@ -84,15 +84,15 @@ chat/
 
 ## 工具能力
 
-工具采用分层 JSON Schema 描述：函数 `description` 只说明用途与整体行为；字段含义、单位、默认值、适用操作及内容限制写在对应参数的 `description` 中，包括嵌套属性、数组元素和联合类型分支。可执行约束用 `enum`、`required`、`minimum/maximum`、`minItems/maxItems` 等表达，执行器仍负责最终校验。新增图层必须提供与 `type` 一致的 `properties.text/image/svg/decoration` 分组及其 `content`，各组内容的格式与安全限制分别写在对应字段说明中；更新图层的 `properties` 则是部分字段补丁，组内 `content` 可省略。
+工具采用分层 JSON Schema 描述：函数 `description` 只说明用途与整体行为；字段含义、单位、默认值、适用操作及内容限制写在对应参数的 `description` 中，包括嵌套属性、数组元素和联合类型分支。可执行约束用 `enum`、`required`、`minimum/maximum`、`minItems/maxItems` 等表达，执行器仍负责最终校验。创建图层使用 `add_text_layer`、`add_image_layer`、`add_svg_layer`、`add_decoration_layer`，不再传入 `type`；每个函数仅暴露对应的 `properties.text/image/svg/decoration` 分组并要求其 `content`，各组内容的格式与安全限制分别写在对应字段说明中；更新图层的 `properties` 则是部分字段补丁，组内 `content` 可省略。
 
-`edit_layers` 与 `manage_projects` 的动作字段规则集中在 `tools/requests.ts`，用于派生 TypeScript 可辨识联合类型、校验必填/白名单字段，并生成工具参数的条件说明。项目新建和搜索分别由 `create_project`、`search_projects` 提供，不再作为 `manage_projects` 动作。为兼容自定义模型端点，对外保留扁平对象 Schema 与 `strict:false`，不发送顶层 `oneOf`、OpenAPI `discriminator` 或文档引用；条件约束由运行时执行，不依赖模型遵守说明。所有请求先校验再产生存储或界面副作用。
+图层函数与内部操作的映射、请求字段规则集中在 `tools/requests.ts`，独立函数的输入经白名单和必填校验后转换为内部可辨识动作联合类型，复用现有图层操作内核。对外不再注册或执行 `add_layer`、`edit_layers`，也不接受图层函数的 `action` 字段。项目新建和搜索分别由 `create_project`、`search_projects` 提供，不再作为 `manage_projects` 动作。为兼容自定义模型端点，对外保留扁平对象 Schema 与 `strict:false`，不发送顶层 `oneOf`、OpenAPI `discriminator` 或文档引用；条件约束由运行时执行，不依赖模型遵守说明。所有请求先校验再产生存储或界面副作用。
 
-`edit_layers` 每个动作均要求 `projectId` 和非空 `layerIds`；仅 `update` 接受且必须提供非空 `properties`，仅 `group` 接受顶层可选 `name`，仅 `align/distribute` 接受且必须提供各自动作允许的 `mode`。不再接受通过 `group.properties.name` 命名组。`create_project` 的 `title/width/height` 可选；`search_projects` 的 `query/page/pageSize` 可选；`manage_projects` 只接受 `open/rename/duplicate/delete/save`，并要求 `projectId`。`rename.title` 必填，`duplicate.title` 可选，其余管理动作禁止。跨动作字段与未知字段均报错，不忽略。
+更新、组织和排列图层的函数均要求 `projectId` 和非空 `layerIds`；仅 `update_layers` 接受且必须提供非空 `properties`，它只更新属性，不负责编组、删除或排序，禁止提交 `zIndex`。仅 `group_layers` 接受顶层可选 `name`；`align_layers`、`distribute_layers` 必须提供各自允许的 `mode`；`reorder_layers` 必须提供 `position`。创建图层默认置顶，不接受 `zIndex`，后续排序统一使用 `reorder_layers`。`create_project` 的 `title/width/height` 可选；`search_projects` 的 `query/page/pageSize` 可选；`manage_projects` 只接受 `open/rename/duplicate/delete/save`，并要求 `projectId`。`rename.title` 必填，`duplicate.title` 可选，其余管理动作禁止。跨操作字段与未知字段均报错，不忽略。
 
-图层工具读写采用一致的类型分组，外层仅保留 `name/x/y/width/height/rotation/zIndex/opacity/visible/locked/ratioLocked` 等通用字段。内容分别位于 `text.content/image.content/svg.content/decoration.content`，不再提供外层 `content`。文字专属属性（含主色）位于 `text`，SVG 主色位于 `svg.color`，图片来源、描述、翻转、滤镜和裁剪位于 `image`；装饰仅提供完整 `content`，并根据内容自动识别 CSS 声明或静态 HTML。例如新增文字使用 `properties: {x: 52, text: {content: "标题", fontSize: 78, color: "#fff6ea"}}`。不接受扁平专属字段或与目标类型不符的分组；混合类型批量更新在提交前完整校验，不会部分生效。项目存储仍使用内部扁平 Layer，工具边界负责转换，不迁移历史项目。
+图层工具读写采用一致的属性分组：身份字段 `id/type/parentId` 在外层，通用属性统一位于 `layerInfo`（含名称、位置、尺寸、旋转、层级、透明度、显隐、锁定和比例锁定），类型专属属性分别位于 `text/image/svg/decoration`；组合子图层位于 `group.children`。新增时不允许设置 `zIndex`，更新时层级通过 `reorder_layers` 调整。内容位于对应类型分组的 `content`，不提供外层 `content`。例如新增文字调用 `add_text_layer`，使用 `properties: {layerInfo: {x: 52}, text: {content: "标题", fontSize: 78, color: "#fff6ea"}}`；更新通用属性也通过 `properties.layerInfo`，类型专属字段仍放对应分组。不接受扁平属性或与目标类型不符的分组；混合类型批量更新在提交前完整校验，不会部分生效。项目存储仍使用内部扁平 Layer，工具边界负责转换，不迁移历史项目。
 
-`read_layers` 和 `get_selected_layers` 的图层使用相同分组；`get_context` 只返回公共摘要与关系。只读身份字段 `id/type/parentId` 保持外层，组合的子图层列表位于 `group.children`，组合不返回无意义的空内容。图片只读抠图标记位于 `image.backgroundRemoved`，选区图片的来源与预览状态位于 `image.imageInfo`；这些只读字段不可作为更新属性回传。`read_layers` 的内嵌图片占位位于 `image.content`；`get_selected_layers` 仍省略图片内容，视觉模型的图片预览机制不变。
+`read_layers`、`get_selected_layers` 和 `get_context` 使用相同的通用属性 `layerInfo` 分组及类型专属分组；只读身份字段 `id/type/parentId` 保持外层，组合的子图层列表位于 `group.children`，组合不返回无意义的空内容。图片只读抠图标记位于 `image.backgroundRemoved`，选区图片的来源与预览状态位于 `image.imageInfo`；这些只读字段不可作为更新属性回传。`read_layers` 的内嵌图片占位位于 `image.content`；`get_selected_layers` 仍省略图片内容，视觉模型的图片预览机制不变。
 
 | 工具 | 功能 |
 | --- | --- |
@@ -101,8 +101,15 @@ chat/
 | search_projects | 按名称搜索项目并返回分页结果 |
 | manage_projects | open/rename/duplicate/delete/save |
 | read_layers | 按 ID 或名称/内容关键词读取图层 |
-| add_layer | text/svg/image/decoration；装饰支持 CSS 声明或静态 HTML |
-| edit_layers | update/delete/duplicate/group/ungroup/front/back/forward/backward/align/distribute |
+| add_text_layer | 添加文字图层，例如标题 |
+| add_image_layer | 添加已有图片图层 |
+| add_svg_layer | 添加 SVG 图层 |
+| add_decoration_layer | 添加 CSS 声明或静态 HTML 装饰图层 |
+| update_layers | 仅更新图层属性，例如移动位置或修改图片 |
+| delete_layers / duplicate_layers | 删除或复制图层 |
+| group_layers / ungroup_layers | 编组或拆组 |
+| reorder_layers | 按 position 调整堆叠顺序 |
+| align_layers / distribute_layers | 按 mode 对齐画布或等间距分布 |
 | update_canvas | 画布尺寸及纯色/渐变/图片/自定义 CSS 背景、纹理 |
 | list_image_models | 多模型时读取当前启用模型的介绍、版本及参数能力 |
 | generate_image | 文生图或单图参考生图，成功后自动添加图层并返回图层 ID |
@@ -122,14 +129,14 @@ chat/
 - 整轮中止与重试授权分开处理。停止、关闭面板、切换聊天存储、卸载或重新加载助手分别通过 `ConversationAbortError` 标记为 `user_stop`、`panel_closed`、`storage_changed`、`assistant_disposed`。工具结果及持久化历史保留 `abortSource` 和 `reason`；未标记的外部中止记为 `unknown`，不推断用户操作。界面显示对应的中止原因，不再统一声称缺少重试批准。旧历史没有中止来源时无法事后恢复原因；这些变更不自动修复尚未定位的意外中止。
 - 无可用模型时不注册生图工具；模型列表只暴露启用且配置有效的条目。执行前重新检查最新启用状态，旧对话中的模型 ID 不能绕过禁用。配置、Key、请求地址不会作为工具结果返回。
 - 单图参考仅接受当前会话图片资源 ID，或带当前项目 ID 的图片图层 ID。两者互斥，禁止多图参数及未知字段。上传参考图和预览保留现有 WebP 处理；生成结果按接口返回的 PNG/JPEG/WebP 原始字节、格式和分辨率保存，不重新编码，限制为 25 MB、6400 万像素。文件模式使用对应的 .png/.jpg/.webp 扩展名，读取时恢复正确 MIME，清理覆盖全部三种格式。
-- 生成前必须提供当前 `projectId`；生成成功后保存会话图片，并通过实时工作区桥接自动添加等比适配、居中的 image 图层，返回 layerId、imageId 和位置尺寸，不回传 Base64。不再提供 `apply_image`；作为背景时使用现有 `edit_layers` 置底、调整和锁定。图片嵌入项目，不依赖会话存续，也不放宽文本工具的长度限制。等待期间切换项目或放置失败时，保留已保存图片并明确报告失败，禁止自动重新生成。
+- 生成前必须提供当前 `projectId`；生成成功后保存会话图片，并通过实时工作区桥接自动添加等比适配、居中的 image 图层，返回 layerId、imageId 和位置尺寸，不回传 Base64。不再提供 `apply_image`；作为背景时使用 `reorder_layers` 置底，再用 `update_layers` 调整和锁定。图片嵌入项目，不依赖会话存续，也不放宽文本工具的长度限制。等待期间切换项目或放置失败时，保留已保存图片并明确报告失败，禁止自动重新生成。
 - 所有请求直接由浏览器发送，生图接口及图片下载地址须允许 CORS。当前启停是本地配置，不是服务端管理员权限控制。
 
-图层更新支持位置、宽高、旋转、层级、透明度、锁定、显隐、比例锁定、名称、内容、文字颜色/字体/字号/字重/对齐/书写方向/渐变/阴影。结构字段 id/type/parentId/children 不允许直接修改，分组操作负责维护关系。不允许嵌套分组。组合图层变换传递到子图层，子图层变化会刷新组合边界。App 手动图层更新和 AI 更新共用 updateProjectLayer，保持变换规则一致。
+图层更新支持位置、宽高、旋转、透明度、锁定、显隐、比例锁定、名称、内容、文字颜色/字体/字号/字重/对齐/书写方向/渐变/阴影。层级统一通过排序函数调整。结构字段 id/type/parentId/children 不允许直接修改，分组操作负责维护关系。不允许嵌套分组。组合图层变换传递到子图层，子图层变化会刷新组合边界。App 手动图层更新和 AI 更新共用 updateProjectLayer，保持变换规则一致。
 
-层级微调使用 `edit_layers` 的 `action: forward/backward`，分别上移/下移一层，仅需 `projectId` 和 `layerIds`，不接受 `properties/mode/name`。按实际堆叠顺序跨过相邻的一个未选中图层，不是简单增减 `zIndex`；多选保持相对顺序，到达顶层/底层不再移动。选中组合时包含子图层，沿用现有锁定校验；`front/back` 仍表示直接置顶/置底。
+层级微调使用 `reorder_layers` 的 `position: forward/backward`，分别上移/下移一层，同时提供 `projectId` 和 `layerIds`，不接受 `properties/mode/name/action`。按实际堆叠顺序跨过相邻的一个未选中图层，不是简单增减 `zIndex`；多选保持相对顺序，到达顶层/底层不再移动。选中组合时包含子图层，沿用现有锁定校验；`position: front/back` 表示直接置顶/置底。
 
-装饰只通过 `decoration.content` 读写，CSS/HTML 格式由内容自动识别，不保存或接受格式字段。调色前通过 `read_layers` 读取源码，再用 `edit_layers/update` 更新相应 CSS 变量，保留其他样式和 alpha；装饰没有主色字段，避免无效调色返回成功。文字与 SVG 分别使用 `text.color` 和 `svg.color`。变量颜色支持 HEX（含透明度）、RGB/RGBA、HSL/HSLA、OKLCH 与命名颜色，人工拾色器不是 AI 操作目标，不需要新增界面控制工具。背景自定义 CSS 使用 `background: {type: css, value: 声明文本}`，不支持 HTML 背景。
+装饰只通过 `decoration.content` 读写，CSS/HTML 格式由内容自动识别，不保存或接受格式字段。调色前通过 `read_layers` 读取源码，再用 `update_layers` 更新相应 CSS 变量，保留其他样式和 alpha；装饰没有主色字段，避免无效调色返回成功。文字与 SVG 分别使用 `text.color` 和 `svg.color`。变量颜色支持 HEX（含透明度）、RGB/RGBA、HSL/HSLA、OKLCH 与命名颜色，人工拾色器不是 AI 操作目标，不需要新增界面控制工具。背景自定义 CSS 使用 `background: {type: css, value: 声明文本}`，不支持 HTML 背景。
 
 ## 安全边界
 

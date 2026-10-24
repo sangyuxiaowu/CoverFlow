@@ -584,8 +584,8 @@ describe('image tools and persistence', () => {
     await executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal);
     expect(getProject().layers[0].content.length).toBeGreaterThan(200000);
     const layerId = getProject().layers[0].id;
-    await executeTool('edit_layers', { projectId: 'project', action: 'back', layerIds: [layerId] }, context.bridge, new AbortController().signal);
-    await executeTool('edit_layers', { projectId: 'project', action: 'update', layerIds: [layerId], properties: { locked: true } }, context.bridge, new AbortController().signal);
+    await executeTool('reorder_layers', { projectId: 'project', position: 'back', layerIds: [layerId] }, context.bridge, new AbortController().signal);
+    await executeTool('update_layers', { projectId: 'project', layerIds: [layerId], properties: { layerInfo: { locked: true } } }, context.bridge, new AbortController().signal);
     expect(getProject().layers[0].locked).toBe(true);
     expect(getProject().background.type).toBe('color');
   });

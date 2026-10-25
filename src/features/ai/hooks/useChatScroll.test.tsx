@@ -267,9 +267,13 @@ it('keeps manual scrolling active in history without following it or changing th
       scrollHeight: { get: () => height }, clientHeight: { value: 200 },
       scrollTop: { get: () => top, set: (value: number) => { top = Math.max(0, Math.min(value, height - 200)); } }
     });
+    flushFrames();
+    expect(top).toBe(800);
+    notify();
     expect(frames.size).toBe(1);
     await act(async () => { root.render(<Harness history />); });
     expect(frames.size).toBe(0);
+    expect(top).toBe(0);
     const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 300 });
     await act(async () => { element.dispatchEvent(wheel); element.dispatchEvent(new Event('scroll')); });
     expect(wheel.defaultPrevented).toBe(true);
@@ -287,6 +291,7 @@ it('keeps manual scrolling active in history without following it or changing th
     });
     expect(top).toBe(1000);
     await act(async () => { root.render(<Harness history />); });
+    expect(top).toBe(0);
     await act(async () => {
       element.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 1000 }));
       element.dispatchEvent(new Event('scroll'));
@@ -295,6 +300,6 @@ it('keeps manual scrolling active in history without following it or changing th
     await act(async () => { root.render(<Harness />); });
     notify();
     flushFrames();
-    expect(top).toBe(1200);
+    expect(top).toBe(1000);
   } finally { await act(async () => root.unmount()); }
 });

@@ -47,7 +47,10 @@ export function useChatScroll(sessionId: string | null, visible: boolean, autoFo
   useLayoutEffect(resetScroll, [sessionId]);
   useLayoutEffect(() => {
     if (visible && autoFollow) scheduleScroll();
-    else cancelScroll();
+    else {
+      cancelScroll();
+      if (visible) scrollManually(0);
+    }
   }, [visible, autoFollow]);
 
   useLayoutEffect(() => {

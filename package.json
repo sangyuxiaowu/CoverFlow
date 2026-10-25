@@ -12,7 +12,7 @@
     "build:cloud": "vite build --mode cloud",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "prebuild:tauri": "node scripts/sync-tauri-version.cjs && npx tauri icon --output src-tauri/icons doc/app.svg",
+    "prebuild:tauri": "node scripts/sync-tauri-version.cjs && node node_modules/@tauri-apps/cli/tauri.js icon --output src-tauri/icons doc/app.svg",
     "build:tauri": "tauri build",
     "release": "node scripts/release.cjs",
     "preview": "vite preview",

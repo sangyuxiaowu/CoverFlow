@@ -191,6 +191,29 @@ describe('HTML decorations', () => {
     expect(sanitizeDecorationContent('background: u\\72l(https://evil.test);').issues.length).toBeGreaterThan(0);
     expect(sanitizeDecorationHtml('<style>.x{background:i\\6d age-set("https://evil.test" 1x)}</style><div class="x"></div>').issues.length).toBeGreaterThan(0);
   });
+  it('unwraps a leading root variable block and preserves trailing gradient declarations', () => {
+    const source = ':root { --glow: rgba(139,92,246,0.55); --glow2: rgba(56,189,248,0.18); } background: radial-gradient(circle at 79% 34%, var(--glow) 0%, rgba(139,92,246,0) 55%), radial-gradient(circle at 22% 108%, var(--glow2) 0%, rgba(56,189,248,0) 52%);';
+    const result = sanitizeDecorationContent(source);
+    expect(result.issues).toEqual([]);
+    expect(result.cssText).not.toMatch(/:root|[{}]/);
+    expect(result.cssText).toContain('--glow:');
+    expect(result.style.background).toContain('var(--glow2)');
+    expect(sanitizeDecorationContent(result.cssText)).toEqual(result);
+    expect(sanitizeDecorationContent(':root { --accent: red; }').issues).toEqual([]);
+  });
+  it('does not unwrap other selectors, nested rules, unsafe variables or malformed root blocks', () => {
+    for (const source of [
+      '.card { --accent: red; } background: var(--accent);',
+      ':root, .card { --accent: red; }',
+      ':root { background: red; }',
+      ':root { .card { color: red; } }',
+      ':root { --accent: red;',
+      ':root { --image: url(https://example.com/a.png); } background: var(--image);',
+      ':root { --accent: red; } @import "evil.css";'
+    ]) {
+      expect(sanitizeDecorationContent(source).issues.length).toBeGreaterThan(0);
+    }
+  });
   it('uses source variables without injecting a fixed layer color', () => {
     const source = '--accent: #ef476f; background: var(--accent);';
     const style = buildDecorationLayerStyle(source) as Record<string, string>;

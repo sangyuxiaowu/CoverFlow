@@ -64,7 +64,44 @@ const cleanDeclarations = (source: string, backgroundOnly: boolean): CustomConte
   }
 };
 
-export const sanitizeStaticCss = (source: string) => cleanDeclarations(source, false);
+const unwrapRootVariables = (source: string): string => {
+  if (!/^\s*:root\s*\{/i.test(source)) return source;
+  let depth = 0;
+  let bodyStart = -1;
+  let boundary = -1;
+  csstree.tokenize(source, (type, _start, end) => {
+    if (boundary !== -1) return;
+    if (type === csstree.tokenTypes.LeftCurlyBracket) {
+      if (depth === 0) bodyStart = end;
+      depth++;
+    }
+    if (type === csstree.tokenTypes.RightCurlyBracket && --depth === 0) boundary = end;
+  });
+  if (boundary === -1) throw new Error('Unclosed :root block.');
+  const rule = csstree.parse(source.slice(0, boundary), {
+    context: 'rule',
+    parseCustomProperty: true,
+    onParseError: (error) => { throw error; }
+  });
+  if (rule.type !== 'Rule' || !rule.prelude || csstree.generate(rule.prelude).toLowerCase() !== ':root') {
+    throw new Error('Only a standalone :root variable block can be unwrapped.');
+  }
+  const declarations = rule.block.children.toArray();
+  if (declarations.some((node) => node.type !== 'Declaration' || !node.property.startsWith('--'))) {
+    throw new Error('The :root block may only contain CSS variables.');
+  }
+  return `${source.slice(bodyStart, boundary - 1)};${source.slice(boundary)}`;
+};
+
+export const sanitizeStaticCss = (source: string): CustomContentResult => {
+  try {
+    const normalized = unwrapRootVariables(source);
+    const result = cleanDeclarations(normalized, false);
+    return result.issues.length ? result : { source: normalized, issues: [] };
+  } catch (error) {
+    return { source: '', issues: [error instanceof Error ? error.message : 'Invalid CSS.'] };
+  }
+};
 
 export const sanitizeBackgroundCss = (source: string): CustomContentResult => {
   if (!source.trim()) return { source: '', issues: ['CSS is empty.'] };

@@ -183,7 +183,7 @@ export const formatDecorationCssForEditor = (cssText: string) => {
 };
 
 export const sanitizeDecorationCss = (cssText: string): DecorationSanitizeResult => {
-  const trimmed = compactDecorationCssForStorage(cssText).trim();
+  let trimmed = compactDecorationCssForStorage(cssText).trim();
   const issues: DecorationIssue[] = [];
 
   if (!trimmed) {
@@ -199,6 +199,8 @@ export const sanitizeDecorationCss = (cssText: string): DecorationSanitizeResult
   if (trimmed.length > MAX_DECORATION_CSS_LENGTH) {
     issues.push({ code: 'tooLong' });
   }
+
+  trimmed = compactDecorationCssForStorage(parsed.source).trim();
 
   if (/[{}]/.test(trimmed)) {
     issues.push({ code: 'invalidSyntax' });

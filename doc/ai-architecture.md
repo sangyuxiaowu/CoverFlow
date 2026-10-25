@@ -11,8 +11,10 @@ src/features/ai/
   tools/requests.ts           动作契约、派生联合类型与请求解析
   tools/validation.ts         运行时白名单、数值范围及内容安全校验
   tools/execute.ts            工具分发与当前项目 ID 校验
+  tools/assets.ts             已授权文件夹素材搜索与精确放置
   tools/imageTools.ts         生图发现、单图参考与图片资源放置
   services/config.ts          多接入点、多模型、思考参数及配置校验
+  services/skills.ts          纯文本 SKILL 校验、目录提示与示例
   services/configStore.ts     IndexedDB 配置与 AES-GCM 加密密钥存储
   services/encryptionKeys.ts  一次性主密钥备份、口令保护及不可导出导入
   services/chatStore.ts       浏览器/文件双模式配置、会话与界面状态
@@ -54,7 +56,7 @@ src/features/ai/
 
 ## 按模式和会话存储
 
-浏览器 ChatStore 使用 coverflow-ai 数据库中的 settings、endpoint-secrets、sessions 和 ui-state 表。文件 ChatStore 使用以下独立目录布局：
+浏览器 ChatStore 使用 coverflow-ai 数据库中的 settings、endpoint-secrets、sessions、images 和 ui-state 表；主密钥保存在 encryption-key 表。文件 ChatStore 使用以下独立目录布局：
 
 ```text
 chat/
@@ -62,6 +64,8 @@ chat/
   ui.json                 浮窗位置、尺寸及当前会话 ID
   sessions/
     <session-id>.json     会话标题、项目关联、时间、显示消息与模型 transcript
+  images/
+    <session-id>/         独立 PNG/JPEG/WebP 图片文件
 ```
 
 - 浏览器文件模式使用用户已授权的项目存储根目录；Tauri 文件模式使用当前 .cfj 旁的 chat 文件夹。
@@ -113,6 +117,7 @@ chat/
 | update_canvas | 画布尺寸及纯色/渐变/图片/自定义 CSS 背景、纹理 |
 | list_image_models | 多模型时读取当前启用模型的介绍、版本及参数能力 |
 | generate_image | 文生图或单图参考生图，成功后自动添加图层并返回图层 ID |
+| remove_background | 本地 Worker 抠图，支持保留原图及单次模型/设备覆盖 |
 
 ## 素材搜索与放置
 
@@ -180,7 +185,7 @@ chat/
 
 ## 验证与扩展
 
-`bun run test` 使用 Vitest 与 fake-indexeddb。覆盖图层几何、组关系、锁定、字段安全、过期 ID、项目生命周期、删除确认、Responses 事件、工具历史回传、配置校验、多模型选择、思考参数、用量汇总、中止、浮窗边界、加密往返、密文篡改、会话隔离及文件路径限制。生图测试覆盖三个适配器的文生图和单图参考请求、GPT-Image 尺寸/质量/数量校验、多图保存放置、动态 prompt Schema、超过 60 秒等待、取消、禁用重检、凭据隔离、高清资源放置和文件持久化。前端打包使用 `bun run build`；AI 严格检查使用 `bun x tsc --noEmit -p src/features/ai/tsconfig.json`。原生存储命令使用 `cargo check --manifest-path src-tauri/Cargo.toml`。全仓类型检查仍存在既有诊断，未在本次功能中扩展修复范围。
+`bun run test` 使用 Vitest 与 fake-indexeddb。覆盖图层几何、组关系、锁定、字段安全、过期 ID、项目生命周期、删除确认、Responses 事件、工具历史回传、配置校验、多模型选择、思考参数、用量汇总、中止、浮窗边界、加密往返、密文篡改、会话隔离及文件路径限制。生图测试覆盖三个适配器的文生图和单图参考请求、GPT-Image 尺寸/质量/数量校验、多图保存放置、动态 prompt Schema、超过 60 秒等待、取消、禁用重检、凭据隔离、高清资源放置和文件持久化。前端打包使用 `bun run build`；全仓类型检查使用 `bun run typecheck`，AI 严格检查使用 `bun x tsc --noEmit -p src/features/ai/tsconfig.json`。原生存储命令使用 `cargo check --manifest-path src-tauri/Cargo.toml`。检查结果以当前运行输出为准，不沿用旧任务的诊断清单。
 
 ### 扩展生图模型
 
@@ -189,4 +194,4 @@ chat/
 3. 设置页从预设与能力表生成添加选项、尺寸、比例、质量和数量控件；工具发现与单模型 Schema 使用相同能力来源。新增特有参数时扩展统一类型与相应控件，不在工具层复制协议分支。
 4. 在已有生图测试中补充文生图/参考图请求、参数边界和响应用例。适配器不直接访问 App、存储或 DOM；凭据授权、超时/取消、安全下载和资源放置继续由统一层负责。
 
-新增工具时先补 definition 与参数校验，再实现 executor 或 workspace 行为，并添加相邻测试。模型通信不要直接导入 App 或操作 DOM。资产库搜索与导出工具不在当前实现范围内，可按需要另增服务和工具。
+新增工具时先补 definition 与参数校验，再实现 executor 或 workspace 行为，并添加相邻测试。模型通信不要直接导入 App 或操作 DOM。已授权素材搜索与放置由 `src/storage/assets.ts` 和 `tools/assets.ts` 实现；AI 导出工具尚未实现。本地抠图的资源、模型及设备约定见 [本地抠图](background-removal.md)。

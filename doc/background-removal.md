@@ -16,9 +16,7 @@
 
 `remove_background` 固定注册在通用工具定义中，不受视觉能力、生图开关或本地资源安装状态影响，不动态注入或移除函数定义。
 
-参数：`projectId` 和 `layerId` 必填；`modelId` 可选 `u2netp`（默认，内置轻量、速度优先）或 `birefnet`（高质量候选，适合复杂边缘，要求提前安装且消耗更多内存）；`keepOriginal` 默认 true；`device` 可选 auto（默认）、webgpu 或 wasm。这些参数只影响本次调用，不更改用户设置。
-
-另支持 `modelId:modnet`，用于人像 alpha 抠图，不用于商品或插画。与 BiRefNet 一样，使用前需先在抠图设置中下载或导入验证；工具不会自动下载模型，也不会改变默认模型选择。
+参数：`projectId` 和 `layerId` 必填；`modelId` 可选 `u2netp`（默认，内置轻量、速度优先）、`birefnet`（BiRefNet Lite 512，适合复杂边缘，要求提前安装且消耗更多内存）或 `modnet`（人像 alpha 抠图，不用于商品或插画，须提前安装）；`keepOriginal` 默认 true；`device` 可选 auto（默认）、webgpu 或 wasm，MODNet 始终使用 CPU/WASM。这些参数只影响本次调用，不更改用户设置，工具不会自动下载外部模型。
 
 调用时先检查目标及模型。缺少大模型不自动下载，通过 `MODEL_NOT_READY` 结果提示用户导入。目标和模型就绪但缺少运行时，会自动尝试下载约 24 MB 并缓存，下载等待最多 180 秒，用户可停止操作。成功返回结果图层 ID、模型、实际计算设备及是否下载运行时。
 
@@ -58,7 +56,7 @@ ONNX Runtime Web 1.23.2 不进入主构建，首次点击图片抠图或 AI 工�
 - 支持单个 NCHW float32/float16 输入及单通道 float32/float16 输出。不是任意 ONNX 模型的通用加载器；外置权重文件不支持。
 - 输出保留原图像素尺寸，将遮罩乘入原有 alpha，编码为 PNG；不裁切主体。
 
-默认自动尝试 WebGPU，初始化或推理失败后重建 CPU/WASM 会话。CPU 单线程不要求 COOP/COEP；推理在 Worker 内执行。取消会终止 Worker；10 分钟超时。大模型的 FP16 算子、显存需求和速度依赖设备，CPU 回退不保证所有模型都能运行。图片上限 40 MP，模型上限 1 GB。
+默认自动尝试 WebGPU，初始化或推理失败后重建 CPU/WASM 会话；MODNet 例外，始终使用 CPU/WASM。CPU 单线程不要求 COOP/COEP；推理在 Worker 内执行。取消会终止 Worker；10 分钟超时。大模型的 FP16 算子、显存需求和速度依赖设备，CPU 回退不保证所有模型都能运行。图片上限 40 MP，模型上限 1 GB。
 
 ## 文件职责
 

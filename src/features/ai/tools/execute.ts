@@ -8,9 +8,11 @@ import { hasActiveImageCrop, hasActiveImageFilters, normalizeImageCrop, normaliz
 import { ADD_LAYER_TYPES, LAYER_TOOL_ACTIONS, parseLayerToolRequest, parseManageProjectsRequest } from './requests.ts';
 import { executeBackgroundRemovalTool } from './backgroundRemoval.ts';
 import { generateId } from '../../../utils/helpers.ts';
+import { executeAssetTool } from './assets.ts';
 
 export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false): Promise<unknown> {
   signal.throwIfAborted();
+  if (name === 'search_assets' || name === 'place_asset') return executeAssetTool(name, input, bridge, signal);
   if (name === 'remove_background') return executeBackgroundRemovalTool(input, bridge, signal);
   const args = record(input);
   if (name === 'get_cover_size_recommendations') return {

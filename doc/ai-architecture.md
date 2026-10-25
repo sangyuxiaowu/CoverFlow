@@ -99,6 +99,8 @@ chat/
 | get_context | 当前项目、画布、背景、选区及图层元数据 |
 | create_project | 新建并打开项目 |
 | search_projects | 按名称搜索项目并返回分页结果 |
+| search_assets | 按名称、相对路径或分类搜索已授权文件夹素材，支持类型过滤与分页 |
+| place_asset | 按精确素材 ID 读取并放置 SVG / PNG，返回新图层 ID |
 | manage_projects | open/rename/duplicate/delete/save |
 | read_layers | 按 ID 或名称/内容关键词读取图层 |
 | add_layer | 按 type 添加文字、已有图片、SVG 或 CSS/HTML 装饰图层 |
@@ -110,6 +112,15 @@ chat/
 | update_canvas | 画布尺寸及纯色/渐变/图片/自定义 CSS 背景、纹理 |
 | list_image_models | 多模型时读取当前启用模型的介绍、版本及参数能力 |
 | generate_image | 文生图或单图参考生图，成功后自动添加图层并返回图层 ID |
+
+## 素材搜索与放置
+
+- `search_assets` 无需打开项目，参数为可选 `query/type/page/pageSize`。`type` 为 `svg/image`；默认搜索已授权文件夹中的全部素材，页码 1，每页 20，最多 50。关键词不区分大小写，匹配名称、ID、相对路径及中英文分类。结果只含元数据，不读取文件内容、不返回 SVG 或 Base64。不提供来源筛选，不包含内置素材。
+- 文件夹 ID 为 `folder:Brand-品牌/logo.svg` 等，保留真实分类目录名和文件名，区分大小写，不是绝对路径。可以直接在规则中使用已知 ID；重命名或移动文件后需更新引用。当前复用人工素材库的扫描规则，只支持一级分类子目录下的 SVG 和 PNG，不递归、不含根目录文件，也不包含 Font Awesome 或装饰模板。
+- 浏览器模式使用素材面板选择的已授权文件夹；本地文件模式使用存储根目录下已有的 `lib`。通过工作区实时解析文件夹，与 Sidebar 当前标签和加载状态无关。工具不创建目录、不弹出授权窗口。搜索结果的 `folder.status` 为 `ready/not_configured/unavailable`；不可访问时返回空列表并附带错误原因，避免把无权限误判为没有匹配素材，也不会回退到内置资源。
+- `place_asset` 必须提供当前 `projectId` 与精确 `assetId`，可选 `x/y/width/height`。坐标为图层左上角，省略时按各轴居中。宽高均省略时不放大，等比缩小到画布内且最长边不超过 300px；仅提供一个尺寸时推导另一个，同时提供宽高必须保持原比例。新图层置顶、选中并锁定比例，保留素材原色，不使用人工图标放置时的蓝色覆盖。
+- SVG 使用现有标准化与安全校验，禁止脚本、事件、style 元素、动画和外部引用，限制 2MB；PNG 验证文件签名，限制 32MB 和 6400 万像素，原始字节直接内嵌，不重新编码。内容快照保存在项目内，图片来源记录精确素材 ID；后续素材更新、删除或失去目录权限不会影响已保存图层。没有新增项目资源身份字段、逻辑 ID 清单或自动迁移。
+- 放置返回 `success/projectId/assetId/layerId/type/x/y/width/height`，不回传文件内容。读取完成后重新获取当前项目并保留期间编辑；取消、文件缺失、无权限、格式错误或项目已切换时不提交图层，不生成替代资源。后续调整通过 `update_layers` 和 `reorder_layers` 完成。
 
 ## 对话模型切换与图片
 

@@ -58,6 +58,8 @@ const toolLabels: Record<string, [string, string]> = {
   get_cover_size_recommendations: ['封面尺寸建议', 'Cover Size Recommendations'],
   create_project: ['新建项目', 'Create Project'],
   search_projects: ['搜索项目', 'Search Projects'],
+  search_assets: ['搜索素材', 'Search Assets'],
+  place_asset: ['放置素材', 'Place Asset'],
   manage_projects: ['项目管理', 'Manage Projects'],
   read_layers: ['读取图层', 'Read Layers'],
   get_selected_layers: ['读取选中图层', 'Read Selected Layers'],

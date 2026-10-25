@@ -41,6 +41,20 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     projectId,
     title: string('项目名称，rename 必填，duplicate 省略时自动追加 (copy)。')
   }, ['action', 'projectId'])),
+  tool('search_assets', '搜索素材文件夹中的素材。', object('搜索条件', {
+    query: { ...string('[可选] 关键词，匹配名称、ID、相对路径或中英文分类，不区分大小写；省略或空白返回全部。'), maxLength: 1000 },
+    type: enumeration('[可选] 素材类型。', ['svg', 'image']),
+    page: { type: 'integer', description: '页码，默认 1。', minimum: 1, maximum: 1000000 },
+    pageSize: { type: 'integer', description: '每页数量，默认 20。', minimum: 1, maximum: 50 }
+  })),
+  tool('place_asset', '添加指定素材为置顶图层，选中并返回图层 ID。', object('放置参数。', {
+    projectId,
+    assetId: string('精确文件夹素材 ID，来自 search_assets 或规则中的已知引用，例如 folder:Brand-品牌/logo.svg。区分大小写。'),
+    x: numeric('[可选] 左上角 X，单位 px；省略水平居中。'),
+    y: numeric('[可选] 左上角 Y，单位 px；省略垂直居中。'),
+    width: numeric('[可选] 宽度，单位 px；只传宽度时按原比例计算高度。宽高均省略时不放大，等比缩小到画布内且最长边不超过 300px。', 1),
+    height: numeric('[可选] 高度，单位 px；只传高度时按原比例计算宽度。同时提供宽高必须保持原比例。', 1)
+  }, ['projectId', 'assetId'])),
   // 图层管理
   tool('get_context', '读取当前项目、画布、背景、选区及图层元数据。', noParameters),
   tool('read_layers', '读取图层属性，含图层详细内容，内嵌图片内容使用占位符。可按 ID 或名称/内容关键词筛选，同时提供时取交集。修改已有内容前先调用。', object('', {

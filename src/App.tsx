@@ -34,6 +34,7 @@ import {
   StorageAdapterType
 } from './storage/storage.ts';
 import { translations, Language } from './translations.ts';
+import { getAssetFolder } from './storage/assets.ts';
 import { PRESET_RATIOS } from './constants.ts';
 import { generateId, downloadFile, normalizeSVG, formatCanvasRatio } from './utils/helpers.ts';
 import { buildProjectSvg } from './utils/svgExport.ts';
@@ -1393,6 +1394,7 @@ const App: React.FC = () => {
   const cropAspect = project ? project.canvasConfig.width / project.canvasConfig.height : 1;
   const aiWorkspace: WorkspaceOptions = {
     project,
+    getAssetFolder: () => getAssetFolder(storageType, localFileAdapter),
     getCanvasPreview: async () => {
       const preview = await withDeselectedExportPreview(async () => {
         const node = document.getElementById('export-target') as HTMLDivElement | null;

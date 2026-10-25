@@ -8,6 +8,7 @@ export interface WorkspaceOptions {
   project: ProjectState | null;
   getCanvasPreview?: () => Promise<Blob>;
   getLayerPreview?: (layerId: string) => Promise<Blob>;
+  getAssetFolder?: () => Promise<FileSystemDirectoryHandle | null>;
   selectedLayerIds: string[];
   storage: StorageAdapter;
   localProjects: { project: ProjectState; localPath?: string }[];
@@ -80,6 +81,7 @@ export function createWorkspaceBridge(
       if (!options.getLayerPreview) throw new Error('Layer preview is unavailable.');
       return options.getLayerPreview(layerId);
     },
+    getAssetFolder: async () => read().getAssetFolder?.() ?? null,
     getSelection: () => read().selectedLayerIds,
     commit: async project => {
       const options = read();

@@ -46,6 +46,25 @@ it('reads fonts only on click and adds or removes selected families without uplo
   expect(view.fonts()).toEqual([]);
 });
 
+it('quotes local preview family names containing decimal versions in both lists', async () => {
+  const faces = [
+    { family: 'Alibaba PuHuiTi 2.0', fullName: '阿里巴巴普惠体', style: 'Regular' },
+    { family: 'HuXiaoBo-NanShenTi2.0', fullName: '胡晓波男神体2.0', style: 'Regular' }
+  ];
+  vi.stubGlobal('queryLocalFonts', vi.fn().mockResolvedValue(faces));
+  const view = setup();
+  await view.click('读取本机字体');
+  for (const face of faces) {
+    await view.click(`加入 ${face.family}`);
+    const previews = [...view.container.querySelectorAll<HTMLElement>('[style]')]
+      .filter(node => node.textContent === face.fullName);
+    expect(previews).toHaveLength(2);
+    for (const preview of previews) {
+      expect(preview.style.fontFamily).toBe(`${JSON.stringify(face.family)}, sans-serif`);
+    }
+  }
+});
+
 it('reports permission failures without changing the selection', async () => {
   vi.stubGlobal('queryLocalFonts', vi.fn().mockRejectedValue(new Error('Permission denied')));
   const view = setup();

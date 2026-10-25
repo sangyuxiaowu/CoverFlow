@@ -54,9 +54,9 @@ export const GOOGLE_FONTS: ManagedFont[] = [
   { family: 'ZCOOL QingKe HuangYou', name: '站酷庆科黄油体', weights: [400], description: '简体中文，醒目、促销标题', source: 'google', fontFamily: '"ZCOOL QingKe HuangYou", sans-serif', license: 'OFL-1.1' },
   { family: 'ZCOOL XiaoWei', name: '站酷小薇体', weights: [400], description: '简体中文，文艺、复古标题', source: 'google', fontFamily: '"ZCOOL XiaoWei", serif', license: 'OFL-1.1' },
   { family: 'Ma Shan Zheng', name: '马善政楷书', weights: [400], description: '简体中文，国风、书法标题', source: 'google', fontFamily: '"Ma Shan Zheng", cursive', license: 'OFL-1.1' },
-  { family: 'Bebas Neue', name: 'Bebas Neue', weights: [400], description: '英文，窄体大写展示字，适合海报、运动、醒目大标题', source: 'google', fontFamily: '"Bebas Neue", sans-serif', license: 'OFL-1.1' },
-  { family: 'Montserrat', name: 'Montserrat', weights: [100, 200, 300, 400, 500, 600, 700, 800, 900], description: '英文，几何无衬线，适合品牌、科技、商务标题', source: 'google', fontFamily: '"Montserrat", sans-serif', license: 'OFL-1.1' },
-  { family: 'Playfair Display', name: 'Playfair Display', weights: [400, 500, 600, 700, 800, 900], description: '英文，高对比衬线，适合杂志、时尚、文化专题标题', source: 'google', fontFamily: '"Playfair Display", serif', license: 'OFL-1.1' }
+  { family: 'Bebas Neue', name: 'Bebas Neue', weights: [400], description: '英文，窄体大写展示字，适合海报、运动、醒目大标题，不含中文字形', source: 'google', fontFamily: '"Bebas Neue", sans-serif', license: 'OFL-1.1' },
+  { family: 'Montserrat', name: 'Montserrat', weights: [100, 200, 300, 400, 500, 600, 700, 800, 900], description: '英文，几何无衬线，适合品牌、科技、商务标题，不含中文字形', source: 'google', fontFamily: '"Montserrat", sans-serif', license: 'OFL-1.1' },
+  { family: 'Playfair Display', name: 'Playfair Display', weights: [400, 500, 600, 700, 800, 900], description: '英文，高对比衬线，适合杂志、时尚、文化专题标题，不含中文字形', source: 'google', fontFamily: '"Playfair Display", serif', license: 'OFL-1.1' }
 ];
 
 export function normalizeLocalFonts(value: unknown): LocalFontSelection[] {

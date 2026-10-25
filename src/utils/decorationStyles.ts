@@ -17,6 +17,40 @@ const ALLOWED_PROPERTIES = [
   'border-radius',
   'border-style',
   'border-width',
+  'border-top',
+  'border-right',
+  'border-bottom',
+  'border-left',
+  'border-top-color',
+  'border-right-color',
+  'border-bottom-color',
+  'border-left-color',
+  'border-top-style',
+  'border-right-style',
+  'border-bottom-style',
+  'border-left-style',
+  'border-top-width',
+  'border-right-width',
+  'border-bottom-width',
+  'border-left-width',
+  'border-top-left-radius',
+  'border-top-right-radius',
+  'border-bottom-left-radius',
+  'border-bottom-right-radius',
+  'border-image',
+  'border-image-source',
+  'border-image-slice',
+  'border-image-width',
+  'border-image-outset',
+  'border-image-repeat',
+  'transform',
+  'transform-origin',
+  'color',
+  'padding',
+  'padding-top',
+  'padding-right',
+  'padding-bottom',
+  'padding-left',
   'box-shadow',
   'clip-path',
   'filter',
@@ -36,6 +70,10 @@ const BLOCKED_VALUE_PATTERNS = [
 ];
 
 const ALLOWED_SET = new Set<string>(ALLOWED_PROPERTIES);
+const IGNORED_PROPERTIES = new Set([
+  'font-family', 'font-size', 'line-height', 'text-align', 'content',
+  'display', 'align-items', 'justify-content'
+]);
 
 export type DecorationIssueCode =
   | 'empty'
@@ -179,6 +217,7 @@ export const sanitizeDecorationCss = (cssText: string): DecorationSanitizeResult
 
   const style = typeof document !== 'undefined' ? document.createElement('div').style : null;
   const safeDeclarations: string[] = [];
+  let ignoredDeclarations = 0;
 
   declarations.forEach((declaration) => {
     const separatorIndex = declaration.indexOf(':');
@@ -190,6 +229,14 @@ export const sanitizeDecorationCss = (cssText: string): DecorationSanitizeResult
     const rawProperty = declaration.slice(0, separatorIndex).trim();
     const property = rawProperty.startsWith('--') ? rawProperty : rawProperty.toLowerCase();
     const value = declaration.slice(separatorIndex + 1).trim();
+
+    if (IGNORED_PROPERTIES.has(property) ||
+      (property === 'height' && value === '100%') ||
+      (property === 'margin' && /^(?:0(?:px|%)?\s*){1,4}$/i.test(value)) ||
+      (property === 'box-sizing' && value.toLowerCase() === 'border-box')) {
+      ignoredDeclarations++;
+      return;
+    }
 
     if (!ALLOWED_SET.has(property) && !/^--[a-z0-9-]+$/i.test(property)) {
       issues.push({ code: 'unsupportedProperty', detail: property });
@@ -206,7 +253,7 @@ export const sanitizeDecorationCss = (cssText: string): DecorationSanitizeResult
     style?.setProperty(property, safeValue);
   });
 
-  if (safeDeclarations.length === 0) {
+  if (safeDeclarations.length === 0 && ignoredDeclarations === 0) {
     issues.push({ code: 'noDeclarations' });
   }
 

@@ -171,6 +171,7 @@ export function validateContent(type: Layer['type'], content: string): string {
   if (type === 'decoration') {
     const result = sanitizeDecorationContent(content);
     if (result.issues.length) throw new Error(result.issues.map((issue) => issue.detail || issue.code).join('; '));
+    return result.cssText;
   }
   return content;
 }

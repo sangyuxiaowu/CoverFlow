@@ -13,6 +13,7 @@ import ExportModal from './components/ExportModal.tsx';
 import AiAssistant from './features/ai/components/AiAssistant.tsx';
 import type { WorkspaceOptions } from './features/ai/services/workspace.ts';
 import { updateProjectLayer } from './features/ai/domain/layerOperations.ts';
+import { ensureProjectFonts } from './features/ai/services/fontLoading.ts';
 import { applyRemovalResult } from './features/background-removal/layerResult.ts';
 import type { RemovalResult } from './features/background-removal/types.ts';
 import { PWAUpdatePrompt } from './components/pwa/PWAUpdatePrompt.tsx';
@@ -124,6 +125,15 @@ const App: React.FC = () => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   }, []);
+
+  useEffect(() => {
+    if (!project) return;
+    let cancelled = false;
+    void ensureProjectFonts(project).catch(error => {
+      if (!cancelled) showToast(error instanceof Error ? error.message : String(error), 'error');
+    });
+    return () => { cancelled = true; };
+  }, [project?.layers, showToast]);
 
   const reportStorageError = useCallback((error: unknown, operation: string, message: string, projectId?: string, path?: string | null) => {
     console.error('[CoverFlow storage]', { operation, storageType: path ? 'tauri-file' : storageAdapter.type, projectId, path }, error);
@@ -441,6 +451,7 @@ const App: React.FC = () => {
     targetProject: ProjectState,
     settings: typeof exportSettings
   ) => {
+    await ensureProjectFonts(targetProject);
     if (settings.format === 'svg') {
       const svgMarkup = buildProjectSvg(targetProject);
       return new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
@@ -469,6 +480,7 @@ const App: React.FC = () => {
     targetProject: ProjectState,
     settings: typeof exportSettings
   ) => {
+    await ensureProjectFonts(targetProject);
     if (settings.format === 'svg') {
       const svgMarkup = buildProjectSvg(targetProject);
       const bytes = new TextEncoder().encode(svgMarkup);
@@ -837,6 +849,7 @@ const App: React.FC = () => {
     }
     setIsExporting(true);
     try { 
+      await ensureProjectFonts(targetProject);
       const { width, height } = targetProject.canvasConfig;
       const dataUrl = await htmlToImage.toPng(previewNode, {
         pixelRatio: 1,
@@ -923,6 +936,7 @@ const App: React.FC = () => {
           throw new Error('Clipboard image write unsupported');
         }
         setIsExporting(true);
+        await ensureProjectFonts(targetProject);
         const options = buildExportOptions(targetProject, settings.pixelRatio);
         const rawBlob = await htmlToImage.toBlob(previewNode, options);
         if (!rawBlob) {
@@ -1399,6 +1413,7 @@ const App: React.FC = () => {
       const preview = await withDeselectedExportPreview(async () => {
         const node = document.getElementById('export-target') as HTMLDivElement | null;
         if (!node || !project) throw new Error('No canvas is available to preview.');
+        await ensureProjectFonts(project);
         const { width, height } = project.canvasConfig;
         const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(width, height));
         const canvas = await htmlToImage.toCanvas(node, {

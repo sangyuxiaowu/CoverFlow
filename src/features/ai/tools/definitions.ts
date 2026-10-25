@@ -24,6 +24,7 @@ const layerInfoDefinition = { ...object('通用图层属性。创建和更新时
 }), minProperties: 1 };
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
+  tool('list_fonts', '读取用户提供的本地字体及内置 Google Fonts 精选目录，使用 family 设置字体。', noParameters),
   // 项目管理
   tool('get_cover_size_recommendations', '获取常见封面尺寸、比例及适配建议。', noParameters),
   tool('create_project', '新建并打开项目。', object('', {
@@ -72,7 +73,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       text: object('文字图层专属属性，type 为 text 时必填。', {
         content: string('必填：完整纯文本内容。'),
         color: string('文字主色，使用 CSS 颜色值。'),
-        fontFamily: string('CSS font-family 值，例如 "Microsoft YaHei", sans-serif。'),
+        fontFamily: string('CSS font-family 值，优先将 list_fonts 返回的 family 用双引号包裹后使用，例如 "Noto Sans SC"。Google 精选字体按需联网加载，本地字体需在当前设备安装。'),
         fontWeight: {
           description: 'CSS 字重，可使用数字或字符串。',
           anyOf: [string('CSS 字重关键字，例如 normal、bold。'), numeric('数字字重，例如 400 或 700。', 1, 1000)]

@@ -20,6 +20,7 @@ import DecorationCodeEditor from './DecorationCodeEditor.tsx';
 import ImageLayerCropModal from './ImageLayerCropModal.tsx';
 import RemoveBackgroundButton from '../features/background-removal/RemoveBackgroundButton.tsx';
 import type { RemovalResult } from '../features/background-removal/types.ts';
+import { fontListItems, GOOGLE_FONTS, readInstalledFonts, type LocalFontSelection } from '../features/ai/services/fonts.ts';
 import { 
   Eye, EyeOff, Lock, Unlock, Trash2, Hash, RotateCw, Maximize2, 
   Type as TextIcon, Image as ImageIcon, GripVertical, Link as LinkIcon, Link2Off, MoveHorizontal, MoveVertical,
@@ -49,13 +50,6 @@ interface LayersPanelProps {
   onUngroupLayer: (id: string) => void;
   onCommit: () => void;
   onOpenImageCrop?: (layerId: string) => void;
-}
-
-interface LocalFont {
-  fullName: string;
-  family: string;
-  isChinese: boolean;
-  value: string;
 }
 
 const COMMON_FONTS = [
@@ -96,8 +90,6 @@ const DEFAULT_TEXT_SHADOW: TextShadow = {
   offsetY: 4
 };
 
-const isChineseText = (text: string) => /[\u4e00-\u9fa5]/.test(text);
-
 // 图层面板与属性编辑组件。
 const LayersPanel: React.FC<LayersPanelProps> = ({
   lang,
@@ -127,7 +119,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   const [internalCropLayerId, setInternalCropLayerId] = useState<string | null>(null);
   
   // 字体相关状态
-  const [localFonts, setLocalFonts] = useState<LocalFont[]>([]);
+  const [localFonts, setLocalFonts] = useState<LocalFontSelection[]>([]);
   const [fontSearch, setFontSearch] = useState("");
   const [isFontPickerOpen, setIsFontPickerOpen] = useState(false);
   const [isWeightPickerOpen, setIsWeightPickerOpen] = useState(false);
@@ -159,43 +151,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
     const fetchLocalFonts = async () => {
       if ('queryLocalFonts' in window) {
         try {
-          // @ts-ignore
-          const fonts: any[] = await (window as any).queryLocalFonts();
-          
-          // 去重并分组
-          // 通常展示唯一全名供选择，但 CSS 使用 family 以便与字重/样式属性配合
-          const seenFamilies = new Set<string>();
-          const processed: LocalFont[] = [];
-
-          const normalizeFullName = (fullName: string) => {
-            if (!fullName.includes(' ')) return fullName;
-            const weightTokens = new Set([
-              'bold', 'heavy', 'light', 'regular', 'medium', 'black', 'thin', 'semibold',
-              'demibold', 'extrabold', 'extralight', 'ultralight', 'book', 'italic', 'oblique'
-            ]);
-            const tokens = fullName
-              .split(' ')
-              .filter(token => token && !/^\d+$/.test(token));
-            while (tokens.length > 0 && weightTokens.has(tokens[tokens.length - 1].toLowerCase())) {
-              tokens.pop();
-            }
-            const next = tokens.join(' ').trim();
-            return next || fullName;
-          };
-
-          for (const f of fonts) {
-            if (seenFamilies.has(f.family)) continue;
-            seenFamilies.add(f.family);
-            const normalizedFullName = normalizeFullName(f.fullName);
-            const isChinese = isChineseText(normalizedFullName) || isChineseText(f.family);
-            processed.push({
-              fullName: normalizedFullName,
-              family: f.family,
-              isChinese,
-              value: `"${f.family}", sans-serif`
-            });
-          }
-          setLocalFonts(processed);
+          setLocalFonts(await readInstalledFonts());
         } catch (e) {
           console.warn("Failed to fetch local fonts", e);
         }
@@ -431,26 +387,18 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   };
 
   const availableFonts = useMemo(() => {
-    const baseList = localFonts.length > 0 
-      ? localFonts 
-      : COMMON_FONTS.map(f => ({ fullName: f.name, family: f.name, isChinese: isChineseText(f.name), value: f.value }));
-    
-    const filtered = fontSearch 
-      ? baseList.filter(f => f.fullName.toLowerCase().includes(fontSearch.toLowerCase()) || f.family.toLowerCase().includes(fontSearch.toLowerCase())) 
-      : baseList;
-
-    const chinese = filtered.filter(f => f.isChinese).sort((a, b) => a.fullName.localeCompare(b.fullName, 'zh'));
-    const western = filtered.filter(f => !f.isChinese).sort((a, b) => a.fullName.localeCompare(b.fullName, 'en'));
-
-    // 根据当前语言调整显示优先级
-    return lang === 'zh' ? [...chinese, ...western] : [...western, ...chinese];
+    const baseList = localFonts.length ? localFonts : COMMON_FONTS.map(font => ({ family: font.name, fullName: font.name, styles: [] }));
+    return fontListItems(baseList, fontSearch, lang, true).map(font => ({ ...font,
+      value: !localFonts.length && font.source === 'local' ? COMMON_FONTS.find(common => common.name === font.family)!.value : font.value }));
   }, [localFonts, fontSearch, lang]);
 
   const currentFontDisplayName = useMemo(() => {
     if (!selectedLayer || selectedLayer.type !== 'text') return '';
     const val = selectedLayer.fontFamily || 'Inter, sans-serif';
+    const foundGoogle = GOOGLE_FONTS.find(font => font.fontFamily === val);
+    if (foundGoogle) return lang === 'zh' ? foundGoogle.name : foundGoogle.family;
     // 通过 value（family 包装）匹配本地字体
-    const foundLocal = localFonts.find(f => f.value === val);
+    const foundLocal = localFonts.find(f => `${JSON.stringify(f.family)}, sans-serif` === val);
     if (foundLocal) return foundLocal.fullName;
     
     // 在常用字体中匹配
@@ -459,7 +407,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
 
     // 兜底：清理显示名称
     return val.replace(/"/g, '').split(',')[0];
-  }, [selectedLayer, localFonts]);
+  }, [selectedLayer, localFonts, lang]);
 
   const getDropdownTop = (rect: DOMRect, height: number) => {
     const padding = 8;
@@ -877,7 +825,8 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                                     }}
                                     className={`w-full text-left px-3 py-2 rounded-md flex items-center justify-between text-[11px] hover:bg-slate-800 transition-colors ${selectedLayer.fontFamily === f.value ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400'}`}
                                   >
-                                    <span style={{ fontFamily: f.value }}>{f.fullName}</span>
+                                    <span className="min-w-0 break-words" style={{ fontFamily: f.value }}>{f.fullName}</span>
+                                    {f.source === 'google' && <span className="ml-auto pl-2 text-[9px] text-slate-500 shrink-0">Google</span>}
                                     {selectedLayer.fontFamily === f.value && <Check className="w-3 h-3" />}
                                   </button>
                                 ))

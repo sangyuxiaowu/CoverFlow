@@ -30,6 +30,7 @@ import {
 import type { AiConfig, AiEndpointConfig, AiModelConfig, ReasoningEffort } from '../types.ts';
 import ImageModelSettings from './ImageModelSettings.tsx';
 import SkillSettings from './SkillSettings.tsx';
+import FontSettings from './FontSettings.tsx';
 import BackgroundRemovalSettings from '../../background-removal/BackgroundRemovalSettings.tsx';
 import EncryptionKeySettings from './EncryptionKeySettings.tsx';
 import type { ChatStore } from '../services/chatStore.ts';
@@ -544,6 +545,8 @@ const ToggleSwitch: React.FC<{
                 </div>
               </section>
             )}
+              {tab === 'other' && <FontSettings fonts={draft.localFonts ?? []} english={english}
+                onChange={localFonts => setDraft(previous => ({ ...previous, localFonts }))} />}
             </div>
 
             {/* TAB: 端点与模型 */}

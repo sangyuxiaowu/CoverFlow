@@ -29,6 +29,44 @@ const configuredConfig = () => {
 };
 const bridge: WorkspaceBridge = { getProject: () => null, getSelection: () => [], commit: async () => {}, manageProjects: async () => ({ items: [] }) };
 
+test('selected local fonts persist and request metadata is an isolated snapshot', async () => {
+  const profiles = configuredConfig();
+  assert.deepEqual(normalizeConfig(profiles).localFonts, []);
+  profiles.localFonts = [{ family: 'Demo', fullName: 'Demo', styles: ['Regular'], description: '适合商务封面' }];
+  await saveConfig(profiles);
+  const restored = await loadConfig();
+  assert.deepEqual(restored.localFonts, profiles.localFonts);
+  const request = toRequestConfig(restored);
+  request.localFonts![0].styles.push('Bold');
+  request.localFonts![0].description = 'Changed description';
+  assert.deepEqual(restored.localFonts, profiles.localFonts);
+  await assert.rejects(saveConfig({ ...profiles, localFonts: [...profiles.localFonts, ...profiles.localFonts] }), /Duplicate local font/);
+});
+
+test('list_fonts returns selected and curated fonts through Responses with a fixed request snapshot', async () => {
+  const originalFetch = globalThis.fetch;
+  const requestConfig = { ...config, localFonts: [{ family: 'Demo', fullName: 'Demo', styles: ['Regular'] }] };
+  const requests: Record<string, any>[] = [];
+  globalThis.fetch = async (_url, options) => {
+    requests.push(JSON.parse(options!.body as string));
+    requestConfig.localFonts = [];
+    return streamResponse(responsePayload(requests.length === 1
+      ? [{ type: 'function_call', call_id: 'font-read', name: 'list_fonts', arguments: '{}' }]
+      : [textOutput]));
+  };
+  try {
+    await runConversation({ config: requestConfig, input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {} });
+    assert.ok(requests[0].tools.some((tool: { name: string }) => tool.name === 'list_fonts'));
+    assert.ok(!JSON.stringify(requests[0]).includes('"Demo"'));
+    const output = requests[1].input.find((item: { type: string }) => item.type === 'function_call_output');
+    const result = JSON.parse(output.output);
+    assert.ok(Array.isArray(result));
+    assert.equal(result.filter((font: { source: string }) => font.source === 'local').length, 1);
+    assert.equal(result.filter((font: { source: string }) => font.source === 'google').length, 9);
+    assert.deepEqual(result[0], { family: 'Demo', name: 'Demo', source: 'local', description: '' });
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('skills default empty, persist as plain text and inject only an index without changing saved prompts', async () => {
   const profiles = configuredConfig();
   assert.deepEqual(profiles.skills, []);

@@ -225,7 +225,7 @@ test('tool schemas describe every parameter and nested field with valid required
     if (schema.items) inspect(schema.items as Record<string, unknown>, `${path}[]`);
     if (Array.isArray(schema.anyOf)) schema.anyOf.forEach((child, index) => inspect(child, `${path}.anyOf[${index}]`));
   };
-  const noParameterNames = ['get_context', 'get_cover_size_recommendations', 'get_selected_layers', 'get_canvas_preview', 'list_image_models'];
+  const noParameterNames = ['get_context', 'get_cover_size_recommendations', 'get_selected_layers', 'get_canvas_preview', 'list_image_models', 'list_fonts'];
   const definitions = [...TOOL_DEFINITIONS, ...VISION_TOOL_DEFINITIONS, ...IMAGE_TOOL_DEFINITIONS];
   for (const definition of definitions) {
     if (noParameterNames.includes(definition.function.name)) {

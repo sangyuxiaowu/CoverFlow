@@ -1,9 +1,10 @@
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ProjectState } from '../types.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
 import DecorationContent from './DecorationContent.tsx';
 import ImageLayerContent from './ImageLayerContent.tsx';
 import { applySvgAspectRatio } from '../utils/helpers.ts';
+import { ensureProjectFonts } from '../features/ai/services/fontLoading.ts';
 
 // 实时缩放预览组件。
 const LivePreview: React.FC<{
@@ -13,6 +14,16 @@ const LivePreview: React.FC<{
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
   const [isReady, setIsReady] = useState(false);
+  const [fontError, setFontError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setFontError('');
+    void ensureProjectFonts(project).catch(error => {
+      if (!cancelled) setFontError(error instanceof Error ? error.message : String(error));
+    });
+    return () => { cancelled = true; };
+  }, [project.layers]);
 
   // 根据容器变化自适应缩放比例
   useLayoutEffect(() => {
@@ -35,6 +46,7 @@ const LivePreview: React.FC<{
 
   return (
     <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-[#0c0c0e] overflow-hidden relative">
+      {fontError && <div role="alert" className="absolute bottom-0 inset-x-0 z-10 bg-slate-950/90 p-2 text-xs text-rose-300 break-words">{fontError}</div>}
       {!isReady && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div

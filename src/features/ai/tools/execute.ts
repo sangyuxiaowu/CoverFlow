@@ -9,12 +9,18 @@ import { ADD_LAYER_TYPES, LAYER_TOOL_ACTIONS, parseLayerToolRequest, parseManage
 import { executeBackgroundRemovalTool } from './backgroundRemoval.ts';
 import { generateId } from '../../../utils/helpers.ts';
 import { executeAssetTool } from './assets.ts';
+import { listFonts, type LocalFontSelection } from '../services/fonts.ts';
+import { ensureProjectFonts } from '../services/fontLoading.ts';
 
-export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false): Promise<unknown> {
+export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false, localFonts: LocalFontSelection[] = []): Promise<unknown> {
   signal.throwIfAborted();
   if (name === 'search_assets' || name === 'place_asset') return executeAssetTool(name, input, bridge, signal);
   if (name === 'remove_background') return executeBackgroundRemovalTool(input, bridge, signal);
   const args = record(input);
+  if (name === 'list_fonts') {
+    if (Object.keys(args).length) throw new Error('list_fonts does not accept parameters.');
+    return listFonts(localFonts);
+  }
   if (name === 'get_cover_size_recommendations') return {
     note: '以下为常见用途的设计建议，不是平台强制规格。用户明确指定的尺寸优先；调整已有画布尺寸前应确认需求，图层不会自动缩放。',
     presets: PRESET_RATIOS
@@ -137,7 +143,9 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     if (background.type !== 'image' && /url\s*\(/i.test(background.value)) throw new Error('Use an image background for image URLs.');
     next = { ...project, canvasConfig: { width, height, ratio: `${width}x${height}` }, background };
   } else throw new Error('Unknown tool: ' + name);
+  await ensureProjectFonts(next);
   signal.throwIfAborted();
+  if (bridge.getProject() !== project) throw new Error('The active project changed while loading fonts. Read get_context again.');
   await bridge.commit({ ...next, updatedAt: Date.now() });
   return { success: true, projectId: next.id, selectedLayerId: next.selectedLayerId, layerIds: next.layers.map(layer => layer.id) };
 }

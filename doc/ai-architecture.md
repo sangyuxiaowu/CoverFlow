@@ -15,6 +15,8 @@ src/features/ai/
   tools/imageTools.ts         生图发现、单图参考与图片资源放置
   services/config.ts          多接入点、多模型、思考参数及配置校验
   services/skills.ts          纯文本 SKILL 校验、目录提示与示例
+  services/fonts.ts           用户所选本地字体校验及 Google Fonts 精选目录
+  services/fontLoading.ts     精选字体按需加载、请求合并与失败重试
   services/configStore.ts     IndexedDB 配置与 AES-GCM 加密密钥存储
   services/encryptionKeys.ts  一次性主密钥备份、口令保护及不可导出导入
   services/chatStore.ts       浏览器/文件双模式配置、会话与界面状态
@@ -104,6 +106,7 @@ chat/
 | create_project | 新建并打开项目 |
 | search_projects | 按名称搜索项目并返回分页结果 |
 | search_assets | 按名称、相对路径或分类搜索已授权文件夹素材，支持类型过滤与分页 |
+| list_fonts | 统一读取用户选择的本地字体和内置 Google Fonts 精选目录 |
 | place_asset | 按精确素材 ID 读取并放置 SVG / PNG，返回新图层 ID |
 | skill | 配置非空时按精确名称读取 SKILL 纯文本正文，无需打开项目 |
 | manage_projects | open/rename/duplicate/delete/save |
@@ -127,6 +130,18 @@ chat/
 - `place_asset` 必须提供当前 `projectId` 与精确 `assetId`，可选 `x/y/width/height`。坐标为图层左上角，省略时按各轴居中。宽高均省略时不放大，等比缩小到画布内且最长边不超过 300px；仅提供一个尺寸时推导另一个，同时提供宽高必须保持原比例。新图层置顶、选中并锁定比例，保留素材原色，不使用人工图标放置时的蓝色覆盖。
 - SVG 使用现有标准化与安全校验，禁止脚本、事件、style 元素、动画和外部引用，限制 2MB；PNG 验证文件签名，限制 32MB 和 6400 万像素，原始字节直接内嵌，不重新编码。内容快照保存在项目内，图片来源记录精确素材 ID；后续素材更新、删除或失去目录权限不会影响已保存图层。没有新增项目资源身份字段、逻辑 ID 清单或自动迁移。
 - 放置返回 `success/projectId/assetId/layerId/type/x/y/width/height`，不回传文件内容。读取完成后重新获取当前项目并保留期间编辑；取消、文件缺失、无权限、格式错误或项目已切换时不提交图层，不生成替代资源。后续调整通过 `update_layers` 和 `reorder_layers` 完成。
+
+## 字体管理
+
+- AI 配置中心的“其他设置”包含字体管理。本地列表默认空；用户点击“读取本机字体”后，浏览器通过 `queryLocalFonts()` 申请权限，再按字体家族展示搜索结果。支持桌面 Chrome / Edge；其他浏览器、移动端及 Tauri WebView 需要按实际环境检测，不假定原生权限可用。不支持或拒绝时展示错误，不回退为假列表。
+- 用户主动加入或移除本地字体，最多 100 个家族；按大小写不敏感的家族名拒绝重复。配置保存 `family/fullName/styles` 和用户可选填写的 `description`（最多 1000 字符，保存时去除首尾空白），随现有 AI 配置保存，不读取或上传字体文件。未填写的本地介绍保持空白，不自动添加任何介绍。界面明确说明字体使用及商用版权风险由用户承担；本地字体在其他设备可能不可用，名称不证明字形覆盖或商业授权。
+- 设置与属性检查器共用字体家族去重、字重样式合并、显示名称尾部字重词清理，以及按显示名/家族名搜索的规则；中文界面优先中文命名字体，英文界面优先西文命名字体。这里只按名称分组，不作为中文字形覆盖检测。属性检查器始终前置 9 款 Google 精选字体并标注来源，后接本机字体或常用回退列表，同家族不重复显示。
+- 内置 9 款 Google Fonts 精选字体：中文包含 Noto Sans SC、Noto Serif SC、ZCOOL KuaiLe、ZCOOL QingKe HuangYou、ZCOOL XiaoWei、Ma Shan Zheng，覆盖通用商务、文化出版、活动促销、文艺复古和国风标题；英文包含 Bebas Neue（窄体大写展示字）、Montserrat（几何无衬线）、Playfair Display（高对比衬线），用于海报、品牌科技和杂志时尚标题，这三款不含中文字形。均按 OFL-1.1 标注，首版通过 Google Fonts 在线服务加载，不在应用内打包或重新分发字体文件。
+- `list_fonts` 无参数、无需打开项目，不触发本地读取或授权。固定注册并直接返回字体数组，不再包装 `fonts` 或附加 `note`。所有字体仅含 `family/name/source/description`；Google 精选字体保留内置介绍，本地字体 `description` 为用户填写的介绍，未填写返回空字符串。不返回 `styles/fontFamily/license/weights`；这些数据仅供应用内部使用。本轮所选列表使用隔离配置快照，未加入的本机字体不返回，不把字体名称提前写入系统提示。
+- 模型将返回的 `family` 用双引号包裹后写入现有 `add_layer/update_layers` 的 `text.fontFamily`。精选字体在当前画布、项目缩略图、AI 提交以及位图导出/复制/视觉预览前按需加载；CSS 请求按家族合并，失败可重试。等待加载后取消或切换项目不提交旧状态。加载错误明确展示或作为工具错误返回，Google 服务在当前网络不可达时不保证可用。
+- 字体 CSS 请求不含 `text=`，不会主动将封面文字发给 Google；字体及 CSS 资源请求本身仍会连接 Google 服务。浏览器可能缓存资源，但不保证离线可用。本期不含同源镜像、字体包导入、字形覆盖检测、本地字体文件嵌入或转曲。SVG 仍沿用现有 `foreignObject + font-family` 导出，未新增字体嵌入，跨设备及不同 SVG 查看器的显示仍受字体与渲染能力影响。
+
+参考：[Local Font Access API](https://developer.mozilla.org/en-US/docs/Web/API/Window/queryLocalFonts)、[Google Fonts 官方目录](https://github.com/google/fonts/tree/main/ofl)、[OFL 许可](https://openfontlicense.org/)。
 
 ## 纯文本 SKILL
 

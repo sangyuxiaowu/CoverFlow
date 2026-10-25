@@ -1,3 +1,4 @@
+import { normalizeLocalFonts } from './fonts.ts';
 import type { AiConfig, AiEndpointConfig, AiModelConfig, AiRequestConfig, ReasoningEffort } from '../types.ts';
 import { generateId } from '../../../utils/helpers.ts';
 import { loadStoredConfig, saveStoredConfig } from './configStore.ts';
@@ -133,6 +134,7 @@ export function normalizeConfig(value: unknown, preserveKeys = true): AiConfig {
     ...input,
     endpoints,
     skills: normalizeSkills(input.skills),
+    localFonts: normalizeLocalFonts(input.localFonts),
     maxToolRounds: input.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS,
     maxImageFailures: input.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES,
     imageToolPrompt: typeof input.imageToolPrompt === 'string' ? input.imageToolPrompt : DEFAULT_IMAGE_TOOL_PROMPT,
@@ -159,6 +161,7 @@ export function toRequestConfig(config: AiConfig): AiRequestConfig {
   return {
     imageToolsEnabled,
     skills,
+    localFonts: normalizeLocalFonts(config.localFonts),
     maxToolRounds: config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS,
     maxImageFailures: config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES,
     imageToolModels: imageModels.map(model => ({ id: imageModelToolId(model), label: model.label, adapter: model.adapter, modelId: model.modelId, version: model.version, releasedAt: model.releasedAt, timeoutSeconds: imageTimeoutSeconds(model), description: model.description, size: model.size, ratio: model.ratio, quality: model.quality, n: model.n })),
@@ -285,6 +288,7 @@ export function validateRequestConfig(config: AiRequestConfig): void {
 
 export function validateConfig(config: AiConfig): void {
   normalizeSkills(config.skills);
+  normalizeLocalFonts(config.localFonts);
   if (!config.endpoints.length) throw new Error('At least one endpoint is required.');
   if (config.imageModels !== undefined && !Array.isArray(config.imageModels)) throw new Error('Invalid image model list.');
   const imageIds = new Set<string>();

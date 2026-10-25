@@ -55,6 +55,7 @@ interface Props {
 
 const toolLabels: Record<string, [string, string]> = {
   skill: ['读取 SKILL', 'Read Skill'],
+  list_fonts: ['读取可用字体', 'List Available Fonts'],
   get_context: ['读取画布', 'Read Canvas'],
   get_cover_size_recommendations: ['封面尺寸建议', 'Cover Size Recommendations'],
   create_project: ['新建项目', 'Create Project'],

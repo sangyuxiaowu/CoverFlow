@@ -1,6 +1,7 @@
 import type { ProjectState } from '../../types.ts';
 import type { ResponseInputItem } from 'openai/resources/responses/responses';
 import type { ImageModelConfig, ImagePromptConfig } from './image-generation/types.ts';
+import type { LocalFontSelection } from './services/fonts.ts';
 export type { ImageAdapterId, ImageModelConfig, ImagePromptConfig, ImageQuality } from './image-generation/types.ts';
 
 export type ResponseItem = ResponseInputItem;
@@ -66,6 +67,7 @@ export interface AiConfig {
   systemPrompt: string;
   imageToolPrompt?: string;
   skills?: AiSkillConfig[];
+  localFonts?: LocalFontSelection[];
   quickSnippets?: string[];
   maxToolRounds?: number;
   maxImageFailures?: number;
@@ -75,6 +77,7 @@ export interface AiRequestConfig {
   imageToolsEnabled?: boolean;
   imageToolModels?: ImagePromptConfig[];
   skills?: AiSkillConfig[];
+  localFonts?: LocalFontSelection[];
   endpoint: string;
   model: string;
   apiKey: string;

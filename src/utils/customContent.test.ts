@@ -47,6 +47,19 @@ describe('decoration rendering boundaries', () => {
     { name: 'live preview', render: (state: ProjectState) => createElement(LivePreview, { project: state }) }
   ];
 
+  it.each([undefined, 0, 3.5, -1.5])('preserves text letter spacing %s in rendering and SVG export', (letterSpacing) => {
+    const state: ProjectState = { ...project, layers: [{ ...project.layers[0], type: 'text', content: 'Spacing', letterSpacing }] };
+    for (const { render } of renderers) {
+      const container = document.createElement('div');
+      container.innerHTML = renderToStaticMarkup(render(state));
+      const text = Array.from(container.querySelectorAll('div')).find(element => element.textContent === 'Spacing' && element.style.fontSize);
+      expect(text?.style.letterSpacing).toBe(`${letterSpacing ?? 0}px`);
+    }
+    const xml = new DOMParser().parseFromString(buildProjectSvg(state), 'image/svg+xml');
+    const text = Array.from(xml.querySelectorAll('div')).find(element => element.textContent === 'Spacing' && element.style.fontSize);
+    expect(text?.style.letterSpacing).toBe(`${letterSpacing ?? 0}px`);
+  });
+
   it('exports complete CSS decorations instead of reducing them to rectangles', () => {
     const svg = buildProjectSvg({ ...project, layers: [{ ...project.layers[0], content: `--moon: #fbeec9; background: radial-gradient(circle, var(--moon), #eed080); border-radius: 50%; box-shadow: ${shadow}; filter: blur(1px);` }] });
     const xml = new DOMParser().parseFromString(svg, 'image/svg+xml');

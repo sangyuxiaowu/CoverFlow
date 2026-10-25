@@ -276,6 +276,7 @@ test('tool schemas describe every parameter and nested field with valid required
   assert.equal(imageFields.imageFilters.minProperties, 1);
   assert.equal(imageFields.imageCrop.minProperties, 1);
   assert.ok(Object.hasOwn(textProperties, 'fontSize'));
+  assert.ok(Object.hasOwn(textProperties, 'letterSpacing'));
   assert.ok(Object.hasOwn(textProperties, 'color'));
   assert.deepEqual(Object.keys(addLayerProperties.svg.properties as object), ['content', 'color']);
   assert.deepEqual(Object.keys(decorationFields), ['content']);
@@ -287,7 +288,7 @@ test('tool schemas describe every parameter and nested field with valid required
 test('layer tools use matching type groups for input and output', async () => {
   const { bridge, signal } = setup();
   const cases: [ProjectState['layers'][number]['type'], Record<string, unknown>][] = [
-    ['text', { text: { content: 'Title', fontSize: 34, color: '#fff7ec' } }],
+    ['text', { text: { content: 'Title', fontSize: 34, letterSpacing: 2.5, color: '#fff7ec' } }],
     ['svg', { svg: { content: '<svg xmlns="http://www.w3.org/2000/svg"></svg>', color: '#d8ab63' } }],
     ['decoration', { decoration: { content: 'background:red;' } }],
     ['image', { image: { content: 'https://example.com/photo.png', imageSource: 'upload', flipX: true } }]
@@ -297,7 +298,7 @@ test('layer tools use matching type groups for input and output', async () => {
     const layerId = bridge.getProject()!.selectedLayerId!;
     const [details] = await executeTool('read_layers', { projectId: 'p1', layerIds: [layerId] }, bridge, signal) as Record<string, unknown>[];
     assert.deepEqual(details[type], { ...(type === 'text' ? { fontFamily: 'Inter, sans-serif', fontWeight: 700, textAlign: 'left' } : type === 'image' ? { imageDescription: '' } : {}), ...properties[type] as object });
-    for (const field of ['color', 'fontSize', 'fontFamily', 'imageSource', 'flipX']) assert.equal(field in details, false);
+    for (const field of ['color', 'fontSize', 'letterSpacing', 'fontFamily', 'imageSource', 'flipX']) assert.equal(field in details, false);
     await executeTool('update_layers', { projectId: 'p1', layerIds: [layerId], properties }, bridge, signal);
   }
   assert.throws(() => layerPatch({ color: '#fff' }), /color.*text.*svg/);
@@ -318,7 +319,7 @@ test('text color, gradient and shadow update together under text without replaci
   await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { text: { content: 'Keep title', fontFamily: 'serif' } } }, bridge, signal);
   const layerId = bridge.getProject()!.selectedLayerId!;
   const styles = {
-    fontSize: 78, color: '#fff6ea', fontWeight: 500,
+    fontSize: 78, letterSpacing: -1.5, color: '#fff6ea', fontWeight: 500,
     textGradient: { enabled: true, from: '#fffaf0', to: '#f0c084', angle: 104 },
     textShadow: { enabled: true, color: 'rgba(0,0,0,0.55)', blur: 22, offsetX: 0, offsetY: 6 }
   };

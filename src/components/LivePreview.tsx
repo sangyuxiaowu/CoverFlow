@@ -68,6 +68,7 @@ const LivePreview: React.FC<{
             const align = layer.textAlign || 'center';
             const textStyle: React.CSSProperties = {
               fontSize: `${layer.fontSize || Math.max(12, layer.height * 0.7)}px`,
+              letterSpacing: `${layer.letterSpacing ?? 0}px`,
               fontFamily: layer.fontFamily || 'Inter, sans-serif',
               fontWeight: layer.fontWeight || 'bold',
               wordBreak: 'break-word',

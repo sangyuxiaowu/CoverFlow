@@ -46,7 +46,7 @@ export function safeImage(value: string): string {
 
 export const LAYER_FIELD_GROUPS: Record<string, readonly (keyof Layer)[]> = {
   image: ['content', 'imageSource', 'imageDescription', 'flipX', 'flipY', 'imageFilters', 'imageCrop'],
-  text: ['content', 'color', 'fontFamily', 'fontWeight', 'fontSize', 'textAlign', 'writingMode', 'textGradient', 'textShadow'],
+  text: ['content', 'color', 'fontFamily', 'fontWeight', 'fontSize', 'letterSpacing', 'textAlign', 'writingMode', 'textGradient', 'textShadow'],
   svg: ['content', 'color'],
   decoration: ['content']
 };
@@ -106,7 +106,7 @@ export function layerPatch(value: unknown): Partial<Layer> {
   const output: Record<string, unknown> = {};
   const strings = ['name', 'content', 'color', 'fontFamily', 'imageSource', 'imageDescription'];
   const booleans = ['visible', 'locked', 'ratioLocked', 'flipX', 'flipY'];
-  const numeric = ['x', 'y', 'rotation', 'width', 'height', 'opacity', 'fontSize', 'zIndex'];
+  const numeric = ['x', 'y', 'rotation', 'width', 'height', 'opacity', 'fontSize', 'letterSpacing', 'zIndex'];
   for (const [field, raw] of Object.entries(fields)) {
     if (strings.includes(field)) {
       const limit = field === 'imageSource' ? 200 : field === 'imageDescription' ? 10000 : 200000;

@@ -19,7 +19,7 @@ export const LAYER_TOOL_ACTIONS = {
 
 export type LayerUpdateProperties = Partial<Pick<Layer,
   'name' | 'content' | 'color' | 'fontFamily' | 'fontWeight' | 'x' | 'y' | 'width' | 'height' |
-  'rotation' | 'zIndex' | 'opacity' | 'fontSize' | 'visible' | 'locked' | 'ratioLocked' |
+  'rotation' | 'zIndex' | 'opacity' | 'fontSize' | 'letterSpacing' | 'visible' | 'locked' | 'ratioLocked' |
   'textAlign' | 'writingMode' | 'textGradient' | 'textShadow'
 >>;
 

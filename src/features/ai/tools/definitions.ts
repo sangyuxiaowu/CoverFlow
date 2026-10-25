@@ -63,7 +63,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           description: 'CSS 字重，可使用数字或字符串。',
           anyOf: [string('CSS 字重关键字，例如 normal、bold。'), numeric('数字字重，例如 400 或 700。', 1, 1000)]
         },
-        fontSize: numeric('字号，单位为像素。', 1),
+        fontSize: numeric('字号（px）。', 1),
+        letterSpacing: numeric('字距（px），默认 0，支持负值和小数。'),
         textAlign: enumeration('水平文本对齐方式。', ['left', 'center', 'right']),
         writingMode: enumeration('文本排列方式。', ['horizontal', 'vertical']),
         textGradient: object('文字渐变配置。', {
@@ -75,9 +76,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         textShadow: object('文字阴影配置。', {
           enabled: boolean('是否启用。'),
           color: string('阴影的 CSS 颜色值，可含透明度。'),
-          blur: numeric('阴影模糊半径，单位为像素，不得为负。', 0),
-          offsetX: numeric('阴影水平偏移，单位为像素，负值向左。'),
-          offsetY: numeric('阴影垂直偏移，单位为像素，负值向上。')
+          blur: numeric('阴影模糊半径（px），不得为负。', 0),
+          offsetX: numeric('阴影水平偏移（px），负值向左。'),
+          offsetY: numeric('阴影垂直偏移（px），负值向上。')
         }, ['enabled', 'color', 'blur', 'offsetX', 'offsetY'])
       }, ['content']),
       image: object('图片图层专属属性，type 为 image 时必填。', {

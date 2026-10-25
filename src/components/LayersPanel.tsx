@@ -582,7 +582,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
               </div>
 
               {/* 第 3 行：旋转、字号、透明度 */}
-              <div className={`grid ${selectedLayer.type === 'text' ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
+              <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <label onMouseDown={(e) => handleScrubMouseDown(e, 'rotation', selectedLayer.rotation)} className="flex items-center gap-1 text-[8px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
                     <RotateCw className="w-2.5 h-2.5"/> {t.rotationShort}
@@ -595,6 +595,14 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                       <Type className="w-2.5 h-2.5"/> {t.fontSizeShort}
                     </label>
                     <input type="number" value={selectedLayer.fontSize || 48} onChange={(e) => onUpdateLayer(selectedLayer.id, { fontSize: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                  </div>
+                )}
+                {selectedLayer.type === 'text' && (
+                  <div className="space-y-1">
+                    <label htmlFor="input-letter-spacing" onMouseDown={(e) => handleScrubMouseDown(e, 'letterSpacing', selectedLayer.letterSpacing ?? 0)} className="flex items-center gap-1 text-[8px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
+                      <MoveHorizontal className="w-2.5 h-2.5"/> {t.letterSpacing} (px)
+                    </label>
+                    <input id="input-letter-spacing" type="number" step="0.1" value={selectedLayer.letterSpacing ?? 0} onChange={(e) => onUpdateLayer(selectedLayer.id, { letterSpacing: Number.isFinite(e.target.valueAsNumber) ? e.target.valueAsNumber : 0 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                   </div>
                 )}
                 <div className="space-y-1">

@@ -293,6 +293,7 @@ const buildTextLayerSvg = (layer: Layer): string => {
   element.style.cssText = 'box-sizing:border-box;width:100%;height:100%;display:flex;align-items:center;word-break:break-word;line-height:1.1;padding:0 16px;';
   Object.assign(element.style, {
     fontSize: `${layer.fontSize || Math.max(12, layer.height * 0.7)}px`,
+    letterSpacing: `${layer.letterSpacing ?? 0}px`,
     fontFamily: layer.fontFamily || 'Inter, sans-serif',
     fontWeight: String(layer.fontWeight || 'bold'),
     justifyContent: align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center',

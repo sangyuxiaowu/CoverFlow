@@ -71,6 +71,8 @@ export default function AiSettings({ config, onSave, onBack, english, store, onK
   const [keyBusy, setKeyBusy] = useState(false);
   const [backupPending, setBackupPending] = useState(false);
   const tabsRef = useRef<HTMLDivElement>(null);
+  const [newlyAddedEndpointId, setNewlyAddedEndpointId] = useState<string | null>(null);
+  const endpointRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [testStatus, setTestStatus] = useState<string | null>(null);
@@ -83,6 +85,13 @@ export default function AiSettings({ config, onSave, onBack, english, store, onK
   useEffect(() => {
     tabsRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [tab]);
+
+  useEffect(() => {
+    if (!newlyAddedEndpointId) return;
+    endpointRefs.current[newlyAddedEndpointId]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const timer = setTimeout(() => setNewlyAddedEndpointId(null), 2500);
+    return () => clearTimeout(timer);
+  }, [newlyAddedEndpointId, draft.endpoints.length]);
 
   useEffect(() => {
     if (!backupPending) return;
@@ -124,6 +133,7 @@ export default function AiSettings({ config, onSave, onBack, english, store, onK
     const added = createEndpoint(provider);
     setDraft(prev => ({ ...prev, endpoints: [...prev.endpoints, added] }));
     setExpandedEndpoints(prev => ({ ...prev, [added.id]: true }));
+    setNewlyAddedEndpointId(added.id);
   };
 
   const removeEndpoint = (endpointId: string) => {
@@ -649,8 +659,13 @@ const ToggleSwitch: React.FC<{
                       return (
                         <div
                           key={ep.id}
+                          ref={element => {
+                            endpointRefs.current[ep.id] = element;
+                          }}
                           className={`rounded-2xl border transition-all duration-200 overflow-hidden ${
-                            isCurrentActiveEndpoint
+                            newlyAddedEndpointId === ep.id
+                              ? 'ring-2 ring-blue-500 bg-blue-950/20 border-blue-500 shadow-lg shadow-blue-950/30'
+                              : isCurrentActiveEndpoint
                               ? 'bg-slate-900/90 border-blue-500/40 shadow-md shadow-blue-950/15'
                               : 'bg-slate-900/50 border-slate-800 hover:border-slate-700/80'
                           }`}

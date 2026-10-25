@@ -2,13 +2,14 @@ import OpenAI from 'openai';
 import type { Response, ResponseFunctionCallOutputItemList, ResponseStreamEvent } from 'openai/resources/responses/responses';
 import type { AiConfig, AiRequestConfig, ChatImageRef, RequestUsage, ResponseItem, TokenUsage, ToolEvent, WorkspaceBridge } from '../types.ts';
 import { generateId } from '../../../utils/helpers.ts';
-import { imageToolDefinitions, IMAGE_TOOL_DEFINITIONS, TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import { imageToolDefinitions, IMAGE_TOOL_DEFINITIONS, skillToolDefinitions, TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
 import { executeImageTool } from '../tools/imageTools.ts';
 import { executeTool } from '../tools/execute.ts';
 import { record } from '../tools/validation.ts';
 import { DEFAULT_MAX_IMAGE_FAILURES, DEFAULT_MAX_TOOL_ROUNDS, normalizeEndpoint, reasoningPayload, validateRequestConfig } from './config.ts';
 import { estimateInput } from './usage.ts';
 import { blobToDataUrl } from './imageAttachments.ts';
+import { normalizeSkills, readSkill } from './skills.ts';
 
 interface ConversationOptions {
   config: AiRequestConfig;
@@ -129,7 +130,8 @@ export async function runConversation(options: ConversationOptions): Promise<str
   const baseURL = normalizeEndpoint(config.endpoint);
   const client = new OpenAI({ baseURL, apiKey: config.apiKey || 'local', dangerouslyAllowBrowser: true, maxRetries: 0 });
   const input = structuredClone(options.input);
-  const tools = [...TOOL_DEFINITIONS, ...(config.supportsVision ? VISION_TOOL_DEFINITIONS : []), ...(config.imageToolsEnabled && options.getImageConfig && options.loadImage && options.saveImage ? imageToolDefinitions(config.imageToolModels) : [])];
+  const skills = normalizeSkills(config.skills);
+  const tools = [...TOOL_DEFINITIONS, ...skillToolDefinitions(skills), ...(config.supportsVision ? VISION_TOOL_DEFINITIONS : []), ...(config.imageToolsEnabled && options.getImageConfig && options.loadImage && options.saveImage ? imageToolDefinitions(config.imageToolModels) : [])];
   let previewCount = 0;
   let imageFailures = 0;
   const maxImageFailures = config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES;
@@ -144,7 +146,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
     let reported = false;
     let streamedText = '';
     const startTime = Date.now();
-    const request = { id: generateId(), endpoint: baseURL, model: config.model, createdAt: startTime, inputEstimate: estimateInput(input, config.systemPrompt, config.supportsVision, tools.some(tool => tool.function.name === 'generate_image'), config.imageToolModels) };
+    const request = { id: generateId(), endpoint: baseURL, model: config.model, createdAt: startTime, inputEstimate: estimateInput(input, config.systemPrompt, config.supportsVision, tools.some(tool => tool.function.name === 'generate_image'), config.imageToolModels, skills) };
     try {
       const stream = await client.responses.create({
         model: config.model, instructions: config.systemPrompt, input: await prepareRequestInput(input, Boolean(config.supportsVision), options.loadImage),
@@ -201,7 +203,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
           defaultModelConfigId: config.imageToolModels?.length === 1 ? config.imageToolModels[0].id : undefined,
           loadImage: options.loadImage!, saveImage: options.saveImage!, onImage: image => options.onImage?.(image), bridge
         }, signal) : undefined;
-        const value = generated ? generated.value : await executeTool(call.name, args, bridge, signal, Boolean(config.supportsVision));
+        const value = generated ? generated.value : call.name === 'skill' ? readSkill(skills, args) : await executeTool(call.name, args, bridge, signal, Boolean(config.supportsVision));
         if (call.name === 'remove_background' && value && typeof value === 'object' && 'success' in value && value.success === false) status = 'error';
         if (generated) {
           imageRef = generated.image;

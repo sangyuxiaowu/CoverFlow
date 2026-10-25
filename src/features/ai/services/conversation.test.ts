@@ -11,7 +11,8 @@ import { generateEncryptionKey } from './encryptionKeys.ts';
 import { createFileChatStore, type ChatFileAccess } from './chatStore.ts';
 import { estimateInput, sessionUsage, sumUsage } from './usage.ts';
 import { parseMarkdown } from './markdown.ts';
-import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import { skillToolDefinitions, TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import { exampleSkill } from './skills.ts';
 
 
 const config: AiRequestConfig = { endpoint: 'https://example.com/v1', model: 'test', apiKey: 'secret', maxTokens: 4096, systemPrompt: SYSTEM_PROMPT };
@@ -27,6 +28,89 @@ const configuredConfig = () => {
   return profiles;
 };
 const bridge: WorkspaceBridge = { getProject: () => null, getSelection: () => [], commit: async () => {}, manageProjects: async () => ({ items: [] }) };
+
+test('skills default empty, persist as plain text and inject only an index without changing saved prompts', async () => {
+  const profiles = configuredConfig();
+  assert.deepEqual(profiles.skills, []);
+  delete profiles.skills;
+  assert.deepEqual(normalizeConfig(profiles).skills, []);
+  assert.equal(toRequestConfig(profiles).systemPrompt, profiles.systemPrompt);
+  assert.deepEqual(skillToolDefinitions(), []);
+  profiles.skills = [exampleSkill()];
+  profiles.systemPrompt = 'Keep my custom system instructions.';
+  await saveConfig(profiles);
+  const restored = await loadConfig();
+  assert.deepEqual(restored.skills, profiles.skills);
+  assert.equal(restored.systemPrompt, profiles.systemPrompt);
+  const request = toRequestConfig(restored);
+  assert.match(request.systemPrompt, /available_skills/);
+  assert.match(request.systemPrompt, /brand-cover/);
+  assert.ok(!request.systemPrompt.includes(profiles.skills[0].content));
+  assert.equal(request.systemPrompt.split('<available_skills>').length, 2);
+  assert.equal(toRequestConfig({ ...restored, systemPrompt: request.systemPrompt }).systemPrompt, request.systemPrompt);
+  request.skills![0].content = 'changed snapshot';
+  assert.equal(restored.skills![0].content, profiles.skills[0].content);
+  await assert.rejects(saveConfig({ ...profiles, skills: [exampleSkill(), exampleSkill()] }), /Duplicate skill/);
+});
+
+test('skill loads full content on demand through Responses without requiring an open project', async () => {
+  const originalFetch = globalThis.fetch;
+  const profiles = configuredConfig();
+  const skill = { name: 'brand-cover', description: 'Use for brand covers', content: 'FULL PRIVATE RULES: place the approved logo only.' };
+  profiles.skills = [skill];
+  const requestConfig = toRequestConfig(profiles);
+  const requests: Record<string, any>[] = [];
+  const events: ToolEvent[] = [];
+  const usages: RequestUsage[] = [];
+  globalThis.fetch = async (_url, options) => {
+    requests.push(JSON.parse(options!.body as string));
+    if (requests.length === 1) requestConfig.skills![0].content = 'Configuration changed during request';
+    return streamResponse(responsePayload(requests.length === 1
+      ? [{ type: 'function_call', call_id: 'skill-read', name: 'skill', arguments: '{"name":"brand-cover"}' }]
+      : [textOutput]));
+  };
+  try {
+    await runConversation({ config: requestConfig, input: [], bridge, signal: new AbortController().signal,
+      onText: () => {}, onTool: event => events.push(event), onUsage: usage => usages.push(usage) });
+    assert.equal(requests.length, 2);
+    const definition = skillToolDefinitions([skill])[0];
+    assert.deepEqual(requests[0].tools.find((tool: { name: string }) => tool.name === 'skill'), { type: 'function', ...definition.function, strict: false });
+    assert.ok(requests[0].instructions.includes(skill.description));
+    assert.ok(!JSON.stringify(requests[0]).includes(skill.content));
+    assert.ok(!JSON.stringify(requests[0].tools).includes(skill.description));
+    assert.deepEqual(requests[1].tools, requests[0].tools);
+    const output = requests[1].input.find((item: { type: string }) => item.type === 'function_call_output');
+    assert.deepEqual(JSON.parse(output.output), skill);
+    assert.equal(events.at(-1)!.status, 'success');
+    assert.equal(usages[0].inputEstimate, estimateInput([], requestConfig.systemPrompt, requestConfig.supportsVision, false, undefined, [skill]));
+    const largeSkill = { ...skill, content: 'A'.repeat(40000) };
+    assert.equal(estimateInput([], requestConfig.systemPrompt, false, false, undefined, [largeSkill]), estimateInput([], requestConfig.systemPrompt, false, false, undefined, [skill]));
+    const breakdown = sessionUsage(undefined, { ...requestConfig, skills: [skill] }, [], '');
+    assert.equal(breakdown.breakdown.systemAndTools, usages[0].inputEstimate);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('empty skills omit the tool and unknown skill names produce a factual tool error', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const skills of [[], [exampleSkill()]]) {
+      const requests: Record<string, any>[] = [];
+      const events: ToolEvent[] = [];
+      globalThis.fetch = async (_url, options) => {
+        requests.push(JSON.parse(options!.body as string));
+        return streamResponse(responsePayload(requests.length === 1
+          ? [{ type: 'function_call', call_id: 'missing-skill', name: 'skill', arguments: '{"name":"missing"}' }]
+          : [textOutput]));
+      };
+      await runConversation({ config: { ...config, skills }, input: [], bridge, signal: new AbortController().signal,
+        onText: () => {}, onTool: event => events.push(event) });
+      assert.equal(requests[0].tools.some((tool: { name: string }) => tool.name === 'skill'), skills.length > 0);
+      assert.equal(events.at(-1)!.status, 'error');
+      const output = requests[1].input.find((item: { type: string }) => item.type === 'function_call_output');
+      assert.match(JSON.parse(output.output).error, skills.length ? /Skill not found/ : /Unknown tool/);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
 
 test('AI endpoint and model configuration IDs are short', () => {
   const profiles = defaultConfig();
@@ -728,6 +812,7 @@ test('file mode stores encrypted configuration and each session under chat', asy
   const settings = configuredConfig();
   settings.maxToolRounds = 50;
   settings.maxImageFailures = 4;
+  settings.skills = [exampleSkill()];
   Object.assign(settings.imageModels![0], { version: 'file-version', releasedAt: '2026-10-02', timeoutSeconds: 360 });
   await store.saveConfig(settings);
   assert.equal(data.get('chat/config.json')!.includes('"apiKey": "secret"'), false);
@@ -736,6 +821,7 @@ test('file mode stores encrypted configuration and each session under chat', asy
   const restoredSettings = toRequestConfig(await createFileChatStore(files, 'reopened-limits').loadConfig());
   assert.equal(restoredSettings.maxToolRounds, 50);
   assert.equal(restoredSettings.maxImageFailures, 4);
+  assert.deepEqual(restoredSettings.skills, settings.skills);
   const session: ChatSession = { id: 'file-session', title: 'File chat', createdAt: 1, updatedAt: 1, entries: [{ id: 'u', role: 'user', content: 'File message' }], responseItems: [{ role: 'user', content: 'File message' }], requests: [{ id: 'file-request', endpoint: 'https://example.com/v1', model: 'test', createdAt: 1, status: 'completed', usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 } }] };
   await store.saveSession(session);
   const imageBlob = new Blob(['webp'], { type: 'image/webp' });

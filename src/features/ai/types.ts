@@ -53,12 +53,19 @@ export interface AiEndpointConfig {
   models: AiModelConfig[];
 }
 
+export interface AiSkillConfig {
+  name: string;
+  description: string;
+  content: string;
+}
+
 export interface AiConfig {
   endpoints: AiEndpointConfig[];
   imageModels?: ImageModelConfig[];
   activeSelection: { endpointId: string; modelId: string };
   systemPrompt: string;
   imageToolPrompt?: string;
+  skills?: AiSkillConfig[];
   quickSnippets?: string[];
   maxToolRounds?: number;
   maxImageFailures?: number;
@@ -67,6 +74,7 @@ export interface AiConfig {
 export interface AiRequestConfig {
   imageToolsEnabled?: boolean;
   imageToolModels?: ImagePromptConfig[];
+  skills?: AiSkillConfig[];
   endpoint: string;
   model: string;
   apiKey: string;

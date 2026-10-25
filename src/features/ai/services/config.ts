@@ -2,6 +2,7 @@ import type { AiConfig, AiEndpointConfig, AiModelConfig, AiRequestConfig, Reason
 import { generateId } from '../../../utils/helpers.ts';
 import { loadStoredConfig, saveStoredConfig } from './configStore.ts';
 import { availableImageModels, createImageModel, IMAGE_MODEL_PRESETS, imageModelToolId, imageTimeoutSeconds, validateImageModel } from '../image-generation/index.ts';
+import { normalizeSkills, skillsPrompt } from './skills.ts';
 
 export const DEFAULT_IMAGE_TOOL_PROMPT = `## 生图
 你可以按需使用生图工具生成需要的图像。
@@ -85,7 +86,7 @@ export function createEndpoint(provider: 'openai' | 'deepseek' | 'local' | 'cust
 
 export function defaultConfig(): AiConfig {
   const endpoint = createEndpoint('openai');
-  return { endpoints: [endpoint], imageModels: IMAGE_MODEL_PRESETS.map(preset => createImageModel(preset.id)), activeSelection: { endpointId: endpoint.id, modelId: endpoint.models[0].id }, systemPrompt: SYSTEM_PROMPT, imageToolPrompt: DEFAULT_IMAGE_TOOL_PROMPT, quickSnippets: [...DEFAULT_QUICK_SNIPPETS], maxToolRounds: DEFAULT_MAX_TOOL_ROUNDS, maxImageFailures: DEFAULT_MAX_IMAGE_FAILURES };
+  return { endpoints: [endpoint], imageModels: IMAGE_MODEL_PRESETS.map(preset => createImageModel(preset.id)), activeSelection: { endpointId: endpoint.id, modelId: endpoint.models[0].id }, systemPrompt: SYSTEM_PROMPT, imageToolPrompt: DEFAULT_IMAGE_TOOL_PROMPT, skills: [], quickSnippets: [...DEFAULT_QUICK_SNIPPETS], maxToolRounds: DEFAULT_MAX_TOOL_ROUNDS, maxImageFailures: DEFAULT_MAX_IMAGE_FAILURES };
 }
 
 export function resolveSelection(config: AiConfig) {
@@ -131,6 +132,7 @@ export function normalizeConfig(value: unknown, preserveKeys = true): AiConfig {
   const config: AiConfig = {
     ...input,
     endpoints,
+    skills: normalizeSkills(input.skills),
     maxToolRounds: input.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS,
     maxImageFailures: input.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES,
     imageToolPrompt: typeof input.imageToolPrompt === 'string' ? input.imageToolPrompt : DEFAULT_IMAGE_TOOL_PROMPT,
@@ -148,11 +150,15 @@ export function toRequestConfig(config: AiConfig): AiRequestConfig {
   const imageModels = availableImageModels(config);
   const imageToolsEnabled = imageModels.length > 0;
   const imageToolPrompt = config.imageToolPrompt ?? DEFAULT_IMAGE_TOOL_PROMPT;
-  const systemPrompt = imageToolsEnabled && imageToolPrompt.trim() && !config.systemPrompt.includes(imageToolPrompt)
+  const skills = normalizeSkills(config.skills);
+  const skillPrompt = skillsPrompt(skills);
+  const basePrompt = imageToolsEnabled && imageToolPrompt.trim() && !config.systemPrompt.includes(imageToolPrompt)
     ? `${config.systemPrompt}\n\n${imageToolPrompt}`
     : config.systemPrompt;
+  const systemPrompt = skillPrompt && !basePrompt.includes(skillPrompt) ? `${basePrompt}\n\n${skillPrompt}` : basePrompt;
   return {
     imageToolsEnabled,
+    skills,
     maxToolRounds: config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS,
     maxImageFailures: config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES,
     imageToolModels: imageModels.map(model => ({ id: imageModelToolId(model), label: model.label, adapter: model.adapter, modelId: model.modelId, version: model.version, releasedAt: model.releasedAt, timeoutSeconds: imageTimeoutSeconds(model), description: model.description, size: model.size, ratio: model.ratio, quality: model.quality, n: model.n })),
@@ -260,6 +266,7 @@ export async function loadConfig(): Promise<AiConfig> {
 }
 
 export function validateRequestConfig(config: AiRequestConfig): void {
+  normalizeSkills(config.skills);
   if (!Number.isSafeInteger(config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS) || (config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS) < 1) throw new Error('Tool round limit must be a positive safe integer.');
   if (!Number.isSafeInteger(config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES) || (config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES) < 1) throw new Error('Image failure limit must be a positive safe integer.');
   const url = new URL(config.endpoint);
@@ -277,6 +284,7 @@ export function validateRequestConfig(config: AiRequestConfig): void {
 }
 
 export function validateConfig(config: AiConfig): void {
+  normalizeSkills(config.skills);
   if (!config.endpoints.length) throw new Error('At least one endpoint is required.');
   if (config.imageModels !== undefined && !Array.isArray(config.imageModels)) throw new Error('Invalid image model list.');
   const imageIds = new Set<string>();

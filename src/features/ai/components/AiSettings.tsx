@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Brain,
+  BookOpen,
   Check,
   ChevronDown,
   ChevronRight,
@@ -28,6 +29,7 @@ import {
 } from 'lucide-react';
 import type { AiConfig, AiEndpointConfig, AiModelConfig, ReasoningEffort } from '../types.ts';
 import ImageModelSettings from './ImageModelSettings.tsx';
+import SkillSettings from './SkillSettings.tsx';
 import BackgroundRemovalSettings from '../../background-removal/BackgroundRemovalSettings.tsx';
 import EncryptionKeySettings from './EncryptionKeySettings.tsx';
 import type { ChatStore } from '../services/chatStore.ts';
@@ -66,7 +68,7 @@ export default function AiSettings({ config, onSave, onBack, english, store, onK
     });
     return initial;
   });
-  const [tab, setTab] = useState<'models' | 'other' | 'images' | 'removal' | 'prompt' | 'snippets'>(initialSecurity ? 'other' : 'models');
+  const [tab, setTab] = useState<'models' | 'other' | 'images' | 'removal' | 'prompt' | 'skills' | 'snippets'>(initialSecurity ? 'other' : 'models');
   const [keyStatus, setKeyStatus] = useState<EncryptionStatus | null>(null);
   const [keyBusy, setKeyBusy] = useState(false);
   const [backupPending, setBackupPending] = useState(false);
@@ -232,6 +234,13 @@ export default function AiSettings({ config, onSave, onBack, english, store, onK
       tooltip: label('定制大模型设计思维与生图指令', 'Customize system instructions')
     },
     {
+      id: 'skills' as const,
+      label: 'SKILL',
+      icon: BookOpen,
+      count: draft.skills?.length || 0,
+      tooltip: label('管理纯文本任务规则', 'Manage plain-text task rules')
+    },
+    {
       id: 'snippets' as const,
       label: label('快捷短语', 'Quick Snippets'),
       icon: MessageSquare,
@@ -245,14 +254,15 @@ export default function AiSettings({ config, onSave, onBack, english, store, onK
       alert: keyStatus === 'missing' || keyStatus === 'locked',
       tooltip: label('密钥加密存储与轮次限制', 'Encryption storage and turn limits')
     }
-  ], [draft.endpoints, draft.imageModels, snippets.length, keyStatus, english]);
+  ], [draft.endpoints, draft.imageModels, draft.skills?.length, snippets.length, keyStatus, english]);
 
   const handleTabKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const tabIds: Array<'models' | 'images' | 'removal' | 'prompt' | 'snippets' | 'other'> = [
+    const tabIds: Array<'models' | 'images' | 'removal' | 'prompt' | 'skills' | 'snippets' | 'other'> = [
       'models',
       'images',
       'removal',
       'prompt',
+      'skills',
       'snippets',
       'other'
     ];
@@ -1148,6 +1158,11 @@ const ToggleSwitch: React.FC<{
                   </div>
                 </div>
               </div>
+            )}
+
+            {tab === 'skills' && (
+              <SkillSettings skills={draft.skills ?? []} english={english}
+                onChange={skills => setDraft(previous => ({ ...previous, skills }))} />
             )}
 
             {/* TAB: 系统提示词 */}

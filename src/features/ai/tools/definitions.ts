@@ -1,4 +1,4 @@
-import type { ImagePromptConfig, ToolDefinition } from '../types.ts';
+import type { AiSkillConfig, ImagePromptConfig, ToolDefinition } from '../types.ts';
 import { imageCapabilities, imageTimeoutSeconds } from '../image-generation/index.ts';
 import { ADD_LAYER_TYPES, ALIGN_MODES, DISTRIBUTE_MODES, PROJECT_MANAGE_RULES, REORDER_POSITIONS } from './requests.ts';
 
@@ -178,6 +178,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     device: enumeration('可选，默认 auto：优先 WebGPU，失败回退 CPU/WASM。', ['auto', 'webgpu', 'wasm'])
   }, ['projectId', 'layerId'])),
 ];
+
+export function skillToolDefinitions(skills: AiSkillConfig[] = []): ToolDefinition[] {
+  return skills.length ? [tool('skill', '读取 SKILL。', object('', {
+    name: enumeration('SKILL 精确名称，来自 available_skills 列表。', skills.map(skill => skill.name))
+  }, ['name']))] : [];
+}
 
 export const VISION_TOOL_DEFINITIONS: ToolDefinition[] = [
   tool('get_canvas_preview', '预览当前画布效果，用于视觉分析；返回缩放后的图片。', noParameters)

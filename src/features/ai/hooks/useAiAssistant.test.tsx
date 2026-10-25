@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { useAiAssistant } from './useAiAssistant.ts';
 import { ConversationAbortError, runConversation } from '../services/conversation.ts';
-import { defaultConfig } from '../services/config.ts';
+import { defaultConfig, toRequestConfig } from '../services/config.ts';
 import type { ChatStore } from '../services/chatStore.ts';
 import type { WorkspaceOptions } from '../services/workspace.ts';
 import type { StorageAdapter } from '../../../storage/StorageAdapter.ts';
@@ -87,6 +87,30 @@ it('keeps chat accessible when API keys cannot be decrypted without overwriting 
   await act(async () => { await harness.getAssistant().reloadConfig(); });
   expect(harness.getAssistant().keyError).toBe(false);
   expect(harness.getAssistant().config.endpoints[0].apiKey).toBe('must-not-leak');
+});
+
+it('rejects new attachments for a text-only model even when image generation is enabled', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const store = memoryStore();
+  const config = defaultConfig();
+  config.endpoints[0].models.forEach(model => { model.supportsVision = false; });
+  config.imageModels![0].enabled = true;
+  config.imageModels![0].endpointId = config.endpoints[0].id;
+  expect(toRequestConfig(config).imageToolsEnabled).toBe(true);
+  const saveImage = vi.fn(async () => {});
+  store.saveImage = saveImage;
+  store.loadConfig = async () => config;
+  const harness = await mount(store);
+  const entries = harness.getAssistant().entries;
+  await act(async () => {
+    await expect(harness.getAssistant().send('Analyze', [{
+      image: { id: 'upload', name: 'test.webp', type: 'image/webp', size: 10 },
+      blob: new Blob(['image'], { type: 'image/webp' })
+    }])).rejects.toThrow(/vision model/i);
+  });
+  expect(saveImage).not.toHaveBeenCalled();
+  expect(runConversation).not.toHaveBeenCalled();
+  expect(harness.getAssistant().entries).toEqual(entries);
 });
 
 it('deletes selected images and history references before pruning, preserving other assets and snapshots', async () => {

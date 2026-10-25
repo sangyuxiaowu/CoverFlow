@@ -376,6 +376,74 @@ test('uploaded image references are hydrated only for vision requests', async ()
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('switching vision off projects images only in requests and switching back restores original history', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: { input: ResponseItem[]; tools: { name: string }[] }[] = [];
+  const input: ResponseItem[] = [
+    { role: 'user', content: [
+      { type: 'input_text', text: 'Keep this text and the literal attachment://mention.' },
+      { type: 'input_image', image_url: 'attachment://upload', detail: 'auto' },
+      { type: 'input_image', image_url: 'data:image/png;base64,AA==', detail: 'auto' },
+      { type: 'input_image', image_url: 'https://example.com/image.png', detail: 'auto' }
+    ] },
+    { type: 'function_call', call_id: 'preview', name: 'get_canvas_preview', arguments: '{}' },
+    { type: 'function_call_output', call_id: 'preview', output: [
+      { type: 'input_text', text: 'Preview metadata' },
+      { type: 'input_image', image_url: 'attachment://preview' }
+    ] },
+    { type: 'function_call', call_id: 'selected', name: 'get_selected_layers', arguments: '{}' },
+    { type: 'function_call_output', call_id: 'selected', output: [
+      { type: 'input_image', image_url: 'attachment://selected' }
+    ] },
+    { role: 'user', content: [{ type: 'input_image', image_url: 'https://example.com/only-image.png', detail: 'auto' }] }
+  ];
+  const original = structuredClone(input);
+  let history: ResponseItem[] = [];
+  let loaded = 0;
+  globalThis.fetch = async (_url, options) => {
+    requests.push(JSON.parse(options!.body as string));
+    return streamResponse(responsePayload(requests.length === 2
+      ? [{ type: 'function_call', call_id: 'context', name: 'get_context', arguments: '{}' }]
+      : [textOutput]));
+  };
+  const run = (supportsVision: boolean, source: ResponseItem[]) => runConversation({
+    config: { ...config, supportsVision }, input: source, bridge, signal: new AbortController().signal,
+    onText: () => {}, onTool: () => {}, onHistory: items => { history = items; },
+    loadImage: async () => {
+      assert.equal(supportsVision, true, 'text-only requests must not read image binaries');
+      loaded++;
+      return new Blob(['webp-bytes'], { type: 'image/webp' });
+    }
+  });
+  try {
+    await run(true, input);
+    assert.equal(loaded, 3);
+    const visionHistory = structuredClone(history);
+    await run(false, history);
+    assert.equal(loaded, 3);
+    const marker = { type: 'input_text', text: '[Image not provided: the current model does not support image input.]' };
+    const expected = [
+      { role: 'user', content: [{ type: 'input_text', text: 'Keep this text and the literal attachment://mention.' }, marker, marker, marker] },
+      original[1],
+      { type: 'function_call_output', call_id: 'preview', output: [{ type: 'input_text', text: 'Preview metadata' }, marker] },
+      original[3],
+      { type: 'function_call_output', call_id: 'selected', output: [marker] },
+      { role: 'user', content: [marker] }
+    ];
+    assert.equal(requests.length, 3);
+    for (const request of requests.slice(1)) {
+      assert.deepEqual(request.input.slice(0, original.length), expected);
+      assert.equal(request.tools.some(tool => tool.name === 'get_canvas_preview'), false);
+    }
+    assert.deepEqual(history.slice(0, visionHistory.length), visionHistory);
+    assert.deepEqual(input, original);
+    await run(true, history);
+    assert.equal(loaded, 6);
+    assert.deepEqual(requests[3].input.slice(0, original.length), requests[0].input.slice(0, original.length));
+    assert.deepEqual(history.slice(0, original.length), original);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('truncated streams and token exhaustion cannot execute tools', async () => {
   const signal = new AbortController().signal;
   await assert.rejects(readResponse(eventsFrom([{ type: 'response.output_text.delta', delta: 'partial' }]), () => {}, signal), /disconnected/);

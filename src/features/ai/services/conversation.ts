@@ -104,13 +104,14 @@ export function sanitizeResponseItems(items: ResponseItem[]): ResponseItem[] {
   return result;
 }
 
-async function hydrateImageReferences(items: ResponseItem[], loadImage?: (imageId: string) => Promise<Blob | null>): Promise<ResponseItem[]> {
+async function prepareRequestInput(items: ResponseItem[], supportsVision: boolean, loadImage?: (imageId: string) => Promise<Blob | null>): Promise<ResponseItem[]> {
   const result = structuredClone(items) as unknown as Record<string, unknown>[];
-  if (!loadImage) return result as unknown as ResponseItem[];
   const hydrateParts = async (parts: unknown[]) => Promise.all(parts.map(async part => {
     if (!part || typeof part !== 'object') return part;
     const image = part as { type?: string; image_url?: string | null };
-    if (image.type !== 'input_image' || !image.image_url?.startsWith('attachment://')) return part;
+    if (image.type !== 'input_image') return part;
+    if (!supportsVision) return { type: 'input_text', text: '[Image not provided: the current model does not support image input.]' };
+    if (!loadImage || !image.image_url?.startsWith('attachment://')) return part;
     const blob = await loadImage(image.image_url.slice('attachment://'.length));
     if (!blob) throw new Error('A referenced chat image is missing.');
     return { ...image, image_url: await blobToDataUrl(blob) };
@@ -125,7 +126,6 @@ async function hydrateImageReferences(items: ResponseItem[], loadImage?: (imageI
 export async function runConversation(options: ConversationOptions): Promise<string> {
   const { config, bridge, signal, onText, onTool } = options;
   validateRequestConfig(config);
-  if (!config.supportsVision && JSON.stringify(options.input).includes('attachment://')) throw new Error('The selected model is not configured for image input.');
   const baseURL = normalizeEndpoint(config.endpoint);
   const client = new OpenAI({ baseURL, apiKey: config.apiKey || 'local', dangerouslyAllowBrowser: true, maxRetries: 0 });
   const input = structuredClone(options.input);
@@ -147,7 +147,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
     const request = { id: generateId(), endpoint: baseURL, model: config.model, createdAt: startTime, inputEstimate: estimateInput(input, config.systemPrompt, config.supportsVision, tools.some(tool => tool.function.name === 'generate_image'), config.imageToolModels) };
     try {
       const stream = await client.responses.create({
-        model: config.model, instructions: config.systemPrompt, input: await hydrateImageReferences(input, options.loadImage),
+        model: config.model, instructions: config.systemPrompt, input: await prepareRequestInput(input, Boolean(config.supportsVision), options.loadImage),
         tools: tools.map(tool => ({ type: 'function' as const, ...tool.function, strict: false })),
         stream: true, store: false, max_output_tokens: config.maxTokens,
         ...reasoningPayload(config),

@@ -212,7 +212,8 @@ export default function AiAssistant({
 
   const submit = (overridePrompt?: string) => {
     const value = overridePrompt !== undefined ? overridePrompt : prompt;
-    if ((!value.trim() && !imageUploads.length) || controlsDisabled) return;
+    const uploads = active.model.supportsVision ? imageUploads : [];
+    if ((!value.trim() && !uploads.length) || controlsDisabled) return;
 
     // 当前选择的AI模型没有设置KEY的时候，在发送时，直接提醒前往设置配置KEY，然后输入内容退回输入框
     const hasKey = Boolean(active.endpoint.apiKey && active.endpoint.apiKey.trim().length > 0);
@@ -231,16 +232,16 @@ export default function AiAssistant({
     setShowSessions(false);
     chatScroll.resetScroll();
     setPrompt('');
-    const uploads = imageUploads;
-    setImageUploads([]);
+    if (uploads.length) setImageUploads([]);
     void assistant.send(value.trim() || label('请分析这张图片。', 'Please analyze this image.'), uploads).catch(error => {
       setPrompt(value);
-      setImageUploads(uploads);
+      if (uploads.length) setImageUploads(uploads);
       setKeyAlert(error instanceof Error ? error.message : label('图片发送失败。', 'Image upload failed.'));
     });
   };
 
   const addImages = async (files: FileList | File[] | null) => {
+    if (controlsDisabled || !active.model.supportsVision) return;
     const selectedFiles = files ? Array.from(files) : [];
     if (!selectedFiles.length) return;
     if (imageUploads.length + selectedFiles.length > 4) {
@@ -830,6 +831,11 @@ export default function AiAssistant({
                     ))}
                   </div>
                 )}
+                {imageUploads.length > 0 && !active.model.supportsVision && (
+                  <p role="status" className="px-2.5 pt-1 text-xs text-amber-300">
+                    {label('图片已暂存，本条仅发送文字。', 'Images held. This message will send text only.')}
+                  </p>
+                )}
                 <textarea
                   ref={inputRef}
                   value={prompt}
@@ -845,6 +851,7 @@ export default function AiAssistant({
                     if (keyAlert) setKeyAlert(null);
                   }}
                   onPaste={event => {
+                    if (!active.model.supportsVision) return;
                     const pastedImages = Array.from(event.clipboardData.items)
                       .filter(item => item.type.startsWith('image/'))
                       .map(item => item.getAsFile())
@@ -870,27 +877,31 @@ export default function AiAssistant({
                 {/* 悬浮工具栏 (h-5, 绝对定位在底部，不分割独立区域) */}
                 <div className="absolute inset-x-0 bottom-1.5 h-5 flex items-center justify-between gap-2 px-2 bg-transparent pointer-events-auto">
                   <div className="flex items-center gap-1 min-w-0">
-                    <input
-                      ref={imageInputRef}
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,image/gif"
-                      multiple
-                      className="hidden"
-                      onChange={event => {
-                        void addImages(event.currentTarget.files);
-                        event.currentTarget.value = '';
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => imageInputRef.current?.click()}
-                      disabled={controlsDisabled || (!active.model.supportsVision && !assistant.config.imageModels?.some(model => model.enabled)) || imageUploads.length >= 4}
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-emerald-300 disabled:opacity-30"
-                      title={label('添加图片／生图参考（最多 4 张）', 'Attach images / generation references (up to 4)')}
-                      aria-label={label('添加图片', 'Attach image')}
-                    >
-                      <ImagePlus size={14} />
-                    </button>
+                    {active.model.supportsVision && (
+                      <>
+                        <input
+                          ref={imageInputRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif"
+                          multiple
+                          className="hidden"
+                          onChange={event => {
+                            void addImages(event.currentTarget.files);
+                            event.currentTarget.value = '';
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => imageInputRef.current?.click()}
+                          disabled={controlsDisabled || imageUploads.length >= 4}
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-emerald-300 disabled:opacity-30"
+                          title={label('添加图片／生图参考（最多 4 张）', 'Attach images / generation references (up to 4)')}
+                          aria-label={label('添加图片', 'Attach image')}
+                        >
+                          <ImagePlus size={14} />
+                        </button>
+                      </>
+                    )}
                     <TokenUsageBar
                       session={assistant.sessions.find(session => session.id === assistant.activeSessionId)}
                       config={assistant.config}
@@ -919,7 +930,7 @@ export default function AiAssistant({
                     ) : (
                       <button
                         type="submit"
-                        disabled={(!prompt.trim() && !imageUploads.length) || controlsDisabled}
+                        disabled={(!prompt.trim() && !(active.model.supportsVision && imageUploads.length)) || controlsDisabled}
                         className="relative -top-0.5 w-8 h-8 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white transition-colors cursor-pointer active:scale-95 shadow-md shadow-blue-900/40"
                         title={label('发送消息 (Ctrl+Enter)', 'Send message (Ctrl+Enter)')}
                       >

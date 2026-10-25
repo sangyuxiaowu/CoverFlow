@@ -215,7 +215,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   const send = async (prompt: string, attachments: ChatImageUpload[] = []) => {
     if ((!prompt.trim() && !attachments.length) || controllerRef.current || loading || loadError || keyError || savingRef.current || !sessionRef.current) return;
     const requestConfig = toRequestConfig(config);
-    if (attachments.length && !requestConfig.supportsVision && !requestConfig.imageToolsEnabled) throw new Error('Enable image input or an image generation model to attach a reference.');
+    if (attachments.length && !requestConfig.supportsVision) throw new Error('Select a vision model to attach images.');
     setExecutionError(null);
     const controller = new AbortController();
     controllerRef.current = controller;

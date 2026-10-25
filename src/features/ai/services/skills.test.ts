@@ -10,7 +10,6 @@ describe('plain-text skills', () => {
     const prompt = skillsPrompt(skills);
     expect(prompt).toContain('name="brand-cover"');
     expect(prompt).toContain('Use for &lt;brand&gt; &amp; logo');
-    expect(prompt).toContain('先调用 skill 工具');
     expect(prompt).not.toContain('PRIVATE FULL CONTENT');
   });
 

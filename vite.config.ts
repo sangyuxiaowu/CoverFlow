@@ -67,6 +67,9 @@ export default defineConfig(({ mode }) => {
 
     return {
       base,
+      test: {
+        isolate: false,
+      },
       server: {
         port: 3000,
         host: '0.0.0.0',

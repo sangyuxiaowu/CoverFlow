@@ -28,7 +28,7 @@ import ConfirmModal from '../../../components/ConfirmModal.tsx';
 
 interface SkillSettingsProps {
   skills: AiSkillConfig[];
-  onChange: (skills: AiSkillConfig[]) => void;
+  onChange: (skills: AiSkillConfig[]) => void | Promise<void>;
   english: boolean;
 }
 
@@ -171,8 +171,30 @@ export default function SkillSettings({ skills = [], onChange, english }: SkillS
   const [formDesc, setFormDesc] = useState('');
   const [formContent, setFormContent] = useState('');
   const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [saved, setSaved] = useState(false);
+  const savePending = useRef(false);
 
   const label = (zh: string, en: string) => (english ? en : zh);
+
+  const persistSkills = async (nextSkills: AiSkillConfig[], onSuccess?: () => void) => {
+    if (savePending.current) return;
+    savePending.current = true;
+    setSaving(true);
+    setSaveError('');
+    setSaved(false);
+    try {
+      await onChange(normalizeSkills(nextSkills));
+      onSuccess?.();
+      setSaved(true);
+    } catch (reason) {
+      setSaveError(reason instanceof Error ? reason.message : label('技能保存失败，请重试', 'Unable to save skills. Please retry.'));
+    } finally {
+      savePending.current = false;
+      setSaving(false);
+    }
+  };
 
   useLayoutEffect(() => {
     if (!formRequest) return;
@@ -262,20 +284,19 @@ export default function SkillSettings({ skills = [], onChange, english }: SkillS
       setFormError((error as Error).message);
       return;
     }
-    onChange(normalized);
-
-    handleCancelForm();
+    void persistSkills(normalized, handleCancelForm);
   };
 
   // 删除技能
   const handleDeleteSkill = (index: number) => {
     const nextList = skills.filter((_, i) => i !== index);
-    onChange(nextList);
-    if (editingIndex === index) {
-      handleCancelForm();
-    } else if (editingIndex !== null && editingIndex > index) {
-      setEditingIndex(editingIndex - 1);
-    }
+    void persistSkills(nextList, () => {
+      if (editingIndex === index) {
+        handleCancelForm();
+      } else if (editingIndex !== null && editingIndex > index) {
+        setEditingIndex(editingIndex - 1);
+      }
+    });
   };
 
   // 复制技能
@@ -291,7 +312,7 @@ export default function SkillSettings({ skills = [], onChange, english }: SkillS
       description: skill.description,
       content: skill.content
     };
-    onChange([...skills, cloned]);
+    void persistSkills([...skills, cloned]);
   };
 
   // 应用官方预设
@@ -306,7 +327,7 @@ export default function SkillSettings({ skills = [], onChange, english }: SkillS
       content: english ? preset.contentEn : preset.contentZh
     };
 
-    onChange([...skills, newSkill]);
+    void persistSkills([...skills, newSkill]);
   };
 
   // 导出为 JSON
@@ -330,7 +351,7 @@ export default function SkillSettings({ skills = [], onChange, english }: SkillS
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = event => {
+    reader.onload = async event => {
       try {
         const parsed = JSON.parse(event.target?.result as string);
         if (!Array.isArray(parsed)) {
@@ -364,7 +385,7 @@ export default function SkillSettings({ skills = [], onChange, english }: SkillS
           throw new Error(label('未在文件中找到有效的技能配置', 'No valid skill definitions found in JSON'));
         }
 
-        onChange(normalizeSkills([...skills, ...validSkills]));
+        await persistSkills(normalizeSkills([...skills, ...validSkills]));
       } catch (err) {
         setJsonImportError((err as Error).message || label('导入失败，请检查文件格式', 'Import failed'));
       } finally {
@@ -388,7 +409,9 @@ export default function SkillSettings({ skills = [], onChange, english }: SkillS
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">
+    <fieldset disabled={saving} aria-busy={saving} className="min-w-0 space-y-6 animate-in fade-in-50 duration-200 slide-in-from-bottom-1">
+      {saveError && <p role="alert" className="text-xs text-rose-300">{saveError}</p>}
+      {saved && !saveError && <p role="status" className="text-xs text-emerald-300">{label('已保存', 'Saved')}</p>}
       {/* 顶部旗舰介绍与状态卡片 */}
       <div className="relative overflow-hidden rounded-2xl border border-indigo-500/20 bg-gradient-to-r from-indigo-950/30 via-slate-900/60 to-blue-950/20 p-5 backdrop-blur-sm shadow-lg shadow-indigo-950/10">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -556,10 +579,11 @@ export default function SkillSettings({ skills = [], onChange, english }: SkillS
             <button
               type="button"
               onClick={handleSaveForm}
+              disabled={saving}
               className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-900/30 flex items-center gap-1.5 transition-all cursor-pointer"
             >
               <Check size={14} />
-              <span>{isCreatingNew ? label('确认添加技能', 'Add Skill') : label('保存修改', 'Save Changes')}</span>
+              <span>{saving ? label('保存中...', 'Saving...') : isCreatingNew ? label('确认添加技能', 'Add Skill') : label('保存修改', 'Save Changes')}</span>
             </button>
           </div>
         </div>
@@ -809,6 +833,6 @@ export default function SkillSettings({ skills = [], onChange, english }: SkillS
         />,
         document.body
       )}
-    </div>
+    </fieldset>
   );
 }

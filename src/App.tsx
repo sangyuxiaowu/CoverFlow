@@ -1596,6 +1596,11 @@ const App: React.FC = () => {
         onRangeChange={range => { setExportRange(range); if (range !== 'current') setActiveTab('pages'); }}
         selectedPageIds={exportPageIds}
         onSelectedPagesChange={setExportPageIds}
+        onPageChange={pageId => {
+          setExportPreviewUrl(previous => { if (previous) URL.revokeObjectURL(previous); return null; });
+          setExportEstimatedSize(null);
+          switchPage(pageId);
+        }}
         thumbnails={pageThumbnails}
         busy={isExporting}
         progress={exportProgress}

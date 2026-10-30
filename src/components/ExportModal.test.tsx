@@ -4,9 +4,10 @@ import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import ExportModal, { type ExportRange, type ExportSettings } from './ExportModal.tsx';
 import { syncProjectPages } from '../storage/projectCompatibility.ts';
-import { insertProjectPage } from '../utils/projectPages.ts';
+import { insertProjectPage, selectProjectPage } from '../utils/projectPages.ts';
+import type { ProjectState } from '../types.ts';
 
-vi.mock('./LivePreview.tsx', () => ({ default: () => <div data-testid="live-preview" /> }));
+vi.mock('./LivePreview.tsx', () => ({ default: ({ project }: { project: ProjectState }) => <div data-testid="live-preview" data-preview-page={project.activePageId} /> }));
 
 it('defaults to the current page and uses cached thumbnails for multi-select exports', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -16,17 +17,29 @@ it('defaults to the current page and uses cached thumbnails for multi-select exp
   const container = document.createElement('div');
   const root = createRoot(container);
   function Harness() {
+    const [currentProject, setCurrentProject] = useState(project);
     const [range, setRange] = useState<ExportRange>('current');
     const [ids, setIds] = useState([project.activePageId!]);
     const [settings, setSettings] = useState<ExportSettings>({ format: 'png', pixelRatio: 1, compression: 'lossless' });
-    return <ExportModal isOpen lang="zh" project={project} settings={settings} estimatedSize={null} estimating={false} onChange={updates => setSettings(current => ({ ...current, ...updates }))} onClose={() => {}} onConfirm={() => {}} onCopyBase64={copy} onCopyImage={copy} range={range} onRangeChange={setRange} selectedPageIds={ids} onSelectedPagesChange={setIds} thumbnails={thumbnails} />;
+    return <ExportModal isOpen lang="zh" project={currentProject} settings={settings} estimatedSize={null} estimating={false} onChange={updates => setSettings(current => ({ ...current, ...updates }))} onClose={() => {}} onConfirm={() => {}} onCopyBase64={copy} onCopyImage={copy} range={range} onRangeChange={setRange} selectedPageIds={ids} onSelectedPagesChange={setIds} onPageChange={id => setCurrentProject(current => selectProjectPage(current, id))} thumbnails={thumbnails} />;
   }
   const button = (label: string) => Array.from(container.querySelectorAll('button')).find(element => element.textContent === label)!;
+  const navigation = (label: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
   try {
     await act(async () => root.render(<Harness />));
     expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
     expect(button('复制 Base64')).toBeDefined();
+    expect(container.querySelector('[aria-live="polite"]')?.textContent).toBe('2/2');
+    expect(navigation('下一页').disabled).toBe(true);
+    await act(async () => navigation('上一页').click());
+    expect(container.querySelector('[aria-live="polite"]')?.textContent).toBe('1/2');
+    expect(navigation('上一页').disabled).toBe(true);
+    expect(container.querySelector('[data-preview-page]')?.getAttribute('data-preview-page')).toBe(project.pages![0].id);
+    await act(async () => navigation('下一页').click());
+    expect(container.querySelector('[data-preview-page]')?.getAttribute('data-preview-page')).toBe(project.pages![1].id);
     await act(async () => button('多选').click());
+    expect(navigation('上一页')).toBeNull();
+    expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.style.opacity).toBe('0');
     expect(button('复制 Base64')).toBeUndefined();
     expect(button('复制图片到剪贴板')).toBeUndefined();
     expect(container.querySelectorAll('input[type="checkbox"]:checked')).toHaveLength(1);

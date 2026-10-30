@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ClipboardCopy, Copy, Download, Eye, FileImage, ListChecks, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ClipboardCopy, Copy, Download, Eye, FileImage, ListChecks, X } from 'lucide-react';
 import { ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
 import LivePreview from './LivePreview.tsx';
@@ -26,6 +26,7 @@ interface ExportModalProps {
   onRangeChange: (range: ExportRange) => void;
   selectedPageIds: string[];
   onSelectedPagesChange: (ids: string[]) => void;
+  onPageChange: (id: string) => void;
   thumbnails: Record<string, string>;
   busy?: boolean;
   progress?: { done: number; total: number } | null;
@@ -56,6 +57,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
   onRangeChange,
   selectedPageIds,
   onSelectedPagesChange,
+  onPageChange,
   thumbnails,
   busy = false,
   progress
@@ -67,6 +69,8 @@ const ExportModal: React.FC<ExportModalProps> = ({
   const isSvg = settings.format === 'svg';
   const isPng = settings.format === 'png';
   const isPpt = settings.format === 'pptx';
+  const pages = project.pages ?? [];
+  const pageIndex = Math.max(0, pages.findIndex(page => page.id === project.activePageId));
 
   const outputWidth = isSvg
     ? project.canvasConfig.width
@@ -135,6 +139,12 @@ const ExportModal: React.FC<ExportModalProps> = ({
                 </div>
               )}
             </div>
+
+            {range === 'current' && pages.length > 1 && <div role="group" aria-label={t.pages} className="inline-flex self-center items-center gap-1 rounded-lg border border-slate-800 bg-slate-950/70 p-1">
+              <button type="button" title={t.previousPage} aria-label={t.previousPage} disabled={busy || pageIndex === 0} onClick={() => onPageChange(pages[pageIndex - 1].id)} className="flex h-8 w-8 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400 cursor-pointer disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent"><ChevronLeft className="h-4 w-4" /></button>
+              <span aria-live="polite" aria-atomic="true" className="min-w-14 text-center text-xs font-mono tabular-nums text-slate-200">{pageIndex + 1}/{pages.length}</span>
+              <button type="button" title={t.nextPage} aria-label={t.nextPage} disabled={busy || pageIndex === pages.length - 1} onClick={() => onPageChange(pages[pageIndex + 1].id)} className="flex h-8 w-8 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400 cursor-pointer disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent"><ChevronRight className="h-4 w-4" /></button>
+            </div>}
 
             <div className="flex items-center justify-between pt-1">
               <span className="text-xs font-medium text-slate-400">

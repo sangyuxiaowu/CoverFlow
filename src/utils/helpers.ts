@@ -1,6 +1,32 @@
 // 模块：通用工具（导出、SVG 处理）
 // 生成短随机 ID。
 const ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
+export const isNewerProjectVersion = (projectVersion: unknown, currentVersion: string): boolean => {
+  const pattern = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+  const project = typeof projectVersion === 'string' ? pattern.exec(projectVersion) : null;
+  const current = pattern.exec(currentVersion);
+  if (!project || !current) return false;
+  for (let index = 1; index <= 3; index++) {
+    const difference = Number(project[index]) - Number(current[index]);
+    if (difference !== 0) return difference > 0;
+  }
+  if (!project[4] || !current[4]) return !project[4] && Boolean(current[4]);
+  const projectPrerelease = project[4].split('.');
+  const currentPrerelease = current[4].split('.');
+  for (let index = 0; index < Math.max(projectPrerelease.length, currentPrerelease.length); index++) {
+    const projectPart = projectPrerelease[index];
+    const currentPart = currentPrerelease[index];
+    if (projectPart === currentPart) continue;
+    if (projectPart === undefined || currentPart === undefined) return currentPart === undefined;
+    const projectNumeric = /^\d+$/.test(projectPart);
+    const currentNumeric = /^\d+$/.test(currentPart);
+    if (projectNumeric && currentNumeric) return Number(projectPart) > Number(currentPart);
+    if (projectNumeric !== currentNumeric) return !projectNumeric;
+    return projectPart > currentPart;
+  }
+  return false;
+};
+
 export const generateId = () => {
   const bytes = crypto.getRandomValues(new Uint8Array(9));
   return Array.from(bytes, byte => ID_ALPHABET[byte % ID_ALPHABET.length]).join('');

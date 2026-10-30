@@ -37,7 +37,7 @@ import {
 import { translations, Language } from './translations.ts';
 import { getAssetFolder } from './storage/assets.ts';
 import { PRESET_RATIOS } from './constants.ts';
-import { generateId, downloadFile, normalizeSVG, formatCanvasRatio } from './utils/helpers.ts';
+import { generateId, downloadFile, normalizeSVG, formatCanvasRatio, isNewerProjectVersion } from './utils/helpers.ts';
 import { buildProjectSvg } from './utils/svgExport.ts';
 import { clampDecorationSize } from './utils/decorationStyles.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
@@ -82,7 +82,8 @@ const App: React.FC = () => {
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<string | null>('assets');
   const [isExporting, setIsExporting] = useState(false);
-  const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' | 'warning' } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ message: string, onConfirm: () => void } | null>(null);
   const [isStorageSettingsOpen, setIsStorageSettingsOpen] = useState(false);
   const [projectSearchTerm, setProjectSearchTerm] = useState('');
@@ -121,10 +122,19 @@ const App: React.FC = () => {
   const [croppingImageLayerId, setCroppingImageLayerId] = useState<string | null>(null);
 
 
-  const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
+  const showToast = useCallback((msg: string, type: 'success' | 'error' | 'warning' = 'success') => {
+    if (toastTimerRef.current !== null) clearTimeout(toastTimerRef.current);
     setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
+    toastTimerRef.current = setTimeout(() => setToast(null), type === 'warning' ? 6000 : 3000);
   }, []);
+
+  const warnIfNewerProject = useCallback((nextProject: ProjectState) => {
+    if (!isNewerProjectVersion(nextProject.version, APP_VERSION)) return false;
+    showToast(t.newerProjectVersion
+      .replace('{projectVersion}', nextProject.version!)
+      .replace('{currentVersion}', APP_VERSION), 'warning');
+    return true;
+  }, [showToast, t.newerProjectVersion]);
 
   useEffect(() => {
     if (!project) return;
@@ -160,6 +170,7 @@ const App: React.FC = () => {
     parseFailedMessage: t.parseFailed,
     showToast,
     onOpenProject: (nextProject) => {
+      warnIfNewerProject(nextProject);
       setProject(nextProject);
       setView('editor');
       initProjectHistory(nextProject);
@@ -363,7 +374,7 @@ const App: React.FC = () => {
     const textX = Math.max(0, (width - textWidth) / 2);
     const textY = Math.max(0, (height - textHeight) / 2);
     const newProject: ProjectState = {
-      id: generateId(), title: t.untitled, updatedAt: Date.now(),
+      id: generateId(), version: APP_VERSION, title: t.untitled, updatedAt: Date.now(),
       layers: [{ id: generateId(), name: t.defaultHeadlineName, type: 'text', content: t.doubleClickToEdit, x: textX, y: textY, width: textWidth, height: textHeight, fontSize: 64, fontFamily: 'Inter, sans-serif', fontWeight: 700, textAlign: 'center', writingMode: 'horizontal', rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, color: '#ffffff', ratioLocked: true }],
       background: { 
         type: 'color', 
@@ -795,7 +806,7 @@ const App: React.FC = () => {
           imported.selectedLayerId = null;
           setProjects(prev => [imported, ...prev]);
           persistProject(imported);
-          showToast(t.importSuccess);
+          if (!warnIfNewerProject(imported)) showToast(t.importSuccess);
         }
       } catch (err) {
         showToast(t.parseFailed, "error");
@@ -1456,6 +1467,7 @@ const App: React.FC = () => {
         return opened;
       }
       clearActiveLocalFilePath();
+      warnIfNewerProject(next);
       latestProjectRef.current = next;
       setProject(structuredClone(next));
       setSelectedLayerIds(next.selectedLayerId ? [next.selectedLayerId] : []);
@@ -1495,6 +1507,7 @@ const App: React.FC = () => {
           openLocalProjectFromPath(item.localPath);
           return;
         }
+        warnIfNewerProject(item.project);
         setProject(JSON.parse(JSON.stringify(item.project)));
         setView('editor');
         initProjectHistory(item.project);

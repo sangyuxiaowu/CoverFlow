@@ -104,6 +104,7 @@ export interface BackgroundConfig {
 
 export interface ProjectState {
   id: string;
+  version?: string;
   title: string;
   layers: Layer[];
   background: BackgroundConfig;

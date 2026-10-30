@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import type { ProjectState } from '../types.ts';
 import type { StorageAdapter } from '../storage/StorageAdapter.ts';
+import { writeProject } from '../storage/projectCompatibility.ts';
+
+const projectSnapshot = (project: ProjectState) => JSON.stringify(writeProject(project));
 
 type AutoSaveOptions = {
   project: ProjectState | null;
@@ -43,7 +46,7 @@ export function useProjectAutoSave({ project, view, storageAdapter, storageReady
     }
     if (lastSavedProjectIdRef.current !== project.id) {
       lastSavedProjectIdRef.current = project.id;
-      lastSavedSnapshotRef.current = JSON.stringify(project);
+      lastSavedSnapshotRef.current = projectSnapshot(project);
     }
   }, [project]);
 
@@ -52,7 +55,7 @@ export function useProjectAutoSave({ project, view, storageAdapter, storageReady
     if (!storageReadyRef.current && !canSaveLocal) return;
     const currentProject = latestProjectRef.current;
     if (!currentProject) return;
-    const snapshot = JSON.stringify(currentProject);
+    const snapshot = projectSnapshot(currentProject);
     if (snapshot === lastSavedSnapshotRef.current) return;
 
     if (canSaveLocal && reason === 'auto') return;
@@ -71,7 +74,7 @@ export function useProjectAutoSave({ project, view, storageAdapter, storageReady
       saveLocalProjectToFile(activeLocalFilePath!, currentProject).then(nextProject => {
         lastSavedAtRef.current = Date.now();
         lastSavedProjectIdRef.current = nextProject.id;
-        lastSavedSnapshotRef.current = JSON.stringify(nextProject);
+        lastSavedSnapshotRef.current = projectSnapshot(nextProject);
         if (reason === 'manual') showToast(savedMessage);
       }).catch(error => {
         reportStorageError(error, `save-${reason}`, saveFailedMessage, currentProject.id, activeLocalFilePath);
@@ -93,7 +96,7 @@ export function useProjectAutoSave({ project, view, storageAdapter, storageReady
     try {
       await storageAdapter.saveProject(nextProject);
       lastSavedProjectIdRef.current = nextProject.id;
-      lastSavedSnapshotRef.current = JSON.stringify(nextProject);
+      lastSavedSnapshotRef.current = projectSnapshot(nextProject);
     } catch (error) {
       reportStorageError(error, 'persist-project', saveFailedMessage, nextProject.id);
     }

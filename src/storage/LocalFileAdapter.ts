@@ -1,5 +1,6 @@
 import { ProjectState } from '../types.ts';
 import { ListProjectsOptions, StorageAdapter, StorageAdapterType } from './StorageAdapter.ts';
+import { readProject, writeProject } from './projectCompatibility.ts';
 
 const FS_DB_NAME = 'coverflow_fs_handles_v1';
 const FS_STORE_NAME = 'handles';
@@ -118,7 +119,7 @@ export class LocalFileAdapter implements StorageAdapter {
       for (const item of sorted) {
         try {
           const text = await readFileText(item.handle);
-          projects.push(JSON.parse(text) as ProjectState);
+          projects.push(readProject(JSON.parse(text)));
         } catch (err) {
           // Skip invalid entries
         }
@@ -131,7 +132,7 @@ export class LocalFileAdapter implements StorageAdapter {
       for (const item of sorted) {
         try {
           const text = await readFileText(item.handle);
-          const parsed = JSON.parse(text) as ProjectState;
+          const parsed = readProject(JSON.parse(text));
           if (!parsed?.title) continue;
           if (parsed.title.toLowerCase().includes(query)) {
             filtered.push({ project: parsed, lastModified: item.lastModified });
@@ -160,7 +161,7 @@ export class LocalFileAdapter implements StorageAdapter {
     for (const item of pageEntries) {
       try {
         const text = await readFileText(item.handle);
-        pageProjects.push(JSON.parse(text) as ProjectState);
+        pageProjects.push(readProject(JSON.parse(text)));
       } catch (err) {
         // Skip invalid entries
       }
@@ -176,7 +177,7 @@ export class LocalFileAdapter implements StorageAdapter {
     const operation = this.writeQueue.then(async () => {
       const dataHandle = await this.rootHandle!.getDirectoryHandle(DATA_DIR, { create: true });
       const fileHandle = await dataHandle.getFileHandle(`${project.id}.${PROJECT_FILE_EXT}`, { create: true });
-      await writeFileText(fileHandle, JSON.stringify(project, null, 2));
+      await writeFileText(fileHandle, JSON.stringify(writeProject(project), null, 2));
     });
 
     this.writeQueue = operation.catch(() => {});

@@ -39,6 +39,8 @@ import { getAssetFolder } from './storage/assets.ts';
 import { PRESET_RATIOS } from './constants.ts';
 import { generateId, downloadFile, normalizeSVG, formatCanvasRatio, isNewerProjectVersion } from './utils/helpers.ts';
 import { buildProjectSvg } from './utils/svgExport.ts';
+import { readProject, syncProjectPages, writeProject } from './storage/projectCompatibility.ts';
+import { copyProject } from './utils/projectPages.ts';
 import { clampDecorationSize } from './utils/decorationStyles.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
 import { computeCroppedLayerGeometry } from './utils/imageLayer.ts';
@@ -78,7 +80,13 @@ const App: React.FC = () => {
   const [view, setView] = useState<'landing' | 'editor'>('landing');
   const [aiBusy, setAiBusy] = useState(false);
   const [isAiOpen, setIsAiOpen] = useState(false);
-  const [project, setProject] = useState<ProjectState | null>(null);
+  const [project, setProjectState] = useState<ProjectState | null>(null);
+  const setProject = useCallback<React.Dispatch<React.SetStateAction<ProjectState | null>>>((update) => {
+    setProjectState(previous => {
+      const next = typeof update === 'function' ? update(previous) : update;
+      return next ? syncProjectPages(next) : null;
+    });
+  }, []);
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<string | null>('assets');
   const [isExporting, setIsExporting] = useState(false);
@@ -794,7 +802,7 @@ const App: React.FC = () => {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const imported: ProjectState = JSON.parse(event.target?.result as string);
+        const imported = readProject(JSON.parse(event.target?.result as string));
         if (imported.id && imported.layers) {
           const existingProjectIds = new Set(projects.map(p => p.id));
           if (existingProjectIds.has(imported.id)) {
@@ -802,7 +810,6 @@ const App: React.FC = () => {
             imported.updatedAt = Date.now();
             imported.title += t.importedCopySuffix;
           }
-          imported.layers = imported.layers.map(layer => ({ ...layer, id: generateId() }));
           imported.selectedLayerId = null;
           setProjects(prev => [imported, ...prev]);
           persistProject(imported);
@@ -817,35 +824,13 @@ const App: React.FC = () => {
   };
 
   const handleExportJson = (targetProject: ProjectState) => {
-    const json = JSON.stringify({ ...targetProject, version: APP_VERSION, github: GITHUB_REPO_URL }, null, 2);
+    const json = JSON.stringify({ ...writeProject(targetProject), github: GITHUB_REPO_URL }, null, 2);
     downloadFile(json, `${targetProject.title}.cfj`, 'application/json');
     showToast(t.exportSuccess);
   };
 
   const handleDuplicateProject = (targetProject: ProjectState) => {
-    const idMap = new Map<string, string>();
-    targetProject.layers.forEach(layer => idMap.set(layer.id, generateId()));
-
-    const clonedLayers = targetProject.layers.map(layer => {
-      const nextId = idMap.get(layer.id) as string;
-      const nextParentId = layer.parentId ? idMap.get(layer.parentId) : undefined;
-      const nextChildren = layer.children ? layer.children.map(cid => idMap.get(cid) as string).filter(Boolean) : undefined;
-      return {
-        ...JSON.parse(JSON.stringify(layer)),
-        id: nextId,
-        parentId: nextParentId,
-        children: nextChildren
-      };
-    });
-
-    const duplicated: ProjectState = {
-      ...JSON.parse(JSON.stringify(targetProject)),
-      id: generateId(),
-      title: `${targetProject.title}(${t.importedCopySuffix})`,
-      updatedAt: Date.now(),
-      layers: clonedLayers,
-      selectedLayerId: null
-    };
+    const duplicated = copyProject(targetProject, `${targetProject.title}(${t.importedCopySuffix})`);
 
     setProjects(prev => [duplicated, ...prev]);
     persistProject(duplicated);

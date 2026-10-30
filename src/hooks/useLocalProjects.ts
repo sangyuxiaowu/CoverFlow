@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ProjectState } from '../types.ts';
+import { readProject, writeProject } from '../storage/projectCompatibility.ts';
 
 const LOCAL_RECENT_KEY = 'coverflow_recent_local_files_v1';
 
@@ -76,8 +77,7 @@ export const useLocalProjects = ({
     try {
       const { readTextFile } = await import('@tauri-apps/plugin-fs');
       const text = await readTextFile(path);
-      const parsed = JSON.parse(text) as ProjectState;
-      if (!parsed?.id || !parsed.layers) throw new Error('Invalid project file');
+      const parsed = readProject(JSON.parse(text));
       onOpenProject(parsed);
       setActiveLocalFilePath(path);
       updateLocalRecentMeta(path, parsed);
@@ -107,7 +107,7 @@ export const useLocalProjects = ({
   const saveLocalProjectToFile = useCallback(async (path: string, projectData: ProjectState) => {
     const { writeTextFile } = await import('@tauri-apps/plugin-fs');
     const nextProject = { ...projectData, updatedAt: Date.now() };
-    await writeTextFile(path, JSON.stringify(nextProject, null, 2));
+    await writeTextFile(path, JSON.stringify(writeProject(nextProject), null, 2));
     onUpdateProject(nextProject);
     updateLocalRecentMeta(path, nextProject);
     setLocalRecentItems(prev => {
@@ -136,8 +136,7 @@ export const useLocalProjects = ({
       for (const item of meta) {
         try {
           const text = await readTextFile(item.path);
-          const parsed = JSON.parse(text) as ProjectState;
-          if (!parsed?.id || !parsed.layers) continue;
+          const parsed = readProject(JSON.parse(text));
           nextItems.push({ project: parsed, source: 'local', localPath: item.path });
           nextMeta.push({
             path: item.path,

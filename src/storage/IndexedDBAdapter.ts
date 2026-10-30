@@ -1,5 +1,6 @@
 import { ProjectState } from '../types.ts';
 import { ListProjectsOptions, StorageAdapter, StorageAdapterType } from './StorageAdapter.ts';
+import { readProject, writeProject } from './projectCompatibility.ts';
 
 const DB_NAME = 'coverflow_projects_db_v1';
 const STORE_NAME = 'projects';
@@ -21,7 +22,10 @@ const readAllProjects = async () => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const store = tx.objectStore(STORE_NAME);
     const req = store.getAll();
-    req.onsuccess = () => resolve(req.result as ProjectState[]);
+    req.onsuccess = () => {
+      try { resolve((req.result as unknown[]).map(readProject)); }
+      catch (error) { reject(error); }
+    };
     req.onerror = () => reject(req.error);
   });
 };
@@ -30,7 +34,7 @@ const upsertProject = async (project: ProjectState) => {
   const db = await openIndexedDb();
   const tx = db.transaction(STORE_NAME, 'readwrite');
   const store = tx.objectStore(STORE_NAME);
-  store.put(project);
+  store.put(writeProject(project));
   return new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);

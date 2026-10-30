@@ -7,6 +7,7 @@ import PagesPanel from './PagesPanel.tsx';
 import type { PageExportSettings } from '../utils/exportPages.ts';
 
 export type ExportSettings = PageExportSettings;
+export type ExportRange = 'current' | 'multiple' | 'all';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -21,8 +22,8 @@ interface ExportModalProps {
   onConfirm: () => void;
   onCopyBase64: () => void;
   onCopyImage: () => void;
-  range: 'current' | 'multiple';
-  onRangeChange: (range: 'current' | 'multiple') => void;
+  range: ExportRange;
+  onRangeChange: (range: ExportRange) => void;
   selectedPageIds: string[];
   onSelectedPagesChange: (ids: string[]) => void;
   thumbnails: Record<string, string>;
@@ -60,7 +61,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
   progress
 }) => {
   const [leftView, setLeftView] = useState<'preview' | 'pages'>('preview');
-  useEffect(() => { setLeftView(range === 'multiple' ? 'pages' : 'preview'); }, [isOpen, range]);
+  useEffect(() => { setLeftView(range !== 'current' ? 'pages' : 'preview'); }, [isOpen, range]);
   if (!isOpen) return null;
   const t = translations[lang];
   const isSvg = settings.format === 'svg';
@@ -111,7 +112,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1">
                 <button type="button" title={t.decorationPreview} aria-label={t.decorationPreview} aria-pressed={leftView === 'preview'} onClick={() => setLeftView('preview')} className={`p-1.5 rounded ${leftView === 'preview' ? 'bg-slate-800 text-blue-400' : 'text-slate-500'}`}><Eye className="w-4 h-4" /></button>
-                {range === 'multiple' && <button type="button" title={t.pages} aria-label={t.pages} aria-pressed={leftView === 'pages'} onClick={() => setLeftView('pages')} className={`p-1.5 rounded ${leftView === 'pages' ? 'bg-slate-800 text-blue-400' : 'text-slate-500'}`}><ListChecks className="w-4 h-4" /></button>}
+                {range !== 'current' && <button type="button" title={t.pages} aria-label={t.pages} aria-pressed={leftView === 'pages'} onClick={() => setLeftView('pages')} className={`p-1.5 rounded ${leftView === 'pages' ? 'bg-slate-800 text-blue-400' : 'text-slate-500'}`}><ListChecks className="w-4 h-4" /></button>}
               </div>
               <span className="text-xs font-mono tabular-nums text-slate-400">
                 {outputWidth} × {outputHeight} {isSvg ? 'SVG' : 'px'}
@@ -119,7 +120,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
             </div>
 
             <div className={`relative w-full ${leftView === 'pages' ? 'h-72' : 'h-56 p-3'} rounded-lg border border-slate-800/90 bg-slate-950 overflow-hidden flex items-center justify-center`}>
-              {leftView === 'pages' ? <div className="w-full h-full" inert={busy}><PagesPanel lang={lang} pages={project.pages ?? []} activePageId={project.activePageId} thumbnails={thumbnails} selectedIds={selectedPageIds} onSelectionChange={onSelectedPagesChange} /></div> : previewUrl ? (
+              {leftView === 'pages' ? <div className="w-full h-full" inert={busy}><PagesPanel lang={lang} pages={project.pages ?? []} activePageId={project.activePageId} thumbnails={thumbnails} selectedIds={range === 'all' ? project.pages?.map(page => page.id) : selectedPageIds} onSelectionChange={ids => { onSelectedPagesChange(ids); if (range === 'all') onRangeChange('multiple'); }} /></div> : previewUrl ? (
                 <img
                   src={previewUrl}
                   alt={project.title}
@@ -143,7 +144,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
                 <span className="text-slate-500 uppercase">{settings.format}</span>
                 <span className="text-slate-700" aria-hidden="true">·</span>
                 <span className="text-sm font-semibold text-slate-100">
-                  {busy && progress ? `${progress.done} / ${progress.total}` : range === 'multiple' || isPpt ? '--' : estimating ? t.exportEstimating : (estimatedSize ? formatBytes(estimatedSize) : '--')}
+                  {busy && progress ? `${progress.done} / ${progress.total}` : range !== 'current' || isPpt ? '--' : estimating ? t.exportEstimating : (estimatedSize ? formatBytes(estimatedSize) : '--')}
                 </span>
               </div>
             </div>
@@ -153,8 +154,8 @@ const ExportModal: React.FC<ExportModalProps> = ({
           <div className="md:col-span-6 p-6 flex flex-col justify-center space-y-5">
             {(project.pages?.length ?? 1) > 1 && <div className="space-y-2">
               <div className="text-xs font-semibold text-slate-400">{t.exportRange}</div>
-              <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-slate-950 border border-slate-800">
-                {(['current', 'multiple'] as const).map(value => <button key={value} type="button" disabled={busy} onClick={() => onRangeChange(value)} className={`py-2 text-xs font-semibold rounded ${range === value ? 'bg-slate-800 text-white' : 'text-slate-400'}`}>{value === 'current' ? t.currentPage : t.multiplePages}</button>)}
+              <div className="grid grid-cols-3 gap-1 p-1 rounded-lg bg-slate-950 border border-slate-800">
+                {(['current', 'multiple', 'all'] as const).map(value => <button key={value} type="button" disabled={busy} aria-pressed={range === value} onClick={() => onRangeChange(value)} className={`py-2 text-xs font-semibold rounded cursor-pointer disabled:cursor-not-allowed ${range === value ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'}`}>{value === 'current' ? t.currentPage : value === 'multiple' ? t.multiplePages : t.allPages}</button>)}
               </div>
             </div>}
             {/* Format Selector */}
@@ -255,7 +256,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
 
         {/* Footer Actions */}
         <div className="px-6 py-4 bg-slate-950/60 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+          {range === 'current' && <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={onCopyImage}
@@ -274,7 +275,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
               <Copy className="w-3.5 h-3.5 text-slate-400" />
               <span>{t.copyBase64}</span>
             </button>
-          </div>
+          </div>}
 
           <div className="flex items-center gap-2 ml-auto">
             <button
@@ -292,7 +293,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
               className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-950/50 transition-all active:scale-95 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>{busy && progress ? `${progress.done} / ${progress.total}` : t.export}</span>
+              <span>{busy && progress ? `${progress.done} / ${progress.total}` : isPpt ? t.exportPpt : t.export}</span>
             </button>
           </div>
         </div>

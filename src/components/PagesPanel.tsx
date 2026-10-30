@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowDown, ArrowUp, Copy, GripVertical, ImageIcon, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, Copy, GripVertical, ImageIcon, Trash2 } from 'lucide-react';
 import type { ProjectPage } from '../types.ts';
 import { translations, type Language } from '../translations.ts';
 import { formatCanvasRatio } from '../utils/helpers.ts';
@@ -28,25 +28,29 @@ export default function PagesPanel({ lang, pages, activePageId, thumbnails, sele
       {onSelectionChange && <div className="flex items-center justify-between gap-2 p-3 border-b border-slate-800 text-xs">
         <span className="text-slate-400 tabular-nums">{selectedIds?.length ?? 0} / {pages.length}</span>
         <div className="flex gap-3">
-          <button type="button" className="text-blue-400 hover:text-blue-300" onClick={() => onSelectionChange(pages.map(page => page.id))}>{t.selectAllPages}</button>
-          <button type="button" className="text-slate-400 hover:text-white" onClick={() => onSelectionChange(pages.filter(page => !selectedIds?.includes(page.id)).map(page => page.id))}>{t.invertPages}</button>
+          <button type="button" className="text-blue-400 hover:text-blue-300 cursor-pointer" onClick={() => onSelectionChange(pages.map(page => page.id))}>{t.selectAllPages}</button>
+          <button type="button" className="text-slate-400 hover:text-white cursor-pointer" onClick={() => onSelectionChange(pages.filter(page => !selectedIds?.includes(page.id)).map(page => page.id))}>{t.invertPages}</button>
         </div>
       </div>}
       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-2 space-y-2">
         {pages.map((page, index) => {
-          const active = page.id === activePageId;
+          const active = onSelectionChange ? selectedIds?.includes(page.id) : page.id === activePageId;
           const label = `${pageNumber(index)}${page.name ? ` ${page.name}` : ''}`;
-          return <div key={page.id} data-page-id={page.id}
+          const Item = onSelectionChange ? 'label' : 'div';
+          const thumbnail = thumbnails[page.id] ? <img src={thumbnails[page.id]} alt="" draggable={false} className="max-w-full max-h-full object-contain" /> : <ImageIcon className="w-5 h-5 text-slate-700" />;
+          return <Item key={page.id} data-page-id={page.id}
             onDragOver={event => { if (onMove) { event.preventDefault(); setDropId(page.id); } }}
             onDragLeave={() => setDropId(null)}
             onDrop={event => { event.preventDefault(); const id = event.dataTransfer.getData('text/coverflow-page'); if (id && pages.some(item => item.id === id)) onMove?.(id, page.id); setDropId(null); }}
-            className={`rounded-lg border overflow-hidden ${dropId === page.id ? 'border-emerald-400' : active ? 'border-blue-500 bg-blue-500/5' : 'border-slate-800 bg-slate-950/30'}`}>
+            className={`block rounded-lg border overflow-hidden transition-colors ${onSelectionChange ? 'group cursor-pointer hover:border-blue-400/60 focus-within:ring-2 focus-within:ring-blue-400/60 focus-within:ring-inset' : ''} ${dropId === page.id ? 'border-emerald-400' : active ? 'border-blue-500 bg-blue-500/5' : 'border-slate-800 bg-slate-950/30'}`}>
             <div className="flex items-center gap-2 p-2">
               {onMove && <span draggable onDragStart={event => event.dataTransfer.setData('text/coverflow-page', page.id)} onDragEnd={() => setDropId(null)} className="cursor-grab text-slate-600 shrink-0" title={t.reorderPage}><GripVertical className="w-3 h-4" /></span>}
-              {onSelectionChange && <input type="checkbox" aria-label={label} checked={selectedIds?.includes(page.id) ?? false} onChange={() => toggle(page.id)} className="accent-blue-500 shrink-0" />}
-              <button type="button" aria-label={label} aria-current={active ? 'page' : undefined} onClick={() => onSelect ? onSelect(page.id) : toggle(page.id)} className="flex-1 min-w-0 flex items-center justify-center bg-slate-950 h-[76px] overflow-hidden rounded">
-                {thumbnails[page.id] ? <img src={thumbnails[page.id]} alt="" draggable={false} className="max-w-full max-h-full object-contain" /> : <ImageIcon className="w-5 h-5 text-slate-700" />}
-              </button>
+              {onSelectionChange && <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
+                <input type="checkbox" aria-label={label} checked={selectedIds?.includes(page.id) ?? false} onChange={() => toggle(page.id)} className="peer sr-only" />
+                <span aria-hidden="true" className="absolute inset-0 rounded border border-slate-600 bg-slate-900 transition-colors group-hover:border-blue-400 peer-checked:border-blue-500 peer-checked:bg-blue-500 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-300 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-slate-950" />
+                <Check aria-hidden="true" className="relative h-3.5 w-3.5 text-white opacity-0 peer-checked:opacity-100 pointer-events-none" strokeWidth={3} />
+              </span>}
+              {onSelectionChange ? <div className="flex-1 min-w-0 flex items-center justify-center bg-slate-950 h-[76px] overflow-hidden rounded">{thumbnail}</div> : <button type="button" aria-label={label} aria-current={active ? 'page' : undefined} onClick={() => onSelect?.(page.id)} className="flex-1 min-w-0 flex items-center justify-center bg-slate-950 h-[76px] overflow-hidden rounded cursor-pointer">{thumbnail}</button>}
             </div>
             <div className="px-2 pb-2 space-y-1">
               <div className="flex items-center gap-1 min-w-0">
@@ -63,7 +67,7 @@ export default function PagesPanel({ lang, pages, activePageId, thumbnails, sele
                 <button type="button" title={t.deletePage} aria-label={`${t.deletePage} ${pageNumber(index)}`} disabled={pages.length <= 1} onClick={() => onDelete?.(page.id)} className="p-1 text-slate-500 hover:text-red-400 disabled:opacity-20"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>}
             </div>
-          </div>;
+          </Item>;
         })}
       </div>
     </div>

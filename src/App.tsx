@@ -111,7 +111,7 @@ const App: React.FC = () => {
     height: PRESET_RATIOS[0].height
   }));
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [exportRange, setExportRange] = useState<'current' | 'multiple'>('current');
+  const [exportRange, setExportRange] = useState<'current' | 'multiple' | 'all'>('current');
   const [exportPageIds, setExportPageIds] = useState<string[]>([]);
   const [exportProgress, setExportProgress] = useState<{ done: number; total: number } | null>(null);
   const [exportSettings, setExportSettings] = useState<{
@@ -899,7 +899,7 @@ const App: React.FC = () => {
     if (!project || isExporting) return;
     setIsExporting(true);
     try {
-      const ids = exportRange === 'current' ? [project.activePageId!] : exportPageIds;
+      const ids = exportRange === 'current' ? [project.activePageId!] : exportRange === 'all' ? project.pages!.map(page => page.id) : exportPageIds;
       const result = await exportProjectPages(project, ids, exportSettings, (done, total) => setExportProgress({ done, total }));
       downloadBlob(result.blob, result.filename);
       setIsExportModalOpen(false);
@@ -1593,7 +1593,7 @@ const App: React.FC = () => {
         estimatedSize={exportEstimatedSize}
         estimating={exportEstimating}
         range={exportRange}
-        onRangeChange={range => { setExportRange(range); if (range === 'multiple') setActiveTab('pages'); }}
+        onRangeChange={range => { setExportRange(range); if (range !== 'current') setActiveTab('pages'); }}
         selectedPageIds={exportPageIds}
         onSelectedPagesChange={setExportPageIds}
         thumbnails={pageThumbnails}

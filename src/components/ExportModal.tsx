@@ -1,14 +1,12 @@
-import React from 'react';
-import { ClipboardCopy, Copy, Download, FileImage, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ClipboardCopy, Copy, Download, Eye, FileImage, ListChecks, X } from 'lucide-react';
 import { ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
 import LivePreview from './LivePreview.tsx';
+import PagesPanel from './PagesPanel.tsx';
+import type { PageExportSettings } from '../utils/exportPages.ts';
 
-export interface ExportSettings {
-  pixelRatio: 0.5 | 1 | 1.5 | 2;
-  format: 'png' | 'jpeg' | 'webp' | 'svg';
-  compression: 'lossless' | 'balanced' | 'small';
-}
+export type ExportSettings = PageExportSettings;
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -23,6 +21,13 @@ interface ExportModalProps {
   onConfirm: () => void;
   onCopyBase64: () => void;
   onCopyImage: () => void;
+  range: 'current' | 'multiple';
+  onRangeChange: (range: 'current' | 'multiple') => void;
+  selectedPageIds: string[];
+  onSelectedPagesChange: (ids: string[]) => void;
+  thumbnails: Record<string, string>;
+  busy?: boolean;
+  progress?: { done: number; total: number } | null;
 }
 
 const formatBytes = (bytes: number) => {
@@ -45,12 +50,22 @@ const ExportModal: React.FC<ExportModalProps> = ({
   onClose,
   onConfirm,
   onCopyBase64,
-  onCopyImage
+  onCopyImage,
+  range,
+  onRangeChange,
+  selectedPageIds,
+  onSelectedPagesChange,
+  thumbnails,
+  busy = false,
+  progress
 }) => {
+  const [leftView, setLeftView] = useState<'preview' | 'pages'>('preview');
+  useEffect(() => { setLeftView(range === 'multiple' ? 'pages' : 'preview'); }, [isOpen, range]);
   if (!isOpen) return null;
   const t = translations[lang];
   const isSvg = settings.format === 'svg';
   const isPng = settings.format === 'png';
+  const isPpt = settings.format === 'pptx';
 
   const outputWidth = isSvg
     ? project.canvasConfig.width
@@ -62,10 +77,11 @@ const ExportModal: React.FC<ExportModalProps> = ({
   return (
     <div
       className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm"
-      onClick={onClose}
+      onClick={() => { if (!busy) onClose(); }}
     >
       <div
-        className="w-full max-w-3xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden"
+        role="dialog" aria-modal="true" aria-label={t.exportSettingsTitle}
+        className="w-full max-w-3xl max-h-[92dvh] overflow-y-auto bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -81,6 +97,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
           <button
             type="button"
             onClick={onClose}
+            disabled={busy}
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors"
           >
             <X className="w-4 h-4" />
@@ -92,16 +109,17 @@ const ExportModal: React.FC<ExportModalProps> = ({
           {/* Left Column: Live Export Result Preview */}
           <div className="md:col-span-6 p-6 border-b md:border-b-0 md:border-r border-slate-800/80 bg-slate-950/30 flex flex-col justify-between gap-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-400">
-                {t.decorationPreview}
-              </span>
+              <div className="flex items-center gap-1">
+                <button type="button" title={t.decorationPreview} aria-label={t.decorationPreview} aria-pressed={leftView === 'preview'} onClick={() => setLeftView('preview')} className={`p-1.5 rounded ${leftView === 'preview' ? 'bg-slate-800 text-blue-400' : 'text-slate-500'}`}><Eye className="w-4 h-4" /></button>
+                {range === 'multiple' && <button type="button" title={t.pages} aria-label={t.pages} aria-pressed={leftView === 'pages'} onClick={() => setLeftView('pages')} className={`p-1.5 rounded ${leftView === 'pages' ? 'bg-slate-800 text-blue-400' : 'text-slate-500'}`}><ListChecks className="w-4 h-4" /></button>}
+              </div>
               <span className="text-xs font-mono tabular-nums text-slate-400">
                 {outputWidth} × {outputHeight} {isSvg ? 'SVG' : 'px'}
               </span>
             </div>
 
-            <div className="relative w-full h-56 rounded-xl border border-slate-800/90 bg-slate-950 canvas-checkerboard overflow-hidden flex items-center justify-center p-3">
-              {previewUrl ? (
+            <div className={`relative w-full ${leftView === 'pages' ? 'h-72' : 'h-56 p-3'} rounded-lg border border-slate-800/90 bg-slate-950 overflow-hidden flex items-center justify-center`}>
+              {leftView === 'pages' ? <div className="w-full h-full" inert={busy}><PagesPanel lang={lang} pages={project.pages ?? []} activePageId={project.activePageId} thumbnails={thumbnails} selectedIds={selectedPageIds} onSelectionChange={onSelectedPagesChange} /></div> : previewUrl ? (
                 <img
                   src={previewUrl}
                   alt={project.title}
@@ -125,7 +143,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
                 <span className="text-slate-500 uppercase">{settings.format}</span>
                 <span className="text-slate-700" aria-hidden="true">·</span>
                 <span className="text-sm font-semibold text-slate-100">
-                  {estimating ? t.exportEstimating : (estimatedSize ? formatBytes(estimatedSize) : '--')}
+                  {busy && progress ? `${progress.done} / ${progress.total}` : range === 'multiple' || isPpt ? '--' : estimating ? t.exportEstimating : (estimatedSize ? formatBytes(estimatedSize) : '--')}
                 </span>
               </div>
             </div>
@@ -133,26 +151,33 @@ const ExportModal: React.FC<ExportModalProps> = ({
 
           {/* Right Column: Export Controls */}
           <div className="md:col-span-6 p-6 flex flex-col justify-center space-y-5">
+            {(project.pages?.length ?? 1) > 1 && <div className="space-y-2">
+              <div className="text-xs font-semibold text-slate-400">{t.exportRange}</div>
+              <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-slate-950 border border-slate-800">
+                {(['current', 'multiple'] as const).map(value => <button key={value} type="button" disabled={busy} onClick={() => onRangeChange(value)} className={`py-2 text-xs font-semibold rounded ${range === value ? 'bg-slate-800 text-white' : 'text-slate-400'}`}>{value === 'current' ? t.currentPage : t.multiplePages}</button>)}
+              </div>
+            </div>}
             {/* Format Selector */}
             <div className="space-y-2">
               <div className="text-xs font-semibold text-slate-400">
                 {t.exportFormat}
               </div>
-              <div className="grid grid-cols-4 gap-1.5 p-1 rounded-xl bg-slate-950/90 border border-slate-800/80">
-                {(['png', 'jpeg', 'webp', 'svg'] as const).map((format) => {
+              <div className="grid grid-cols-5 gap-1 p-1 rounded-lg bg-slate-950/90 border border-slate-800/80">
+                {(['png', 'jpeg', 'webp', 'svg', 'pptx'] as const).map((format) => {
                   const isSelected = settings.format === format;
                   return (
                     <button
                       key={format}
                       type="button"
+                      disabled={busy}
                       onClick={() => onChange({ format })}
-                      className={`py-2 px-3 rounded-lg text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap shrink-0 ${
+                      className={`py-2 px-1 rounded text-[11px] font-bold uppercase transition-all whitespace-nowrap min-w-0 ${
                         isSelected
                           ? 'bg-blue-600 text-white shadow-sm shadow-blue-950/60'
                           : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
                       }`}
                     >
-                      {format}
+                      {format === 'pptx' ? 'PPT' : format}
                     </button>
                   );
                 })}
@@ -176,7 +201,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
                     <button
                       key={ratio}
                       type="button"
-                      disabled={isSvg}
+                      disabled={isSvg || busy}
                       onClick={() => !isSvg && onChange({ pixelRatio: ratio })}
                       className={`py-2 px-3 rounded-lg text-xs font-mono font-bold tabular-nums transition-all whitespace-nowrap shrink-0 ${
                         isSelected
@@ -205,7 +230,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
               </div>
               <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-slate-950/90 border border-slate-800/80">
                 {(['lossless', 'balanced', 'small'] as const).map((level) => {
-                  const isDisabled = isSvg || (isPng && level !== 'lossless');
+                  const isDisabled = busy || isSvg || isPpt || (isPng && level !== 'lossless');
                   const isSelected = !isSvg && settings.compression === level;
                   return (
                     <button
@@ -234,6 +259,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
             <button
               type="button"
               onClick={onCopyImage}
+              disabled={busy}
               className="px-3.5 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 hover:border-slate-600 text-slate-200 text-xs font-semibold transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
             >
               <ClipboardCopy className="w-3.5 h-3.5 text-blue-400" />
@@ -242,6 +268,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
             <button
               type="button"
               onClick={onCopyBase64}
+              disabled={busy}
               className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 text-xs font-semibold transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
             >
               <Copy className="w-3.5 h-3.5 text-slate-400" />
@@ -253,6 +280,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
             <button
               type="button"
               onClick={onClose}
+              disabled={busy}
               className="px-4 py-2 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
             >
               {t.cancel}
@@ -260,10 +288,11 @@ const ExportModal: React.FC<ExportModalProps> = ({
             <button
               type="button"
               onClick={onConfirm}
+              disabled={busy || (range === 'multiple' && !selectedPageIds.some(id => project.pages?.some(page => page.id === id)))}
               className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-950/50 transition-all active:scale-95 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>{t.export}</span>
+              <span>{busy && progress ? `${progress.done} / ${progress.total}` : t.export}</span>
             </button>
           </div>
         </div>

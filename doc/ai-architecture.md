@@ -11,6 +11,7 @@ src/features/ai/
   tools/requests.ts           动作契约、派生联合类型与请求解析
   tools/validation.ts         运行时白名单、数值范围及内容安全校验
   tools/execute.ts            工具分发与当前项目 ID 校验
+  tools/pages.ts              页面管理、当前页身份与页面列表上下文
   tools/assets.ts             已授权文件夹素材搜索与精确放置
   tools/imageTools.ts         生图发现、单图参考与图片资源放置
   services/config.ts          多接入点、多模型、思考参数及配置校验
@@ -83,6 +84,8 @@ chat/
 
 - 工具从实时桥接状态读取，不依赖请求发出时的 React 闭包快照。
 - 所有画布修改要求当前 projectId，防止编辑错误项目。
+- 9.0 项目持久化使用 pages 数组。编辑器的 ProjectState 顶层 layers/background/canvasConfig 是当前页运行时视图，由 syncProjectPages 在提交时同步；writeProject 仅输出页面文档，readProject 打开第一页。旧单页读取兼容集中在 src/storage/projectCompatibility.ts，升级链按目标版本顺序执行，不在读取时覆盖磁盘文件。
+- get_context 返回 pageId、pageCount 和页面列表（稳定 ID、顺序编号、名称、尺寸、图层数、是否当前页）；图层工具及视觉预览只针对当前页，跨页前使用 manage_pages 切换。生图、素材放置、抠图在异步完成后重新校验项目及页面身份，切页时不写入结果；已生成图片仍保留在会话。
 - 每次图层修改提交完整 ProjectState，进入现有历史，并等待存储结果。保存失败会作为工具错误报告；已经显示在画布上的修改不会自动回滚。
 - 打开另一项目之前保存当前项目；新建和复制先持久化，成功后更新项目列表。复制会重建所有图层 ID 和父子引用。
 - 项目查询使用存储分页接口，另外返回匹配的 Tauri 最近打开项目。当前云存储仍是仓库已有的模拟适配器，不是新建真实云后端。
@@ -110,6 +113,7 @@ chat/
 | place_asset | 按精确素材 ID 读取并放置 SVG / PNG，返回新图层 ID |
 | skill | 配置非空时按精确名称读取 SKILL 纯文本正文，无需打开项目 |
 | manage_projects | open/rename/duplicate/delete/save |
+| manage_pages | list/create/switch/duplicate/delete；新增、复制后打开新页，删除需确认，最多99页且保留最后一页 |
 | read_layers | 按 ID 或名称/内容关键词读取图层 |
 | add_layer | 按 type 添加文字、已有图片、SVG 或 CSS/HTML 装饰图层 |
 | update_layers | 仅更新图层属性，例如移动位置或修改图片 |

@@ -43,6 +43,7 @@ import { generateId, downloadFile, normalizeSVG, isNewerProjectVersion } from '.
 import { buildProjectSvg } from './utils/svgExport.ts';
 import { readProject, syncProjectPages, writeProject } from './storage/projectCompatibility.ts';
 import { copyProject, deleteProjectPage, insertProjectPage, moveProjectPage, pageNumber, renameProjectPage, selectProjectPage } from './utils/projectPages.ts';
+import { exportProjectPages } from './utils/exportPages.ts';
 import { clampDecorationSize } from './utils/decorationStyles.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
 import { computeCroppedLayerGeometry } from './utils/imageLayer.ts';
@@ -59,7 +60,7 @@ const GITHUB_REPO_URL = 'https://github.com/sangyuxiaowu/CoverFlow';
 const isCloudMode = import.meta.env.VITE_APP_MODE === 'cloud';
 const CLOUD_PAGE_SIZE = 9;
 
-type ExportFormat = 'png' | 'jpeg' | 'webp' | 'svg';
+type ExportFormat = 'png' | 'jpeg' | 'webp' | 'svg' | 'pptx';
 type ExportCompression = 'lossless' | 'balanced' | 'small';
 
 const App: React.FC = () => {
@@ -110,6 +111,9 @@ const App: React.FC = () => {
     height: PRESET_RATIOS[0].height
   }));
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportRange, setExportRange] = useState<'current' | 'multiple'>('current');
+  const [exportPageIds, setExportPageIds] = useState<string[]>([]);
+  const [exportProgress, setExportProgress] = useState<{ done: number; total: number } | null>(null);
   const [exportSettings, setExportSettings] = useState<{
     pixelRatio: 0.5 | 1 | 1.5 | 2;
     format: ExportFormat;
@@ -361,7 +365,7 @@ const App: React.FC = () => {
         bgCropFlip,
         { width: project.canvasConfig.width, height: project.canvasConfig.height }
       );
-      modifyProject(p => ({
+      modifyProject(p => p.id !== project.id || p.activePageId !== project.activePageId ? p : ({
         ...p,
         background: { ...p.background, type: 'image', value: nextValue }
       }));
@@ -435,7 +439,7 @@ const App: React.FC = () => {
   const updateExportSettings = useCallback((updates: Partial<typeof exportSettings>) => {
     setExportSettings(prev => {
       const next = { ...prev, ...updates };
-      if (next.format === 'png' || next.format === 'svg') {
+      if (next.format === 'png' || next.format === 'svg' || next.format === 'pptx') {
         next.compression = 'lossless';
       }
       return next;
@@ -443,13 +447,11 @@ const App: React.FC = () => {
   }, []);
 
   const getExportQuality = (settings: typeof exportSettings) => {
-    if (settings.format === 'png' || settings.format === 'svg') return undefined;
+    if (settings.format === 'png' || settings.format === 'svg' || settings.format === 'pptx') return undefined;
     if (settings.compression === 'lossless') return 0.92;
     if (settings.compression === 'balanced') return 0.8;
     return 0.6;
   };
-
-  const getExportFileExt = (format: ExportFormat) => (format === 'jpeg' ? 'jpg' : format);
 
   const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
@@ -501,7 +503,7 @@ const App: React.FC = () => {
     const options = buildExportOptions(targetProject, settings.pixelRatio);
     const quality = getExportQuality(settings);
 
-    if (settings.format === 'png') {
+    if (settings.format === 'png' || settings.format === 'pptx') {
       const blob = await htmlToImage.toBlob(previewNode, options);
       if (!blob) throw new Error('Export failed');
       return blob;
@@ -535,7 +537,7 @@ const App: React.FC = () => {
     const options = buildExportOptions(targetProject, settings.pixelRatio);
     const quality = getExportQuality(settings);
 
-    if (settings.format === 'png') {
+    if (settings.format === 'png' || settings.format === 'pptx') {
       return htmlToImage.toPng(previewNode, options);
     }
 
@@ -612,8 +614,9 @@ const App: React.FC = () => {
 
   const handleRemoveBackground = (result: RemovalResult) => {
     const projectId = project?.id;
+    const pageId = project?.activePageId;
     const copyId = generateId();
-    modifyProject(current => current.id === projectId ? applyRemovalResult(current, result, copyId) : current);
+    modifyProject(current => current.id === projectId && current.activePageId === pageId ? applyRemovalResult(current, result, copyId) : current);
   };
 
   const getExpandedSelection = (layers: Layer[], ids: string[]) => {
@@ -892,28 +895,22 @@ const App: React.FC = () => {
     }
   };
 
-  const handleExportImageWithDeselect = async (
-    previewNode: HTMLDivElement | null,
-    targetProject: ProjectState,
-    settings: typeof exportSettings
-  ) => {
-    await withDeselectedExportPreview(async () => {
-      try {
-        if (!previewNode) {
-          showToast(t.exportPreviewMissing, "error");
-          return;
-        }
-        setIsExporting(true);
-        const blob = await buildExportBlob(previewNode, targetProject, settings);
-        const ext = getExportFileExt(settings.format);
-        downloadBlob(blob, `${targetProject.title}.${ext}`);
-        showToast(t.exportSuccess);
-      } catch (e) {
-        showToast(t.exportFailed, "error");
-      } finally {
-        setIsExporting(false);
-      }
-    });
+  const handleExportPages = async () => {
+    if (!project || isExporting) return;
+    setIsExporting(true);
+    try {
+      const ids = exportRange === 'current' ? [project.activePageId!] : exportPageIds;
+      const result = await exportProjectPages(project, ids, exportSettings, (done, total) => setExportProgress({ done, total }));
+      downloadBlob(result.blob, result.filename);
+      setIsExportModalOpen(false);
+      showToast(t.exportSuccess);
+    } catch (error) {
+      console.error('[CoverFlow export]', error);
+      showToast(t.exportFailed, 'error');
+    } finally {
+      setIsExporting(false);
+      setExportProgress(null);
+    }
   };
 
   const handleCopyExportBase64WithDeselect = async (
@@ -1232,6 +1229,7 @@ const App: React.FC = () => {
           const content = ev.target?.result as string;
           const img = new Image();
           img.onload = () => {
+            if (latestProjectRef.current?.id !== project.id || latestProjectRef.current?.activePageId !== project.activePageId) return;
             const maxW = project.canvasConfig.width * 0.8;
             const maxH = project.canvasConfig.height * 0.8;
             let w = img.width;
@@ -1421,7 +1419,7 @@ const App: React.FC = () => {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [isExportModalOpen, exportSettings, project?.id]);
+  }, [isExportModalOpen, exportSettings, project?.id, project?.activePageId, project?.layers, project?.background, project?.canvasConfig]);
 
   const cropAspect = project ? project.canvasConfig.width / project.canvasConfig.height : 1;
   const aiWorkspace: WorkspaceOptions = {
@@ -1594,6 +1592,13 @@ const App: React.FC = () => {
         settings={exportSettings}
         estimatedSize={exportEstimatedSize}
         estimating={exportEstimating}
+        range={exportRange}
+        onRangeChange={range => { setExportRange(range); if (range === 'multiple') setActiveTab('pages'); }}
+        selectedPageIds={exportPageIds}
+        onSelectedPagesChange={setExportPageIds}
+        thumbnails={pageThumbnails}
+        busy={isExporting}
+        progress={exportProgress}
         onClose={() => setIsExportModalOpen(false)}
         onChange={updateExportSettings}
         onCopyImage={() => {
@@ -1608,12 +1613,7 @@ const App: React.FC = () => {
           handleCopyExportBase64WithDeselect(node, project, exportSettings);
           setIsExportModalOpen(false);
         }}
-        onConfirm={() => {
-          const node = document.getElementById('export-target') as HTMLDivElement | null;
-          if (!project) return;
-          handleExportImageWithDeselect(node, project, exportSettings);
-          setIsExportModalOpen(false);
-        }}
+        onConfirm={() => { void handleExportPages(); }}
       />
       <BackgroundCropModal
         isOpen={Boolean(bgCropModal)}
@@ -1732,7 +1732,7 @@ const App: React.FC = () => {
             <FileOutput className="w-4 h-4" />
             {t.exportJson}
           </button>
-          <button onClick={() => setIsExportModalOpen(true)} disabled={isExporting} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white shadow-lg shadow-blue-900/20 disabled:opacity-50">
+          <button onClick={() => { setExportRange('current'); setExportPageIds([project.activePageId!]); setIsExportModalOpen(true); }} disabled={isExporting} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white shadow-lg shadow-blue-900/20 disabled:opacity-50">
             {isExporting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
             {t.export}
           </button>
@@ -1799,6 +1799,7 @@ const App: React.FC = () => {
             if (l.type === 'image' && l.content) {
               const img = new Image();
               img.onload = () => {
+                if (latestProjectRef.current?.id !== project.id || latestProjectRef.current?.activePageId !== project.activePageId) return;
                 let width = img.width || 100;
                 let height = img.height || 100;
                 const maxWidth = project.canvasConfig.width * 0.8;

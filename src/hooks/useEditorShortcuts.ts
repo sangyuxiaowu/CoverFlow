@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { Layer, ProjectState } from '../types.ts';
+import { readProject } from '../storage/projectCompatibility.ts';
 
 type EditorShortcutOptions = {
   view: 'landing' | 'editor';
@@ -79,9 +80,9 @@ export function useEditorShortcuts({ view, project, aiBusy, selectedLayerIds, ha
       if (trimmed.startsWith('{')) {
         try {
           const parsed = JSON.parse(trimmed);
-          if (parsed && (parsed.layers || parsed.background || parsed.canvasConfig)) {
+          if (parsed && (parsed.pages || parsed.layers || parsed.background || parsed.canvasConfig)) {
             e.preventDefault();
-            applyProjectFromJson(parsed as ProjectState);
+            applyProjectFromJson(parsed.pages ? readProject(parsed) : parsed as ProjectState);
             return;
           }
         } catch (err) {}

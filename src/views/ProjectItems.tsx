@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Clock, Copy, FileJson, ImageIcon as ImageIconLucide, Trash2 } from 'lucide-react';
+import { Clock, Copy, FileJson, Files, ImageIcon as ImageIconLucide, Trash2 } from 'lucide-react';
 import LivePreview from '../components/LivePreview.tsx';
 import type { ProjectState } from '../types.ts';
 import { translations, type Language } from '../translations.ts';
@@ -86,6 +86,7 @@ export const ProjectCard = React.memo(({
 
         {/* 标签 */}
         <div className="absolute bottom-2 right-3 flex gap-2 z-10 opacity-60 group-hover:opacity-100 transition-opacity">
+          {(project.pages?.length ?? 1) > 1 && <span className="inline-flex items-center gap-1 text-[10px] px-2 py-1 bg-blue-950 text-blue-300 rounded border border-blue-800" title={t.pages}><Files className="w-3 h-3" />{project.pages!.length}</span>}
           {/* Tauri 本地文件标签 */}
           {sourceLabel && (
             <span className="text-[9px] px-2 py-1 bg-emerald-600/20 text-emerald-300 font-black rounded-lg border border-emerald-500/40 uppercase tracking-tight">
@@ -208,6 +209,7 @@ export const ProjectListItem = React.memo(({
             <span className="text-[9px] px-1.5 py-0.5 bg-slate-800 text-slate-400 font-black rounded-md border border-slate-700 uppercase tracking-tight flex-shrink-0">
               {project.canvasConfig.ratio}
             </span>
+            {(project.pages?.length ?? 1) > 1 && <span className="inline-flex items-center gap-1 text-[10px] text-blue-300" title={t.pages}><Files className="w-3 h-3" />{project.pages!.length}</span>}
           </div>
 
           <div className="flex items-center gap-3 text-[10px] font-bold text-slate-500">

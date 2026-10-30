@@ -10,6 +10,8 @@ import ImageLayerCropModal from './components/ImageLayerCropModal.tsx';
 import LandingView from './views/LandingView.tsx';
 import ProjectPresetModal from './components/ProjectPresetModal.tsx';
 import ExportModal from './components/ExportModal.tsx';
+import PagesPanel from './components/PagesPanel.tsx';
+import { usePageThumbnails } from './hooks/usePageThumbnails.ts';
 import AiAssistant from './features/ai/components/AiAssistant.tsx';
 import type { WorkspaceOptions } from './features/ai/services/workspace.ts';
 import { updateProjectLayer } from './features/ai/domain/layerOperations.ts';
@@ -37,10 +39,10 @@ import {
 import { translations, Language } from './translations.ts';
 import { getAssetFolder } from './storage/assets.ts';
 import { PRESET_RATIOS } from './constants.ts';
-import { generateId, downloadFile, normalizeSVG, formatCanvasRatio, isNewerProjectVersion } from './utils/helpers.ts';
+import { generateId, downloadFile, normalizeSVG, isNewerProjectVersion } from './utils/helpers.ts';
 import { buildProjectSvg } from './utils/svgExport.ts';
 import { readProject, syncProjectPages, writeProject } from './storage/projectCompatibility.ts';
-import { copyProject } from './utils/projectPages.ts';
+import { copyProject, deleteProjectPage, insertProjectPage, moveProjectPage, pageNumber, renameProjectPage, selectProjectPage } from './utils/projectPages.ts';
 import { clampDecorationSize } from './utils/decorationStyles.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
 import { computeCroppedLayerGeometry } from './utils/imageLayer.ts';
@@ -99,6 +101,9 @@ const App: React.FC = () => {
   const [cloudHasMore, setCloudHasMore] = useState(true);
   const [cloudLoading, setCloudLoading] = useState(false);
   const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
+  const [isPageModalOpen, setIsPageModalOpen] = useState(false);
+  const [newPageName, setNewPageName] = useState('');
+  const pageThumbnails = usePageThumbnails(view === 'editor' ? project : null);
   const [selectedPreset, setSelectedPreset] = useState<PresetRatio>(() => PRESET_RATIOS[0]);
   const [customPresetSize, setCustomPresetSize] = useState(() => ({
     width: PRESET_RATIOS[0].width,
@@ -381,7 +386,7 @@ const App: React.FC = () => {
     const textHeight = Math.max(10, Math.min(100, height - 40));
     const textX = Math.max(0, (width - textWidth) / 2);
     const textY = Math.max(0, (height - textHeight) / 2);
-    const newProject: ProjectState = {
+    const newProject = syncProjectPages({
       id: generateId(), version: APP_VERSION, title: t.untitled, updatedAt: Date.now(),
       layers: [{ id: generateId(), name: t.defaultHeadlineName, type: 'text', content: t.doubleClickToEdit, x: textX, y: textY, width: textWidth, height: textHeight, fontSize: 64, fontFamily: 'Inter, sans-serif', fontWeight: 700, textAlign: 'center', writingMode: 'horizontal', rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, color: '#ffffff', ratioLocked: true }],
       background: { 
@@ -394,7 +399,7 @@ const App: React.FC = () => {
       },
       canvasConfig: { width, height, ratio: ratioLabel },
       selectedLayerId: null
-    };
+    });
     setProject(newProject);
     setProjects(prev => [newProject, ...prev]);
     setView('editor');
@@ -408,6 +413,23 @@ const App: React.FC = () => {
     setSelectedPreset(preset);
     setCustomPresetSize({ width: preset.width, height: preset.height });
     setIsPresetModalOpen(true);
+  };
+
+  const openPageModal = () => {
+    if (!project || (project.pages?.length ?? 1) >= 99) return;
+    const config = project.canvasConfig;
+    setSelectedPreset(PRESET_RATIOS.find(preset => preset.width === config.width && preset.height === config.height) ?? { name: 'Current', nameZh: '当前尺寸', ...config });
+    setCustomPresetSize({ width: config.width, height: config.height });
+    setNewPageName('');
+    setIsPageModalOpen(true);
+  };
+
+  const switchPage = (pageId: string) => {
+    saveHistorySnapshot();
+    modifyProject(current => selectProjectPage(current, pageId));
+    setSelectedLayerIds([]);
+    setBgCropModal(null);
+    setCroppingImageLayerId(null);
   };
 
   const updateExportSettings = useCallback((updates: Partial<typeof exportSettings>) => {
@@ -1493,9 +1515,10 @@ const App: React.FC = () => {
           return;
         }
         warnIfNewerProject(item.project);
-        setProject(JSON.parse(JSON.stringify(item.project)));
+        const opened = item.project.pages?.[0] ? selectProjectPage(item.project, item.project.pages[0].id) : syncProjectPages(item.project);
+        setProject(opened);
         setView('editor');
-        initProjectHistory(item.project);
+        initProjectHistory(opened);
         clearActiveLocalFilePath();
   };
 
@@ -1552,6 +1575,17 @@ const App: React.FC = () => {
       <div inert={aiBusy} className="flex flex-col h-screen bg-slate-950 text-slate-200 overflow-hidden">
       {toast && <Toast message={toast.msg} type={toast.type} />}
       {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
+      <ProjectPresetModal
+        isOpen={isPageModalOpen} lang={lang} presets={PRESET_RATIOS} selectedPreset={selectedPreset} size={customPresetSize}
+        pageName={newPageName} onPageNameChange={setNewPageName} pagePlaceholder={pageNumber((project.pages?.findIndex(page => page.id === project.activePageId) ?? 0) + 1)}
+        onClose={() => setIsPageModalOpen(false)} onSizeChange={setCustomPresetSize}
+        onSelectPreset={preset => { setSelectedPreset(preset); setCustomPresetSize({ width: preset.width, height: preset.height }); }}
+        onCreate={() => {
+          modifyProject(current => insertProjectPage(current, newPageName, { ...customPresetSize, ratio: `${customPresetSize.width}x${customPresetSize.height}` }));
+          setSelectedLayerIds([]);
+          setIsPageModalOpen(false);
+        }}
+      />
       <ExportModal
         isOpen={isExportModalOpen}
         lang={lang}
@@ -1644,18 +1678,6 @@ const App: React.FC = () => {
                 className="col-start-1 row-start-1 bg-transparent font-bold text-sm outline-none hover:bg-slate-800 focus:bg-slate-800 rounded px-1.5 py-1 w-full min-w-0 transition-colors"
               />
             </div>
-            <div
-              data-testid="editor-canvas-info"
-              title={`${t.canvasSize}: ${project.canvasConfig.width} × ${project.canvasConfig.height} px · ${t.canvasRatio}: ${formatCanvasRatio(project.canvasConfig.width, project.canvasConfig.height, project.canvasConfig.ratio)}`}
-              className="flex items-center gap-2 px-2.5 py-1 rounded-lg border border-slate-700/70 text-xs shrink-0"
-            >
-              <span className="font-mono font-semibold text-slate-200 tabular-nums">
-                {project.canvasConfig.width} × {project.canvasConfig.height}
-              </span>
-              <span className="px-1.5 py-0.5 rounded bg-blue-500/15 border border-blue-500/30 text-[11px] font-mono font-bold text-blue-400 tabular-nums leading-none">
-                {formatCanvasRatio(project.canvasConfig.width, project.canvasConfig.height, project.canvasConfig.ratio)}
-              </span>
-            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -1722,6 +1744,14 @@ const App: React.FC = () => {
           activeTab={activeTab} 
           setActiveTab={setActiveTab} 
           project={project}
+          onAddPage={openPageModal}
+          pagesPanel={<PagesPanel lang={lang} pages={project.pages ?? []} activePageId={project.activePageId} thumbnails={pageThumbnails}
+            onSelect={switchPage}
+            onRename={(id, name) => modifyProject(current => renameProjectPage(current, id, name))}
+            onDuplicate={id => { modifyProject(current => insertProjectPage(current, '', current.canvasConfig, id)); setSelectedLayerIds([]); }}
+            onDelete={id => setConfirmDialog({ message: t.confirmDeletePage, onConfirm: () => { modifyProject(current => deleteProjectPage(current, id)); setSelectedLayerIds([]); } })}
+            onMove={(id, targetId) => modifyProject(current => moveProjectPage(current, id, targetId))}
+          />}
           selectedLayerIds={selectedLayerIds}
           background={project.background} 
           onOpenBackgroundCrop={handleOpenBackgroundCrop}
@@ -1840,6 +1870,7 @@ const App: React.FC = () => {
         />
         <div className="flex-1 flex flex-col min-h-0 relative">
           <Canvas
+            key={`${project.id}:${project.activePageId}`}
             lang={lang}
             project={isExportModalOpen ? { ...project, selectedLayerId: null } : project}
             onSelectLayer={(id) => handleSelectLayer(id, 'replace')}

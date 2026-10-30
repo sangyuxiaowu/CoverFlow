@@ -106,6 +106,7 @@ export interface WorkspaceBridge {
   getSelection: () => string[];
   commit: (project: ProjectState) => Promise<void>;
   manageProjects: (args: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>;
+  confirm?: (message: string, signal: AbortSignal) => Promise<boolean>;
 }
 
 export interface ToolEvent {

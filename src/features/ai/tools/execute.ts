@@ -11,9 +11,11 @@ import { generateId } from '../../../utils/helpers.ts';
 import { executeAssetTool } from './assets.ts';
 import { listFonts, type LocalFontSelection } from '../services/fonts.ts';
 import { ensureProjectFonts } from '../services/fontLoading.ts';
+import { executePageTool, pageContext } from './pages.ts';
 
 export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false, localFonts: LocalFontSelection[] = []): Promise<unknown> {
   signal.throwIfAborted();
+  if (name === 'manage_pages') return executePageTool(input, bridge, signal);
   if (name === 'search_assets' || name === 'place_asset') return executeAssetTool(name, input, bridge, signal);
   if (name === 'remove_background') return executeBackgroundRemovalTool(input, bridge, signal);
   const args = record(input);
@@ -39,6 +41,7 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
   const project = bridge.getProject();
   if (name === 'get_context') return project ? {
     projectId: project.id, title: project.title, canvas: project.canvasConfig,
+    ...pageContext(project),
     background: { ...project.background, value: project.background.value.startsWith('data:') ? '[embedded image]' : project.background.value },
     selectedLayerIds: bridge.getSelection(),
     layers: project.layers.map(({ id, name, type, x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked, parentId, children }) => ({
@@ -77,7 +80,7 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
       delete imageProperties.content;
       layers.push({ ...details, image: { ...imageProperties, imageInfo } });
     }
-    return { kind: 'selected_layers', projectId: project.id, layers, images };
+    return { kind: 'selected_layers', projectId: project.id, pageId: project.activePageId, layers, images };
   }
   if (text(args.projectId, 'projectId') !== project.id) throw new Error('The active project changed. Read get_context again.');
   if (name === 'read_layers') {
@@ -147,5 +150,5 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
   signal.throwIfAborted();
   if (bridge.getProject() !== project) throw new Error('The active project changed while loading fonts. Read get_context again.');
   await bridge.commit({ ...next, updatedAt: Date.now() });
-  return { success: true, projectId: next.id, selectedLayerId: next.selectedLayerId, layerIds: next.layers.map(layer => layer.id) };
+  return { success: true, projectId: next.id, pageId: next.activePageId, selectedLayerId: next.selectedLayerId, layerIds: next.layers.map(layer => layer.id) };
 }

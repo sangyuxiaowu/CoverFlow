@@ -90,6 +90,17 @@ describe('asset tools', () => {
     expect(JSON.stringify(result)).not.toContain('<svg');
   });
 
+  it('does not place an asset on a page selected after the read started', async () => {
+    const { run, bridge, logo, commit, setProject } = setup();
+    setProject({ ...bridge.getProject()!, activePageId: 'first-page' });
+    vi.mocked(logo.getFile).mockImplementation(async () => {
+      setProject({ ...bridge.getProject()!, activePageId: 'second-page' });
+      return new NodeFile([brandSvg], 'logo.svg') as unknown as File;
+    });
+    await expect(run('place_asset', { projectId: 'p1', assetId: 'folder:Brand-品牌/logo.svg' })).rejects.toThrow('page changed');
+    expect(commit).not.toHaveBeenCalled();
+  });
+
   it('scales from a single dimension and supports explicit position without flattening the resource', async () => {
     const { run, bridge } = setup();
     await run('place_asset', { projectId: 'p1', assetId: 'folder:Brand-品牌/logo.svg', height: 50, x: 12, y: 24 });

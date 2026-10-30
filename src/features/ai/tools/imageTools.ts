@@ -13,13 +13,14 @@ export interface ImageToolContext {
   defaultModelConfigId?: string;
 }
 
-function currentProject(projectId: string, context: ImageToolContext) {
+function currentProject(projectId: string, context: ImageToolContext, pageId?: string) {
   const project = context.bridge.getProject();
   if (!project || project.id !== projectId) throw new Error('The active project changed or is not open. Read get_context and open the target project first.');
+  if (pageId !== undefined && project.activePageId !== pageId) throw new Error('The active page changed. Read get_context again.');
   return project;
 }
 
-async function placeGeneratedImage(blob: Blob, image: ChatImageRef, projectId: string, name: string, imageSource: string, imageDescription: string, context: ImageToolContext, signal: AbortSignal) {
+async function placeGeneratedImage(blob: Blob, image: ChatImageRef, projectId: string, pageId: string | undefined, name: string, imageSource: string, imageDescription: string, context: ImageToolContext, signal: AbortSignal) {
   const content = await blobToDataUrl(blob);
   const bitmap = await createImageBitmap(blob);
   const sourceWidth = bitmap.width;
@@ -27,7 +28,7 @@ async function placeGeneratedImage(blob: Blob, image: ChatImageRef, projectId: s
   bitmap.close();
   if (!sourceWidth || !sourceHeight || sourceWidth * sourceHeight > 67108864) throw new Error('Generated image has invalid dimensions or exceeds 64 megapixels.');
   signal.throwIfAborted();
-  const project = currentProject(projectId, context);
+  const project = currentProject(projectId, context, pageId);
   const scale = Math.min(1, project.canvasConfig.width / sourceWidth, project.canvasConfig.height / sourceHeight);
   const width = Math.max(1, Math.round(sourceWidth * scale));
   const height = Math.max(1, Math.round(sourceHeight * scale));
@@ -38,7 +39,7 @@ async function placeGeneratedImage(blob: Blob, image: ChatImageRef, projectId: s
     zIndex: Math.max(0, ...project.layers.map(item => item.zIndex)) + 1
   };
   await context.bridge.commit({ ...project, updatedAt: Date.now(), layers: [...project.layers, layer], selectedLayerId: layer.id });
-  return { projectId, layerId: layer.id, imageId: image.id, x: layer.x, y: layer.y, width, height };
+  return { projectId, pageId, layerId: layer.id, imageId: image.id, x: layer.x, y: layer.y, width, height };
 }
 
 async function storedImage(id: string, context: ImageToolContext): Promise<Blob> {
@@ -93,7 +94,7 @@ export async function executeImageTool(name: string, args: Record<string, unknow
   } };
   if (name === 'generate_image') {
     const projectId = text(args.projectId, 'projectId');
-    currentProject(projectId, context);
+    const pageId = currentProject(projectId, context).activePageId;
     const modelConfigId = args.modelConfigId === undefined
       ? context.defaultModelConfigId ?? (models.length === 1 ? imageModelToolId(models[0]) : '')
       : text(args.modelConfigId, 'modelConfigId');
@@ -101,7 +102,7 @@ export async function executeImageTool(name: string, args: Record<string, unknow
     if (matches.length !== 1) throw new Error('Image model is disabled, unavailable or ambiguous. Read list_image_models when multiple models are enabled.');
     const model = matches[0];
     const reference = await referenceImage(args, context, signal);
-    currentProject(projectId, context);
+    currentProject(projectId, context, pageId);
     const sources = await generateImages(context.getConfig(), {
       modelConfigId: model.id, prompt: text(args.prompt, 'prompt'),
       ...(args.size !== undefined ? { size: text(args.size, 'size') } : {}),
@@ -118,7 +119,7 @@ export async function executeImageTool(name: string, args: Record<string, unknow
     }
     try {
       const placements = [];
-      for (const { source, image } of saved) placements.push(await placeGeneratedImage(source, image, projectId, model.label, model.modelId, text(args.prompt, 'prompt'), context, signal));
+      for (const { source, image } of saved) placements.push(await placeGeneratedImage(source, image, projectId, pageId, model.label, model.modelId, text(args.prompt, 'prompt'), context, signal));
       return { value: placements.length === 1 ? placements[0] : { projectId, images: placements }, image: saved[0].image };
     } catch (error) {
       throw new Error(`Image ${saved.map(item => item.image.id).join(', ')} was generated and saved, but placement failed: ${error instanceof Error ? error.message : 'Unknown error'}.`);

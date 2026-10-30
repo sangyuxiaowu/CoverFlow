@@ -63,6 +63,7 @@ const toolLabels: Record<string, [string, string]> = {
   search_assets: ['搜索素材', 'Search Assets'],
   place_asset: ['放置素材', 'Place Asset'],
   manage_projects: ['项目管理', 'Manage Projects'],
+  manage_pages: ['页面管理', 'Manage Pages'],
   read_layers: ['读取图层', 'Read Layers'],
   get_selected_layers: ['读取选中图层', 'Read Selected Layers'],
   add_layer: ['添加图层', 'Add Layer'],

@@ -524,6 +524,19 @@ describe('image tools and persistence', () => {
     expect(commit).not.toHaveBeenCalled();
     expect(getProject().layers).toHaveLength(0);
   });
+  it('retains a generated image without placing it on a newly selected page', async () => {
+    mockCanvas();
+    const { context, images, refs, commit, getProject } = toolContext();
+    getProject().activePageId = 'original-page';
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => {
+      getProject().activePageId = 'different-page';
+      return Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] });
+    }));
+    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('active page changed');
+    expect(images.has('generated-image')).toBe(true);
+    expect(refs).toHaveLength(1);
+    expect(commit).not.toHaveBeenCalled();
+  });
   it('retains a generated image and reports placement errors instead of suggesting regeneration', async () => {
     mockCanvas();
     const { context, images, commit } = toolContext();

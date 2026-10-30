@@ -1,0 +1,32 @@
+import { expect, it, vi } from 'vitest';
+import type { WorkspaceBridge } from '../types.ts';
+import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
+import { executePageTool } from './pages.ts';
+
+it('manages pages, retains each page content and confirms deletion', async () => {
+  let project = syncProjectPages({ id: 'project', title: 'Test', layers: [], selectedLayerId: null, updatedAt: 1, canvasConfig: { width: 900, height: 383, ratio: '2.35:1' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } });
+  const confirm = vi.fn(async () => true);
+  const bridge: WorkspaceBridge = { getProject: () => project, getSelection: () => [], commit: async next => { project = syncProjectPages(next); }, manageProjects: async () => {}, confirm };
+  const signal = new AbortController().signal;
+  const run = (action: string, rest = {}) => executePageTool({ projectId: 'project', action, ...rest }, bridge, signal);
+  const firstId = project.activePageId!;
+  await run('create', { name: 'Detail', width: 500 });
+  expect(project.canvasConfig).toEqual({ width: 500, height: 383, ratio: '500x383' });
+  const secondId = project.activePageId!;
+  const context = await run('list');
+  expect(context.pages.map(page => page.number)).toEqual(['P01', 'P02']);
+  await run('switch', { pageId: firstId });
+  expect(project.canvasConfig.width).toBe(900);
+  await run('duplicate', { pageId: secondId });
+  expect(project.pages).toHaveLength(3);
+  expect(project.canvasConfig.width).toBe(500);
+  await run('delete', { pageId: secondId });
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(project.pages).toHaveLength(2);
+  confirm.mockResolvedValueOnce(false);
+  await expect(run('delete', { pageId: firstId })).rejects.toThrow('cancelled');
+  expect(project.pages).toHaveLength(2);
+  await expect(run('switch', { pageId: 'missing' })).rejects.toThrow('not found');
+  await expect(run('list', { width: 100 })).rejects.toThrow('Unsupported');
+  await expect(executePageTool({ projectId: 'wrong', action: 'list' }, bridge, signal)).rejects.toThrow('changed');
+});

@@ -142,7 +142,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
               </span>}
             </div>
 
-            <div className={`relative w-full ${leftView === 'pages' ? 'h-[360px] md:h-auto md:min-h-[360px] md:flex-1' : 'h-56 p-3 rounded-lg border border-slate-800/90 bg-slate-950'} overflow-hidden flex items-center justify-center`}>
+            <div className={`relative w-full ${leftView === 'pages' ? 'h-[360px] min-h-0 shrink-0' : 'h-56 p-3 rounded-lg border border-slate-800/90 bg-slate-950'} overflow-hidden flex items-center justify-center`}>
               {leftView === 'pages' ? <div className="w-full h-full" inert={busy}><PagesPanel lang={lang} pages={pages} activePageId={project.activePageId} thumbnails={thumbnails} selectedIds={selectedIds} onSelectionChange={updateSelectedPages} /></div> : !hasPreviewPage ? <span className="text-xs text-slate-500">{t.noSelectedPages}</span> : previewUrl ? (
                 <img
                   src={previewUrl}

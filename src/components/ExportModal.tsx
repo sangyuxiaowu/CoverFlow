@@ -71,6 +71,8 @@ const ExportModal: React.FC<ExportModalProps> = ({
   const isPpt = settings.format === 'pptx';
   const pages = project.pages ?? [];
   const pageIndex = Math.max(0, pages.findIndex(page => page.id === project.activePageId));
+  const selectedIds = range === 'all' ? pages.map(page => page.id) : selectedPageIds.filter(id => pages.some(page => page.id === id));
+  const updateSelectedPages = (ids: string[]) => { onSelectedPagesChange(ids); if (range === 'all') onRangeChange('multiple'); };
 
   const outputWidth = isSvg
     ? project.canvasConfig.width
@@ -112,19 +114,23 @@ const ExportModal: React.FC<ExportModalProps> = ({
         {/* Two-Column Body */}
         <div className="grid grid-cols-1 md:grid-cols-12">
           {/* Left Column: Live Export Result Preview */}
-          <div className="md:col-span-6 p-6 border-b md:border-b-0 md:border-r border-slate-800/80 bg-slate-950/30 flex flex-col justify-between gap-4">
+          <div className="md:col-span-6 min-h-0 p-6 border-b md:border-b-0 md:border-r border-slate-800/80 bg-slate-950/30 flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1">
                 <button type="button" title={t.decorationPreview} aria-label={t.decorationPreview} aria-pressed={leftView === 'preview'} onClick={() => setLeftView('preview')} className={`p-1.5 rounded ${leftView === 'preview' ? 'bg-slate-800 text-blue-400' : 'text-slate-500'}`}><Eye className="w-4 h-4" /></button>
                 {range !== 'current' && <button type="button" title={t.pages} aria-label={t.pages} aria-pressed={leftView === 'pages'} onClick={() => setLeftView('pages')} className={`p-1.5 rounded ${leftView === 'pages' ? 'bg-slate-800 text-blue-400' : 'text-slate-500'}`}><ListChecks className="w-4 h-4" /></button>}
               </div>
-              <span className="text-xs font-mono tabular-nums text-slate-400">
+              {range !== 'current' ? <div className="flex items-center gap-3 text-xs">
+                <span aria-live="polite" aria-atomic="true" className="font-mono tabular-nums text-slate-400">{selectedIds.length}/{pages.length}</span>
+                <button type="button" disabled={busy} onClick={() => updateSelectedPages(pages.map(page => page.id))} className="text-blue-400 hover:text-blue-300 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40">{t.selectAllPages}</button>
+                <button type="button" disabled={busy} onClick={() => updateSelectedPages(pages.filter(page => !selectedIds.includes(page.id)).map(page => page.id))} className="text-slate-400 hover:text-white cursor-pointer disabled:cursor-not-allowed disabled:opacity-40">{t.invertPages}</button>
+              </div> : <span className="text-xs font-mono tabular-nums text-slate-400">
                 {outputWidth} × {outputHeight} {isSvg ? 'SVG' : 'px'}
-              </span>
+              </span>}
             </div>
 
-            <div className={`relative w-full ${leftView === 'pages' ? 'h-72' : 'h-56 p-3'} rounded-lg border border-slate-800/90 bg-slate-950 overflow-hidden flex items-center justify-center`}>
-              {leftView === 'pages' ? <div className="w-full h-full" inert={busy}><PagesPanel lang={lang} pages={project.pages ?? []} activePageId={project.activePageId} thumbnails={thumbnails} selectedIds={range === 'all' ? project.pages?.map(page => page.id) : selectedPageIds} onSelectionChange={ids => { onSelectedPagesChange(ids); if (range === 'all') onRangeChange('multiple'); }} /></div> : previewUrl ? (
+            <div className={`relative w-full ${leftView === 'pages' ? 'h-[360px] md:h-auto md:min-h-[360px] md:flex-1' : 'h-56 p-3 rounded-lg border border-slate-800/90 bg-slate-950'} overflow-hidden flex items-center justify-center`}>
+              {leftView === 'pages' ? <div className="w-full h-full" inert={busy}><PagesPanel lang={lang} pages={pages} activePageId={project.activePageId} thumbnails={thumbnails} selectedIds={selectedIds} onSelectionChange={updateSelectedPages} /></div> : previewUrl ? (
                 <img
                   src={previewUrl}
                   alt={project.title}
@@ -146,7 +152,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
               <button type="button" title={t.nextPage} aria-label={t.nextPage} disabled={busy || pageIndex === pages.length - 1} onClick={() => onPageChange(pages[pageIndex + 1].id)} className="flex h-8 w-8 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400 cursor-pointer disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent"><ChevronRight className="h-4 w-4" /></button>
             </div>}
 
-            <div className="flex items-center justify-between pt-1">
+            {range === 'current' && !isPpt && <div className="flex items-center justify-between pt-1">
               <span className="text-xs font-medium text-slate-400">
                 {t.exportEstimatedSize}
               </span>
@@ -154,10 +160,10 @@ const ExportModal: React.FC<ExportModalProps> = ({
                 <span className="text-slate-500 uppercase">{settings.format}</span>
                 <span className="text-slate-700" aria-hidden="true">·</span>
                 <span className="text-sm font-semibold text-slate-100">
-                  {busy && progress ? `${progress.done} / ${progress.total}` : range !== 'current' || isPpt ? '--' : estimating ? t.exportEstimating : (estimatedSize ? formatBytes(estimatedSize) : '--')}
+                  {busy && progress ? `${progress.done} / ${progress.total}` : estimating ? t.exportEstimating : (estimatedSize ? formatBytes(estimatedSize) : '--')}
                 </span>
               </div>
-            </div>
+            </div>}
           </div>
 
           {/* Right Column: Export Controls */}

@@ -39,6 +39,10 @@ it('defaults to the current page and uses cached thumbnails for multi-select exp
     expect(container.querySelector('[data-preview-page]')?.getAttribute('data-preview-page')).toBe(project.pages![1].id);
     await act(async () => button('多选').click());
     expect(navigation('上一页')).toBeNull();
+    expect(container.textContent).not.toContain('预计大小');
+    expect(container.textContent).not.toContain('900 × 383');
+    expect(container.querySelector('[aria-live="polite"]')?.textContent).toBe('1/2');
+    expect(Array.from(container.querySelectorAll('button')).filter(element => element.textContent === '全选')).toHaveLength(1);
     expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.style.opacity).toBe('0');
     expect(button('复制 Base64')).toBeUndefined();
     expect(button('复制图片到剪贴板')).toBeUndefined();
@@ -61,6 +65,9 @@ it('defaults to the current page and uses cached thumbnails for multi-select exp
     expect(button('导出 PPT')).toBeDefined();
     expect(button('导出图片')).toBeUndefined();
     await act(async () => button('本页').click());
+    expect(container.querySelector('[aria-live="polite"]')?.textContent).toBe('2/2');
+    expect(container.textContent).toContain('900 × 383');
+    expect(container.textContent).not.toContain('预计大小');
     expect(button('复制图片到剪贴板')).toBeDefined();
     await act(async () => button('复制 Base64').click());
     expect(copy).toHaveBeenCalledOnce();

@@ -1,6 +1,6 @@
 # CoverFlow AI 模块
 
-本文按 9.0 多页项目实现更新；人工页面管理与导出流程见 [使用说明](../README.md)。项目文件升级与 AI 会话配置是两个独立边界，前者兼容旧单页，后者不恢复开发阶段的旧协议。
+AI 助手通过受校验的工具调用连接模型服务、项目工作区与本地资源，支持项目管理、逐页设计、素材放置、生图和抠图。本文说明模块职责、数据模型、工具契约、会话存储及安全边界；人工编辑与成品导出见 [使用说明](../README.md)。
 
 ## 目录职责
 
@@ -44,12 +44,12 @@ src/features/ai/
 
 - 配置包含 endpoints，每个接入点维护独立的 API 地址、Key 与 models；activeSelection 使用接入点 ID 和模型配置 ID，不用模型名称作为唯一标识。
 - 接入地址是 SDK baseURL，不填写完整请求地址。DeepSeek 官方使用 https://api.deepseek.com，Ollama 使用 http://localhost:11434/v1。
-- 模型分别配置上下文窗口、输出限制、思考能力与支持档位，不再选择思考协议。统一使用 reasoning.effort 和 max_output_tokens，不设置或发送 temperature。DeepSeek 预设支持 none/low/high/max。
+- 模型分别配置上下文窗口、输出限制、思考能力与支持档位。统一使用 reasoning.effort 和 max_output_tokens，不设置或发送 temperature。DeepSeek 预设支持 none/low/high/max。
 - 通过 SDK 读取 Responses 语义事件：正文、原始思考/推理摘要、工具参数以及 completed/incomplete/failed。推理在独立折叠区域显示，不混入最终回答；不同服务商不保证提供相同的可见推理内容。
 - DeepSeek 和 Ollama 均采用无状态会话，完整 reasoning/message/function_call 输出与 function_call_output 按顺序保存并回传，不使用 previous_response_id。OpenAI 官方请求关闭服务端存储，并保留返回的加密推理项用于续接。
 - 每次终结事件保存 usage（输入、输出、总量及可选缓存/思考明细），按操作及会话汇总；缓存与思考是子集，不额外加到总数。中断或缺失 usage 明确标记未知，已返回的用量仍保留。
 - 上次输入实测与下一次上下文估算分开显示。估算采用序列化输入、系统提示词及工具定义的 UTF-8 字节数除以 3，再以同接入点/模型最近实测输入校准；占用比例不是累计消耗除以窗口。预留输出超过预算时提示，不自动丢弃历史。窗口设置是客户端预算，不修改服务端容量。
-- 浮窗支持标题栏指针拖动、角落缩放、最小化和最大化，窗口几何写入当前 ChatStore 的界面状态。视口变化后始终限制在可见范围，不再使用 localStorage 保存 AI 界面状态。
+- 浮窗支持标题栏指针拖动、角落缩放、最小化和最大化，窗口几何写入当前 ChatStore 的界面状态。视口变化后始终限制在可见范围。
 - 模型配置异步加载或保存期间禁止发送与切换。普通读取失败展示可重试错误；凭据解密失败单独进入恢复状态，保留聊天与设置入口，禁止普通配置保存覆盖旧密文。
 
 ## 单轮调用限制
@@ -78,18 +78,28 @@ chat/
 - 完整 Responses 输入历史（responseItems）、逐请求用量（requests）与显示条目一起按会话保存；新会话不会继承其他会话的消息。只使用当前配置与会话结构，不维护开发阶段的旧格式兼容或自动迁移。
 - 配置、窗口状态和会话写入各自文件。目录模式使用 FileSystemWritableFileStream.close 提交，Tauri 先写临时文件再重命名。文件路径严格限制会话 ID，不允许路径穿越。
 - 切换模式或项目文件目录时重新加载对应存储，禁止把旧请求结果和窗口状态写入新位置。文件权限失败如实展示，不回退到 IndexedDB。
-- Tauri 新增 prepare_chat_storage 只为已有文件访问权限的 .cfj 授权其旁的 chat 目录，拒绝链接目录；补充最小创建/列目录/删除/重命名命令权限。
+- Tauri 的 prepare_chat_storage 只为已有文件访问权限的 .cfj 授权其旁的 chat 目录，拒绝链接目录；创建、列目录、删除和重命名命令遵循最小权限。
+
+## 项目模型与工作区
+
+项目是保存与历史记录的单位，页面是画布编辑的单位，AI 会话独立于两者存储。
+
+- 标准 `ProjectDocument` 保存 `id/version/title/pages/updatedAt`；每个 `ProjectPage` 保存稳定 `id`、可空 `name`、`layers/background/canvasConfig`。内部 `Layer` 采用扁平字段结构，工具边界负责转换为模型可读写的属性分组。
+- 编辑器 `ProjectState` 的顶层 `layers/background/canvasConfig` 是当前页运行时视图；`activePageId` 与 `selectedLayerId` 是编辑状态，不写入标准项目文件。
+- [项目兼容层](../src/storage/projectCompatibility.ts) 的 `migrateProject/readProject/writeProject/syncProjectPages` 统一处理逐版本升级、当前页视图同步及标准读写，供存储适配器、文件导入导出和完整项目 JSON 粘贴复用。9.0 以前的单页结构转换为第一页，打开项目默认第一页，读取本身不覆盖旧文件。项目格式兼容不延伸到 AI 配置和会话，后者只维护当前协议。
+- [页面领域操作](../src/utils/projectPages.ts) 负责新增、复制、删除、重命名、排序和切换。项目包含 1-99 页；新增页在当前页后插入，沿用其背景和默认尺寸；复制页重建图层 ID 与父子引用，形成独立副本。删除活动页后选择相邻可用页。
+- 页面内容变更进入项目历史与自动保存，切页和图层选区不是独立内容变更。历史快照共享未变化页面，自动保存比较标准页面文档；撤销 / 重做优先保留仍存在的当前页。
+- [缩略图缓存](../src/hooks/usePageThumbnails.ts) 为页面面板和导出选择列表共享长边不超过 160px 的 WebP Blob URL，按图层、背景和尺寸引用失效，删除、替换及卸载时回收。成品导出由 [独立渲染器](../src/utils/renderProjectImage.tsx) 和 [页面导出模块](../src/utils/exportPages.ts) 按完整页面生成，不使用缩略图；AI 不直接调用导出模块。
 
 ## 数据流
 
 用户消息 -> SDK Responses -> 工具 Schema -> 运行时校验 -> WorkspaceBridge -> App 状态 / StorageAdapter -> function_call_output -> 模型最终回复。
 
 - 工具从实时桥接状态读取，不依赖请求发出时的 React 闭包快照。
-- 所有画布修改要求当前 projectId，防止编辑错误项目。
-- 9.0 项目持久化使用 pages 数组。编辑器的 ProjectState 顶层 layers/background/canvasConfig 是当前页运行时视图，由 syncProjectPages 在提交时同步；writeProject 仅输出页面文档，readProject 打开第一页。旧单页读取兼容集中在 src/storage/projectCompatibility.ts，升级链按目标版本顺序执行，不在读取时覆盖磁盘文件。
-- get_context 返回 pageId、pageCount 和页面列表（稳定 ID、顺序编号、名称、尺寸、图层数、是否当前页）；图层工具及视觉预览只针对当前页，跨页前使用 manage_pages 切换。生图、素材放置、抠图在异步完成后重新校验项目及页面身份，切页时不写入结果；已生成图片仍保留在会话。
+- 所有画布修改要求 `projectId` 与当前项目一致。图层读取、修改、画布更新和视觉预览只针对当前页；跨页工作先读取页面列表，再通过 `manage_pages` 切换，不支持跨页混用图层 ID。
+- 生图、素材读取和抠图在异步操作开始时捕获项目与页面身份，应用结果前重新校验并读取实时内容。同页的其他编辑不会被旧快照覆盖；项目或当前页改变时不放置结果。已生成图片仍保存到会话，放置失败返回可复用资源 ID，不自动重新生成。
 - 每次图层修改提交完整 ProjectState，进入现有历史，并等待存储结果。保存失败会作为工具错误报告；已经显示在画布上的修改不会自动回滚。
-- 打开另一项目之前保存当前项目；新建和复制先持久化，成功后更新项目列表。复制会重建所有图层 ID 和父子引用。
+- 打开另一项目之前保存当前项目；新建和复制先持久化，成功后更新项目列表。复制项目包含所有页面，并重建页面 ID、图层 ID 和父子引用。
 - 项目查询使用存储分页接口，另外返回匹配的 Tauri 最近打开项目。当前云存储仍是仓库已有的模拟适配器，不是新建真实云后端。
 - Tauri 已打开的文件通过现有本地保存回调写入。删除本地最近项目仅删除记录，不删除磁盘文件。
 
@@ -97,13 +107,23 @@ chat/
 
 工具采用分层 JSON Schema 描述：函数 `description` 只说明用途与整体行为；字段含义、单位、默认值、适用操作及内容限制写在对应参数的 `description` 中，包括嵌套属性、数组元素和联合类型分支。可执行约束用 `enum`、`required`、`minimum/maximum`、`minItems/maxItems` 等表达，执行器仍负责最终校验。创建图层统一使用 `add_layer`，要求 `projectId`、`type` 和 `properties`；`type` 为 `text/image/svg/decoration`，必须提供对应的 `properties.<type>.content`，禁止提供其他类型的属性组。通用 `layerInfo` 与四类专属属性在同一个参数 Schema 中完整内联，不使用 `$defs/$ref`，以兼容不支持引用的远端。各组内容的格式与安全限制分别写在字段说明中。`update_layers.properties` 保持开放对象，不重复枚举字段，由创建/读取函数说明属性，运行时白名单负责校验；它仍是部分字段补丁，组内 `content` 可省略。
 
-图层函数与内部操作的映射、请求字段规则集中在 `tools/requests.ts`，独立函数的输入经白名单和必填校验后转换为内部可辨识动作联合类型，复用现有图层操作内核。对外不再注册或执行四个 `add_*_layer` 入口及 `edit_layers`，也不接受图层函数的 `action` 字段。项目新建和搜索分别由 `create_project`、`search_projects` 提供，不再作为 `manage_projects` 动作。为兼容自定义模型端点，对外保留对象 Schema 与 `strict:false`，不发送顶层 `oneOf`、`$defs/$ref` 或 OpenAPI `discriminator`。条件约束由运行时执行，不依赖模型遵守说明。所有请求先校验再产生存储或界面副作用。
+图层函数与内部操作的映射、请求字段规则集中在 `tools/requests.ts`，独立函数的输入经白名单和必填校验后转换为内部可辨识动作联合类型，复用现有图层操作内核。图层工具以独立函数表达操作，不接受 `action` 字段。项目新建和搜索分别由 `create_project`、`search_projects` 提供，其他生命周期操作由 `manage_projects` 提供。为兼容自定义模型端点，对外使用对象 Schema 与 `strict:false`，不发送顶层 `oneOf`、`$defs/$ref` 或 OpenAPI `discriminator`。条件约束由运行时执行，不依赖模型遵守说明。所有请求先校验再产生存储或界面副作用。
 
 更新、组织和排列图层的函数均要求 `projectId` 和非空 `layerIds`；仅 `update_layers` 接受且必须提供非空 `properties`，它只更新属性，不负责编组、删除或排序，禁止提交 `zIndex`。仅 `group_layers` 接受顶层可选 `name`；`align_layers`、`distribute_layers` 必须提供各自允许的 `mode`；`reorder_layers` 必须提供 `position`。创建图层默认置顶，不接受 `zIndex`，后续排序统一使用 `reorder_layers`。`create_project` 的 `title/width/height` 可选；`search_projects` 的 `query/page/pageSize` 可选；`manage_projects` 只接受 `open/rename/duplicate/delete/save`，并要求 `projectId`。`rename.title` 必填，`duplicate.title` 可选，其余管理动作禁止。跨操作字段与未知字段均报错，不忽略。
 
-图层工具读写采用一致的属性分组：`name` 与身份字段 `id/type/parentId` 在外层，通用属性统一位于 `layerInfo`（含位置、尺寸、旋转、层级、透明度、显隐、锁定和比例锁定），类型专属属性分别位于 `text/image/svg/decoration`；组合子图层位于 `group.children`。新增时不允许设置 `zIndex`，更新时层级通过 `reorder_layers` 调整。内容位于对应类型分组的 `content`，不提供外层 `content`。例如新增文字调用 `add_layer`，传入 `type: "text"` 及 `properties: {name: "标题", layerInfo: {x: 52}, text: {content: "标题", fontSize: 78, color: "#fff6ea"}}`；更新时 `properties.name` 单独设置名称，其他通用属性通过 `properties.layerInfo`，类型专属字段仍放对应分组。不接受扁平属性或与目标类型不符的分组；混合类型批量更新在提交前完整校验，不会部分生效。页面内仍存储内部扁平 Layer，工具边界负责转换，不迁移 Layer 字段结构；旧项目外层结构通过项目兼容层升级为 pages 文档。
+图层工具读写采用一致的属性分组：`name` 与身份字段 `id/type/parentId` 在外层，通用属性统一位于 `layerInfo`（含位置、尺寸、旋转、层级、透明度、显隐、锁定和比例锁定），类型专属属性分别位于 `text/image/svg/decoration`；组合子图层位于 `group.children`。创建时不允许设置 `zIndex`，更新时层级通过 `reorder_layers` 调整。内容位于对应类型分组的 `content`，不提供外层 `content`。例如创建文字调用 `add_layer`，传入 `type: "text"` 及 `properties: {name: "标题", layerInfo: {x: 52}, text: {content: "标题", fontSize: 78, color: "#fff6ea"}}`；更新时 `properties.name` 单独设置名称，其他通用属性通过 `properties.layerInfo`，类型专属字段仍放对应分组。不接受扁平属性或与目标类型不符的分组；混合类型批量更新在提交前完整校验，不会部分生效。
 
 `read_layers`、`get_selected_layers` 和 `get_context` 将 `name` 与身份字段 `id/type/parentId` 放在外层；其余通用属性位于 `layerInfo`，类型专属属性位于各自分组。组合的子图层列表位于 `group.children`，组合不返回无意义的空内容。图片只读抠图标记位于 `image.backgroundRemoved`，选区图片的来源与预览状态位于 `image.imageInfo`；这些只读字段不可作为更新属性回传。`read_layers` 的内嵌图片占位位于 `image.content`；`get_selected_layers` 仍省略图片内容，视觉模型的图片预览机制不变。
+
+### 图层操作规则
+
+图层更新支持位置、宽高、旋转、透明度、锁定、显隐、比例锁定、名称、内容、文字颜色/字体/字号/字重/对齐/书写方向/渐变/阴影。层级统一通过排序函数调整。结构字段 id/type/parentId/children 不允许直接修改，分组操作负责维护关系。不允许嵌套分组。组合图层变换传递到子图层，子图层变化会刷新组合边界。App 手动图层更新和 AI 更新共用 updateProjectLayer，保持变换规则一致。
+
+层级微调使用 `reorder_layers` 的 `position: forward/backward`，分别上移/下移一层，同时提供 `projectId` 和 `layerIds`，不接受 `properties/mode/name/action`。按实际堆叠顺序跨过相邻的一个未选中图层，不是简单增减 `zIndex`；多选保持相对顺序，到达顶层/底层不再移动。选中组合时包含子图层，沿用现有锁定校验；`position: front/back` 表示直接置顶/置底。
+
+装饰只通过 `decoration.content` 读写，CSS/HTML 格式由内容自动识别，不保存或接受格式字段。调色前通过 `read_layers` 读取源码，再用 `update_layers` 更新相应 CSS 变量，保留其他样式和 alpha；装饰没有主色字段，避免无效调色返回成功。文字与 SVG 分别使用 `text.color` 和 `svg.color`。变量颜色支持 HEX（含透明度）、RGB/RGBA、HSL/HSLA、OKLCH 与命名颜色，人工拾色器不是 AI 操作目标。背景自定义 CSS 使用 `background: {type: css, value: 声明文本}`，不支持 HTML 背景。
+
+### 工具目录
 
 | 工具 | 功能 |
 | --- | --- |
@@ -115,7 +135,7 @@ chat/
 | place_asset | 按精确素材 ID 读取并放置 SVG / PNG，返回新图层 ID |
 | skill | 配置非空时按精确名称读取 SKILL 纯文本正文，无需打开项目 |
 | manage_projects | open/rename/duplicate/delete/save |
-| manage_pages | list/create/switch/duplicate/delete；新增、复制后打开新页，删除需确认，最多99页且保留最后一页 |
+| manage_pages | list/create/switch/duplicate/delete；新增、复制后打开新页，删除需确认，最多 99 页且保留最后一页 |
 | read_layers | 按 ID 或名称/内容关键词读取图层 |
 | add_layer | 按 type 添加文字、已有图片、SVG 或 CSS/HTML 装饰图层 |
 | update_layers | 仅更新图层属性，例如移动位置或修改图片 |
@@ -128,12 +148,9 @@ chat/
 | generate_image | 文生图或单图参考生图，成功后自动添加图层并返回图层 ID |
 | remove_background | 本地 Worker 抠图，支持保留原图及单次模型/设备覆盖 |
 
-## 多页项目与工具边界
+## 页面工具
 
-- 标准 `ProjectDocument` 保存 `id/version/title/pages/updatedAt`。每个 `ProjectPage` 保存稳定 `id`、可空 `name`、`layers/background/canvasConfig`；`activePageId`、`selectedLayerId` 和顶层当前页内容不写入标准文件。图层本身仍保持原有扁平结构，9.0 的升级只调整项目外层页面容器。
-- [项目兼容层](../src/storage/projectCompatibility.ts) 的 `migrateProject/readProject/writeProject/syncProjectPages` 统一处理逐版本升级、运行时当前页视图与标准读写；存储适配器、文件导入导出及完整项目 JSON 粘贴复用该边界。读取旧单页生成第一页，不自动覆盖旧文件；打开项目默认第一页。
-- [页面领域操作](../src/utils/projectPages.ts) 负责新增、复制、删除、重命名、排序及切换。页面数为 1-99；新增复用当前页尺寸和背景，复制重建图层 ID 及父子引用，删除活动页后选择相邻可用页。人工界面支持重命名与排序，AI 当前不提供这两个动作。
-- `get_context` 与 `manage_pages` 返回 `pageId/pageCount/pages`，每项包含 `id/number/name/canvas/layerCount/active`。`number` 是当前顺序的 `P01-P99`，会随排序变化，不能代替稳定 `pageId`。
+`get_context` 与 `manage_pages` 返回 `pageId/pageCount/pages`，每项包含 `id/number/name/canvas/layerCount/active`。`number` 是当前顺序的 `P01-P99`，会随排序变化，不能代替稳定 `pageId`。模型以工具读取到的页面 ID 为目标逐页操作；页面重命名、排序和成品导出仅由人工界面提供。
 
 `manage_pages` 的 `list` 返回示例（ID 仅作示意，实际调用必须使用工具读取到的值）：
 
@@ -158,17 +175,12 @@ chat/
 | manage_pages 动作 | 必需字段 | 可选字段与行为 |
 | --- | --- | --- |
 | list | projectId、action | 读取全部页面元数据，不修改项目 |
-| create | projectId、action | name 可空且最多100字符；width/height 各为10-10000，省略时沿用当前页，四舍五入；在当前页后插入并切换 |
+| create | projectId、action | name 可空且最多 100 字符；width/height 各为 10-10000，省略时沿用当前页，四舍五入；在当前页后插入并切换 |
 | switch | projectId、action、pageId | 切换真实页面 ID，清理图层选区 |
 | duplicate | projectId、action、pageId | 在被复制页后插入独立副本并切换；不接受 name/width/height |
 | delete | projectId、action、pageId | 用户确认后删除；不可删最后一页，确认期间项目变化则拒绝提交 |
 
-- 参数按动作白名单校验，未知字段和跨动作参数报错；所有动作要求 `projectId` 与当前项目一致。图层读取、修改、画布更新及视觉预览只针对当前页，跨页工作应先读取页面列表，再逐页 `switch`，不支持跨页混用图层 ID。
-- 生图、素材读取和抠图在异步操作开始时捕获项目与页面身份，完成后重新校验。页面或项目改变时不放置结果；生图已经返回的图片仍保存到会话，失败结果带可复用资源 ID，不能因放置失败重新生成。
-- 页面内容进入现有历史与自动保存，切页和图层选区不是独立内容变更。历史快照共享未变化页面，自动保存比较标准页面文档；撤销恢复时优先保留仍存在的当前页。
-- [缩略图缓存](../src/hooks/usePageThumbnails.ts) 为编辑页面板和导出选择列表共享长边160px的 WebP Blob URL，按图层、背景和尺寸引用失效，删除/替换/卸载时回收。正式导出使用 [独立渲染器](../src/utils/renderProjectImage.tsx)，不把缩略图用于成品。
-- 人工导出支持本页、多选、全部，PNG/JPEG/WEBP/SVG 多页按项目顺序打包 ZIP，PPTX 是整页 PNG 的图片型演示稿。本页预览可遍历项目各页，多选/全部预览仅遍历已选页并显示非 PPT 当页估算；列表只显示选择控件，固定高度内部滚动。预览切页会改变当前编辑页，因此 PPTX 统一比例以确认导出时的当前页为准。
-- AI 尚无页面重命名、排序或导出工具；不要把人工界面控件描述为模型可调用能力。
+参数按动作白名单校验，未知字段和跨动作参数报错；所有动作要求 `projectId` 与当前项目一致。切页清理图层选区，但不单独提交内容历史；新增、复制和删除通过工作区桥接提交完整项目。页面隔离与异步结果校验遵循“数据流”中的统一规则。
 
 ## 素材搜索与放置
 
@@ -223,12 +235,6 @@ chat/
 - 生成前必须提供当前 `projectId`；生成成功后保存会话图片，并通过实时工作区桥接自动添加等比适配、居中的 image 图层，返回 pageId、layerId、imageId 和位置尺寸，不回传 Base64。不再提供 `apply_image`；作为背景时使用 `reorder_layers` 置底，再用 `update_layers` 调整和锁定。图片嵌入项目，不依赖会话存续，也不放宽文本工具的长度限制。放置时项目或当前页已切换，或放置失败时，保留已保存图片并明确报告失败，禁止自动重新生成。
 - 所有请求直接由浏览器发送，生图接口及图片下载地址须允许 CORS。当前启停是本地配置，不是服务端管理员权限控制。
 
-图层更新支持位置、宽高、旋转、透明度、锁定、显隐、比例锁定、名称、内容、文字颜色/字体/字号/字重/对齐/书写方向/渐变/阴影。层级统一通过排序函数调整。结构字段 id/type/parentId/children 不允许直接修改，分组操作负责维护关系。不允许嵌套分组。组合图层变换传递到子图层，子图层变化会刷新组合边界。App 手动图层更新和 AI 更新共用 updateProjectLayer，保持变换规则一致。
-
-层级微调使用 `reorder_layers` 的 `position: forward/backward`，分别上移/下移一层，同时提供 `projectId` 和 `layerIds`，不接受 `properties/mode/name/action`。按实际堆叠顺序跨过相邻的一个未选中图层，不是简单增减 `zIndex`；多选保持相对顺序，到达顶层/底层不再移动。选中组合时包含子图层，沿用现有锁定校验；`position: front/back` 表示直接置顶/置底。
-
-装饰只通过 `decoration.content` 读写，CSS/HTML 格式由内容自动识别，不保存或接受格式字段。调色前通过 `read_layers` 读取源码，再用 `update_layers` 更新相应 CSS 变量，保留其他样式和 alpha；装饰没有主色字段，避免无效调色返回成功。文字与 SVG 分别使用 `text.color` 和 `svg.color`。变量颜色支持 HEX（含透明度）、RGB/RGBA、HSL/HSLA、OKLCH 与命名颜色，人工拾色器不是 AI 操作目标，不需要新增界面控制工具。背景自定义 CSS 使用 `background: {type: css, value: 声明文本}`，不支持 HTML 背景。
-
 ## 安全边界
 
 - 浏览器 AI 配置存入独立 IndexedDB 数据库 coverflow-ai：settings 保存剔除 Key 的配置，encryption-key 保存不可导出的 AES-GCM 256 位 CryptoKey，endpoint-secrets 保存各接入点的随机 12 字节 IV 和密文。文件模式仅主密钥仍留在本机 encryption-key，其余配置和密文在 chat/config.json。接入点 ID 作为附加认证数据，避免密文被换到其他连接。
@@ -248,7 +254,7 @@ chat/
 
 ## 验证与扩展
 
-多页相关验证复用相邻测试：项目升级与标准读写见 [兼容测试](../src/storage/projectCompatibility.test.ts)，页面结构操作见 [页面测试](../src/utils/projectPages.test.ts)，AI 动作、参数与删除确认见 [页面工具测试](../src/features/ai/tools/pages.test.ts)，导出选择和预览导航见 [弹窗测试](../src/components/ExportModal.test.tsx)，ZIP/PPTX 文件结构与等比布局见 [导出测试](../src/utils/exportPages.test.ts)。历史、自动保存、缩略图及生图/素材/抠图测试覆盖各自的页面隔离与异步过期结果边界；已有文件结构验证不等于 PowerPoint 人工打开或原生 Tauri 打包验证。
+测试按模块边界与源码相邻放置：项目升级与标准读写见 [兼容测试](../src/storage/projectCompatibility.test.ts)，页面结构操作见 [页面测试](../src/utils/projectPages.test.ts)，AI 动作、参数与删除确认见 [页面工具测试](../src/features/ai/tools/pages.test.ts)。历史、自动保存、缩略图及生图、素材、抠图测试覆盖各自的页面隔离与异步过期结果边界。人工导出由 [弹窗测试](../src/components/ExportModal.test.tsx) 覆盖选择和预览导航，由 [导出测试](../src/utils/exportPages.test.ts) 覆盖 ZIP/PPTX 文件结构与等比布局；文件结构测试不能替代 PowerPoint 人工打开或原生 Tauri 打包验证。
 
 `bun run test` 使用 Vitest 与 fake-indexeddb。覆盖图层几何、组关系、锁定、字段安全、过期 ID、项目生命周期、删除确认、Responses 事件、工具历史回传、配置校验、多模型选择、思考参数、用量汇总、中止、浮窗边界、加密往返、密文篡改、会话隔离及文件路径限制。生图测试覆盖三个适配器的文生图和单图参考请求、GPT-Image 尺寸/质量/数量校验、多图保存放置、动态 prompt Schema、超过 60 秒等待、取消、禁用重检、凭据隔离、高清资源放置和文件持久化。前端打包使用 `bun run build`；全仓类型检查使用 `bun run typecheck`，AI 严格检查使用 `bun x tsc --noEmit -p src/features/ai/tsconfig.json`。原生存储命令使用 `cargo check --manifest-path src-tauri/Cargo.toml`。检查结果以当前运行输出为准，不沿用旧任务的诊断清单。
 

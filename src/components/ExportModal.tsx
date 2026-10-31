@@ -4,7 +4,7 @@ import { ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
 import LivePreview from './LivePreview.tsx';
 import PagesPanel from './PagesPanel.tsx';
-import type { PageExportSettings } from '../utils/exportPages.ts';
+import { getExportPixelRatio, type PageExportSettings } from '../utils/exportPages.ts';
 
 export type ExportSettings = PageExportSettings;
 export type ExportRange = 'current' | 'multiple' | 'all';
@@ -69,6 +69,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
   const isSvg = settings.format === 'svg';
   const isPng = settings.format === 'png';
   const isPpt = settings.format === 'pptx';
+  const pixelRatio = getExportPixelRatio(project.canvasConfig.width, project.canvasConfig.height, settings);
   const pages = project.pages ?? [];
   const selectedIds = range === 'all' ? pages.map(page => page.id) : selectedPageIds.filter(id => pages.some(page => page.id === id));
   const previewPages = range === 'current' ? pages : pages.filter(page => selectedIds.includes(page.id));
@@ -89,10 +90,10 @@ const ExportModal: React.FC<ExportModalProps> = ({
 
   const outputWidth = isSvg
     ? project.canvasConfig.width
-    : Math.round(project.canvasConfig.width * settings.pixelRatio);
+    : Math.round(project.canvasConfig.width * pixelRatio);
   const outputHeight = isSvg
     ? project.canvasConfig.height
-    : Math.round(project.canvasConfig.height * settings.pixelRatio);
+    : Math.round(project.canvasConfig.height * pixelRatio);
 
   return (
     <div
@@ -165,9 +166,9 @@ const ExportModal: React.FC<ExportModalProps> = ({
               <button type="button" title={t.nextPage} aria-label={t.nextPage} disabled={busy || pageIndex === previewPages.length - 1} onClick={() => onPageChange(previewPages[pageIndex + 1].id)} className="flex h-8 w-8 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400 cursor-pointer disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent"><ChevronRight className="h-4 w-4" /></button>
             </div>}
 
-            {leftView === 'preview' && hasPreviewPage && !isPpt && <div className="flex items-center justify-between pt-1">
+            {leftView === 'preview' && hasPreviewPage && <div className="flex items-center justify-between pt-1">
               <span className="text-xs font-medium text-slate-400">
-                {t.exportEstimatedSize}
+                {isPpt ? t.exportPptPageSize : t.exportEstimatedSize}
               </span>
               <div className="flex items-center gap-2 text-xs font-mono tabular-nums">
                 <span className="text-slate-500 uppercase">{settings.format}</span>
@@ -218,13 +219,15 @@ const ExportModal: React.FC<ExportModalProps> = ({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className={`text-xs font-semibold transition-colors ${isSvg ? 'text-slate-600' : 'text-slate-400'}`}>
-                  {t.exportPixelRatio}
+                  {isPpt ? t.exportPptResolution : t.exportPixelRatio}
                 </span>
                 <span className="text-xs font-mono tabular-nums text-slate-500">
-                  {isSvg ? '--' : `${settings.pixelRatio}x`}
+                  {isSvg ? '--' : isPpt ? `${outputWidth} × ${outputHeight}` : `${settings.pixelRatio}x`}
                 </span>
               </div>
-              <div className="grid grid-cols-4 gap-1.5 p-1 rounded-xl bg-slate-950/90 border border-slate-800/80">
+              {isPpt ? <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-slate-950/90 border border-slate-800/80">
+                {(['standard', 'hd', '4k'] as const).map(resolution => <button key={resolution} type="button" disabled={busy} aria-pressed={settings.pptResolution === resolution} onClick={() => onChange({ pptResolution: resolution })} className={`py-2 px-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${settings.pptResolution === resolution ? 'bg-slate-800 text-white border border-slate-700 shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent'}`}>{t.exportPptResolutions[resolution]}</button>)}
+              </div> : <div className="grid grid-cols-4 gap-1.5 p-1 rounded-xl bg-slate-950/90 border border-slate-800/80">
                 {([0.5, 1, 1.5, 2] as const).map((ratio) => {
                   const isSelected = !isSvg && settings.pixelRatio === ratio;
                   return (
@@ -243,7 +246,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
                     </button>
                   );
                 })}
-              </div>
+              </div>}
             </div>
 
             {/* Compression Selector */}

@@ -44,7 +44,7 @@ import { generateId, downloadFile, normalizeSVG, isNewerProjectVersion } from '.
 import { buildProjectSvg } from './utils/svgExport.ts';
 import { readProject, syncProjectPages, writeProject } from './storage/projectCompatibility.ts';
 import { copyProject, deleteProjectPage, insertProjectPage, moveProjectPage, pageNumber, renameProjectPage, selectProjectPage } from './utils/projectPages.ts';
-import { exportProjectPages } from './utils/exportPages.ts';
+import { exportProjectPages, getExportPixelRatio } from './utils/exportPages.ts';
 import { clampDecorationSize } from './utils/decorationStyles.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
 import { computeCroppedLayerGeometry } from './utils/imageLayer.ts';
@@ -120,10 +120,12 @@ const App: React.FC = () => {
     pixelRatio: 0.5 | 1 | 1.5 | 2;
     format: ExportFormat;
     compression: ExportCompression;
+    pptResolution: 'standard' | 'hd' | '4k';
   }>({
     pixelRatio: 1,
     format: 'png',
-    compression: 'lossless'
+    compression: 'lossless',
+    pptResolution: 'hd'
   });
   const [exportEstimatedSize, setExportEstimatedSize] = useState<number | null>(null);
   const [exportPreviewUrl, setExportPreviewUrl] = useState<string | null>(null);
@@ -502,7 +504,7 @@ const App: React.FC = () => {
       return new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
     }
 
-    const options = buildExportOptions(targetProject, settings.pixelRatio);
+    const options = buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
     const quality = getExportQuality(settings);
 
     if (settings.format === 'png' || settings.format === 'pptx') {
@@ -536,7 +538,7 @@ const App: React.FC = () => {
       return `data:image/svg+xml;base64,${btoa(binary)}`;
     }
 
-    const options = buildExportOptions(targetProject, settings.pixelRatio);
+    const options = buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
     const quality = getExportQuality(settings);
 
     if (settings.format === 'png' || settings.format === 'pptx') {
@@ -954,7 +956,7 @@ const App: React.FC = () => {
         }
         setIsExporting(true);
         await ensureProjectFonts(targetProject);
-        const options = buildExportOptions(targetProject, settings.pixelRatio);
+        const options = buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
         const rawBlob = await htmlToImage.toBlob(previewNode, options);
         if (!rawBlob) {
           throw new Error('Failed to generate PNG blob');

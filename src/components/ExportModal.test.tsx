@@ -20,7 +20,7 @@ it('defaults to the current page and uses cached thumbnails for multi-select exp
     const [currentProject, setCurrentProject] = useState(project);
     const [range, setRange] = useState<ExportRange>('current');
     const [ids, setIds] = useState([project.activePageId!]);
-    const [settings, setSettings] = useState<ExportSettings>({ format: 'png', pixelRatio: 1, compression: 'lossless' });
+    const [settings, setSettings] = useState<ExportSettings>({ format: 'png', pixelRatio: 1, compression: 'lossless', pptResolution: 'hd' });
     return <ExportModal isOpen lang="zh" project={currentProject} settings={settings} estimatedSize={null} estimating={false} onChange={updates => setSettings(current => ({ ...current, ...updates }))} onClose={() => {}} onConfirm={() => {}} onCopyBase64={copy} onCopyImage={copy} range={range} onRangeChange={setRange} selectedPageIds={ids} onSelectedPagesChange={setIds} onPageChange={id => setCurrentProject(current => selectProjectPage(current, id))} thumbnails={thumbnails} />;
   }
   const button = (label: string) => Array.from(container.querySelectorAll('button')).find(element => element.textContent === label)!;
@@ -66,8 +66,13 @@ it('defaults to the current page and uses cached thumbnails for multi-select exp
     expect(button('导出图片')).toBeUndefined();
     await act(async () => button('本页').click());
     expect(container.querySelector('[aria-live="polite"]')?.textContent).toBe('2/2');
+    expect(container.textContent).toContain('1920 × 817');
+    expect(container.textContent).toContain('当前页 PNG');
+    expect(container.textContent).toContain('高清');
+    await act(async () => button('标准').click());
     expect(container.textContent).toContain('900 × 383');
-    expect(container.textContent).not.toContain('预计大小');
+    await act(async () => button('4K').click());
+    expect(container.textContent).toContain('3840 × 1634');
     expect(button('复制图片到剪贴板')).toBeDefined();
     await act(async () => button('复制 Base64').click());
     expect(copy).toHaveBeenCalledOnce();
@@ -90,7 +95,7 @@ it('previews only selected pages in project order and shows the current page est
     const [project, setProject] = useState(selectProjectPage(last, middle.activePageId!));
     const [range, setRange] = useState<ExportRange>('multiple');
     const [ids, setIds] = useState(selected);
-    return <ExportModal isOpen lang="zh" project={project} settings={{ format: 'png', pixelRatio: 1, compression: 'lossless' }} estimatedSize={project.activePageId === first.activePageId ? 1024 : 4096} estimating={false} onChange={() => {}} onClose={() => {}} onConfirm={() => confirm(ids)} onCopyBase64={() => {}} onCopyImage={() => {}} range={range} onRangeChange={setRange} selectedPageIds={ids} onSelectedPagesChange={setIds} onPageChange={id => setProject(current => selectProjectPage(current, id))} thumbnails={{}} />;
+    return <ExportModal isOpen lang="zh" project={project} settings={{ format: 'png', pixelRatio: 1, compression: 'lossless', pptResolution: 'hd' }} estimatedSize={project.activePageId === first.activePageId ? 1024 : 4096} estimating={false} onChange={() => {}} onClose={() => {}} onConfirm={() => confirm(ids)} onCopyBase64={() => {}} onCopyImage={() => {}} range={range} onRangeChange={setRange} selectedPageIds={ids} onSelectedPagesChange={setIds} onPageChange={id => setProject(current => selectProjectPage(current, id))} thumbnails={{}} />;
   }
   const button = (label: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
   try {

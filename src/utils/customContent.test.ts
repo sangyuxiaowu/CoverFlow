@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import { createElement } from 'react';
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import Canvas from '../components/Canvas.tsx';
 import LivePreview from '../components/LivePreview.tsx';
+import LayersPanel from '../components/LayersPanel.tsx';
 import type { ProjectState } from '../types.ts';
+import { readProject, writeProject } from '../storage/projectCompatibility.ts';
+import { copyProject } from './projectPages.ts';
 import { backgroundCssStyle, detectDecorationFormat, sanitizeBackgroundCss, sanitizeDecorationHtml } from './customContent.ts';
 import { PRESET_DECORATIONS } from '../constants.ts';
 import { buildDecorationLayerStyle, sanitizeDecorationContent } from './decorationStyles.ts';
@@ -58,6 +62,89 @@ describe('decoration rendering boundaries', () => {
     const xml = new DOMParser().parseFromString(buildProjectSvg(state), 'image/svg+xml');
     const text = Array.from(xml.querySelectorAll('div')).find(element => element.textContent === 'Spacing' && element.style.fontSize);
     expect(text?.style.letterSpacing).toBe(`${letterSpacing ?? 0}px`);
+  });
+
+  it.each([undefined, 0.5, 1.5, 5])('preserves multiline text and line height %s in every renderer', (lineHeight) => {
+    const content = 'First line\n\n  Second line\nThird <line> & text';
+    for (const writingMode of ['horizontal', 'vertical'] as const) {
+      const state: ProjectState = { ...project, layers: [{ ...project.layers[0], type: 'text', content, lineHeight, writingMode }] };
+      const containers = renderers.map(({ render }) => {
+        const container = document.createElement('div');
+        container.innerHTML = renderToStaticMarkup(render(state));
+        return container;
+      });
+      const xml = new DOMParser().parseFromString(buildProjectSvg(state), 'image/svg+xml');
+      expect(xml.querySelector('parsererror')).toBeNull();
+      for (const container of [...containers, xml]) {
+        const text = Array.from(container.querySelectorAll('div')).find(element => element.textContent === content && element.style.fontSize);
+        expect(text).toBeDefined();
+        expect(text!.style.whiteSpace).toBe('pre-wrap');
+        expect(text!.style.lineHeight).toBe(String(lineHeight ?? 1.1));
+        if (writingMode === 'vertical') expect(text!.style.writingMode).toBe('vertical-rl');
+      }
+    }
+  });
+
+  it('preserves multiline text and line height through saving, reopening and copying', () => {
+    const state: ProjectState = { ...project, layers: [{ ...project.layers[0], type: 'text', content: 'First\n\nSecond', lineHeight: 1.8 }] };
+    const reopened = readProject(JSON.parse(JSON.stringify(writeProject(state))));
+    const copied = copyProject(reopened, 'Copied');
+    for (const current of [reopened, copied]) {
+      expect(current.layers[0].content).toBe('First\n\nSecond');
+      expect(current.layers[0].lineHeight).toBe(1.8);
+      expect(current.pages![0].layers[0].lineHeight).toBe(1.8);
+    }
+  });
+
+  it('edits line height with bounded numeric input and fractional scrubbing in the text inspector', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const state: ProjectState = { ...project, selectedLayerId: 'moon', layers: [{ ...project.layers[0], type: 'text', content: 'First\nSecond' }] };
+    const update = vi.fn();
+    const commit = vi.fn();
+    const noop = () => {};
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const renderPanel = (current: ProjectState, lang: 'zh' | 'en' = 'zh') => createElement(LayersPanel, {
+      lang, project: current, selectedLayerIds: ['moon'], onUpdateLayer: update, onRemoveBackground: noop,
+      onDeleteLayer: noop, onSelectLayer: noop, onReorderLayers: noop, onCloneLayers: noop,
+      onDeleteLayers: noop, onMoveLayersTop: noop, onMoveLayersBottom: noop, onGroupLayers: noop,
+      onUngroupLayer: noop, onCommit: commit
+    });
+    try {
+      await act(async () => root.render(renderPanel(state)));
+      const input = host.querySelector<HTMLInputElement>('#input-line-height')!;
+      expect(input.value).toBe('1.1');
+      expect(input.min).toBe('0.5');
+      expect(input.max).toBe('5');
+      expect(input.step).toBe('0.1');
+      const label = host.querySelector<HTMLLabelElement>('label[for="input-line-height"]')!;
+      expect(label.textContent).toContain('行距（倍）');
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      for (const [value, expected] of [['1.8', 1.8], ['0.1', 0.5], ['8', 5], ['', 1.1]] as const) {
+        await act(async () => {
+          setValue.call(input, value);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        expect(update).toHaveBeenLastCalledWith('moon', { lineHeight: expected });
+      }
+      await act(async () => label.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 20 })));
+      for (const [clientX, expected] of [[70, 1.6], [-1000, 0.5], [1000, 5]]) {
+        await act(async () => window.dispatchEvent(new MouseEvent('mousemove', { clientX })));
+        expect(update).toHaveBeenLastCalledWith('moon', { lineHeight: expected }, false);
+      }
+      await act(async () => window.dispatchEvent(new MouseEvent('mouseup')));
+      expect(commit).toHaveBeenCalledOnce();
+      await act(async () => root.render(renderPanel({ ...state, layers: [{ ...state.layers[0], lineHeight: 2 }] }, 'en')));
+      expect(host.querySelector<HTMLInputElement>('#input-line-height')!.value).toBe('2');
+      expect(host.querySelector('label[for="input-line-height"]')!.textContent).toContain('Line Height (x)');
+      await act(async () => root.render(renderPanel({ ...state, layers: [{ ...state.layers[0], type: 'svg', content: '<svg />' }] })));
+      expect(host.querySelector('#input-line-height')).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('exports complete CSS decorations instead of reducing them to rectangles', () => {

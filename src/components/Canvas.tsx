@@ -351,7 +351,8 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
                   justifyContent: align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center',
                   textAlign: align,
                   padding: '0 1rem',
-                  lineHeight: 1.1,
+                  lineHeight: layer.lineHeight ?? 1.1,
+                  whiteSpace: 'pre-wrap',
                   pointerEvents: 'none',
                 };
 

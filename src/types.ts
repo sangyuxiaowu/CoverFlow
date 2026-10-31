@@ -65,6 +65,7 @@ export interface Layer {
   color?: string;
   fontSize?: number;
   letterSpacing?: number;
+  lineHeight?: number;
   fontFamily?: string;
   fontWeight?: string | number;
   textAlign?: 'left' | 'center' | 'right';

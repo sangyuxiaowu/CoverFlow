@@ -79,7 +79,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       name: string('图层名称，用于图层列表与搜索。'),
       layerInfo: layerInfoDefinition,
       text: object('文字图层专属属性，type 为 text 时必填。', {
-        content: string('必填：完整纯文本内容。'),
+        content: string('必填：完整纯文本内容，保留换行与空行，不使用 HTML。'),
         color: string('文字主色，使用 CSS 颜色值。'),
         fontFamily: string('CSS font-family 值，优先将 list_fonts 返回的 family 用双引号包裹后使用，例如 "Noto Sans SC"。Google 精选字体按需联网加载，本地字体需在当前设备安装。'),
         fontWeight: {
@@ -88,6 +88,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         },
         fontSize: numeric('字号（px）。', 1),
         letterSpacing: numeric('字距（px），默认 0，支持负值和小数。'),
+        lineHeight: numeric('行高（字号倍数），默认 1.1，范围 0.5–5；支持小数，竖排时控制列间距。', 0.5, 5),
         textAlign: enumeration('水平文本对齐方式。', ['left', 'center', 'right']),
         writingMode: enumeration('文本排列方式。', ['horizontal', 'vertical']),
         textGradient: object('文字渐变配置。', {

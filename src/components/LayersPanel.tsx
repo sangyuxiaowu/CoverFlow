@@ -223,13 +223,16 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
     if (!scrubbingRef.current || !latestSelectedLayerRef.current) return;
     const delta = (e.clientX - scrubbingRef.current.startX);
     const sensitivity = scrubbingRef.current.prop === 'rotation' ? 0.5 : 1;
-    const multiplier = scrubbingRef.current.prop === 'opacity' ? 0.01 : 1;
+    const multiplier = ['opacity', 'lineHeight'].includes(scrubbingRef.current.prop) ? 0.01 : 1;
     const newValue = scrubbingRef.current.startValue + (delta * sensitivity * multiplier);
     
     let finalValue = Math.round(newValue);
     if (scrubbingRef.current.prop === 'opacity') {
       finalValue = Math.min(Math.max(0, newValue), 1);
       onUpdateLayerRef.current(latestSelectedLayerRef.current.id, { opacity: finalValue }, false);
+    } else if (scrubbingRef.current.prop === 'lineHeight') {
+      finalValue = Math.min(5, Math.max(0.5, Math.round(newValue * 100) / 100));
+      onUpdateLayerRef.current(latestSelectedLayerRef.current.id, { lineHeight: finalValue }, false);
     } else if (scrubbingRef.current.prop.startsWith('textShadow.')) {
       const current = latestSelectedLayerRef.current.textShadow || DEFAULT_TEXT_SHADOW;
       const shadowKey = scrubbingRef.current.prop.replace('textShadow.', '') as keyof TextShadow;
@@ -551,6 +554,14 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                       <MoveHorizontal className="w-2.5 h-2.5"/> {t.letterSpacing} (px)
                     </label>
                     <input id="input-letter-spacing" type="number" step="0.1" value={selectedLayer.letterSpacing ?? 0} onChange={(e) => onUpdateLayer(selectedLayer.id, { letterSpacing: Number.isFinite(e.target.valueAsNumber) ? e.target.valueAsNumber : 0 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                  </div>
+                )}
+                {selectedLayer.type === 'text' && (
+                  <div className="space-y-1">
+                    <label htmlFor="input-line-height" onMouseDown={(e) => handleScrubMouseDown(e, 'lineHeight', selectedLayer.lineHeight ?? 1.1)} className="flex items-center gap-1 text-[8px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
+                      <MoveVertical className="w-2.5 h-2.5"/> {t.lineHeight}
+                    </label>
+                    <input id="input-line-height" type="number" min="0.5" max="5" step="0.1" value={selectedLayer.lineHeight ?? 1.1} onChange={(e) => onUpdateLayer(selectedLayer.id, { lineHeight: Number.isFinite(e.target.valueAsNumber) ? Math.min(5, Math.max(0.5, e.target.valueAsNumber)) : 1.1 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                   </div>
                 )}
                 <div className="space-y-1">

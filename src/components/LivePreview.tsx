@@ -91,7 +91,8 @@ const LivePreview: React.FC<{
               alignItems: 'center',
               justifyContent: align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center',
               textAlign: align,
-              lineHeight: 1.1,
+              lineHeight: layer.lineHeight ?? 1.1,
+              whiteSpace: 'pre-wrap',
               pointerEvents: 'none',
               padding: '0 0.5rem'
             };

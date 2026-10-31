@@ -14,7 +14,7 @@ describe('project format upgrades', () => {
       const source = { ...legacy, version };
       const result = migrateProject(source);
       expect(result.version).toBe('9.0.0');
-      expect(result.pages).toEqual([{ id: 'legacy-page-1', name: '', layers: legacy.layers, background: legacy.background, canvasConfig: legacy.canvasConfig }]);
+      expect(result.pages).toEqual([{ id: expect.stringMatching(/^[a-z0-9]{9}$/), name: '', layers: legacy.layers, background: legacy.background, canvasConfig: legacy.canvasConfig }]);
       expect(source).not.toHaveProperty('pages');
       expect(result.updatedAt).toBe(123);
     }

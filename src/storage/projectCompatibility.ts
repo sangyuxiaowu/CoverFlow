@@ -1,4 +1,5 @@
 import type { ProjectDocument, ProjectPage, ProjectState } from '../types.ts';
+import { generateId } from '../utils/helpers.ts';
 
 export const PROJECT_FORMAT_VERSION = '9.0.0';
 export const MAX_PROJECT_PAGES = 99;
@@ -22,7 +23,7 @@ const compareVersions = (left: unknown, right: string) => {
 const upgrades: { version: string; convert: (data: StoredData) => StoredData }[] = [
   {
     version: '9.0.0',
-    convert: data => ({ ...data, pages: data.pages ?? [{ id: `${data.id}-page-1`, name: '', layers: data.layers, background: data.background, canvasConfig: data.canvasConfig }] })
+    convert: data => ({ ...data, pages: data.pages ?? [{ id: generateId(), name: '', layers: data.layers, background: data.background, canvasConfig: data.canvasConfig }] })
   }
 ];
 
@@ -54,7 +55,7 @@ export function readProject(input: unknown): ProjectState {
 
 export function syncProjectPages(project: ProjectState): ProjectState {
   if (!project.pages?.length) {
-    const page: ProjectPage = { id: `${project.id}-page-1`, name: '', layers: project.layers, background: project.background, canvasConfig: project.canvasConfig };
+    const page: ProjectPage = { id: generateId(), name: '', layers: project.layers, background: project.background, canvasConfig: project.canvasConfig };
     return { ...project, version: PROJECT_FORMAT_VERSION, pages: [page], activePageId: page.id };
   }
   const active = project.pages.find(page => page.id === project.activePageId) ?? project.pages[0];

@@ -25,7 +25,7 @@ it('reuses tiny previews across naming, reordering and selection, and releases d
     await act(async () => root.render(<Harness value={project} />));
     await act(async () => vi.advanceTimersByTimeAsync(400));
     expect(renderProjectImage).toHaveBeenCalledTimes(2);
-    expect(renderProjectImage).toHaveBeenCalledWith(expect.anything(), { maxEdge: 160, format: 'webp', quality: 0.65 });
+    expect(renderProjectImage).toHaveBeenCalledWith(expect.anything(), { maxEdge: 160, format: 'webp', quality: 0.65, background: true, signal: expect.any(AbortSignal) });
     expect(Object.keys(urls)).toHaveLength(2);
     const changed = moveProjectPage(renameProjectPage(project, project.activePageId!, 'New name'), project.activePageId!, project.pages![0].id);
     await act(async () => root.render(<Harness value={{ ...changed, selectedLayerId: 'selection-only' }} />));

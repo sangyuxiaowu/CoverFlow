@@ -24,6 +24,7 @@ export function usePageThumbnails(project: ProjectState | null) {
 
   useEffect(() => {
     if (!project?.pages) return;
+    const controller = new AbortController();
     let cancelled = false;
     const pages = project.pages;
     const ids = new Set(pages.map(page => page.id));
@@ -42,7 +43,7 @@ export function usePageThumbnails(project: ProjectState | null) {
         if (previous?.layers === page.layers && previous.background === page.background && previous.canvasConfig === page.canvasConfig) continue;
         let url = '';
         try {
-          const blob = await renderProjectImage(pageProject(project, page), { maxEdge: 160, format: 'webp', quality: 0.65 });
+          const blob = await renderProjectImage(pageProject(project, page), { maxEdge: 160, format: 'webp', quality: 0.65, background: true, signal: controller.signal });
           if (cancelled) return;
           url = URL.createObjectURL(blob);
         } catch (error) {
@@ -54,7 +55,7 @@ export function usePageThumbnails(project: ProjectState | null) {
         publish();
       }
     }, 350);
-    return () => { cancelled = true; window.clearTimeout(timer); };
+    return () => { cancelled = true; controller.abort(); window.clearTimeout(timer); };
   }, [project?.id, project?.pages]);
 
   return urls;

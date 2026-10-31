@@ -8,16 +8,26 @@ import { syncProjectPages } from '../storage/projectCompatibility.ts';
 import { insertProjectPage, moveProjectPage, renameProjectPage } from '../utils/projectPages.ts';
 import { renderProjectImage } from '../utils/renderProjectImage.tsx';
 import { usePageThumbnails } from './usePageThumbnails.ts';
-import { serializePagePreview } from '../utils/pagePreviewCache.ts';
+import { pagePreviewKey } from '../utils/pagePreviewCache.ts';
+import { createPagePreviewWorker } from '../utils/pagePreviewWorker.ts';
 
 vi.mock('../utils/renderProjectImage.tsx', () => ({ renderProjectImage: vi.fn(async () => new Blob(['thumbnail'])) }));
-vi.mock('../utils/pagePreviewWorker.ts', () => ({ createPagePreviewWorker: () => ({ key: async (page: Parameters<typeof serializePagePreview>[0]) => serializePagePreview(page), encode: vi.fn(), dispose: vi.fn() }) }));
+vi.mock('../utils/pagePreviewWorker.ts', () => ({ createPagePreviewWorker: vi.fn() }));
 
-it('reuses tiny previews across naming, reordering and selection, and releases deleted URLs', async () => {
+it.each([false, true])('reuses IndexedDB previews across edits and reopening with worker failure=%s', async (workerFails) => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('indexedDB', new IDBFactory());
   vi.stubGlobal('Worker', vi.fn());
+  vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) });
+  vi.mocked(renderProjectImage).mockClear();
+  const workerKey = vi.fn(async (page: Parameters<typeof pagePreviewKey>[0]) => {
+    if (workerFails) throw new Error('Preview background worker failed.');
+    return pagePreviewKey(page);
+  });
+  const dispose = vi.fn();
+  vi.mocked(createPagePreviewWorker).mockImplementation(() => ({ key: workerKey, encode: vi.fn(), dispose }));
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   const revoke = vi.fn();
   const create = vi.fn().mockReturnValueOnce('blob:first').mockReturnValueOnce('blob:second');
   vi.stubGlobal('URL', { createObjectURL: create, revokeObjectURL: revoke });
@@ -30,7 +40,12 @@ it('reuses tiny previews across naming, reordering and selection, and releases d
     await act(async () => root.render(<Harness value={project} />));
     await act(async () => vi.advanceTimersByTimeAsync(1500));
     expect(renderProjectImage).toHaveBeenCalledTimes(1);
-    expect(renderProjectImage).toHaveBeenCalledWith(expect.anything(), { maxEdge: 160, format: 'webp', quality: 0.65, background: true, signal: expect.any(AbortSignal), encode: expect.any(Function) });
+    expect(renderProjectImage).toHaveBeenCalledWith(expect.anything(), { maxEdge: 160, format: 'webp', quality: 0.65, background: true, signal: expect.any(AbortSignal), encode: workerFails ? undefined : expect.any(Function) });
+    if (workerFails) {
+      expect(workerKey).toHaveBeenCalledTimes(1);
+      expect(dispose).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith('[CoverFlow thumbnail worker]', expect.any(Error));
+    } else expect(warn).not.toHaveBeenCalled();
     expect(Object.keys(urls)).toHaveLength(2);
     const deletedUrl = urls[project.activePageId!];
     const changed = moveProjectPage(renameProjectPage(project, project.activePageId!, 'New name'), project.activePageId!, project.pages![0].id);
@@ -47,6 +62,7 @@ it('reuses tiny previews across naming, reordering and selection, and releases d
     expect(urls[first.pages![0].id]).toBe('blob:reopened');
   } finally {
     await act(async () => root.unmount());
+    warn.mockRestore();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   }

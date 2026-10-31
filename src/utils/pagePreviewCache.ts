@@ -21,8 +21,11 @@ export function serializePagePreview(page: ProjectPage): string {
 
 export async function pagePreviewKey(page: ProjectPage): Promise<string> {
   const bytes = new TextEncoder().encode(serializePagePreview(page));
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of bytes) {
+    hash = BigInt.asUintN(64, (hash ^ BigInt(byte)) * 0x100000001b3n);
+  }
+  return `fnv1a64-v1:${hash.toString(16).padStart(16, '0')}`;
 }
 
 export class PagePreviewCache {

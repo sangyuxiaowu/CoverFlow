@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
 import type { ProjectPage } from '../types.ts';
-import { MAX_PAGE_PREVIEWS, PagePreviewCache, serializePagePreview } from './pagePreviewCache.ts';
+import { MAX_PAGE_PREVIEWS, PagePreviewCache, pagePreviewKey, serializePagePreview } from './pagePreviewCache.ts';
 import { waitForPreviewIdle, waitForPreviewTask } from './previewIdle.ts';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -23,6 +23,32 @@ it('keys visual content independently of identities, names and object property o
     { ...page, layers: [{ ...page.layers[0], content: 'Changed' }] },
     { ...page, layers: [{ ...page.layers[0], lineHeight: 2 }] }
   ]) expect(serializePagePreview(changed)).not.toBe(serializePagePreview(page));
+});
+
+it('reuses the same IndexedDB key without Web Crypto in a Tauri webview', async () => {
+  vi.stubGlobal('indexedDB', new IDBFactory());
+  const expected = await pagePreviewKey(page);
+  expect(expected).toMatch(/^fnv1a64-v1:[0-9a-f]{16}$/);
+  const cache = new PagePreviewCache();
+  await cache.put(expected, new Blob(['cached preview']));
+  vi.stubGlobal('crypto', undefined);
+  const key = await pagePreviewKey(page);
+  expect(key).toBe(expected);
+  expect(await (await cache.get(key))!.text()).toBe('cached preview');
+});
+
+it('keeps content fingerprints stable across copies and changes them with visual content', async () => {
+  const key = await pagePreviewKey(page);
+  const copied = { ...structuredClone(page), id: 'copied', name: 'Renamed' };
+  copied.layers[0].id = 'copied-layer';
+  copied.layers[0].name = 'Renamed layer';
+  expect(await pagePreviewKey(copied)).toBe(key);
+  for (const changed of [
+    { ...page, canvasConfig: { ...page.canvasConfig, width: 800 } },
+    { ...page, background: { ...page.background, value: '#000' } },
+    { ...page, layers: [{ ...page.layers[0], content: 'Changed' }] },
+    { ...page, layers: [{ ...page.layers[0], content: '\u4e2d\u6587\ud83d\ude00' }] }
+  ]) expect(await pagePreviewKey(changed)).not.toBe(key);
 });
 
 it('persists at most 100 blobs and evicts by insertion order without touching reads', async () => {

@@ -60,7 +60,16 @@ export function usePageThumbnails(project: ProjectState | null) {
         let url = '';
         try {
           await waitForPreviewIdle(controller.signal);
-          const key = worker ? await worker.key(page) : await pagePreviewKey(page);
+          let key: string;
+          try { key = worker ? await worker.key(page) : await pagePreviewKey(page); }
+          catch (error) {
+            if (cancelled) return;
+            if (!worker) throw error;
+            console.warn('[CoverFlow thumbnail worker]', error);
+            worker.dispose();
+            worker = undefined;
+            key = await pagePreviewKey(page);
+          }
           if (cancelled) return;
           let blob: Blob | undefined;
           try { blob = await persisted.get(key); }

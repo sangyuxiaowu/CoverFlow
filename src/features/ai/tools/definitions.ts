@@ -60,8 +60,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   tool('get_context', '读取项目页面列表、当前页画布、背景、选区及图层元数据。图层工具仅操作当前页，跨页前使用 manage_pages 切换。', noParameters),
   tool('manage_pages', '管理项目页面。新增与复制后切换到新页；删除需用户确认。', object('页面操作参数。图层工具只操作当前页。', {
     projectId,
-    action: enumeration('list 读取页面列表；create 在当前页后新增空白页；switch 切页；duplicate 在目标页后复制并切换；delete 删除目标页，至少保留一页。最多 99 页。', ['list', 'create', 'switch', 'duplicate', 'delete']),
-    pageId: string('switch、duplicate、delete 必填，使用 get_context 或 list 返回的稳定页面 ID，不是 P01 等顺序编号。'),
+    action: enumeration('list 读取页面列表；create 在当前页后新增空白页；switch 切页；duplicate 在目标页后复制并切换；delete 删除目标页，至少保留一页。', ['list', 'create', 'switch', 'duplicate', 'delete']),
+    pageId: string('switch、duplicate、delete 必填，使用 get_context 或 list 返回的稳定页面 ID，不是顺序编号。'),
     name: { ...string('仅 create 可选，页面名称最多 100 字符；省略或空白按 P01-P99 显示。'), maxLength: 100 },
     width: numeric('仅 create 可选，宽度 px，省略沿用当前页。', 10, 10000),
     height: numeric('仅 create 可选，高度 px，省略沿用当前页。', 10, 10000)

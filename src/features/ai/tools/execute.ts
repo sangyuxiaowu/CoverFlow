@@ -47,7 +47,7 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     layers: project.layers.map(({ id, name, type, x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked, parentId, children }) => ({
       id, name, type, parentId, layerInfo: { x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked }, ...(type === 'group' && children ? { group: { children } } : {})
     }))
-  } : { projectId: null, message: '当前未打开项目。请区分修改和新建，然后使用 search_projects 查找已有项目或 create_project 新建项目；新建前建议调用 get_cover_size_recommendations 获取常见封面尺寸及适配建议。' };
+  } : { projectId: null, message: '当前未打开项目。请区分修改和新建，然后使用 search_projects 查找已有项目或 create_project 新建项目。' };
   if (!project) throw new Error('No project open.');
   if (name === 'get_selected_layers') {
     const selected = new Set(bridge.getSelection());

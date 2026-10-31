@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { IDBFactory } from 'fake-indexeddb';
 import type { ProjectPage } from '../types.ts';
 import { MAX_PAGE_PREVIEWS, PagePreviewCache, serializePagePreview } from './pagePreviewCache.ts';
 import { waitForPreviewIdle, waitForPreviewTask } from './previewIdle.ts';
@@ -24,25 +25,36 @@ it('keys visual content independently of identities, names and object property o
   ]) expect(serializePagePreview(changed)).not.toBe(serializePagePreview(page));
 });
 
-it('holds at most 100 entries, touches hits and releases replaced and evicted URLs', () => {
-  let sequence = 0;
-  const revoke = vi.fn();
-  vi.stubGlobal('URL', { createObjectURL: () => `blob:${sequence++}`, revokeObjectURL: revoke });
+it('persists at most 100 blobs and evicts by insertion order without touching reads', async () => {
+  vi.stubGlobal('indexedDB', new IDBFactory());
   const cache = new PagePreviewCache();
   const blob = new Blob(['page']);
-  for (let index = 0; index < MAX_PAGE_PREVIEWS; index++) cache.put(`key-${index}`, blob);
-  expect(cache.size).toBe(100);
-  expect(cache.get('key-0')).toBe('blob:0');
-  cache.put('next', blob);
-  expect(cache.size).toBe(100);
-  expect(cache.peek('key-1')).toBeUndefined();
-  expect(cache.peek('key-0')).toBe('blob:0');
-  expect(revoke).toHaveBeenCalledWith('blob:1');
-  cache.put('next', blob);
-  expect(revoke).toHaveBeenCalledWith('blob:100');
-  cache.clear();
-  expect(cache.size).toBe(0);
-  expect(revoke).toHaveBeenCalledTimes(102);
+  for (let index = 0; index < MAX_PAGE_PREVIEWS; index++) await cache.put(`key-${index}`, blob);
+  expect(await cache.count()).toBe(100);
+  expect(await (await cache.get('key-0'))!.text()).toBe('page');
+  await cache.put('next', blob);
+  const reopened = new PagePreviewCache();
+  expect(await reopened.count()).toBe(100);
+  expect(await reopened.get('key-0')).toBeUndefined();
+  expect(await reopened.get('key-1')).toBeInstanceOf(Blob);
+  await reopened.put('next', new Blob(['updated']));
+  expect(await reopened.count()).toBe(100);
+  expect(await (await reopened.get('next'))!.text()).toBe('updated');
+  await reopened.clear();
+  expect(await cache.count()).toBe(0);
+});
+
+it('keeps concurrent writes within the limit and skips cancelled writes', async () => {
+  vi.stubGlobal('indexedDB', new IDBFactory());
+  const cache = new PagePreviewCache();
+  await Promise.all(Array.from({ length: 105 }, (_, index) => cache.put(`key-${index}`, new Blob(['page']))));
+  expect(await cache.count()).toBe(100);
+  expect(await cache.get('key-0')).toBeUndefined();
+  expect(await cache.get('key-104')).toBeInstanceOf(Blob);
+  const controller = new AbortController();
+  controller.abort(new Error('cancelled'));
+  await expect(cache.put('cancelled', new Blob(['page']), controller.signal)).rejects.toThrow('cancelled');
+  expect(await cache.get('cancelled')).toBeUndefined();
 });
 
 it('waits for enough idle time and cancels pending work without executing it', async () => {

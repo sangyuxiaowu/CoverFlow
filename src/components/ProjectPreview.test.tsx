@@ -90,6 +90,19 @@ it('starts on the active page, navigates in order and never changes the editing 
   expect(JSON.stringify(project)).toBe(before);
 });
 
+it('keeps high-resolution fullscreen pages live and never starts bitmap caching', async () => {
+  const worker = vi.fn();
+  vi.stubGlobal('Worker', worker);
+  const original = makeProject();
+  const canvasConfig = { width: 7680, height: 4320, ratio: '16:9' };
+  const project = { ...original, canvasConfig, pages: [{ ...original.pages![2], canvasConfig }] };
+  await act(async () => root.render(<ProjectPreview lang="zh" project={project} onClose={() => {}} />));
+  expect(document.querySelector('[data-preview-page]')?.getAttribute('data-width')).toBe('7680');
+  expect(document.querySelector('[data-preview-page]')?.getAttribute('data-height')).toBe('4320');
+  expect(document.querySelector('[role="dialog"] img[src^="blob:"]')).toBeNull();
+  expect(worker).not.toHaveBeenCalled();
+});
+
 it('keeps single-page preview usable without fullscreen and isolates keyboard, paste and focus', async () => {
   const project = makeProject();
   const single = { ...project, pages: [project.pages![2]] };

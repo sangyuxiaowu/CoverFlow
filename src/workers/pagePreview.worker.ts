@@ -1,5 +1,5 @@
 import type { ProjectPage } from '../types.ts';
-import { serializePagePreview } from '../utils/pagePreviewCache.ts';
+import { pagePreviewKey } from '../utils/pagePreviewCache.ts';
 
 type Job = { id: number; type: 'key'; page: ProjectPage } |
   { id: number; type: 'encode'; bitmap: ImageBitmap; format: string; quality: number };
@@ -11,9 +11,7 @@ const scope = self as unknown as {
 scope.onmessage = async ({ data }) => {
   try {
     if (data.type === 'key') {
-      const bytes = new TextEncoder().encode(serializePagePreview(data.page));
-      const digest = await crypto.subtle.digest('SHA-256', bytes);
-      const key = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+      const key = await pagePreviewKey(data.page);
       scope.postMessage({ id: data.id, key });
     } else {
       try {

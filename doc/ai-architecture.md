@@ -90,8 +90,8 @@ chat/
 - [页面领域操作](../src/utils/projectPages.ts) 负责新增、复制、删除、重命名、排序和切换。项目包含 1-99 页；新增页在当前页后插入，沿用其背景和默认尺寸；复制页重建图层 ID 与父子引用，形成独立副本。删除活动页后选择相邻可用页。
 - 页面内容变更进入项目历史与自动保存，切页和图层选区不是独立内容变更。历史快照共享未变化页面，自动保存比较标准页面文档；撤销 / 重做优先保留仍存在的当前页。
 - [缩略图缓存](../src/hooks/usePageThumbnails.ts) 为页面面板和导出选择列表共享长边不超过 160px 的 WebP Blob URL，按图层、背景和尺寸引用失效，删除、替换及卸载时回收。成品导出由 [独立渲染器](../src/utils/renderProjectImage.tsx) 和 [页面导出模块](../src/utils/exportPages.ts) 按完整页面生成，不使用缩略图；AI 不直接调用导出模块。
-- 全屏播放通过 [预览缓存队列](../src/hooks/usePagePreviewCache.ts) 生成长边不超过 2048px 的 WebP，按视觉内容的 SHA-256 键复用；页面和图层身份、名称不参与键。共享 [100 项 LRU 缓存](../src/utils/pagePreviewCache.ts) 在命中时更新最近使用顺序，替换和淘汰时回收 Blob URL，关闭播放后仍可复用已完成图片。动态优先当前页、后两页、前一页，再按项目顺序逐步补齐；图片预解码完成后才替换实时预览。
-- [预览 Worker](../src/workers/pagePreview.worker.ts) 负责内容哈希与支持 OffscreenCanvas 时的图片编码；HTML/CSS 截图不能移到 Worker，仍由渲染器在主线程空闲时执行。整页预览与 160px 缩略图共享串行后台渲染通道，在阶段之间让出输入时间；关闭或替换内容时取消等待并丢弃过期结果。不支持 Worker 时保留实时预览，不支持 OffscreenCanvas 时使用主线程编码。正式导出不等待后台队列，也不读取预览缓存。
+- 缩略图生成结果通过 [本地缓存](../src/utils/pagePreviewCache.ts) 保存为 IndexedDB `coverflow_page_previews_v1/previews` 中的 Blob，按视觉内容 SHA-256 键查询；页面和图层身份、名称不参与键，复制、改名及重新打开可复用。全局最多 100 条，写入与超量删除在同一事务内完成，新记录到来时按写入顺序删除最早记录；读取不更新顺序。Blob URL 只用于当前界面显示，页面移除、替换或卸载时回收，不作为持久化数据。
+- [缩略图队列](../src/hooks/usePageThumbnails.ts) 动态优先当前页、后两页、前一页，再按项目顺序在空闲时补齐。[预览 Worker](../src/workers/pagePreview.worker.ts) 负责内容哈希与支持 OffscreenCanvas 时的图片编码；HTML/CSS 截图仍由渲染器在主线程空闲时串行执行，阶段之间让出输入时间，取消后丢弃过期结果。不支持 Worker 时使用相同哈希的降级路径，不支持 OffscreenCanvas 时使用主线程编码。[全屏播放](../src/components/ProjectPreview.tsx) 始终使用 LivePreview 实时渲染，不使用缩略图或受 2048px 位图上限影响。正式导出不等待后台队列，也不读取缩略图缓存。
 
 ## 数据流
 

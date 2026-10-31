@@ -6,7 +6,6 @@ import { translations, type Language } from '../translations.ts';
 import { syncProjectPages } from '../storage/projectCompatibility.ts';
 import { pageNumber, pageProject } from '../utils/projectPages.ts';
 import LivePreview from './LivePreview.tsx';
-import { usePagePreviewCache } from '../hooks/usePagePreviewCache.ts';
 
 interface ProjectPreviewProps {
   project: ProjectState;
@@ -25,7 +24,6 @@ export default function ProjectPreview({ project, lang, onClose }: ProjectPrevie
   const t = translations[lang];
   const page = pages[index];
   const [pageViews] = useState(() => pages.map(item => pageProject(snapshot, item)));
-  const cachedPreview = usePagePreviewCache(snapshot, index);
   const navigate = (delta: number) => setIndex(current => Math.min(pages.length - 1, Math.max(0, current + delta)));
 
   const enterFullscreen = () => {
@@ -127,10 +125,7 @@ export default function ProjectPreview({ project, lang, onClose }: ProjectPrevie
         const delta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
         if (Math.abs(delta) >= 50) navigate(delta < 0 ? 1 : -1);
       }} onPointerCancel={() => { touchRef.current = null; }}>
-        {cachedPreview ? (
-          <img src={cachedPreview} alt={page.name || pageNumber(index)} draggable={false} decoding="async"
-            className="h-full w-full object-contain p-5" />
-        ) : <LivePreview project={pageViews[index]} />}
+        <LivePreview project={pageViews[index]} />
       </div>
       <footer className="flex min-w-0 items-center gap-3 px-3 sm:px-6">
         <span className="min-w-0 flex-1 truncate text-xs text-slate-400" title={page.name}>{pageNumber(index)}{page.name ? ` ${page.name}` : ''}</span>

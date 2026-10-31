@@ -1,7 +1,7 @@
 import type { ProjectPage } from '../types.ts';
 
 export const MAX_PAGE_PREVIEWS = 100;
-export const PAGE_PREVIEW_EDGE = 2048;
+export const PAGE_PREVIEW_EDGE = 160;
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -15,47 +15,81 @@ export function serializePagePreview(page: ProjectPage): string {
   const metadata = new Set(['id', 'name', 'parentId', 'children', 'imageSource', 'imageDescription', 'backgroundRemoved']);
   const layers = page.layers.filter(layer => layer.visible && layer.type !== 'group').sort((left, right) => left.zIndex - right.zIndex)
     .map(layer => Object.fromEntries(Object.entries(layer).filter(([key]) => !metadata.has(key))));
-  return JSON.stringify(canonical({ schema: 1, maxEdge: PAGE_PREVIEW_EDGE, quality: 0.9,
+  return JSON.stringify(canonical({ schema: 2, maxEdge: PAGE_PREVIEW_EDGE, quality: 0.65,
     canvas: { width: page.canvasConfig.width, height: page.canvasConfig.height }, background: page.background, layers }));
 }
 
+export async function pagePreviewKey(page: ProjectPage): Promise<string> {
+  const bytes = new TextEncoder().encode(serializePagePreview(page));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export class PagePreviewCache {
-  private entries = new Map<string, string>();
+  constructor(private databaseName = 'coverflow_page_previews_v1') {}
 
-  constructor(private limit = MAX_PAGE_PREVIEWS) {}
-
-  get size() { return this.entries.size; }
-
-  peek(key: string): string | undefined { return this.entries.get(key); }
-
-  get(key: string): string | undefined {
-    const url = this.entries.get(key);
-    if (url) { this.entries.delete(key); this.entries.set(key, url); }
-    return url;
+  private async transaction<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore, result: (value: T) => void) => void, signal?: AbortSignal): Promise<T> {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(this.databaseName, 1);
+      request.onupgradeneeded = () => {
+        const store = request.result.createObjectStore('previews', { keyPath: 'key' });
+        store.createIndex('order', 'order', { unique: true });
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      signal?.throwIfAborted();
+      return await new Promise<T>((resolve, reject) => {
+        const tx = db.transaction('previews', mode);
+        const abort = () => tx.abort();
+        let value: T;
+        tx.oncomplete = () => { signal?.removeEventListener('abort', abort); resolve(value); };
+        tx.onabort = tx.onerror = () => { signal?.removeEventListener('abort', abort); reject(signal?.aborted ? signal.reason : tx.error); };
+        signal?.addEventListener('abort', abort, { once: true });
+        try { action(tx.objectStore('previews'), result => { value = result; }); }
+        catch (error) { tx.abort(); reject(error); }
+      });
+    } finally { db.close(); }
   }
 
-  delete(key: string) {
-    const url = this.entries.get(key);
-    if (url) URL.revokeObjectURL(url);
-    this.entries.delete(key);
+  get(key: string): Promise<Blob | undefined> {
+    return this.transaction('readonly', (store, result) => {
+      const request = store.get(key);
+      request.onsuccess = () => result(request.result?.blob);
+    });
   }
 
-  put(key: string, blob: Blob): string {
-    const previous = this.entries.get(key);
-    if (previous) URL.revokeObjectURL(previous);
-    this.entries.delete(key);
-    const url = URL.createObjectURL(blob);
-    this.entries.set(key, url);
-    while (this.entries.size > this.limit) {
-      const oldest = this.entries.keys().next().value!;
-      URL.revokeObjectURL(this.entries.get(oldest)!);
-      this.entries.delete(oldest);
-    }
-    return url;
+  put(key: string, blob: Blob, signal?: AbortSignal): Promise<void> {
+    return this.transaction('readwrite', (store, result) => {
+      const latest = store.index('order').openCursor(null, 'prev');
+      latest.onsuccess = () => {
+        store.put({ key, blob, order: (latest.result?.value.order ?? 0) + 1 });
+        const count = store.count();
+        count.onsuccess = () => {
+          let excess = count.result - MAX_PAGE_PREVIEWS;
+          if (excess <= 0) { result(undefined); return; }
+          const oldest = store.index('order').openCursor();
+          oldest.onsuccess = () => {
+            const cursor = oldest.result;
+            if (!cursor || excess <= 0) { result(undefined); return; }
+            cursor.delete();
+            excess--;
+            cursor.continue();
+          };
+        };
+      };
+    }, signal);
   }
 
-  clear() {
-    for (const url of this.entries.values()) URL.revokeObjectURL(url);
-    this.entries.clear();
+  count(): Promise<number> {
+    return this.transaction('readonly', (store, result) => {
+      const request = store.count();
+      request.onsuccess = () => result(request.result);
+    });
+  }
+
+  clear(): Promise<void> {
+    return this.transaction('readwrite', (store, result) => { store.clear(); result(undefined); });
   }
 }

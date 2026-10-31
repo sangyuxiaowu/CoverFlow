@@ -152,9 +152,10 @@ it('uses consistent readable page-count badges in actual cards and rows, hiding 
         } else {
           expect(badge?.getAttribute('aria-label')).toBe(`${count} ${lang === 'zh' ? '页' : 'pages'}`);
           expect(badge?.getAttribute('title')).toBe(badge?.getAttribute('aria-label'));
-          expect(badge?.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
-          expect(badge?.classList.contains('h-6')).toBe(true);
-          expect(badge?.parentElement?.classList.contains('opacity-60')).toBe(false);
+          expect(badge?.textContent).toBe(`${count}P`);
+          expect(badge?.querySelector('svg')).toBeNull();
+          expect(badge?.nextElementSibling?.textContent?.trim()).toBe(project.canvasConfig.ratio);
+          expect(badge?.className).toBe(badge?.nextElementSibling?.className);
         }
       }
     }

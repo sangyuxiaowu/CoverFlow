@@ -70,9 +70,22 @@ const ExportModal: React.FC<ExportModalProps> = ({
   const isPng = settings.format === 'png';
   const isPpt = settings.format === 'pptx';
   const pages = project.pages ?? [];
-  const pageIndex = Math.max(0, pages.findIndex(page => page.id === project.activePageId));
   const selectedIds = range === 'all' ? pages.map(page => page.id) : selectedPageIds.filter(id => pages.some(page => page.id === id));
-  const updateSelectedPages = (ids: string[]) => { onSelectedPagesChange(ids); if (range === 'all') onRangeChange('multiple'); };
+  const previewPages = range === 'current' ? pages : pages.filter(page => selectedIds.includes(page.id));
+  const pageIndex = Math.max(0, previewPages.findIndex(page => page.id === project.activePageId));
+  const hasPreviewPage = range === 'current' || previewPages.some(page => page.id === project.activePageId);
+  const openPreview = () => {
+    if (range !== 'current' && !selectedIds.includes(project.activePageId ?? '') && previewPages.length) onPageChange(previewPages[0].id);
+    setLeftView('preview');
+  };
+  const updateSelectedPages = (ids: string[]) => {
+    onSelectedPagesChange(ids);
+    if (range === 'all') onRangeChange('multiple');
+    if (leftView === 'preview' && !ids.includes(project.activePageId ?? '')) {
+      const first = pages.find(page => ids.includes(page.id));
+      if (first) onPageChange(first.id);
+    }
+  };
 
   const outputWidth = isSvg
     ? project.canvasConfig.width
@@ -117,20 +130,20 @@ const ExportModal: React.FC<ExportModalProps> = ({
           <div className="md:col-span-6 min-h-0 p-6 border-b md:border-b-0 md:border-r border-slate-800/80 bg-slate-950/30 flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1">
-                <button type="button" title={t.decorationPreview} aria-label={t.decorationPreview} aria-pressed={leftView === 'preview'} onClick={() => setLeftView('preview')} className={`p-1.5 rounded ${leftView === 'preview' ? 'bg-slate-800 text-blue-400' : 'text-slate-500'}`}><Eye className="w-4 h-4" /></button>
+                <button type="button" title={t.decorationPreview} aria-label={t.decorationPreview} aria-pressed={leftView === 'preview'} disabled={busy || (range !== 'current' && !previewPages.length)} onClick={openPreview} className={`p-1.5 rounded disabled:opacity-30 disabled:cursor-not-allowed ${leftView === 'preview' ? 'bg-slate-800 text-blue-400' : 'text-slate-500'}`}><Eye className="w-4 h-4" /></button>
                 {range !== 'current' && <button type="button" title={t.pages} aria-label={t.pages} aria-pressed={leftView === 'pages'} onClick={() => setLeftView('pages')} className={`p-1.5 rounded ${leftView === 'pages' ? 'bg-slate-800 text-blue-400' : 'text-slate-500'}`}><ListChecks className="w-4 h-4" /></button>}
               </div>
-              {range !== 'current' ? <div className="flex items-center gap-3 text-xs">
+              {leftView === 'pages' && range !== 'current' ? <div className="flex items-center gap-3 text-xs">
                 <span aria-live="polite" aria-atomic="true" className="font-mono tabular-nums text-slate-400">{selectedIds.length}/{pages.length}</span>
                 <button type="button" disabled={busy} onClick={() => updateSelectedPages(pages.map(page => page.id))} className="text-blue-400 hover:text-blue-300 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40">{t.selectAllPages}</button>
                 <button type="button" disabled={busy} onClick={() => updateSelectedPages(pages.filter(page => !selectedIds.includes(page.id)).map(page => page.id))} className="text-slate-400 hover:text-white cursor-pointer disabled:cursor-not-allowed disabled:opacity-40">{t.invertPages}</button>
-              </div> : <span className="text-xs font-mono tabular-nums text-slate-400">
+              </div> : hasPreviewPage && <span className="text-xs font-mono tabular-nums text-slate-400">
                 {outputWidth} × {outputHeight} {isSvg ? 'SVG' : 'px'}
               </span>}
             </div>
 
             <div className={`relative w-full ${leftView === 'pages' ? 'h-[360px] md:h-auto md:min-h-[360px] md:flex-1' : 'h-56 p-3 rounded-lg border border-slate-800/90 bg-slate-950'} overflow-hidden flex items-center justify-center`}>
-              {leftView === 'pages' ? <div className="w-full h-full" inert={busy}><PagesPanel lang={lang} pages={pages} activePageId={project.activePageId} thumbnails={thumbnails} selectedIds={selectedIds} onSelectionChange={updateSelectedPages} /></div> : previewUrl ? (
+              {leftView === 'pages' ? <div className="w-full h-full" inert={busy}><PagesPanel lang={lang} pages={pages} activePageId={project.activePageId} thumbnails={thumbnails} selectedIds={selectedIds} onSelectionChange={updateSelectedPages} /></div> : !hasPreviewPage ? <span className="text-xs text-slate-500">{t.noSelectedPages}</span> : previewUrl ? (
                 <img
                   src={previewUrl}
                   alt={project.title}
@@ -146,13 +159,13 @@ const ExportModal: React.FC<ExportModalProps> = ({
               )}
             </div>
 
-            {range === 'current' && pages.length > 1 && <div role="group" aria-label={t.pages} className="inline-flex self-center items-center gap-1 rounded-lg border border-slate-800 bg-slate-950/70 p-1">
-              <button type="button" title={t.previousPage} aria-label={t.previousPage} disabled={busy || pageIndex === 0} onClick={() => onPageChange(pages[pageIndex - 1].id)} className="flex h-8 w-8 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400 cursor-pointer disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent"><ChevronLeft className="h-4 w-4" /></button>
-              <span aria-live="polite" aria-atomic="true" className="min-w-14 text-center text-xs font-mono tabular-nums text-slate-200">{pageIndex + 1}/{pages.length}</span>
-              <button type="button" title={t.nextPage} aria-label={t.nextPage} disabled={busy || pageIndex === pages.length - 1} onClick={() => onPageChange(pages[pageIndex + 1].id)} className="flex h-8 w-8 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400 cursor-pointer disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent"><ChevronRight className="h-4 w-4" /></button>
+            {leftView === 'preview' && hasPreviewPage && (previewPages.length > 1 || (range !== 'current' && previewPages.length === 1)) && <div role="group" aria-label={t.pages} className="inline-flex self-center items-center gap-1 rounded-lg border border-slate-800 bg-slate-950/70 p-1">
+              <button type="button" title={t.previousPage} aria-label={t.previousPage} disabled={busy || pageIndex === 0} onClick={() => onPageChange(previewPages[pageIndex - 1].id)} className="flex h-8 w-8 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400 cursor-pointer disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent"><ChevronLeft className="h-4 w-4" /></button>
+              <span aria-live="polite" aria-atomic="true" className="min-w-14 text-center text-xs font-mono tabular-nums text-slate-200">{pageIndex + 1}/{previewPages.length}</span>
+              <button type="button" title={t.nextPage} aria-label={t.nextPage} disabled={busy || pageIndex === previewPages.length - 1} onClick={() => onPageChange(previewPages[pageIndex + 1].id)} className="flex h-8 w-8 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400 cursor-pointer disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent"><ChevronRight className="h-4 w-4" /></button>
             </div>}
 
-            {range === 'current' && !isPpt && <div className="flex items-center justify-between pt-1">
+            {leftView === 'preview' && hasPreviewPage && !isPpt && <div className="flex items-center justify-between pt-1">
               <span className="text-xs font-medium text-slate-400">
                 {t.exportEstimatedSize}
               </span>

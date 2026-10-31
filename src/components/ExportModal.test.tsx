@@ -76,3 +76,50 @@ it('defaults to the current page and uses cached thumbnails for multi-select exp
     vi.unstubAllGlobals();
   }
 });
+
+it('previews only selected pages in project order and shows the current page estimate', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const first = syncProjectPages({ id: 'selection', title: 'Test', layers: [], selectedLayerId: null, updatedAt: 1, canvasConfig: { width: 900, height: 383, ratio: '2.35:1' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } });
+  const middle = insertProjectPage(first, 'Unselected');
+  const last = insertProjectPage(middle, 'Selected', { width: 600, height: 900, ratio: '2:3' });
+  const selected = [last.activePageId!, first.activePageId!];
+  const confirm = vi.fn();
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  function Harness() {
+    const [project, setProject] = useState(selectProjectPage(last, middle.activePageId!));
+    const [range, setRange] = useState<ExportRange>('multiple');
+    const [ids, setIds] = useState(selected);
+    return <ExportModal isOpen lang="zh" project={project} settings={{ format: 'png', pixelRatio: 1, compression: 'lossless' }} estimatedSize={project.activePageId === first.activePageId ? 1024 : 4096} estimating={false} onChange={() => {}} onClose={() => {}} onConfirm={() => confirm(ids)} onCopyBase64={() => {}} onCopyImage={() => {}} range={range} onRangeChange={setRange} selectedPageIds={ids} onSelectedPagesChange={setIds} onPageChange={id => setProject(current => selectProjectPage(current, id))} thumbnails={{}} />;
+  }
+  const button = (label: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+  try {
+    await act(async () => root.render(<Harness />));
+    expect(container.textContent).not.toContain('预计大小');
+    await act(async () => button('预览').click());
+    expect(container.querySelector('[data-preview-page]')?.getAttribute('data-preview-page')).toBe(first.activePageId);
+    expect(container.querySelector('[aria-live="polite"]')?.textContent).toBe('1/2');
+    expect(container.textContent).toContain('1.0 KB');
+    expect(button('上一页').disabled).toBe(true);
+    await act(async () => button('下一页').click());
+    expect(container.querySelector('[data-preview-page]')?.getAttribute('data-preview-page')).toBe(last.activePageId);
+    expect(container.querySelector('[aria-live="polite"]')?.textContent).toBe('2/2');
+    expect(container.textContent).toContain('600 × 900');
+    expect(container.textContent).toContain('4.0 KB');
+    expect(button('下一页').disabled).toBe(true);
+    await act(async () => Array.from(container.querySelectorAll('button')).find(element => element.textContent === '导出图片')!.click());
+    expect(confirm).toHaveBeenCalledWith(selected);
+    await act(async () => button('页面').click());
+    expect(container.textContent).not.toContain('预计大小');
+    await act(async () => Array.from(container.querySelectorAll('button')).find(element => element.textContent === '反选')!.click());
+    await act(async () => button('预览').click());
+    expect(container.querySelector('[data-preview-page]')?.getAttribute('data-preview-page')).toBe(middle.activePageId);
+    expect(container.querySelector('[aria-live="polite"]')?.textContent).toBe('1/1');
+    await act(async () => button('页面').click());
+    await act(async () => (container.querySelector(`label[data-page-id="${middle.activePageId}"]`) as HTMLLabelElement).click());
+    expect(button('预览').disabled).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+    vi.unstubAllGlobals();
+  }
+});

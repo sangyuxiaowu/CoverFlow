@@ -27,7 +27,8 @@ const SNAP_THRESHOLD = 8;
 // 画布交互与渲染组件。
 const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLayer, onCommit, onOpenImageCrop }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const fittedProjectIdRef = useRef<string | null>(null);
+  const fittedPageKeyRef = useRef<string | null>(null);
+  const pageKey = `${project.id}:${project.activePageId ?? ''}`;
   const [zoom, setZoom] = useState(0.8);
   const [guidelines, setGuidelines] = useState<Guideline[]>([]);
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
@@ -51,8 +52,8 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
     const content = container?.firstElementChild;
     if (!container || !content) return false;
     const padding = getComputedStyle(content);
-    const availableWidth = container.clientWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight);
-    const availableHeight = container.clientHeight - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom);
+    const availableWidth = container.offsetWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight);
+    const availableHeight = container.offsetHeight - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom);
     if (availableWidth <= 0 || availableHeight <= 0 || project.canvasConfig.width <= 0 || project.canvasConfig.height <= 0) return false;
     setZoom(Math.max(0.05, Math.min(5, availableWidth / project.canvasConfig.width, availableHeight / project.canvasConfig.height)));
     container.scrollLeft = 0;
@@ -61,9 +62,13 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
   }, [project.canvasConfig.width, project.canvasConfig.height]);
 
   useLayoutEffect(() => {
-    if (fittedProjectIdRef.current === project.id) return;
-    if (fitCanvas()) fittedProjectIdRef.current = project.id;
-  }, [project.id, fitCanvas]);
+    if (fittedPageKeyRef.current === pageKey) return;
+    setInteraction(null);
+    setGuidelines([]);
+    setEditingLayerId(null);
+    lastEditIdRef.current = null;
+    if (fitCanvas()) fittedPageKeyRef.current = pageKey;
+  }, [pageKey, fitCanvas]);
 
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
@@ -298,6 +303,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
       <div 
         ref={scrollContainerRef}
         className="absolute inset-0 overflow-auto bg-slate-950 canvas-checkerboard"
+        style={{ overflowAnchor: 'none', scrollBehavior: 'auto' }}
         onMouseDown={handleBackgroundClick}
       >
         <div 
@@ -308,7 +314,8 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
             style={{
               width: project.canvasConfig.width * zoom,
               height: project.canvasConfig.height * zoom,
-              transition: interaction ? 'none' : 'width 0.1s ease-out, height 0.1s ease-out',
+              overflow: 'clip',
+              overflowClipMargin: '100px',
               flexShrink: 0
             }}
             className="relative"

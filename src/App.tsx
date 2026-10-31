@@ -1876,7 +1876,7 @@ const App: React.FC = () => {
         />
         <div className="flex-1 flex flex-col min-h-0 relative">
           <Canvas
-            key={`${project.id}:${project.activePageId}`}
+            key={project.id}
             lang={lang}
             project={isExportModalOpen ? { ...project, selectedLayerId: null } : project}
             onSelectLayer={(id) => handleSelectLayer(id, 'replace')}

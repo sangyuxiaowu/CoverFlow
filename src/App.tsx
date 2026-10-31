@@ -10,6 +10,7 @@ import ImageLayerCropModal from './components/ImageLayerCropModal.tsx';
 import LandingView from './views/LandingView.tsx';
 import ProjectPresetModal from './components/ProjectPresetModal.tsx';
 import ExportModal from './components/ExportModal.tsx';
+import ProjectPreview from './components/ProjectPreview.tsx';
 import PagesPanel from './components/PagesPanel.tsx';
 import { usePageThumbnails } from './hooks/usePageThumbnails.ts';
 import AiAssistant from './features/ai/components/AiAssistant.tsx';
@@ -50,7 +51,7 @@ import { computeCroppedLayerGeometry } from './utils/imageLayer.ts';
 import { encodeWebp, MAX_IMAGE_EDGE } from './features/ai/services/imageAttachments.ts';
 import { type Area } from 'react-easy-crop';
 import {
-  Download, ArrowLeft, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, X, Save, Bot
+  Download, ArrowLeft, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, X, Save, Bot, Presentation
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import packageInfo from '../package.json';
@@ -111,6 +112,7 @@ const App: React.FC = () => {
     height: PRESET_RATIOS[0].height
   }));
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [previewProject, setPreviewProject] = useState<ProjectState | null>(null);
   const [exportRange, setExportRange] = useState<'current' | 'multiple' | 'all'>('current');
   const [exportPageIds, setExportPageIds] = useState<string[]>([]);
   const [exportProgress, setExportProgress] = useState<{ done: number; total: number } | null>(null);
@@ -1571,6 +1573,7 @@ const App: React.FC = () => {
       </LandingView>
       ) : project ? (
       <div inert={aiBusy} className="flex flex-col h-screen bg-slate-950 text-slate-200 overflow-hidden">
+      {previewProject && <ProjectPreview project={previewProject} lang={lang} onClose={() => setPreviewProject(null)} />}
       {toast && <Toast message={toast.msg} type={toast.type} />}
       {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
       <ProjectPresetModal
@@ -1733,6 +1736,11 @@ const App: React.FC = () => {
             {aiBusy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />}
           </button>
           
+          <button type="button" onClick={() => setPreviewProject(syncProjectPages(project))} disabled={isExporting || aiBusy} title={t.previewProject} aria-label={t.previewProject}
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300 border border-slate-700 transition-colors disabled:opacity-50">
+            <Presentation className="w-4 h-4" />
+            <span className="hidden sm:inline">{t.preview}</span>
+          </button>
           <button onClick={() => handleExportJson(project)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300 border border-slate-700 transition-colors">
             <FileOutput className="w-4 h-4" />
             {t.exportJson}

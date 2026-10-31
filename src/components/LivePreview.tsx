@@ -12,8 +12,12 @@ const LivePreview: React.FC<{
   previewRef?: React.RefObject<HTMLDivElement | null>;
 }> = ({ project, previewRef }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(0);
-  const [isReady, setIsReady] = useState(false);
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const scale = Math.max(0, Math.min(
+    (viewport.width - 40) / project.canvasConfig.width,
+    (viewport.height - 40) / project.canvasConfig.height
+  ));
+  const isReady = viewport.width > 40 && viewport.height > 40;
   const [fontError, setFontError] = useState('');
 
   useEffect(() => {
@@ -31,18 +35,13 @@ const LivePreview: React.FC<{
     const updateScale = () => {
       if (!containerRef.current) return;
       const { width: cw, height: ch } = containerRef.current.getBoundingClientRect();
-      const sw = (cw - 40) / project.canvasConfig.width;
-      const sh = (ch - 40) / project.canvasConfig.height;
-      const nextScale = Math.min(sw, sh);
-      setScale((prev) => (Math.abs(prev - nextScale) < 0.0001 ? prev : nextScale));
-      setIsReady(true);
+      setViewport(previous => previous.width === cw && previous.height === ch ? previous : { width: cw, height: ch });
     };
-    setIsReady(false);
     updateScale();
     const ro = new ResizeObserver(updateScale);
     ro.observe(containerRef.current);
     return () => ro.disconnect();
-  }, [project.canvasConfig]);
+  }, []);
 
   return (
     <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-[#0c0c0e] overflow-hidden relative">

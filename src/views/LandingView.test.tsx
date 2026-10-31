@@ -132,3 +132,31 @@ it('routes local/storage actions without deletion opening a project and retains 
   expect(commands.onToggleAi).toHaveBeenCalledOnce();
   expect(container.querySelector('[data-modal="preset"]')).not.toBeNull();
 });
+
+it('uses consistent readable page-count badges in actual cards and rows, hiding single-page badges', async () => {
+  vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} });
+  const { ProjectCard, ProjectListItem } = await vi.importActual<typeof import('./ProjectItems.tsx')>('./ProjectItems.tsx');
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  roots.add(root);
+  for (const Item of [ProjectCard, ProjectListItem]) {
+    for (const count of [1, 6, 99]) {
+      const project = makeProject('badge', 'Cover', today);
+      project.pages = Array.from({ length: count }, (_, index) => ({ id: `page-${index}`, name: '', layers: [], background: project.background, canvasConfig: project.canvasConfig }));
+      for (const lang of ['zh', 'en'] as const) {
+        await act(async () => root.render(<Item project={project} lang={lang} onClick={() => {}} onDelete={() => {}} onDownloadJson={() => {}} onDownloadImage={() => {}} onDuplicate={() => {}} />));
+        const badge = container.querySelector('[role="img"]');
+        if (count === 1) {
+          expect(badge).toBeNull();
+        } else {
+          expect(badge?.getAttribute('aria-label')).toBe(`${count} ${lang === 'zh' ? '页' : 'pages'}`);
+          expect(badge?.getAttribute('title')).toBe(badge?.getAttribute('aria-label'));
+          expect(badge?.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+          expect(badge?.classList.contains('h-6')).toBe(true);
+          expect(badge?.parentElement?.classList.contains('opacity-60')).toBe(false);
+        }
+      }
+    }
+  }
+});

@@ -4,6 +4,16 @@ import LivePreview from '../components/LivePreview.tsx';
 import type { ProjectState } from '../types.ts';
 import { translations, type Language } from '../translations.ts';
 
+const PageCountBadge = ({ count, lang }: { count: number; lang: Language }) => {
+  if (count <= 1) return null;
+  const label = `${count} ${lang === 'zh' ? '页' : 'pages'}`;
+  return <span role="img" aria-label={label} title={label} className="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-slate-600/60 bg-slate-950/90 px-2 text-slate-100 shadow-sm backdrop-blur-sm">
+    <Files aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-sky-300" strokeWidth={1.75} />
+    <span className="font-mono text-xs font-semibold leading-none tabular-nums">{count}</span>
+    <span className="text-[10px] font-medium leading-none text-slate-400">{lang === 'zh' ? '页' : 'pages'}</span>
+  </span>;
+};
+
 const formatProjectTime = (timestamp: number, lang: Language, showFullDate = false) => {
   const d = new Date(timestamp);
   if (isNaN(d.getTime())) return '';
@@ -85,8 +95,8 @@ export const ProjectCard = React.memo(({
         </button>
 
         {/* 标签 */}
+        {(project.pages?.length ?? 1) > 1 && <div className="absolute top-3 left-3 z-10"><PageCountBadge count={project.pages!.length} lang={lang} /></div>}
         <div className="absolute bottom-2 right-3 flex gap-2 z-10 opacity-60 group-hover:opacity-100 transition-opacity">
-          {(project.pages?.length ?? 1) > 1 && <span className="inline-flex items-center gap-1 text-[10px] px-2 py-1 bg-blue-950 text-blue-300 rounded border border-blue-800" title={t.pages}><Files className="w-3 h-3" />{project.pages!.length}</span>}
           {/* Tauri 本地文件标签 */}
           {sourceLabel && (
             <span className="text-[9px] px-2 py-1 bg-emerald-600/20 text-emerald-300 font-black rounded-lg border border-emerald-500/40 uppercase tracking-tight">
@@ -209,7 +219,7 @@ export const ProjectListItem = React.memo(({
             <span className="text-[9px] px-1.5 py-0.5 bg-slate-800 text-slate-400 font-black rounded-md border border-slate-700 uppercase tracking-tight flex-shrink-0">
               {project.canvasConfig.ratio}
             </span>
-            {(project.pages?.length ?? 1) > 1 && <span className="inline-flex items-center gap-1 text-[10px] text-blue-300" title={t.pages}><Files className="w-3 h-3" />{project.pages!.length}</span>}
+            <PageCountBadge count={project.pages?.length ?? 1} lang={lang} />
           </div>
 
           <div className="flex items-center gap-3 text-[10px] font-bold text-slate-500">

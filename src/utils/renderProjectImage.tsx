@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom';
 import * as htmlToImage from 'html-to-image';
 import LivePreview from '../components/LivePreview.tsx';
 import type { ProjectState } from '../types.ts';
-import { ensureProjectFonts } from '../features/ai/services/fontLoading.ts';
+import { ensureProjectFonts, projectFontEmbedCSS } from '../features/ai/services/fontLoading.ts';
 import { waitForPreviewIdle, waitForPreviewTask } from './previewIdle.ts';
 
 export interface RenderImageOptions {
@@ -52,9 +52,11 @@ async function renderImage(project: ProjectState, options: RenderImageOptions): 
     const node = previewRef.current;
     if (!node) throw new Error('Page renderer is unavailable.');
     await wait(Promise.all(Array.from(node.querySelectorAll('img')).map(image => image.decode())));
+    const fontEmbedCSS = await wait(projectFontEmbedCSS(project));
     await yieldForInput();
     const scale = options.maxEdge ? Math.min(1, options.maxEdge / Math.max(width, height)) : options.pixelRatio ?? 1;
     const canvas = await wait(htmlToImage.toCanvas(node, {
+      fontEmbedCSS,
       width, height, pixelRatio: 1,
       canvasWidth: Math.max(1, Math.round(width * scale)), canvasHeight: Math.max(1, Math.round(height * scale)),
       style: { transform: 'none', transformOrigin: 'top left', opacity: '1', transition: 'none', boxShadow: 'none', width: `${width}px`, height: `${height}px` }

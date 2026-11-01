@@ -4,11 +4,11 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import FontSettings from './FontSettings.tsx';
 import type { LocalFontSelection } from '../services/fonts.ts';
-import { listFonts } from '../services/fonts.ts';
+import { GOOGLE_FONTS, listFonts } from '../services/fonts.ts';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let cleanup = () => {};
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); document.getElementById('coverflow-google-fonts-catalog')?.remove(); vi.unstubAllGlobals(); });
 
 function setup() {
   const container = document.createElement('div');
@@ -34,6 +34,11 @@ it('reads fonts only on click and adds or removes selected families without uplo
   vi.stubGlobal('queryLocalFonts', query);
   const view = setup();
   expect(query).not.toHaveBeenCalled();
+  const link = document.querySelector<HTMLLinkElement>('#coverflow-google-fonts-catalog')!;
+  expect(link.crossOrigin).toBe('anonymous');
+  const url = new URL(link.href);
+  expect(url.searchParams.getAll('family')).toHaveLength(9);
+  expect(new Set(url.searchParams.get('text'))).toEqual(new Set(GOOGLE_FONTS.map(font => font.name).join('')));
   expect(view.container.textContent).toContain('版权风险由用户自行承担');
   expect(view.container.textContent).toContain('站酷快乐体');
   await view.click('读取本机字体');

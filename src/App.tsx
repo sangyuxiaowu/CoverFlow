@@ -16,7 +16,7 @@ import { usePageThumbnails } from './hooks/usePageThumbnails.ts';
 import AiAssistant from './features/ai/components/AiAssistant.tsx';
 import type { WorkspaceOptions } from './features/ai/services/workspace.ts';
 import { updateProjectLayer } from './features/ai/domain/layerOperations.ts';
-import { ensureProjectFonts } from './features/ai/services/fontLoading.ts';
+import { ensureProjectFonts, projectFontEmbedCSS } from './features/ai/services/fontLoading.ts';
 import { applyRemovalResult } from './features/background-removal/layerResult.ts';
 import type { RemovalResult } from './features/background-removal/types.ts';
 import { PWAUpdatePrompt } from './components/pwa/PWAUpdatePrompt.tsx';
@@ -466,9 +466,10 @@ const App: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  const buildExportOptions = (targetProject: ProjectState, pixelRatio: number) => {
+  const buildExportOptions = async (targetProject: ProjectState, pixelRatio: number) => {
     const { width, height } = targetProject.canvasConfig;
     return {
+      fontEmbedCSS: await projectFontEmbedCSS(targetProject),
       pixelRatio,
       width,
       height,
@@ -504,7 +505,7 @@ const App: React.FC = () => {
       return new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
     }
 
-    const options = buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
+    const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
     const quality = getExportQuality(settings);
 
     if (settings.format === 'png' || settings.format === 'pptx') {
@@ -538,7 +539,7 @@ const App: React.FC = () => {
       return `data:image/svg+xml;base64,${btoa(binary)}`;
     }
 
-    const options = buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
+    const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
     const quality = getExportQuality(settings);
 
     if (settings.format === 'png' || settings.format === 'pptx') {
@@ -877,6 +878,7 @@ const App: React.FC = () => {
       await ensureProjectFonts(targetProject);
       const { width, height } = targetProject.canvasConfig;
       const dataUrl = await htmlToImage.toPng(previewNode, {
+        fontEmbedCSS: await projectFontEmbedCSS(targetProject),
         pixelRatio: 1,
         width,
         height,
@@ -956,7 +958,7 @@ const App: React.FC = () => {
         }
         setIsExporting(true);
         await ensureProjectFonts(targetProject);
-        const options = buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
+        const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
         const rawBlob = await htmlToImage.toBlob(previewNode, options);
         if (!rawBlob) {
           throw new Error('Failed to generate PNG blob');
@@ -1437,7 +1439,7 @@ const App: React.FC = () => {
         const { width, height } = project.canvasConfig;
         const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(width, height));
         const canvas = await htmlToImage.toCanvas(node, {
-          ...buildExportOptions(project, 1),
+          ...await buildExportOptions(project, 1),
           canvasWidth: Math.max(1, Math.round(width * scale)),
           canvasHeight: Math.max(1, Math.round(height * scale))
         });

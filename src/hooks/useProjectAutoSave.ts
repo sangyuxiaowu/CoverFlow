@@ -55,9 +55,6 @@ export function useProjectAutoSave({ project, view, storageAdapter, storageReady
     if (!storageReadyRef.current && !canSaveLocal) return;
     const currentProject = latestProjectRef.current;
     if (!currentProject) return;
-    const snapshot = projectSnapshot(currentProject);
-    if (snapshot === lastSavedSnapshotRef.current) return;
-
     if (canSaveLocal && reason === 'auto') return;
     const now = Date.now();
     if (reason === 'auto' && now - lastSavedAtRef.current < 5000) {
@@ -69,6 +66,9 @@ export function useProjectAutoSave({ project, view, storageAdapter, storageReady
       }
       return;
     }
+
+    const snapshot = projectSnapshot(currentProject);
+    if (snapshot === lastSavedSnapshotRef.current) return;
 
     if (canSaveLocal) {
       saveLocalProjectToFile(activeLocalFilePath!, currentProject).then(nextProject => {

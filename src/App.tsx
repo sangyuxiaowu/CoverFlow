@@ -323,13 +323,6 @@ const App: React.FC = () => {
     removeStoredProject(projectId);
   }, [project?.id, removeStoredProject]);
 
-
-  useEffect(() => {
-    if (project && view === 'editor') {
-      setProjects(prev => prev.map(p => p.id === project.id ? { ...project, updatedAt: Date.now() } : p));
-    }
-  }, [project, view]);
-
   useEffect(() => { setStoredLanguage(lang); }, [lang]);
 
   useEffect(() => {
@@ -1671,6 +1664,7 @@ const App: React.FC = () => {
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <button
             onClick={() => {
+              setProjects(prev => prev.map(item => item.id === project.id ? { ...project, updatedAt: Date.now() } : item));
               performAutoSave('leave');
               setProject(null);
               setView('landing');

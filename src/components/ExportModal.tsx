@@ -66,7 +66,8 @@ const ExportModal: React.FC<ExportModalProps> = ({
   useEffect(() => { setLeftView(range !== 'current' ? 'pages' : 'preview'); }, [isOpen, range]);
   if (!isOpen) return null;
   const t = translations[lang];
-  const isSvg = settings.format === 'svg';
+  const isHtml = settings.format === 'html';
+  const isSvg = settings.format === 'svg' || isHtml;
   const isPng = settings.format === 'png';
   const isPpt = settings.format === 'pptx';
   const pixelRatio = getExportPixelRatio(project.canvasConfig.width, project.canvasConfig.height, settings);
@@ -168,7 +169,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
 
             {leftView === 'preview' && hasPreviewPage && <div className="flex items-center justify-between pt-1">
               <span className="text-xs font-medium text-slate-400">
-                {isPpt ? t.exportPptPageSize : t.exportEstimatedSize}
+                {isPpt ? t.exportPptPageSize : isHtml ? t.exportHtmlPageSize : t.exportEstimatedSize}
               </span>
               <div className="flex items-center gap-2 text-xs font-mono tabular-nums">
                 <span className="text-slate-500 uppercase">{settings.format}</span>
@@ -193,14 +194,15 @@ const ExportModal: React.FC<ExportModalProps> = ({
               <div className="text-xs font-semibold text-slate-400">
                 {t.exportFormat}
               </div>
-              <div className="grid grid-cols-5 gap-1 p-1 rounded-lg bg-slate-950/90 border border-slate-800/80">
-                {(['png', 'jpeg', 'webp', 'svg', 'pptx'] as const).map((format) => {
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 p-1 rounded-lg bg-slate-950/90 border border-slate-800/80">
+                {(['png', 'jpeg', 'webp', 'svg', 'pptx', 'html'] as const).map((format) => {
                   const isSelected = settings.format === format;
                   return (
                     <button
                       key={format}
                       type="button"
                       disabled={busy}
+                      aria-pressed={isSelected}
                       onClick={() => onChange({ format })}
                       className={`py-2 px-1 rounded text-[11px] font-bold uppercase transition-all whitespace-nowrap min-w-0 ${
                         isSelected
@@ -288,7 +290,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
 
         {/* Footer Actions */}
         <div className="px-6 py-4 bg-slate-950/60 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
-          {range === 'current' && <div className="flex items-center gap-2">
+          {range === 'current' && !isHtml && <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={onCopyImage}
@@ -325,7 +327,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
               className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-950/50 transition-all active:scale-95 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>{busy && progress ? `${progress.done} / ${progress.total}` : isPpt ? t.exportPpt : t.export}</span>
+              <span>{busy && progress ? `${progress.done} / ${progress.total}` : isPpt ? t.exportPpt : isHtml ? t.exportHtml : t.export}</span>
             </button>
           </div>
         </div>

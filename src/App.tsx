@@ -42,9 +42,10 @@ import { getAssetFolder } from './storage/assets.ts';
 import { PRESET_RATIOS } from './constants.ts';
 import { generateId, downloadFile, normalizeSVG, isNewerProjectVersion } from './utils/helpers.ts';
 import { buildProjectSvg } from './utils/svgExport.ts';
+import { buildHtmlSvg } from './utils/htmlExport.ts';
 import { readProject, syncProjectPages, writeProject } from './storage/projectCompatibility.ts';
 import { copyProject, deleteProjectPage, insertProjectPage, moveProjectPage, pageNumber, renameProjectPage, selectProjectPage } from './utils/projectPages.ts';
-import { exportProjectPages, getExportPixelRatio } from './utils/exportPages.ts';
+import { exportProjectPages, getExportPixelRatio, type PageExportSettings } from './utils/exportPages.ts';
 import { clampDecorationSize } from './utils/decorationStyles.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
 import { computeCroppedLayerGeometry } from './utils/imageLayer.ts';
@@ -61,7 +62,7 @@ const GITHUB_REPO_URL = 'https://github.com/sangyuxiaowu/CoverFlow';
 const isCloudMode = import.meta.env.VITE_APP_MODE === 'cloud';
 const CLOUD_PAGE_SIZE = 9;
 
-type ExportFormat = 'png' | 'jpeg' | 'webp' | 'svg' | 'pptx';
+type ExportFormat = PageExportSettings['format'];
 type ExportCompression = 'lossless' | 'balanced' | 'small';
 
 const App: React.FC = () => {
@@ -436,7 +437,7 @@ const App: React.FC = () => {
   const updateExportSettings = useCallback((updates: Partial<typeof exportSettings>) => {
     setExportSettings(prev => {
       const next = { ...prev, ...updates };
-      if (next.format === 'png' || next.format === 'svg' || next.format === 'pptx') {
+      if (next.format === 'png' || next.format === 'svg' || next.format === 'pptx' || next.format === 'html') {
         next.compression = 'lossless';
       }
       return next;
@@ -444,7 +445,7 @@ const App: React.FC = () => {
   }, []);
 
   const getExportQuality = (settings: typeof exportSettings) => {
-    if (settings.format === 'png' || settings.format === 'svg' || settings.format === 'pptx') return undefined;
+    if (settings.format === 'png' || settings.format === 'svg' || settings.format === 'pptx' || settings.format === 'html') return undefined;
     if (settings.compression === 'lossless') return 0.92;
     if (settings.compression === 'balanced') return 0.8;
     return 0.6;
@@ -492,6 +493,9 @@ const App: React.FC = () => {
     targetProject: ProjectState,
     settings: typeof exportSettings
   ) => {
+    if (settings.format === 'html') {
+      return new Blob([await buildHtmlSvg(targetProject)], { type: 'image/svg+xml;charset=utf-8' });
+    }
     await ensureProjectFonts(targetProject);
     if (settings.format === 'svg') {
       const svgMarkup = buildProjectSvg(targetProject);
@@ -522,7 +526,7 @@ const App: React.FC = () => {
     settings: typeof exportSettings
   ) => {
     await ensureProjectFonts(targetProject);
-    if (settings.format === 'svg') {
+    if (settings.format === 'svg' || settings.format === 'html') {
       const svgMarkup = buildProjectSvg(targetProject);
       const bytes = new TextEncoder().encode(svgMarkup);
       let binary = '';
@@ -899,7 +903,7 @@ const App: React.FC = () => {
     setIsExporting(true);
     try {
       const ids = exportRange === 'current' ? [project.activePageId!] : exportRange === 'all' ? project.pages!.map(page => page.id) : exportPageIds;
-      const result = await exportProjectPages(project, ids, exportSettings, (done, total) => setExportProgress({ done, total }));
+      const result = await exportProjectPages(project, ids, exportSettings, (done, total) => setExportProgress({ done, total }), lang);
       downloadBlob(result.blob, result.filename);
       setIsExportModalOpen(false);
       showToast(t.exportSuccess);

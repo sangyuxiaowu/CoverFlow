@@ -3,10 +3,11 @@ import { syncProjectPages } from '../storage/projectCompatibility.ts';
 import { pageNumber, pageProject } from './projectPages.ts';
 import { buildProjectSvg } from './svgExport.ts';
 import { renderProjectImage } from './renderProjectImage.tsx';
+import { buildHtmlExport, buildHtmlSvg } from './htmlExport.ts';
 
 export interface PageExportSettings {
   pixelRatio: 0.5 | 1 | 1.5 | 2;
-  format: 'png' | 'jpeg' | 'webp' | 'svg' | 'pptx';
+  format: 'png' | 'jpeg' | 'webp' | 'svg' | 'pptx' | 'html';
   compression: 'lossless' | 'balanced' | 'small';
   pptResolution: 'standard' | 'hd' | '4k';
 }
@@ -43,12 +44,22 @@ const toDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
   reader.readAsDataURL(blob);
 });
 
-export async function exportProjectPages(project: ProjectState, pageIds: string[], settings: PageExportSettings, onProgress?: (done: number, total: number) => void): Promise<{ blob: Blob; filename: string }> {
+export async function exportProjectPages(project: ProjectState, pageIds: string[], settings: PageExportSettings, onProgress?: (done: number, total: number) => void, language = 'zh'): Promise<{ blob: Blob; filename: string }> {
   const synced = syncProjectPages(project);
   const selected = new Set(pageIds);
   const pages = synced.pages!.filter(page => selected.has(page.id));
   if (!pages.length || pages.length !== selected.size) throw new Error('Select existing pages to export.');
   const title = safeExportName(project.title);
+  if (settings.format === 'html') {
+    onProgress?.(0, pages.length);
+    const slides = [];
+    for (const [index, page] of pages.entries()) {
+      const svg = await buildHtmlSvg(pageProject(synced, page));
+      onProgress?.(index + 1, pages.length);
+      slides.push({ svg, name: page.name || pageNumber(synced.pages!.indexOf(page)), width: page.canvasConfig.width, height: page.canvasConfig.height });
+    }
+    return { blob: new Blob([buildHtmlExport(project.title, slides, language)], { type: 'text/html;charset=utf-8' }), filename: `${title}.html` };
+  }
   const extension = settings.format === 'jpeg' ? 'jpg' : settings.format;
   const quality = settings.compression === 'small' ? 0.6 : settings.compression === 'balanced' ? 0.8 : 0.92;
   const { default: JSZip } = await import('jszip');

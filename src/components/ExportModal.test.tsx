@@ -76,6 +76,17 @@ it('defaults to the current page and uses cached thumbnails for multi-select exp
     expect(button('复制图片到剪贴板')).toBeDefined();
     await act(async () => button('复制 Base64').click());
     expect(copy).toHaveBeenCalledOnce();
+    await act(async () => button('html').click());
+    expect(button('html').getAttribute('aria-pressed')).toBe('true');
+    expect(button('导出 HTML')).toBeDefined();
+    expect(button('无损').disabled).toBe(true);
+    expect(button('2x').disabled).toBe(true);
+    expect(container.textContent).toContain('900 × 383 SVG');
+    expect(container.textContent).toContain('当前页 SVG');
+    expect(button('复制 Base64')).toBeUndefined();
+    expect(button('复制图片到剪贴板')).toBeUndefined();
+    await act(async () => button('全部').click());
+    expect(button('导出 HTML').disabled).toBe(false);
   } finally {
     await act(async () => root.unmount());
     vi.unstubAllGlobals();

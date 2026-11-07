@@ -1,5 +1,6 @@
 import type { ChatFileAccess } from './chatStore.ts';
 import { imageMimeTypeFromPath } from './imageAttachments.ts';
+import { readFileBlob, readFileText, writeFileContent } from '../../../storage/fileAccess.ts';
 
 type DirectoryEntries = FileSystemDirectoryHandle & { entries: () => AsyncIterableIterator<[string, FileSystemHandle]> };
 
@@ -14,30 +15,31 @@ export function createDirectoryChatAccess(root: () => Promise<FileSystemDirector
     const name = parts.pop()!;
     return { parent: await directory(parts.join('/'), create), name };
   };
-  return {
+  let pending: Promise<unknown> = Promise.resolve();
+  const enqueue = <T,>(operation: () => Promise<T>): Promise<T> => {
+    const task = pending.then(operation);
+    pending = task.catch(() => {});
+    return task;
+  };
+  const access: ChatFileAccess = {
     read: async path => {
-      try { const { parent, name } = await locate(path, false); return (await (await parent.getFileHandle(name)).getFile()).text(); }
+      try { const { parent, name } = await locate(path, false); return await readFileText(await parent.getFileHandle(name)); }
       catch (error) { if ((error as DOMException).name === 'NotFoundError') return null; throw error; }
     },
     write: async (path, content) => {
       const { parent, name } = await locate(path, true);
-      const writable = await (await parent.getFileHandle(name, { create: true })).createWritable();
-      try { await writable.write(content); await writable.close(); }
-      catch (error) { await writable.abort().catch(() => {}); throw error; }
+      await writeFileContent(await parent.getFileHandle(name, { create: true }), content);
     },
     readBinary: async path => {
       try {
         const { parent, name } = await locate(path, false);
-        const file = await (await parent.getFileHandle(name)).getFile();
-        return file.slice(0, file.size, imageMimeTypeFromPath(path));
+        return await readFileBlob(await parent.getFileHandle(name), imageMimeTypeFromPath(path));
       }
       catch (error) { if ((error as DOMException).name === 'NotFoundError') return null; throw error; }
     },
     writeBinary: async (path, content) => {
       const { parent, name } = await locate(path, true);
-      const writable = await (await parent.getFileHandle(name, { create: true })).createWritable();
-      try { await writable.write(content); await writable.close(); }
-      catch (error) { await writable.abort().catch(() => {}); throw error; }
+      await writeFileContent(await parent.getFileHandle(name, { create: true }), content);
     },
     remove: async path => {
       try { const { parent, name } = await locate(path, false); await parent.removeEntry(name); }
@@ -55,6 +57,15 @@ export function createDirectoryChatAccess(root: () => Promise<FileSystemDirector
         return files;
       } catch (error) { if ((error as DOMException).name === 'NotFoundError') return []; throw error; }
     }
+  };
+  return {
+    read: path => enqueue(() => access.read(path)),
+    write: (path, content) => enqueue(() => access.write(path, content)),
+    readBinary: path => enqueue(() => access.readBinary(path)),
+    writeBinary: (path, content) => enqueue(() => access.writeBinary(path, content)),
+    remove: path => enqueue(() => access.remove(path)),
+    removeDirectory: path => enqueue(() => access.removeDirectory(path)),
+    list: path => enqueue(() => access.list(path))
   };
 }
 

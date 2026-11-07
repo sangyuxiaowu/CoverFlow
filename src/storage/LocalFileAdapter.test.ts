@@ -5,10 +5,11 @@ import type { ProjectState } from '../types.ts';
 function setup() {
   const write = vi.fn().mockResolvedValue(undefined);
   const close = vi.fn().mockResolvedValue(undefined);
+  const abort = vi.fn().mockResolvedValue(undefined);
   const removeEntry = vi.fn().mockResolvedValue(undefined);
   const directory = {
     getFileHandle: vi.fn().mockResolvedValue({
-      createWritable: vi.fn().mockResolvedValue({ write, close })
+      createWritable: vi.fn().mockResolvedValue({ write, close, abort })
     }),
     removeEntry
   };
@@ -16,8 +17,28 @@ function setup() {
   vi.spyOn(adapter, 'ensureReady').mockResolvedValue(true);
   Object.assign(adapter, { rootHandle: { getDirectoryHandle: async () => directory } });
   const project = { id: 'recovery-test' } as ProjectState;
-  return { adapter, project, write, removeEntry };
+  return { adapter, project, write, close, abort, removeEntry };
 }
+
+test('save recovers a changed file snapshot and aborts the failed stream', async () => {
+  const { adapter, project, write, close, abort } = setup();
+  close.mockRejectedValueOnce(new DOMException('The file changed on disk.', 'NotReadableError'));
+  await expect(adapter.saveProject(project)).resolves.toBeUndefined();
+  expect(write).toHaveBeenCalledTimes(2);
+  expect(close).toHaveBeenCalledTimes(2);
+  expect(abort).toHaveBeenCalledTimes(1);
+  expect(write.mock.calls[1][0]).toBe(write.mock.calls[0][0]);
+});
+
+test('persistent snapshot failures are reported and later saves can recover', async () => {
+  const { adapter, project, close, abort } = setup();
+  const error = new DOMException('The file changed on disk.', 'NotReadableError');
+  close.mockRejectedValueOnce(error).mockRejectedValueOnce(error).mockRejectedValueOnce(error);
+  await expect(adapter.saveProject(project)).rejects.toBe(error);
+  expect(close).toHaveBeenCalledTimes(3);
+  expect(abort).toHaveBeenCalledTimes(3);
+  await expect(adapter.saveProject(project)).resolves.toBeUndefined();
+});
 
 test('a failed write does not poison later saves or deletes', async () => {
   const { adapter, project, write, removeEntry } = setup();

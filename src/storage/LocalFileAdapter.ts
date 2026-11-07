@@ -1,6 +1,7 @@
 import { ProjectState } from '../types.ts';
 import { ListProjectsOptions, StorageAdapter, StorageAdapterType } from './StorageAdapter.ts';
 import { readProject, writeProject } from './projectCompatibility.ts';
+import { readFileText, writeFileContent } from './fileAccess.ts';
 
 const FS_DB_NAME = 'coverflow_fs_handles_v1';
 const FS_STORE_NAME = 'handles';
@@ -42,17 +43,6 @@ const setStoredProjectDirectoryHandle = async (handle: FileSystemDirectoryHandle
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });
-};
-
-const readFileText = async (handle: FileSystemFileHandle) => {
-  const file = await handle.getFile();
-  return file.text();
-};
-
-const writeFileText = async (handle: FileSystemFileHandle, text: string) => {
-  const writable = await handle.createWritable();
-  await writable.write(text);
-  await writable.close();
 };
 
 // 本地文件系统存储适配器。
@@ -177,7 +167,7 @@ export class LocalFileAdapter implements StorageAdapter {
     const operation = this.writeQueue.then(async () => {
       const dataHandle = await this.rootHandle!.getDirectoryHandle(DATA_DIR, { create: true });
       const fileHandle = await dataHandle.getFileHandle(`${project.id}.${PROJECT_FILE_EXT}`, { create: true });
-      await writeFileText(fileHandle, JSON.stringify(writeProject(project), null, 2));
+      await writeFileContent(fileHandle, JSON.stringify(writeProject(project), null, 2));
     });
 
     this.writeQueue = operation.catch(() => {});

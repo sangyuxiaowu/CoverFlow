@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { CATEGORIZED_ASSETS, PRESET_COLORS, PRESET_GRADIENTS } from '../constants.ts';
 import { BackgroundConfig, DecorationTemplate, Layer, FAIconMetadata, FACategory, ProjectState } from '../types.ts';
 import { translations, Language } from '../translations.ts';
-import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash, HelpCircle, Keyboard, ChevronDown, ChevronRight, Flower, Plus } from 'lucide-react';
+import { Box, Palette, Search, Image as ImageIcon, PaintBucket, Grid, Trash2, Save, Upload, Sliders, X, Check, Flag, FileJson, FileCode, AlertCircle, ExternalLink, Folder, RotateCw, Trash, HelpCircle, Keyboard, ChevronDown, ChevronRight, Flower, Plus, Files } from 'lucide-react';
 import * as yaml from 'js-yaml';
 import { normalizeSVG } from '../utils/helpers.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
@@ -43,6 +43,8 @@ interface SidebarProps {
   setActiveTab: (tab: string | null) => void;
   storageType: StorageAdapterType;
   localFileAdapter: LocalFileAdapter;
+  pagesPanel?: React.ReactNode;
+  onAddPage?: () => void;
 }
 
 interface ExternalAssetItem {
@@ -433,7 +435,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   setActiveTab,
   storageType,
-  localFileAdapter
+  localFileAdapter,
+  pagesPanel,
+  onAddPage
 }) => {
   const FA_PAGE_SIZE = 180;
   const [searchTerm, setSearchTerm] = useState('');
@@ -1512,6 +1516,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   return (
     <div className={`${isCollapsed ? 'w-14' : 'w-72'} flex bg-slate-900 border-r border-slate-800 flex-shrink-0 relative h-full transition-[width] duration-200 ease-in-out`}>
       <div className={`w-14 ${isCollapsed ? '' : 'border-r'} border-slate-800 flex flex-col items-center py-5 gap-4 flex-shrink-0 z-10 bg-slate-900`}>
+        <button title={t.pages} aria-label={t.pages} onClick={() => handleTabClick('pages')} className={`p-2.5 rounded-lg transition-all ${activeTab === 'pages' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800'}`}>
+          <Files className="w-5 h-5" />
+        </button>
         <button
           title={`${t.assets}${activeTab === 'assets' ? (lang === 'zh' ? ' (点击收起)' : ' (Click to collapse)') : ''}`}
           onClick={() => handleTabClick('assets')}
@@ -1553,7 +1560,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
           <div className="p-5 pb-2 border-b border-slate-800/50 flex items-center justify-between">
             <h2 className="text-base font-bold flex items-center gap-2 text-slate-100 uppercase tracking-tighter">
-              {activeTab === 'assets'
+              {activeTab === 'pages' ? t.pages : activeTab === 'assets'
                 ? t.assets
                 : activeTab === 'decorations'
                   ? t.decorations
@@ -1564,6 +1571,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     : t.help}
             </h2>
             <div className="flex items-center gap-1">
+              {activeTab === 'pages' && <button type="button" title={t.addPage} aria-label={t.addPage} onClick={onAddPage} disabled={(project.pages?.length ?? 1) >= 99} className="p-1 text-slate-400 hover:text-white disabled:opacity-30"><Plus className="w-4 h-4" /></button>}
               {activeTab === 'decorations' && (
                 <button
                   type="button"
@@ -1594,8 +1602,8 @@ const Sidebar: React.FC<SidebarProps> = ({
               )}
             </div>
           </div>
-          <div className={`flex-1 min-h-0 ${activeTab === 'decorations' ? 'overflow-hidden' : activeTab === 'assets' || activeTab === 'fa' ? 'overflow-hidden p-5' : 'overflow-y-auto scrollbar-hide p-5'}`}>
-            {activeTab === 'assets'
+          <div className={`flex-1 min-h-0 ${activeTab === 'decorations' || activeTab === 'pages' ? 'overflow-hidden' : activeTab === 'assets' || activeTab === 'fa' ? 'overflow-hidden p-5' : 'overflow-y-auto scrollbar-hide p-5'}`}>
+            {activeTab === 'pages' ? pagesPanel : activeTab === 'assets'
               ? renderResources()
               : activeTab === 'decorations'
                 ? (

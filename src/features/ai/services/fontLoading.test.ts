@@ -4,7 +4,41 @@ import type { Layer, ProjectState } from '../../../types.ts';
 import type { WorkspaceBridge } from '../types.ts';
 
 const layer = (fontFamily: string): Layer => ({ id: 'text', type: 'text', name: 'Title', content: '中文标题', fontFamily, fontWeight: 400, x: 0, y: 0, width: 300, height: 100, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 });
-afterEach(() => { document.head.querySelectorAll('[data-coverflow-font]').forEach(link => link.remove()); vi.restoreAllMocks(); vi.resetModules(); });
+afterEach(() => { document.head.querySelectorAll('[data-coverflow-font]').forEach(link => link.remove()); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules(); });
+
+it('embeds only used font glyphs and shares concurrent and repeated screenshot requests', async () => {
+  const fetcher = vi.fn(async (url: string) => url.startsWith('https://fonts.googleapis.com/')
+    ? { ok: true, text: async () => '@font-face{font-family:"ZCOOL KuaiLe";src:url(https://fonts.gstatic.com/subset.woff2) format("woff2")}' }
+    : { ok: true, blob: async () => new Blob(['font'], { type: 'font/woff2' }) });
+  vi.stubGlobal('fetch', fetcher);
+  const { projectFontEmbedCSS } = await import('./fontLoading.ts');
+  const project = { layers: [layer('"ZCOOL KuaiLe", cursive'), layer('Arial')] };
+  const [first, second] = await Promise.all([projectFontEmbedCSS(project), projectFontEmbedCSS(project)]);
+  expect(first).toBe(second);
+  expect(first).toContain('data:font/woff2;base64,');
+  expect(first).not.toContain('https://fonts.gstatic.com');
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  const url = new URL(fetcher.mock.calls[0][0]);
+  expect(url.searchParams.get('family')).toBe('ZCOOL KuaiLe:wght@400');
+  expect(new Set(url.searchParams.get('text'))).toEqual(new Set('中文标题'));
+  expect(await projectFontEmbedCSS({ layers: [...project.layers].reverse() })).toBe(first);
+  expect(await projectFontEmbedCSS({ layers: [layer('Arial')] })).toBe('');
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  await projectFontEmbedCSS({ layers: [{ ...layer('ZCOOL KuaiLe'), content: '新字', fontWeight: 'bold' }] });
+  expect(fetcher).toHaveBeenCalledTimes(4);
+  expect(new URL(fetcher.mock.calls[2][0]).searchParams.get('family')).toBe('ZCOOL KuaiLe:wght@400');
+});
+
+it('retries failed font embedding without scanning or modifying document stylesheets', async () => {
+  const fetcher = vi.fn().mockResolvedValueOnce({ ok: false, status: 503 }).mockResolvedValue({ ok: true, text: async () => '' });
+  vi.stubGlobal('fetch', fetcher);
+  const { projectFontEmbedCSS } = await import('./fontLoading.ts');
+  const project = { layers: [layer('ZCOOL KuaiLe')] };
+  await expect(projectFontEmbedCSS(project)).rejects.toThrow('503');
+  expect(await projectFontEmbedCSS(project)).toBe('');
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(document.head.querySelectorAll('[data-coverflow-font]')).toHaveLength(0);
+});
 
 it('loads only exact curated families, deduplicates CSS and waits for the actual text glyphs', async () => {
   const load = vi.fn().mockResolvedValue([{}]);

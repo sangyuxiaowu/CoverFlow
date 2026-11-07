@@ -40,8 +40,14 @@ export default function FontSettings({ fonts, onChange, english }: Props) {
     const link = document.createElement('link');
     link.id = linkId;
     link.rel = 'stylesheet';
-    link.href =
-      'https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Ma+Shan+Zheng&family=Montserrat:wght@400;700&family=Noto+Sans+SC:wght@400;700&family=Noto+Serif+SC:wght@400;700&family=Playfair+Display:wght@400;700&family=ZCOOL+KuaiLe&family=ZCOOL+QingKe+HuangYou&family=ZCOOL+XiaoWei&display=swap';
+    link.crossOrigin = 'anonymous';
+    const url = new URL('https://fonts.googleapis.com/css2');
+    for (const font of [...GOOGLE_FONTS].sort((left, right) => left.family.localeCompare(right.family, 'en'))) {
+      url.searchParams.append('family', `${font.family}:wght@${font.weights!.includes(500) ? 500 : 400}`);
+    }
+    url.searchParams.set('text', Array.from(new Set(GOOGLE_FONTS.flatMap(font => Array.from(font.name)))).join(''));
+    url.searchParams.set('display', 'swap');
+    link.href = url.href;
     document.head.appendChild(link);
   }, []);
 

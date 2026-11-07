@@ -1,5 +1,6 @@
 import { ProjectState } from '../types.ts';
 import { ListProjectsOptions, StorageAdapter, StorageAdapterType } from './StorageAdapter.ts';
+import { readProject, writeProject } from './projectCompatibility.ts';
 
 // 用于使用云端API管理项目时的存储适配器。
 // 目前实现为基于 localStorage 的 Mock，后续替换为真实 API 调用。
@@ -18,12 +19,12 @@ const safeJsonParse = <T,>(value: string | null, fallback: T): T => {
 
 // Mock: 一次性读取全部项目。
 // 注意：真实接口应提供分页与搜索参数，避免全量拉取。
-const loadProjects = () => safeJsonParse<ProjectState[]>(localStorage.getItem(CLOUD_PROJECTS_KEY), []);
+const loadProjects = () => safeJsonParse<unknown[]>(localStorage.getItem(CLOUD_PROJECTS_KEY), []).map(readProject);
 
 // Mock: 全量保存项目列表。
 // 注意：真实接口应提供增量更新（创建/更新/删除单个项目）。
 const saveProjects = (projects: ProjectState[]) => {
-  localStorage.setItem(CLOUD_PROJECTS_KEY, JSON.stringify(projects));
+  localStorage.setItem(CLOUD_PROJECTS_KEY, JSON.stringify(projects.map(writeProject)));
 };
 
 // Cloud 模式项目存储适配器（Mock API）。

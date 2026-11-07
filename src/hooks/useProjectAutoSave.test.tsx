@@ -9,7 +9,9 @@ type Options = Parameters<typeof useProjectAutoSave>[0];
 const initial: ProjectState = {
   id: 'project', title: 'Initial', layers: [], selectedLayerId: null, updatedAt: 1,
   background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 },
-  canvasConfig: { width: 100, height: 100, ratio: '1:1' }
+  canvasConfig: { width: 100, height: 100, ratio: '1:1' },
+  activePageId: 'page',
+  pages: [{ id: 'page', name: '', layers: [], background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 }, canvasConfig: { width: 100, height: 100, ratio: '1:1' } }]
 };
 const roots = new Set<Root>();
 
@@ -46,6 +48,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => { for (const root of roots) root.unmount(); });
   roots.clear();
+  vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -57,13 +60,18 @@ it.each(['indexeddb', 'localfile'] as const)('coalesces %s writes for five secon
   expect(save).not.toHaveBeenCalled();
   await harness.render({ project: { ...initial, title: 'First' } });
   expect(save).toHaveBeenCalledTimes(1);
+  const stringify = vi.spyOn(JSON, 'stringify');
+  stringify.mockClear();
   await harness.render({ project: { ...initial, title: 'Intermediate' } });
   await harness.render({ project: { ...initial, title: 'Latest' } });
+  expect(stringify).not.toHaveBeenCalled();
   await act(async () => vi.advanceTimersByTime(4999));
   expect(save).toHaveBeenCalledTimes(1);
+  expect(stringify).not.toHaveBeenCalled();
   await act(async () => vi.advanceTimersByTime(1));
   expect(save).toHaveBeenCalledTimes(2);
   expect(save.mock.calls[1][0].title).toBe('Latest');
+  expect(stringify).toHaveBeenCalledOnce();
 });
 
 it('manual and unload saves bypass the delay without saving an unchanged snapshot again', async () => {

@@ -10,10 +10,13 @@ import ImageLayerCropModal from './components/ImageLayerCropModal.tsx';
 import LandingView from './views/LandingView.tsx';
 import ProjectPresetModal from './components/ProjectPresetModal.tsx';
 import ExportModal from './components/ExportModal.tsx';
+import ProjectPreview from './components/ProjectPreview.tsx';
+import PagesPanel from './components/PagesPanel.tsx';
+import { usePageThumbnails } from './hooks/usePageThumbnails.ts';
 import AiAssistant from './features/ai/components/AiAssistant.tsx';
 import type { WorkspaceOptions } from './features/ai/services/workspace.ts';
 import { updateProjectLayer } from './features/ai/domain/layerOperations.ts';
-import { ensureProjectFonts } from './features/ai/services/fontLoading.ts';
+import { ensureProjectFonts, projectFontEmbedCSS } from './features/ai/services/fontLoading.ts';
 import { applyRemovalResult } from './features/background-removal/layerResult.ts';
 import type { RemovalResult } from './features/background-removal/types.ts';
 import { PWAUpdatePrompt } from './components/pwa/PWAUpdatePrompt.tsx';
@@ -37,15 +40,19 @@ import {
 import { translations, Language } from './translations.ts';
 import { getAssetFolder } from './storage/assets.ts';
 import { PRESET_RATIOS } from './constants.ts';
-import { generateId, downloadFile, normalizeSVG, formatCanvasRatio } from './utils/helpers.ts';
+import { generateId, downloadFile, normalizeSVG, isNewerProjectVersion } from './utils/helpers.ts';
 import { buildProjectSvg } from './utils/svgExport.ts';
+import { buildHtmlSvg } from './utils/htmlExport.ts';
+import { readProject, syncProjectPages, writeProject } from './storage/projectCompatibility.ts';
+import { copyProject, deleteProjectPage, insertProjectPage, moveProjectPage, pageNumber, renameProjectPage, selectProjectPage } from './utils/projectPages.ts';
+import { exportProjectPages, getExportPixelRatio, type PageExportSettings } from './utils/exportPages.ts';
 import { clampDecorationSize } from './utils/decorationStyles.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
 import { computeCroppedLayerGeometry } from './utils/imageLayer.ts';
 import { encodeWebp, MAX_IMAGE_EDGE } from './features/ai/services/imageAttachments.ts';
 import { type Area } from 'react-easy-crop';
 import {
-  Download, ArrowLeft, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, X, Save, Bot
+  Download, ArrowLeft, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, X, Save, Bot, Presentation
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import packageInfo from '../package.json';
@@ -55,7 +62,7 @@ const GITHUB_REPO_URL = 'https://github.com/sangyuxiaowu/CoverFlow';
 const isCloudMode = import.meta.env.VITE_APP_MODE === 'cloud';
 const CLOUD_PAGE_SIZE = 9;
 
-type ExportFormat = 'png' | 'jpeg' | 'webp' | 'svg';
+type ExportFormat = PageExportSettings['format'];
 type ExportCompression = 'lossless' | 'balanced' | 'small';
 
 const App: React.FC = () => {
@@ -78,11 +85,18 @@ const App: React.FC = () => {
   const [view, setView] = useState<'landing' | 'editor'>('landing');
   const [aiBusy, setAiBusy] = useState(false);
   const [isAiOpen, setIsAiOpen] = useState(false);
-  const [project, setProject] = useState<ProjectState | null>(null);
+  const [project, setProjectState] = useState<ProjectState | null>(null);
+  const setProject = useCallback<React.Dispatch<React.SetStateAction<ProjectState | null>>>((update) => {
+    setProjectState(previous => {
+      const next = typeof update === 'function' ? update(previous) : update;
+      return next ? syncProjectPages(next) : null;
+    });
+  }, []);
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<string | null>('assets');
   const [isExporting, setIsExporting] = useState(false);
-  const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' | 'warning' } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ message: string, onConfirm: () => void } | null>(null);
   const [isStorageSettingsOpen, setIsStorageSettingsOpen] = useState(false);
   const [projectSearchTerm, setProjectSearchTerm] = useState('');
@@ -90,20 +104,29 @@ const App: React.FC = () => {
   const [cloudHasMore, setCloudHasMore] = useState(true);
   const [cloudLoading, setCloudLoading] = useState(false);
   const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
+  const [isPageModalOpen, setIsPageModalOpen] = useState(false);
+  const [newPageName, setNewPageName] = useState('');
+  const pageThumbnails = usePageThumbnails(view === 'editor' ? project : null);
   const [selectedPreset, setSelectedPreset] = useState<PresetRatio>(() => PRESET_RATIOS[0]);
   const [customPresetSize, setCustomPresetSize] = useState(() => ({
     width: PRESET_RATIOS[0].width,
     height: PRESET_RATIOS[0].height
   }));
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [previewProject, setPreviewProject] = useState<ProjectState | null>(null);
+  const [exportRange, setExportRange] = useState<'current' | 'multiple' | 'all'>('current');
+  const [exportPageIds, setExportPageIds] = useState<string[]>([]);
+  const [exportProgress, setExportProgress] = useState<{ done: number; total: number } | null>(null);
   const [exportSettings, setExportSettings] = useState<{
     pixelRatio: 0.5 | 1 | 1.5 | 2;
     format: ExportFormat;
     compression: ExportCompression;
+    pptResolution: 'standard' | 'hd' | '4k';
   }>({
     pixelRatio: 1,
     format: 'png',
-    compression: 'lossless'
+    compression: 'lossless',
+    pptResolution: 'hd'
   });
   const [exportEstimatedSize, setExportEstimatedSize] = useState<number | null>(null);
   const [exportPreviewUrl, setExportPreviewUrl] = useState<string | null>(null);
@@ -121,10 +144,19 @@ const App: React.FC = () => {
   const [croppingImageLayerId, setCroppingImageLayerId] = useState<string | null>(null);
 
 
-  const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
+  const showToast = useCallback((msg: string, type: 'success' | 'error' | 'warning' = 'success') => {
+    if (toastTimerRef.current !== null) clearTimeout(toastTimerRef.current);
     setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
+    toastTimerRef.current = setTimeout(() => setToast(null), type === 'warning' ? 6000 : 3000);
   }, []);
+
+  const warnIfNewerProject = useCallback((nextProject: ProjectState) => {
+    if (!isNewerProjectVersion(nextProject.version, APP_VERSION)) return false;
+    showToast(t.newerProjectVersion
+      .replace('{projectVersion}', nextProject.version!)
+      .replace('{currentVersion}', APP_VERSION), 'warning');
+    return true;
+  }, [showToast, t.newerProjectVersion]);
 
   useEffect(() => {
     if (!project) return;
@@ -160,6 +192,7 @@ const App: React.FC = () => {
     parseFailedMessage: t.parseFailed,
     showToast,
     onOpenProject: (nextProject) => {
+      warnIfNewerProject(nextProject);
       setProject(nextProject);
       setView('editor');
       initProjectHistory(nextProject);
@@ -291,13 +324,6 @@ const App: React.FC = () => {
     removeStoredProject(projectId);
   }, [project?.id, removeStoredProject]);
 
-
-  useEffect(() => {
-    if (project && view === 'editor') {
-      setProjects(prev => prev.map(p => p.id === project.id ? { ...project, updatedAt: Date.now() } : p));
-    }
-  }, [project, view]);
-
   useEffect(() => { setStoredLanguage(lang); }, [lang]);
 
   useEffect(() => {
@@ -337,7 +363,7 @@ const App: React.FC = () => {
         bgCropFlip,
         { width: project.canvasConfig.width, height: project.canvasConfig.height }
       );
-      modifyProject(p => ({
+      modifyProject(p => p.id !== project.id || p.activePageId !== project.activePageId ? p : ({
         ...p,
         background: { ...p.background, type: 'image', value: nextValue }
       }));
@@ -362,8 +388,8 @@ const App: React.FC = () => {
     const textHeight = Math.max(10, Math.min(100, height - 40));
     const textX = Math.max(0, (width - textWidth) / 2);
     const textY = Math.max(0, (height - textHeight) / 2);
-    const newProject: ProjectState = {
-      id: generateId(), title: t.untitled, updatedAt: Date.now(),
+    const newProject = syncProjectPages({
+      id: generateId(), version: APP_VERSION, title: t.untitled, updatedAt: Date.now(),
       layers: [{ id: generateId(), name: t.defaultHeadlineName, type: 'text', content: t.doubleClickToEdit, x: textX, y: textY, width: textWidth, height: textHeight, fontSize: 64, fontFamily: 'Inter, sans-serif', fontWeight: 700, textAlign: 'center', writingMode: 'horizontal', rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, color: '#ffffff', ratioLocked: true }],
       background: { 
         type: 'color', 
@@ -375,7 +401,7 @@ const App: React.FC = () => {
       },
       canvasConfig: { width, height, ratio: ratioLabel },
       selectedLayerId: null
-    };
+    });
     setProject(newProject);
     setProjects(prev => [newProject, ...prev]);
     setView('editor');
@@ -391,10 +417,27 @@ const App: React.FC = () => {
     setIsPresetModalOpen(true);
   };
 
+  const openPageModal = () => {
+    if (!project || (project.pages?.length ?? 1) >= 99) return;
+    const config = project.canvasConfig;
+    setSelectedPreset(PRESET_RATIOS.find(preset => preset.width === config.width && preset.height === config.height) ?? { name: 'Current', nameZh: '当前尺寸', ...config });
+    setCustomPresetSize({ width: config.width, height: config.height });
+    setNewPageName('');
+    setIsPageModalOpen(true);
+  };
+
+  const switchPage = (pageId: string) => {
+    saveHistorySnapshot();
+    modifyProject(current => selectProjectPage(current, pageId));
+    setSelectedLayerIds([]);
+    setBgCropModal(null);
+    setCroppingImageLayerId(null);
+  };
+
   const updateExportSettings = useCallback((updates: Partial<typeof exportSettings>) => {
     setExportSettings(prev => {
       const next = { ...prev, ...updates };
-      if (next.format === 'png' || next.format === 'svg') {
+      if (next.format === 'png' || next.format === 'svg' || next.format === 'pptx' || next.format === 'html') {
         next.compression = 'lossless';
       }
       return next;
@@ -402,13 +445,11 @@ const App: React.FC = () => {
   }, []);
 
   const getExportQuality = (settings: typeof exportSettings) => {
-    if (settings.format === 'png' || settings.format === 'svg') return undefined;
+    if (settings.format === 'png' || settings.format === 'svg' || settings.format === 'pptx' || settings.format === 'html') return undefined;
     if (settings.compression === 'lossless') return 0.92;
     if (settings.compression === 'balanced') return 0.8;
     return 0.6;
   };
-
-  const getExportFileExt = (format: ExportFormat) => (format === 'jpeg' ? 'jpg' : format);
 
   const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
@@ -419,9 +460,10 @@ const App: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  const buildExportOptions = (targetProject: ProjectState, pixelRatio: number) => {
+  const buildExportOptions = async (targetProject: ProjectState, pixelRatio: number) => {
     const { width, height } = targetProject.canvasConfig;
     return {
+      fontEmbedCSS: await projectFontEmbedCSS(targetProject),
       pixelRatio,
       width,
       height,
@@ -451,16 +493,19 @@ const App: React.FC = () => {
     targetProject: ProjectState,
     settings: typeof exportSettings
   ) => {
+    if (settings.format === 'html') {
+      return new Blob([await buildHtmlSvg(targetProject)], { type: 'image/svg+xml;charset=utf-8' });
+    }
     await ensureProjectFonts(targetProject);
     if (settings.format === 'svg') {
       const svgMarkup = buildProjectSvg(targetProject);
       return new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
     }
 
-    const options = buildExportOptions(targetProject, settings.pixelRatio);
+    const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
     const quality = getExportQuality(settings);
 
-    if (settings.format === 'png') {
+    if (settings.format === 'png' || settings.format === 'pptx') {
       const blob = await htmlToImage.toBlob(previewNode, options);
       if (!blob) throw new Error('Export failed');
       return blob;
@@ -481,7 +526,7 @@ const App: React.FC = () => {
     settings: typeof exportSettings
   ) => {
     await ensureProjectFonts(targetProject);
-    if (settings.format === 'svg') {
+    if (settings.format === 'svg' || settings.format === 'html') {
       const svgMarkup = buildProjectSvg(targetProject);
       const bytes = new TextEncoder().encode(svgMarkup);
       let binary = '';
@@ -491,10 +536,10 @@ const App: React.FC = () => {
       return `data:image/svg+xml;base64,${btoa(binary)}`;
     }
 
-    const options = buildExportOptions(targetProject, settings.pixelRatio);
+    const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
     const quality = getExportQuality(settings);
 
-    if (settings.format === 'png') {
+    if (settings.format === 'png' || settings.format === 'pptx') {
       return htmlToImage.toPng(previewNode, options);
     }
 
@@ -571,8 +616,9 @@ const App: React.FC = () => {
 
   const handleRemoveBackground = (result: RemovalResult) => {
     const projectId = project?.id;
+    const pageId = project?.activePageId;
     const copyId = generateId();
-    modifyProject(current => current.id === projectId ? applyRemovalResult(current, result, copyId) : current);
+    modifyProject(current => current.id === projectId && current.activePageId === pageId ? applyRemovalResult(current, result, copyId) : current);
   };
 
   const getExpandedSelection = (layers: Layer[], ids: string[]) => {
@@ -783,7 +829,7 @@ const App: React.FC = () => {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const imported: ProjectState = JSON.parse(event.target?.result as string);
+        const imported = readProject(JSON.parse(event.target?.result as string));
         if (imported.id && imported.layers) {
           const existingProjectIds = new Set(projects.map(p => p.id));
           if (existingProjectIds.has(imported.id)) {
@@ -791,11 +837,10 @@ const App: React.FC = () => {
             imported.updatedAt = Date.now();
             imported.title += t.importedCopySuffix;
           }
-          imported.layers = imported.layers.map(layer => ({ ...layer, id: generateId() }));
           imported.selectedLayerId = null;
           setProjects(prev => [imported, ...prev]);
           persistProject(imported);
-          showToast(t.importSuccess);
+          if (!warnIfNewerProject(imported)) showToast(t.importSuccess);
         }
       } catch (err) {
         showToast(t.parseFailed, "error");
@@ -806,35 +851,13 @@ const App: React.FC = () => {
   };
 
   const handleExportJson = (targetProject: ProjectState) => {
-    const json = JSON.stringify({ ...targetProject, version: APP_VERSION, github: GITHUB_REPO_URL }, null, 2);
+    const json = JSON.stringify({ ...writeProject(targetProject), github: GITHUB_REPO_URL }, null, 2);
     downloadFile(json, `${targetProject.title}.cfj`, 'application/json');
     showToast(t.exportSuccess);
   };
 
   const handleDuplicateProject = (targetProject: ProjectState) => {
-    const idMap = new Map<string, string>();
-    targetProject.layers.forEach(layer => idMap.set(layer.id, generateId()));
-
-    const clonedLayers = targetProject.layers.map(layer => {
-      const nextId = idMap.get(layer.id) as string;
-      const nextParentId = layer.parentId ? idMap.get(layer.parentId) : undefined;
-      const nextChildren = layer.children ? layer.children.map(cid => idMap.get(cid) as string).filter(Boolean) : undefined;
-      return {
-        ...JSON.parse(JSON.stringify(layer)),
-        id: nextId,
-        parentId: nextParentId,
-        children: nextChildren
-      };
-    });
-
-    const duplicated: ProjectState = {
-      ...JSON.parse(JSON.stringify(targetProject)),
-      id: generateId(),
-      title: `${targetProject.title}(${t.importedCopySuffix})`,
-      updatedAt: Date.now(),
-      layers: clonedLayers,
-      selectedLayerId: null
-    };
+    const duplicated = copyProject(targetProject, `${targetProject.title}(${t.importedCopySuffix})`);
 
     setProjects(prev => [duplicated, ...prev]);
     persistProject(duplicated);
@@ -852,6 +875,7 @@ const App: React.FC = () => {
       await ensureProjectFonts(targetProject);
       const { width, height } = targetProject.canvasConfig;
       const dataUrl = await htmlToImage.toPng(previewNode, {
+        fontEmbedCSS: await projectFontEmbedCSS(targetProject),
         pixelRatio: 1,
         width,
         height,
@@ -874,28 +898,22 @@ const App: React.FC = () => {
     }
   };
 
-  const handleExportImageWithDeselect = async (
-    previewNode: HTMLDivElement | null,
-    targetProject: ProjectState,
-    settings: typeof exportSettings
-  ) => {
-    await withDeselectedExportPreview(async () => {
-      try {
-        if (!previewNode) {
-          showToast(t.exportPreviewMissing, "error");
-          return;
-        }
-        setIsExporting(true);
-        const blob = await buildExportBlob(previewNode, targetProject, settings);
-        const ext = getExportFileExt(settings.format);
-        downloadBlob(blob, `${targetProject.title}.${ext}`);
-        showToast(t.exportSuccess);
-      } catch (e) {
-        showToast(t.exportFailed, "error");
-      } finally {
-        setIsExporting(false);
-      }
-    });
+  const handleExportPages = async () => {
+    if (!project || isExporting) return;
+    setIsExporting(true);
+    try {
+      const ids = exportRange === 'current' ? [project.activePageId!] : exportRange === 'all' ? project.pages!.map(page => page.id) : exportPageIds;
+      const result = await exportProjectPages(project, ids, exportSettings, (done, total) => setExportProgress({ done, total }), lang);
+      downloadBlob(result.blob, result.filename);
+      setIsExportModalOpen(false);
+      showToast(t.exportSuccess);
+    } catch (error) {
+      console.error('[CoverFlow export]', error);
+      showToast(t.exportFailed, 'error');
+    } finally {
+      setIsExporting(false);
+      setExportProgress(null);
+    }
   };
 
   const handleCopyExportBase64WithDeselect = async (
@@ -937,7 +955,7 @@ const App: React.FC = () => {
         }
         setIsExporting(true);
         await ensureProjectFonts(targetProject);
-        const options = buildExportOptions(targetProject, settings.pixelRatio);
+        const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
         const rawBlob = await htmlToImage.toBlob(previewNode, options);
         if (!rawBlob) {
           throw new Error('Failed to generate PNG blob');
@@ -1214,6 +1232,7 @@ const App: React.FC = () => {
           const content = ev.target?.result as string;
           const img = new Image();
           img.onload = () => {
+            if (latestProjectRef.current?.id !== project.id || latestProjectRef.current?.activePageId !== project.activePageId) return;
             const maxW = project.canvasConfig.width * 0.8;
             const maxH = project.canvasConfig.height * 0.8;
             let w = img.width;
@@ -1403,7 +1422,7 @@ const App: React.FC = () => {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [isExportModalOpen, exportSettings, project?.id]);
+  }, [isExportModalOpen, exportSettings, project?.id, project?.activePageId, project?.layers, project?.background, project?.canvasConfig]);
 
   const cropAspect = project ? project.canvasConfig.width / project.canvasConfig.height : 1;
   const aiWorkspace: WorkspaceOptions = {
@@ -1417,7 +1436,7 @@ const App: React.FC = () => {
         const { width, height } = project.canvasConfig;
         const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(width, height));
         const canvas = await htmlToImage.toCanvas(node, {
-          ...buildExportOptions(project, 1),
+          ...await buildExportOptions(project, 1),
           canvasWidth: Math.max(1, Math.round(width * scale)),
           canvasHeight: Math.max(1, Math.round(height * scale))
         });
@@ -1456,6 +1475,7 @@ const App: React.FC = () => {
         return opened;
       }
       clearActiveLocalFilePath();
+      warnIfNewerProject(next);
       latestProjectRef.current = next;
       setProject(structuredClone(next));
       setSelectedLayerIds(next.selectedLayerId ? [next.selectedLayerId] : []);
@@ -1495,9 +1515,11 @@ const App: React.FC = () => {
           openLocalProjectFromPath(item.localPath);
           return;
         }
-        setProject(JSON.parse(JSON.stringify(item.project)));
+        warnIfNewerProject(item.project);
+        const opened = item.project.pages?.[0] ? selectProjectPage(item.project, item.project.pages[0].id) : syncProjectPages(item.project);
+        setProject(opened);
         setView('editor');
-        initProjectHistory(item.project);
+        initProjectHistory(opened);
         clearActiveLocalFilePath();
   };
 
@@ -1552,8 +1574,20 @@ const App: React.FC = () => {
       </LandingView>
       ) : project ? (
       <div inert={aiBusy} className="flex flex-col h-screen bg-slate-950 text-slate-200 overflow-hidden">
+      {previewProject && <ProjectPreview project={previewProject} lang={lang} onClose={() => setPreviewProject(null)} />}
       {toast && <Toast message={toast.msg} type={toast.type} />}
       {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
+      <ProjectPresetModal
+        isOpen={isPageModalOpen} lang={lang} presets={PRESET_RATIOS} selectedPreset={selectedPreset} size={customPresetSize}
+        pageName={newPageName} onPageNameChange={setNewPageName} pagePlaceholder={pageNumber((project.pages?.findIndex(page => page.id === project.activePageId) ?? 0) + 1)}
+        onClose={() => setIsPageModalOpen(false)} onSizeChange={setCustomPresetSize}
+        onSelectPreset={preset => { setSelectedPreset(preset); setCustomPresetSize({ width: preset.width, height: preset.height }); }}
+        onCreate={() => {
+          modifyProject(current => insertProjectPage(current, newPageName, { ...customPresetSize, ratio: `${customPresetSize.width}x${customPresetSize.height}` }));
+          setSelectedLayerIds([]);
+          setIsPageModalOpen(false);
+        }}
+      />
       <ExportModal
         isOpen={isExportModalOpen}
         lang={lang}
@@ -1562,6 +1596,18 @@ const App: React.FC = () => {
         settings={exportSettings}
         estimatedSize={exportEstimatedSize}
         estimating={exportEstimating}
+        range={exportRange}
+        onRangeChange={range => { setExportRange(range); if (range !== 'current') setActiveTab('pages'); }}
+        selectedPageIds={exportPageIds}
+        onSelectedPagesChange={setExportPageIds}
+        onPageChange={pageId => {
+          setExportPreviewUrl(previous => { if (previous) URL.revokeObjectURL(previous); return null; });
+          setExportEstimatedSize(null);
+          switchPage(pageId);
+        }}
+        thumbnails={pageThumbnails}
+        busy={isExporting}
+        progress={exportProgress}
         onClose={() => setIsExportModalOpen(false)}
         onChange={updateExportSettings}
         onCopyImage={() => {
@@ -1576,12 +1622,7 @@ const App: React.FC = () => {
           handleCopyExportBase64WithDeselect(node, project, exportSettings);
           setIsExportModalOpen(false);
         }}
-        onConfirm={() => {
-          const node = document.getElementById('export-target') as HTMLDivElement | null;
-          if (!project) return;
-          handleExportImageWithDeselect(node, project, exportSettings);
-          setIsExportModalOpen(false);
-        }}
+        onConfirm={() => { void handleExportPages(); }}
       />
       <BackgroundCropModal
         isOpen={Boolean(bgCropModal)}
@@ -1627,6 +1668,7 @@ const App: React.FC = () => {
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <button
             onClick={() => {
+              setProjects(prev => prev.map(item => item.id === project.id ? { ...project, updatedAt: Date.now() } : item));
               performAutoSave('leave');
               setProject(null);
               setView('landing');
@@ -1645,18 +1687,6 @@ const App: React.FC = () => {
                 onChange={(e) => modifyProject(p => ({ ...p, title: e.target.value }))}
                 className="col-start-1 row-start-1 bg-transparent font-bold text-sm outline-none hover:bg-slate-800 focus:bg-slate-800 rounded px-1.5 py-1 w-full min-w-0 transition-colors"
               />
-            </div>
-            <div
-              data-testid="editor-canvas-info"
-              title={`${t.canvasSize}: ${project.canvasConfig.width} × ${project.canvasConfig.height} px · ${t.canvasRatio}: ${formatCanvasRatio(project.canvasConfig.width, project.canvasConfig.height, project.canvasConfig.ratio)}`}
-              className="flex items-center gap-2 px-2.5 py-1 rounded-lg border border-slate-700/70 text-xs shrink-0"
-            >
-              <span className="font-mono font-semibold text-slate-200 tabular-nums">
-                {project.canvasConfig.width} × {project.canvasConfig.height}
-              </span>
-              <span className="px-1.5 py-0.5 rounded bg-blue-500/15 border border-blue-500/30 text-[11px] font-mono font-bold text-blue-400 tabular-nums leading-none">
-                {formatCanvasRatio(project.canvasConfig.width, project.canvasConfig.height, project.canvasConfig.ratio)}
-              </span>
             </div>
           </div>
         </div>
@@ -1708,11 +1738,16 @@ const App: React.FC = () => {
             {aiBusy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />}
           </button>
           
+          <button type="button" onClick={() => setPreviewProject(syncProjectPages(project))} disabled={isExporting || aiBusy} title={t.previewProject} aria-label={t.previewProject}
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300 border border-slate-700 transition-colors disabled:opacity-50">
+            <Presentation className="w-4 h-4" />
+            <span className="hidden sm:inline">{t.preview}</span>
+          </button>
           <button onClick={() => handleExportJson(project)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300 border border-slate-700 transition-colors">
             <FileOutput className="w-4 h-4" />
             {t.exportJson}
           </button>
-          <button onClick={() => setIsExportModalOpen(true)} disabled={isExporting} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white shadow-lg shadow-blue-900/20 disabled:opacity-50">
+          <button onClick={() => { setExportRange('current'); setExportPageIds([project.activePageId!]); setIsExportModalOpen(true); }} disabled={isExporting} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white shadow-lg shadow-blue-900/20 disabled:opacity-50">
             {isExporting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
             {t.export}
           </button>
@@ -1724,6 +1759,14 @@ const App: React.FC = () => {
           activeTab={activeTab} 
           setActiveTab={setActiveTab} 
           project={project}
+          onAddPage={openPageModal}
+          pagesPanel={<PagesPanel lang={lang} pages={project.pages ?? []} activePageId={project.activePageId} thumbnails={pageThumbnails}
+            onSelect={switchPage}
+            onRename={(id, name) => modifyProject(current => renameProjectPage(current, id, name))}
+            onDuplicate={id => { modifyProject(current => insertProjectPage(current, '', current.canvasConfig, id)); setSelectedLayerIds([]); }}
+            onDelete={id => setConfirmDialog({ message: t.confirmDeletePage, onConfirm: () => { modifyProject(current => deleteProjectPage(current, id)); setSelectedLayerIds([]); } })}
+            onMove={(id, targetId) => modifyProject(current => moveProjectPage(current, id, targetId))}
+          />}
           selectedLayerIds={selectedLayerIds}
           background={project.background} 
           onOpenBackgroundCrop={handleOpenBackgroundCrop}
@@ -1771,6 +1814,7 @@ const App: React.FC = () => {
             if (l.type === 'image' && l.content) {
               const img = new Image();
               img.onload = () => {
+                if (latestProjectRef.current?.id !== project.id || latestProjectRef.current?.activePageId !== project.activePageId) return;
                 let width = img.width || 100;
                 let height = img.height || 100;
                 const maxWidth = project.canvasConfig.width * 0.8;
@@ -1842,6 +1886,7 @@ const App: React.FC = () => {
         />
         <div className="flex-1 flex flex-col min-h-0 relative">
           <Canvas
+            key={project.id}
             lang={lang}
             project={isExportModalOpen ? { ...project, selectedLayerId: null } : project}
             onSelectLayer={(id) => handleSelectLayer(id, 'replace')}

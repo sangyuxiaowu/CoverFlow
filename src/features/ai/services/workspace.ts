@@ -3,6 +3,8 @@ import type { StorageAdapter } from '../../../storage/StorageAdapter.ts';
 import type { WorkspaceBridge } from '../types.ts';
 import { parseManageProjectsRequest } from '../tools/requests.ts';
 import { generateId } from '../../../utils/helpers.ts';
+import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
+import { copyProject } from '../../../utils/projectPages.ts';
 
 export interface WorkspaceOptions {
   project: ProjectState | null;
@@ -68,6 +70,7 @@ export function createWorkspaceBridge(
     current = structuredClone(opened || project);
   };
   return {
+    confirm,
     getProject: () => { read(); return current || null; },
     getCanvasPreview: async () => {
       const options = read();
@@ -86,9 +89,9 @@ export function createWorkspaceBridge(
     commit: async project => {
       const options = read();
       if (current?.id !== project.id) throw new Error('Active project changed.');
-      current = project;
-      options.onCommit(project);
-      await save(project, options.activeLocalPath || undefined);
+      current = syncProjectPages(project);
+      options.onCommit(current);
+      await save(current, options.activeLocalPath || undefined);
     },
     manageProjects: async (input, signal) => {
       signal.throwIfAborted();
@@ -101,18 +104,19 @@ export function createWorkspaceBridge(
         await ready();
         const result = await options.storage.listProjects({ query, page, pageSize });
         options.onSearch(query);
-        const summary = (project: ProjectState, source: string) => ({ id: project.id, title: project.title, updatedAt: project.updatedAt, canvas: project.canvasConfig, layerCount: project.layers.length, source });
+        const summary = (project: ProjectState, source: string) => ({ id: project.id, title: project.title, updatedAt: project.updatedAt, canvas: project.pages?.[0]?.canvasConfig ?? project.canvasConfig, pageCount: project.pages?.length ?? 1, layerCount: project.pages?.[0]?.layers.length ?? project.layers.length, source });
         return { items: result.items.map(project => summary(current?.id === project.id ? current : project, 'storage')), total: result.total, page, pageSize, localItems: options.localProjects.filter(item => item.project.title.toLowerCase().includes(query.toLowerCase())).map(item => summary(item.project, 'local')) };
       }
       if (args.action === 'create') {
         const width = args.width ?? 1200;
         const height = args.height ?? 630;
         const project: ProjectState = { id: generateId(), title: args.title ?? 'Untitled', layers: [], background: { type: 'color', value: '#18181b', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0.1, overlayScale: 20 }, canvasConfig: { width, height, ratio: `${width}x${height}` }, selectedLayerId: null, updatedAt: Date.now() };
-        await save(project);
+        const created = syncProjectPages(project);
+        await save(created);
         signal.throwIfAborted();
-        options.onUpsert(project);
-        await open(project);
-        return { success: true, projectId: project.id, title: project.title };
+        options.onUpsert(created);
+        await open(created);
+        return { success: true, projectId: created.id, title: created.title, pageId: created.activePageId };
       }
       const id = args.projectId;
       const target = await find(id);
@@ -138,13 +142,7 @@ export function createWorkspaceBridge(
         options.onUpsert(project);
         return { success: true, projectId: id, title: project.title };
       }
-      const project = structuredClone(target.project);
-      const idMap = new Map(project.layers.map(layer => [layer.id, generateId()]));
-      project.id = generateId();
-      project.title = args.title ?? project.title + ' (copy)';
-      project.updatedAt = Date.now();
-      project.selectedLayerId = null;
-      project.layers = project.layers.map(layer => ({ ...layer, id: idMap.get(layer.id)!, parentId: layer.parentId ? idMap.get(layer.parentId) : undefined, ...(layer.children ? { children: layer.children.map(id => idMap.get(id)!).filter(Boolean) } : {}) }));
+      const project = copyProject(target.project, args.title ?? target.project.title + ' (copy)');
       await save(project);
       options.onUpsert(project);
       return { success: true, projectId: project.id, title: project.title };

@@ -1,7 +1,28 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import type { ProjectState } from '../types.ts';
+import type { ProjectPage, ProjectState } from '../types.ts';
+import { selectProjectPage } from '../utils/projectPages.ts';
 
-const cloneProject = (project: ProjectState): ProjectState => JSON.parse(JSON.stringify(project));
+const pageSnapshots = new WeakMap<ProjectPage, ProjectPage>();
+const cloneProject = (project: ProjectState): ProjectState => {
+  if (!project.pages) return JSON.parse(JSON.stringify(project));
+  const pages = project.pages.map(page => {
+    let snapshot = pageSnapshots.get(page);
+    if (!snapshot) {
+      snapshot = structuredClone(page);
+      pageSnapshots.set(page, snapshot);
+      pageSnapshots.set(snapshot, snapshot);
+    }
+    return snapshot;
+  });
+  const active = pages.find(page => page.id === project.activePageId) ?? pages[0];
+  return { ...project, pages, layers: active.layers, background: active.background, canvasConfig: active.canvasConfig };
+};
+
+const sameContent = (left: ProjectState | undefined, right: ProjectState) => {
+  if (!left) return false;
+  if (!left.pages || !right.pages) return JSON.stringify(left) === JSON.stringify(right);
+  return left.id === right.id && left.title === right.title && left.version === right.version && left.pages.length === right.pages.length && left.pages.every((page, index) => page === right.pages![index]);
+};
 
 export function useProjectHistory(project: ProjectState | null, setProject: Dispatch<SetStateAction<ProjectState | null>>) {
   const [history, setHistory] = useState<ProjectState[]>([]);
@@ -17,8 +38,9 @@ export function useProjectHistory(project: ProjectState | null, setProject: Disp
   const saveHistorySnapshot = () => {
     if (!project) return;
     ignoreHistoryChange.current = false;
-    if (JSON.stringify(history[historyIndex]) === JSON.stringify(project)) return;
-    const nextHistory = [...history.slice(0, historyIndex + 1), cloneProject(project)].slice(-50);
+    const snapshot = cloneProject(project);
+    if (sameContent(history[historyIndex], snapshot)) return;
+    const nextHistory = [...history.slice(0, historyIndex + 1), snapshot].slice(-50);
     setHistory(nextHistory);
     setHistoryIndex(nextHistory.length - 1);
   };
@@ -37,14 +59,20 @@ export function useProjectHistory(project: ProjectState | null, setProject: Disp
   const handleUndo = useCallback(() => {
     if (historyIndex <= 0) return;
     isUndoRedoAction.current = true;
-    setProject(cloneProject(history[historyIndex - 1]));
+    setProject(current => {
+      const restored = cloneProject(history[historyIndex - 1]);
+      return current?.activePageId && restored.pages?.some(page => page.id === current.activePageId) ? selectProjectPage(restored, current.activePageId) : restored;
+    });
     setHistoryIndex(historyIndex - 1);
   }, [history, historyIndex, setProject]);
 
   const handleRedo = useCallback(() => {
     if (historyIndex >= history.length - 1) return;
     isUndoRedoAction.current = true;
-    setProject(cloneProject(history[historyIndex + 1]));
+    setProject(current => {
+      const restored = cloneProject(history[historyIndex + 1]);
+      return current?.activePageId && restored.pages?.some(page => page.id === current.activePageId) ? selectProjectPage(restored, current.activePageId) : restored;
+    });
     setHistoryIndex(historyIndex + 1);
   }, [history, historyIndex, setProject]);
 

@@ -13,6 +13,9 @@ interface PresetModalProps {
   onSizeChange: (size: { width: number; height: number }) => void;
   onClose: () => void;
   onCreate: () => void;
+  pageName?: string;
+  onPageNameChange?: (name: string) => void;
+  pagePlaceholder?: string;
 }
 
 const clampSize = (value: number) => Math.max(10, Math.round(value));
@@ -26,7 +29,10 @@ const ProjectPresetModal: React.FC<PresetModalProps> = ({
   onSelectPreset,
   onSizeChange,
   onClose,
-  onCreate
+  onCreate,
+  pageName,
+  onPageNameChange,
+  pagePlaceholder
 }) => {
   const [widthInput, setWidthInput] = useState(() => String(size.width));
   const [heightInput, setHeightInput] = useState(() => String(size.height));
@@ -65,7 +71,7 @@ const ProjectPresetModal: React.FC<PresetModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <div className="text-xs font-black uppercase tracking-widest text-slate-500">{t.createNew}</div>
+          <div className="text-xs font-black uppercase tracking-widest text-slate-500">{onPageNameChange ? t.addPage : t.createNew}</div>
           <button
             type="button"
             onClick={onClose}
@@ -76,6 +82,10 @@ const ProjectPresetModal: React.FC<PresetModalProps> = ({
         </div>
 
         <div className="space-y-4">
+          {onPageNameChange && <label className="flex flex-col gap-2 text-xs text-slate-400 font-bold">
+            <span>{t.pageName}</span>
+            <input autoFocus value={pageName ?? ''} maxLength={100} onChange={event => onPageNameChange(event.target.value)} placeholder={pagePlaceholder} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500" />
+          </label>}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {presets.map(preset => {
               const isActive = preset.name === selectedPreset.name;
@@ -166,7 +176,7 @@ const ProjectPresetModal: React.FC<PresetModalProps> = ({
             onClick={onCreate}
             className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-900/20 transition-all active:scale-95"
           >
-            {t.createNew}
+            {onPageNameChange ? t.addPage : t.createNew}
           </button>
         </div>
       </div>

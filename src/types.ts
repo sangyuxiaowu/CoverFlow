@@ -65,6 +65,7 @@ export interface Layer {
   color?: string;
   fontSize?: number;
   letterSpacing?: number;
+  lineHeight?: number;
   fontFamily?: string;
   fontWeight?: string | number;
   textAlign?: 'left' | 'center' | 'right';
@@ -102,9 +103,28 @@ export interface BackgroundConfig {
   overlayScale: number;
 }
 
+export interface ProjectPage {
+  id: string;
+  name: string;
+  layers: Layer[];
+  background: BackgroundConfig;
+  canvasConfig: CanvasConfig;
+}
+
+export interface ProjectDocument {
+  id: string;
+  version: string;
+  title: string;
+  pages: ProjectPage[];
+  updatedAt: number;
+}
+
 export interface ProjectState {
   id: string;
+  version?: string;
   title: string;
+  pages?: ProjectPage[];
+  activePageId?: string;
   layers: Layer[];
   background: BackgroundConfig;
   canvasConfig: CanvasConfig;

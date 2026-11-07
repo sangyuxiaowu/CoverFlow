@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { isTauri } from '@tauri-apps/api/core';
 import { ChevronsUpDown, Pipette, X } from 'lucide-react';
 import { RgbaColorPicker } from 'react-colorful';
 import { PRESET_COLORS } from '../constants.ts';
@@ -31,6 +32,8 @@ const ColorPicker: React.FC<Props> = ({ lang, name, value, onChange }) => {
   const format = detectColorFormat(value);
   const channels = getColorChannels(value, format);
   const EyeDropper = typeof window === 'undefined' ? undefined : (window as Window & { EyeDropper?: EyeDropperConstructor }).EyeDropper;
+  const isTauriRuntime = import.meta.env.VITE_APP_MODE === 'tauri' || isTauri();
+  const canPickScreenColor = Boolean(EyeDropper) && !isTauriRuntime;
 
   useEffect(() => setHexDraft(formatColor(value, 'hex')), [value]);
 
@@ -117,7 +120,7 @@ const ColorPicker: React.FC<Props> = ({ lang, name, value, onChange }) => {
           <div className="cf-color-controls">
             <RgbaColorPicker color={color} onChange={(next) => onChange(formatColor(next, format))} />
             <div className="cf-color-toolbar">
-              <button type="button" title={EyeDropper ? t.colorPickerEyedropper : t.colorPickerEyedropperUnavailable} aria-label={t.colorPickerEyedropper} disabled={!EyeDropper || picking} onClick={pickScreenColor}><Pipette size={15} /></button>
+              <button type="button" title={canPickScreenColor ? t.colorPickerEyedropper : t.colorPickerEyedropperUnavailable} aria-label={t.colorPickerEyedropper} disabled={!canPickScreenColor || picking} onClick={pickScreenColor}><Pipette size={15} /></button>
               <div className="cf-color-preview"><span style={{ backgroundColor: value }} /></div>
             </div>
           </div>

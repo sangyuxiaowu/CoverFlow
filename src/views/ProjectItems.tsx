@@ -4,6 +4,15 @@ import LivePreview from '../components/LivePreview.tsx';
 import type { ProjectState } from '../types.ts';
 import { translations, type Language } from '../translations.ts';
 
+const cardBadgeClassName = 'text-[9px] px-2 py-1 bg-slate-800 text-slate-400 font-black rounded-lg border border-slate-700 uppercase tracking-tight';
+const listBadgeClassName = 'text-[9px] px-1.5 py-0.5 bg-slate-800 text-slate-400 font-black rounded-md border border-slate-700 uppercase tracking-tight flex-shrink-0';
+
+const PageCountBadge = ({ count, lang, className }: { count: number; lang: Language; className: string }) => {
+  if (count <= 1) return null;
+  const label = `${count} ${lang === 'zh' ? '页' : 'pages'}`;
+  return <span role="img" aria-label={label} title={label} className={className}>{count}P</span>;
+};
+
 const formatProjectTime = (timestamp: number, lang: Language, showFullDate = false) => {
   const d = new Date(timestamp);
   if (isNaN(d.getTime())) return '';
@@ -92,8 +101,9 @@ export const ProjectCard = React.memo(({
               {sourceLabel}
             </span>
           )}
+          <PageCountBadge count={project.pages?.length ?? 1} lang={lang} className={cardBadgeClassName} />
           {/* 比例标签 */}
-           <span className="text-[9px] px-2 py-1 bg-slate-800 text-slate-400 font-black rounded-lg border border-slate-700 uppercase tracking-tight">
+           <span className={cardBadgeClassName}>
               {project.canvasConfig.ratio}
            </span>
         </div>
@@ -205,7 +215,8 @@ export const ProjectListItem = React.memo(({
                 {sourceLabel}
               </span>
             )}
-            <span className="text-[9px] px-1.5 py-0.5 bg-slate-800 text-slate-400 font-black rounded-md border border-slate-700 uppercase tracking-tight flex-shrink-0">
+            <PageCountBadge count={project.pages?.length ?? 1} lang={lang} className={listBadgeClassName} />
+            <span className={listBadgeClassName}>
               {project.canvasConfig.ratio}
             </span>
           </div>

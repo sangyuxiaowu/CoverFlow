@@ -103,6 +103,16 @@ describe('static AI background-removal execution', () => {
     expect(removeBackground).not.toHaveBeenCalled();
     expect(context.commit).not.toHaveBeenCalled();
   });
+  it('rejects a page switch even when the new page contains the same layer ID', async () => {
+    const context = setup();
+    context.change({ ...context.bridge.getProject()!, activePageId: 'original-page' });
+    vi.mocked(removeBackground).mockImplementation(async () => {
+      context.change({ ...context.bridge.getProject()!, activePageId: 'different-page' });
+      return { blob: new Blob(['png']), provider: 'wasm', modelId: 'u2netp' };
+    });
+    expect(await context.run()).toMatchObject({ success: false, code: 'APPLY_FAILED', error: expect.stringContaining('page changed') });
+    expect(context.commit).not.toHaveBeenCalled();
+  });
   it.each([
     ['image_load', download, 'IMAGE_LOAD_FAILED'],
     ['inference', removeBackground, 'INFERENCE_FAILED'],

@@ -1,7 +1,53 @@
 import type { ProjectState } from '../../../types.ts';
 import { GOOGLE_FONTS, type ManagedFont } from './fonts.ts';
+import { generate, parse, walk } from 'css-tree';
 
 const stylesheets = new Map<string, Promise<void>>();
+const embeddedFonts = new Map<string, Promise<string>>();
+
+export async function projectFontEmbedCSS(project: Pick<ProjectState, 'layers'>): Promise<string> {
+  return (await Promise.all(projectGoogleFonts(project).map(font => {
+    const layers = project.layers.filter(layer => layer.type === 'text' && projectGoogleFonts({ layers: [layer] })[0]?.family === font.family);
+    const text = Array.from(new Set(layers.flatMap(layer => Array.from(layer.content ?? '')))).sort().join('');
+    if (!text) return '';
+    const weights = Array.from(new Set(layers.map(layer => {
+      const requested = !layer.fontWeight || layer.fontWeight === 'bold' ? 700 : Number(layer.fontWeight) || 400;
+      return font.weights!.reduce((closest, weight) => Math.abs(weight - requested) < Math.abs(closest - requested) ? weight : closest);
+    }))).sort((left, right) => left - right);
+    const url = new URL('https://fonts.googleapis.com/css2');
+    url.searchParams.set('family', `${font.family}:wght@${weights.join(';')}`);
+    url.searchParams.set('text', text);
+    const key = url.href;
+    const existing = embeddedFonts.get(key);
+    if (existing) return existing;
+    const loading = (async () => {
+      const response = await fetch(key, { signal: AbortSignal.timeout(20000) });
+      if (!response.ok) throw new Error(`Font stylesheet download failed: ${response.status}`);
+      const ast = parse(await response.text());
+      const resources: Promise<void>[] = [];
+      walk(ast, node => {
+        if (node.type !== 'Url') return;
+        const resourceUrl = new URL(node.value, key).href;
+        resources.push((async () => {
+          const resource = await fetch(resourceUrl, { signal: AbortSignal.timeout(20000) });
+          if (!resource.ok) throw new Error(`Font download failed: ${resource.status}`);
+          node.value = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => reject(reader.error);
+            void resource.blob().then(blob => reader.readAsDataURL(blob), reject);
+          });
+        })());
+      });
+      await Promise.all(resources);
+      return generate(ast);
+    })();
+    embeddedFonts.set(key, loading);
+    if (embeddedFonts.size > 32) embeddedFonts.delete(embeddedFonts.keys().next().value!);
+    void loading.catch(() => { if (embeddedFonts.get(key) === loading) embeddedFonts.delete(key); });
+    return loading;
+  }))).join('\n');
+}
 
 export function projectGoogleFonts(project: Pick<ProjectState, 'layers'>): ManagedFont[] {
   const families = new Set(project.layers.filter(layer => layer.type === 'text').map(layer =>

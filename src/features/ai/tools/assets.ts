@@ -18,9 +18,10 @@ function pageNumber(value: unknown, field: string, fallback: number, maximum: nu
   return result;
 }
 
-function activeProject(bridge: WorkspaceBridge, projectId: string) {
+function activeProject(bridge: WorkspaceBridge, projectId: string, pageId?: string) {
   const project = bridge.getProject();
   if (!project || project.id !== projectId) throw new Error('The active project changed or is not open. Read get_context again.');
+  if (pageId !== undefined && project.activePageId !== pageId) throw new Error('The active page changed. Read get_context again.');
   return project;
 }
 
@@ -58,7 +59,7 @@ export async function executeAssetTool(name: 'search_assets' | 'place_asset', in
   const y = args.y === undefined ? undefined : number(args.y, 'y');
   const requestedWidth = args.width === undefined ? undefined : number(args.width, 'width', 1, 100000);
   const requestedHeight = args.height === undefined ? undefined : number(args.height, 'height', 1, 100000);
-  activeProject(bridge, projectId);
+  const pageId = activeProject(bridge, projectId).activePageId;
   if (!assetId.startsWith('folder:')) throw new Error('Invalid assetId. Use an ID from search_assets.');
   const directory = await bridge.getAssetFolder?.();
   signal.throwIfAborted();
@@ -92,7 +93,7 @@ export async function executeAssetTool(name: 'search_assets' | 'place_asset', in
   }
   if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth <= 0 || sourceHeight <= 0) throw new Error('Asset has invalid dimensions.');
   signal.throwIfAborted();
-  const project = activeProject(bridge, projectId);
+  const project = activeProject(bridge, projectId, pageId);
   if (requestedWidth !== undefined && requestedHeight !== undefined && Math.abs(requestedWidth / sourceWidth * sourceHeight - requestedHeight) > 1) {
     throw new Error('width and height must preserve the asset aspect ratio. Provide only one dimension to scale automatically.');
   }
@@ -110,5 +111,5 @@ export async function executeAssetTool(name: 'search_assets' | 'place_asset', in
     ...(entry.type === 'image' ? { imageSource: assetId, imageDescription: entry.name } : {})
   };
   await bridge.commit({ ...project, layers: [...project.layers, layer], selectedLayerId: layer.id, updatedAt: Date.now() });
-  return { success: true, projectId, assetId, layerId: layer.id, type: layer.type, x: layer.x, y: layer.y, width, height };
+  return { success: true, projectId, pageId, assetId, layerId: layer.id, type: layer.type, x: layer.x, y: layer.y, width, height };
 }

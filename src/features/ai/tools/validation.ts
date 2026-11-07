@@ -46,7 +46,7 @@ export function safeImage(value: string): string {
 
 export const LAYER_FIELD_GROUPS: Record<string, readonly (keyof Layer)[]> = {
   image: ['content', 'imageSource', 'imageDescription', 'flipX', 'flipY', 'imageFilters', 'imageCrop'],
-  text: ['content', 'color', 'fontFamily', 'fontWeight', 'fontSize', 'letterSpacing', 'textAlign', 'writingMode', 'textGradient', 'textShadow'],
+  text: ['content', 'color', 'fontFamily', 'fontWeight', 'fontSize', 'letterSpacing', 'lineHeight', 'textAlign', 'writingMode', 'textGradient', 'textShadow'],
   svg: ['content', 'color'],
   decoration: ['content']
 };
@@ -114,6 +114,7 @@ export function layerPatch(value: unknown): Partial<Layer> {
       output[field] = raw;
     } else if (booleans.includes(field)) output[field] = boolean(raw, field);
     else if (numeric.includes(field)) output[field] = number(raw, field, ['width', 'height', 'fontSize'].includes(field) ? 1 : field === 'opacity' ? 0 : -100000, field === 'opacity' ? 1 : 100000);
+    else if (field === 'lineHeight') output[field] = number(raw, field, 0.5, 5);
     else if (field === 'fontWeight') output[field] = typeof raw === 'string' ? text(raw, field) : number(raw, field, 1, 1000);
     else if (field === 'textAlign') output[field] = choice(raw, field, ['left', 'center', 'right']);
     else if (field === 'writingMode') output[field] = choice(raw, field, ['horizontal', 'vertical']);

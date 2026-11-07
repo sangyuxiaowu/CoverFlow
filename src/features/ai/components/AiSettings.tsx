@@ -27,7 +27,7 @@ import {
   RefreshCw,
   Info
 } from 'lucide-react';
-import type { AiConfig, AiEndpointConfig, AiModelConfig, ReasoningEffort } from '../types.ts';
+import type { AiConfig, AiEndpointConfig, AiModelConfig, AiSkillConfig, ReasoningEffort } from '../types.ts';
 import ImageModelSettings from './ImageModelSettings.tsx';
 import SkillSettings from './SkillSettings.tsx';
 import FontSettings from './FontSettings.tsx';
@@ -311,6 +311,19 @@ export default function AiSettings({ config, onSave, onBack, english, store, onK
     }
   };
 
+  const handleSkillsChange = async (skills: AiSkillConfig[]) => {
+    if (saving || keyBusy || backupPending) {
+      throw new Error(label('请等待当前操作完成后重试', 'Wait for the current operation to finish and retry'));
+    }
+    setSaving(true);
+    try {
+      await onSave({ ...config, skills });
+      setDraft(previous => ({ ...previous, skills }));
+    } finally {
+      setSaving(false);
+    }
+  };
+
 // 现代平滑开关滑块组件
 const ToggleSwitch: React.FC<{
   checked: boolean;
@@ -409,9 +422,9 @@ const ToggleSwitch: React.FC<{
             aria-label={label('配置分类', 'Settings Categories')}
             onKeyDown={handleTabKeyDown}
             className={`flex items-center gap-1.5 p-1 rounded-2xl bg-slate-950/70 border border-slate-800/80 overflow-x-auto no-scrollbar scroll-smooth whitespace-nowrap [&>button]:shrink-0 ${
-              keyBusy || backupPending ? 'pointer-events-none opacity-50' : ''
+              keyBusy || backupPending || saving ? 'pointer-events-none opacity-50' : ''
             }`}
-            inert={keyBusy || backupPending || undefined}
+            inert={keyBusy || backupPending || saving || undefined}
           >
             {tabList.map(item => {
               const isActive = tab === item.id;
@@ -422,6 +435,7 @@ const ToggleSwitch: React.FC<{
                   id={`ai-settings-tab-${item.id}`}
                   type="button"
                   role="tab"
+                  disabled={saving}
                   aria-selected={isActive}
                   aria-controls={`ai-settings-tabpanel-${item.id}`}
                   tabIndex={isActive ? 0 : -1}
@@ -1165,7 +1179,7 @@ const ToggleSwitch: React.FC<{
 
             {tab === 'skills' && (
               <SkillSettings skills={draft.skills ?? []} english={english}
-                onChange={skills => setDraft(previous => ({ ...previous, skills }))} />
+                onChange={handleSkillsChange} />
             )}
 
             {/* TAB: 系统提示词 */}

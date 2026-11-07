@@ -4,6 +4,7 @@ import { ProjectCard, ProjectListItem } from './ProjectItems.tsx';
 import type { RecentProjectItem } from '../hooks/useLocalProjects.ts';
 import type { ProjectState } from '../types.ts';
 import { translations, type Language } from '../translations.ts';
+import { pageProject } from '../utils/projectPages.ts';
 import { getStoredTimeGroupingMode, setStoredTimeGroupingMode, getStoredProjectViewLayout,
   setStoredProjectViewLayout, type TimeGroupingMode, type ProjectViewLayout } from '../storage/storage.ts';
 
@@ -88,9 +89,10 @@ export default function ProjectBrowser({ lang, projects, localRecentItems, proje
 
   const renderProjectItem = (item: RecentProjectItem) => {
     const Component = viewLayoutMode === 'list' ? ProjectListItem : ProjectCard;
+    const previewProject = item.project.pages?.[0] ? pageProject(item.project, item.project.pages[0]) : item.project;
     return <Component
       key={`${item.source}-${item.localPath || item.project.id}`}
-      project={item.project}
+      project={previewProject}
       lang={lang}
       sourceLabel={item.source === 'local' ? t.localProjectTag : undefined}
       showFullDate={timeGroupingMode === 'ungrouped'}
@@ -98,7 +100,7 @@ export default function ProjectBrowser({ lang, projects, localRecentItems, proje
       onDelete={event => { event.stopPropagation(); handleDeleteRecentProject(item); }}
       onDuplicate={event => { event.stopPropagation(); handleDuplicateProject(item.project); }}
       onDownloadJson={event => { event.stopPropagation(); handleExportJson(item.project); }}
-      onDownloadImage={(node, event) => { event.stopPropagation(); handleExportImage(node, item.project); }}
+      onDownloadImage={(node, event) => { event.stopPropagation(); handleExportImage(node, previewProject); }}
     />;
   };
 

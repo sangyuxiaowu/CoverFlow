@@ -7,9 +7,10 @@ import { applyRemovalResult } from '../../background-removal/layerResult.ts';
 import { generateId } from '../../../utils/helpers.ts';
 import type { ModelId } from '../../background-removal/models.ts';
 
-function target(bridge: WorkspaceBridge, projectId: string, layerId: string, originalContent?: string) {
+function target(bridge: WorkspaceBridge, projectId: string, layerId: string, originalContent?: string, pageId?: string) {
   const project = bridge.getProject();
   if (!project || project.id !== projectId) throw new Error('Active project changed or is not open. Read get_context again.');
+  if (pageId !== undefined && project.activePageId !== pageId) throw new Error('Active page changed. Read get_context again.');
   const layer = project.layers.find(item => item.id === layerId);
   if (!layer || layer.type !== 'image') throw new Error('Target must be an existing image layer.');
   if (layer.locked || project.layers.find(item => item.id === layer.parentId)?.locked) throw new Error('Unlock the image layer and its group before background removal.');
@@ -51,7 +52,9 @@ export async function executeBackgroundRemovalTool(input: unknown, bridge: Works
     if (args.keepOriginal !== undefined && typeof args.keepOriginal !== 'boolean') throw new Error('keepOriginal must be a boolean.');
     const keepOriginal = args.keepOriginal !== false;
     code = 'TARGET_NOT_READY';
-    const original = target(bridge, projectId, layerId).layer.content;
+    const initial = target(bridge, projectId, layerId);
+    const pageId = initial.project.activePageId;
+    const original = initial.layer.content;
     safeImage(original);
     const source = new URL(original);
     if (source.username || source.password) throw new Error('Image URLs must not contain credentials.');
@@ -75,7 +78,7 @@ export async function executeBackgroundRemovalTool(input: unknown, bridge: Works
     signal.throwIfAborted();
     stage = 'validation';
     code = 'TARGET_NOT_READY';
-    target(bridge, projectId, layerId, original);
+    target(bridge, projectId, layerId, original, pageId);
 
     stage = 'image_load';
     code = 'IMAGE_LOAD_FAILED';
@@ -83,7 +86,7 @@ export async function executeBackgroundRemovalTool(input: unknown, bridge: Works
     signal.throwIfAborted();
     stage = 'validation';
     code = 'TARGET_NOT_READY';
-    target(bridge, projectId, layerId, original);
+    target(bridge, projectId, layerId, original, pageId);
     stage = 'inference';
     code = 'INFERENCE_FAILED';
     const output = await removeBackground(image, { signal, modelId, device });
@@ -92,7 +95,7 @@ export async function executeBackgroundRemovalTool(input: unknown, bridge: Works
 
     stage = 'apply';
     code = 'APPLY_FAILED';
-    const latest = target(bridge, projectId, layerId, original).project;
+    const latest = target(bridge, projectId, layerId, original, pageId).project;
     const next = applyRemovalResult(latest, { layerId, originalContent: original, content, keepOriginal }, generateId());
     if (next === latest) throw new Error('Background removal result could not be applied; read get_context before retrying.');
     resultLayerId = keepOriginal ? next.selectedLayerId! : layerId;
@@ -101,7 +104,7 @@ export async function executeBackgroundRemovalTool(input: unknown, bridge: Works
     signal.throwIfAborted();
     await bridge.commit(next);
     return {
-      success: true, projectId, sourceLayerId: layerId, layerId: resultLayerId,
+      success: true, projectId, pageId, sourceLayerId: layerId, layerId: resultLayerId,
       modelId, executionProvider: output.provider, keepOriginal, backgroundRemoved: true, runtimeDownloaded
     };
   } catch (error) {

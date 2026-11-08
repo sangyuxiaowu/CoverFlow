@@ -7,6 +7,47 @@ import type { ProjectState } from '../types.ts';
 import { syncProjectPages } from '../storage/projectCompatibility.ts';
 import { insertProjectPage, selectProjectPage } from '../utils/projectPages.ts';
 
+it('keeps image payloads out of structured clones across 40 generated images while isolating mutable fields', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const clone = vi.spyOn(globalThis, 'structuredClone');
+  const initial = syncProjectPages({ id: 'images', title: 'Images', layers: [], selectedLayerId: null, updatedAt: 1,
+    background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 },
+    canvasConfig: { width: 100, height: 100, ratio: '1:1' } });
+  const firstLayer = { id: 'image-0', name: 'Image', type: 'image' as const,
+    content: `data:image/png;base64,${'A'.repeat(400_000)}`, x: 0, y: 0, width: 100, height: 100,
+    rotation: 0, zIndex: 0, visible: true, locked: false, opacity: 1,
+    imageFilters: { brightness: 100, contrast: 100, grayscale: 0, blur: 0 }, children: ['child'] };
+  let state: ReturnType<typeof useProjectHistory> & { project: ProjectState | null };
+  function Harness() {
+    const [project, setProject] = useState<ProjectState | null>(initial);
+    state = { ...useProjectHistory(project, setProject), project };
+    return null;
+  }
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(<Harness />));
+    await act(async () => state!.initProjectHistory(initial));
+    for (let index = 0; index < 40; index++) {
+      const layer = index === 0 ? firstLayer : { ...firstLayer, id: `image-${index}`, content: `${firstLayer.content}${index}` };
+      await act(async () => state!.modifyProject(current => syncProjectPages({ ...current, layers: [...current.layers, layer] })));
+    }
+    expect(clone).not.toHaveBeenCalled();
+    firstLayer.imageFilters.brightness = 0;
+    firstLayer.children.push('external');
+    await act(async () => state!.handleUndo());
+    expect(state!.project!.layers).toHaveLength(39);
+    expect(state!.project!.layers[0].content).toBe(firstLayer.content);
+    expect(state!.project!.layers[0].imageFilters!.brightness).toBe(100);
+    expect(state!.project!.layers[0].children).toEqual(['child']);
+    await act(async () => state!.handleRedo());
+    expect(state!.project!.layers).toHaveLength(40);
+  } finally {
+    await act(async () => root.unmount());
+    clone.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
+
 it('isolates snapshots, groups continuous edits, truncates redo and caps all commits at 50', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const initial: ProjectState = {

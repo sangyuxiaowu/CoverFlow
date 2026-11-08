@@ -47,6 +47,7 @@ async function renderImage(project: ProjectState, options: RenderImageOptions): 
   document.body.appendChild(host);
   const root = createRoot(host);
   const previewRef = { current: null as HTMLDivElement | null };
+  let canvas: HTMLCanvasElement | undefined;
   try {
     flushSync(() => root.render(<LivePreview project={project} previewRef={previewRef} />));
     const node = previewRef.current;
@@ -55,20 +56,22 @@ async function renderImage(project: ProjectState, options: RenderImageOptions): 
     const fontEmbedCSS = await wait(projectFontEmbedCSS(project));
     await yieldForInput();
     const scale = options.maxEdge ? Math.min(1, options.maxEdge / Math.max(width, height)) : options.pixelRatio ?? 1;
-    const canvas = await wait(htmlToImage.toCanvas(node, {
+    canvas = await htmlToImage.toCanvas(node, {
       fontEmbedCSS,
       width, height, pixelRatio: 1,
       canvasWidth: Math.max(1, Math.round(width * scale)), canvasHeight: Math.max(1, Math.round(height * scale)),
       style: { transform: 'none', transformOrigin: 'top left', opacity: '1', transition: 'none', boxShadow: 'none', width: `${width}px`, height: `${height}px` }
-    }));
+    });
     await yieldForInput();
     if (options.encode && typeof createImageBitmap === 'function' && typeof OffscreenCanvas === 'function') {
       const bitmap = await createImageBitmap(canvas);
       try { return await wait(options.encode(bitmap, `image/${options.format ?? 'png'}`, options.quality ?? 0.9)); }
       finally { bitmap.close(); }
     }
-    return await new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Page rendering failed.')), `image/${options.format ?? 'png'}`, options.quality));
+    const outputCanvas = canvas;
+    return await new Promise<Blob>((resolve, reject) => outputCanvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Page rendering failed.')), `image/${options.format ?? 'png'}`, options.quality));
   } finally {
+    if (canvas) { canvas.width = 0; canvas.height = 0; }
     root.unmount();
     host.remove();
   }

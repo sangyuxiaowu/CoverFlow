@@ -3,6 +3,7 @@ import { defaultConfig, loadConfig, normalizeConfig, validateConfig } from './co
 import { IMAGE_FORMATS, imageMimeType } from './imageAttachments.ts';
 import { ConfigDecryptionError, decryptEndpointKeys, deleteStoredSession, encryptEndpointKeys, listStoredSessions, loadStoredImage, loadStoredUiState, pruneStoredImages, readEncryptionKey, replaceEncryptionKey, saveStoredConfig, saveStoredImage, saveStoredSession, saveStoredUiState, validateSession, verifyStoredEncryptionKey } from './configStore.ts';
 import { generateEncryptionKey, type EncryptionManager } from './encryptionKeys.ts';
+import { clonePlainData } from '../../../utils/clonePlainData.ts';
 
 export interface ChatFileAccess {
   read: (relativePath: string) => Promise<string | null>;
@@ -103,7 +104,9 @@ function buffer(encoded: string): ArrayBuffer { return Uint8Array.from(atob(enco
 
 export function createFileChatStore(files: ChatFileAccess, id: string): ChatStore {
   let pending = Promise.resolve();
+  let queuedSession: { snapshot: ChatSession; task: Promise<void> } | undefined;
   const enqueue = (operation: () => Promise<void>) => {
+    queuedSession = undefined;
     const task = pending.then(operation);
     pending = task.catch(() => {});
     return task;
@@ -151,9 +154,19 @@ export function createFileChatStore(files: ChatFileAccess, id: string): ChatStor
     },
     saveSession: session => {
       validateSession(session);
-      const snapshot = structuredClone(session);
+      const snapshot = clonePlainData(session);
       const path = sessionPath(snapshot.id);
-      return enqueue(() => files.write(path, JSON.stringify(snapshot, null, 2)));
+      if (queuedSession?.snapshot.id === snapshot.id) {
+        queuedSession.snapshot = snapshot;
+        return queuedSession.task;
+      }
+      const entry = { snapshot, task: Promise.resolve() };
+      entry.task = enqueue(async () => {
+        if (queuedSession === entry) queuedSession = undefined;
+        await files.write(path, JSON.stringify(entry.snapshot, null, 2));
+      });
+      queuedSession = entry;
+      return entry.task;
     },
     saveImage: (sessionId, imageId, blob) => {
       if (!/^[a-zA-Z0-9_-]+$/.test(imageId)) throw new Error('Invalid image ID.');

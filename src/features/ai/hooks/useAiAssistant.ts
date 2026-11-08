@@ -11,6 +11,7 @@ import { sumUsage } from '../services/usage.ts';
 import { generateId } from '../../../utils/helpers.ts';
 import { blobToDataUrl, imageMimeType } from '../services/imageAttachments.ts';
 import { ConfigDecryptionError } from '../services/configStore.ts';
+import { clonePlainData } from '../../../utils/clonePlainData.ts';
 
 interface Confirmation { message: string; resolve: (accepted: boolean) => void }
 
@@ -125,7 +126,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     const id = sessionRef.current.id;
     const timer = window.setTimeout(() => {
       if (sessionRef.current?.id !== id) return;
-      void persist(structuredClone(sessionRef.current)).catch(error => setConfigError(error instanceof Error ? error.message : 'Chat save failed.'));
+      void persist(clonePlainData(sessionRef.current)).catch(error => setConfigError(error instanceof Error ? error.message : 'Chat save failed.'));
     }, 300);
     return () => window.clearTimeout(timer);
   }, [entries, store, loading, loadError]);
@@ -223,7 +224,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     onBusyChange(true);
     const id = generateId();
     const targetStore = store;
-    let working = structuredClone(sessionRef.current);
+    let working = clonePlainData(sessionRef.current);
     working.entries = working.entries.map(entry => entry.continuable ? { ...entry, continuable: false } : entry);
     // 确保若上轮以未封闭的 tool 输出结尾，添加占位 assistant 标记以保持 turn 规范
     working.responseItems = sanitizeResponseItems(working.responseItems);
@@ -233,8 +234,8 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     }
 
     const currentProject = bridgeRef.current?.getProject() || workspaceRef.current.project;
-    const projectSnapshot = currentProject ? structuredClone(currentProject) : null;
-    const previousResponseItems = structuredClone(working.responseItems);
+    const projectSnapshot = currentProject ? clonePlainData(currentProject) : null;
+    const previousResponseItems = clonePlainData(working.responseItems);
     const images = attachments.map(item => item.image);
     const attachmentText = images.length
       ? `${prompt.trim()}\n\n<available_images>\n${images.map(({ id, name }) => `- ID: ${id}, Name: ${name}`).join('\n')}\n</available_images>`
@@ -349,7 +350,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     setBusy(true);
     onBusyChange(true);
     const targetStore = store;
-    let working = structuredClone(sessionRef.current);
+    let working = clonePlainData(sessionRef.current);
 
     working.entries = working.entries.map(entry =>
       entry.id === assistantId
@@ -472,7 +473,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     const promptToRetry = executionError.prompt;
     setExecutionError(null);
 
-    const working = structuredClone(sessionRef.current);
+    const working = clonePlainData(sessionRef.current);
     const targetEntry = targetEntryId ? working.entries.find(entry => entry.id === targetEntryId) : null;
     const hasProgress = Boolean(
       targetEntry && (
@@ -503,7 +504,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   const regenerate = async () => {
     if (controllerRef.current || loading || loadError || keyError || savingRef.current || !sessionRef.current) return;
     setExecutionError(null);
-    const working = structuredClone(sessionRef.current);
+    const working = clonePlainData(sessionRef.current);
 
     // 找到最后一条 AI 回复
     let lastAssistantIdx = -1;
@@ -533,10 +534,10 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     if (snapshot) {
       try {
         if (bridgeRef.current) {
-          await bridgeRef.current.commit(structuredClone(snapshot));
+          await bridgeRef.current.commit(clonePlainData(snapshot));
         } else if (workspaceRef.current) {
-          workspaceRef.current.onCommit(structuredClone(snapshot));
-          await workspaceRef.current.storage.saveProject(structuredClone(snapshot));
+          workspaceRef.current.onCommit(clonePlainData(snapshot));
+          await workspaceRef.current.storage.saveProject(clonePlainData(snapshot));
         }
       } catch (err) {
         console.warn('Failed to revert project snapshot on regenerate:', err);
@@ -548,7 +549,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
 
     // 3. 恢复 responseItems 到该次用户提问之前的状态
     if (lastAssistant.previousResponseItems) {
-      working.responseItems = structuredClone(lastAssistant.previousResponseItems);
+      working.responseItems = clonePlainData(lastAssistant.previousResponseItems);
     } else {
       working.responseItems = sanitizeResponseItems(working.responseItems);
       let userPromptIdx = -1;

@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { ProjectPage, ProjectState } from '../types.ts';
 import { selectProjectPage } from '../utils/projectPages.ts';
+import { clonePlainData } from '../utils/clonePlainData.ts';
 
 const pageSnapshots = new WeakMap<ProjectPage, ProjectPage>();
 const cloneProject = (project: ProjectState): ProjectState => {
-  if (!project.pages) return JSON.parse(JSON.stringify(project));
+  if (!project.pages) return clonePlainData(project);
   const pages = project.pages.map(page => {
     let snapshot = pageSnapshots.get(page);
     if (!snapshot) {
-      snapshot = structuredClone(page);
+      snapshot = clonePlainData(page);
       pageSnapshots.set(page, snapshot);
       pageSnapshots.set(snapshot, snapshot);
     }

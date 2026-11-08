@@ -876,6 +876,58 @@ test('file mode stores encrypted configuration and each session under chat', asy
   assert.throws(() => store.saveSession({ ...session, id: '../escape' }), /Invalid/);
 });
 
+test('file chat saves coalesce pending snapshots without losing the latest state or crossing deletion', async () => {
+  let release!: () => void;
+  let started!: () => void;
+  const firstStarted = new Promise<void>(resolve => { started = resolve; });
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const writes: string[] = [];
+  const events: string[] = [];
+  const store = createFileChatStore({ read: async () => null, readBinary: async () => null, writeBinary: async () => {},
+    removeDirectory: async () => {}, remove: async () => { events.push('delete'); }, list: async () => [],
+    write: async (_path, content) => {
+      writes.push(content);
+      events.push(JSON.parse(content).title);
+      if (writes.length === 1) { started(); await blocked; }
+    } }, 'coalesced');
+  const session: ChatSession = { id: 'large-session', title: 'First', createdAt: 1, updatedAt: 1,
+    entries: [{ id: 'user', role: 'user', content: 'Original' }], responseItems: [], requests: [] };
+  const first = store.saveSession(session);
+  await firstStarted;
+  const saves: Promise<void>[] = [];
+  for (let index = 0; index < 40; index++) saves.push(store.saveSession({ ...session, title: `Update ${index}` }));
+  session.entries[0].content = 'Mutated externally';
+  release();
+  await Promise.all([first, ...saves]);
+  assert.equal(writes.length, 2);
+  assert.equal(JSON.parse(writes[1]).title, 'Update 39');
+  assert.equal(JSON.parse(writes[1]).entries[0].content, 'Original');
+  const before = store.saveSession({ ...session, title: 'Before delete' });
+  const deletion = store.deleteSession(session.id);
+  const after = store.saveSession({ ...session, title: 'After delete' });
+  await Promise.all([before, deletion, after]);
+  assert.deepEqual(events.slice(-3), ['Before delete', 'delete', 'After delete']);
+});
+
+test('coalesced session saves reject every caller on failure and allow later saves to recover', async () => {
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  let fail = true;
+  let writes = 0;
+  const store = createFileChatStore({ read: async () => null, readBinary: async () => null, writeBinary: async () => {},
+    removeDirectory: async () => {}, remove: async () => {}, list: async () => [],
+    write: async () => { writes++; await blocked; if (fail) throw new Error('Disk full'); } }, 'failure');
+  const session: ChatSession = { id: 'session', title: 'Latest', createdAt: 1, updatedAt: 1, entries: [], responseItems: [], requests: [] };
+  const settled = Promise.allSettled([store.saveSession(session), store.saveSession({ ...session, title: 'Newer' })]);
+  release();
+  const results = await settled;
+  assert.equal(writes, 1);
+  assert.ok(results.every(result => result.status === 'rejected' && result.reason.message === 'Disk full'));
+  fail = false;
+  await store.saveSession(session);
+  assert.equal(writes, 2);
+});
+
 test('endpoint without configured API key is identified', () => {
   const cfg = defaultConfig();
   const selected = cfg.endpoints[0];

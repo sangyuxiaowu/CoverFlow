@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ProjectState } from '../types.ts';
 import { syncProjectPages } from '../storage/projectCompatibility.ts';
 import { copyProject, deleteProjectPage, insertProjectPage, moveProjectPage, pageNumber, renameProjectPage, selectProjectPage } from './projectPages.ts';
@@ -48,6 +48,30 @@ describe('project pages', () => {
     expect(copied.pages).toHaveLength(2);
     expect(copied.pages![0].id).not.toBe(project.pages![0].id);
     expect(renameProjectPage(copied, copied.activePageId!, ' ').pages![0].name).toBe('');
+  });
+
+  it('duplicates and regenerates 41 image pages without structured-cloning their payloads', () => {
+    const base = initial();
+    let project = syncProjectPages({ ...base, layers: [{ id: 'image', name: 'Image', type: 'image',
+      content: `data:image/png;base64,${'A'.repeat(400_000)}`, x: 0, y: 0, width: 100, height: 100,
+      rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1,
+      imageFilters: { brightness: 100, contrast: 100, grayscale: 0, blur: 0 } }] });
+    const source = project.layers[0];
+    const clone = vi.spyOn(globalThis, 'structuredClone');
+    try {
+      for (let index = 1; index < 41; index++) {
+        project = insertProjectPage(project, `Page ${index}`, project.canvasConfig, project.activePageId);
+        project = syncProjectPages({ ...project, layers: project.layers.map(layer => ({ ...layer, content: `${source.content}${index}` })) });
+      }
+      expect(clone).not.toHaveBeenCalled();
+      expect(project.pages).toHaveLength(41);
+      expect(new Set(project.pages!.map(page => page.layers[0].id)).size).toBe(41);
+      expect(new Set(project.pages!.map(page => page.layers[0].imageFilters)).size).toBe(41);
+      project.layers[0].imageFilters!.brightness = 0;
+      expect(source.imageFilters!.brightness).toBe(100);
+      expect(source.content.endsWith('base64,')).toBe(false);
+      expect(project.pages![0].layers[0].content).toBe(source.content);
+    } finally { clone.mockRestore(); }
   });
 
   it('enforces the page limit for both new pages and copies', () => {

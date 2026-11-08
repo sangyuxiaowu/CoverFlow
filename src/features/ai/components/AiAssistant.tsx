@@ -210,8 +210,10 @@ export default function AiAssistant({
     }
   }, [assistant.confirmation]);
 
+  useEffect(() => { if (!open) assistant.stop('panel_closed'); }, [open]);
+
   const close = () => {
-    if (assistant.busy) assistant.stop('panel_closed');
+    assistant.stop('panel_closed');
     setOpen(false);
   };
 
@@ -636,7 +638,7 @@ export default function AiAssistant({
                               )}
 
                               {/* 左2：图标重新生成 (仅图标，无文字，样式与复制按钮完全一致) */}
-                              {isLastAssistant && !assistant.busy && (
+                              {isLastAssistant && assistant.canRegenerate && (
                                 <button
                                   type="button"
                                   disabled={controlsDisabled}

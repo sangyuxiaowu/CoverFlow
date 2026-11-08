@@ -132,7 +132,8 @@ const App: React.FC = () => {
   const [exportPreviewUrl, setExportPreviewUrl] = useState<string | null>(null);
   const [exportEstimating, setExportEstimating] = useState(false);
   
-  const { initProjectHistory, modifyProject, saveHistorySnapshot, handleUndo, handleRedo, canUndo, canRedo } = useProjectHistory(project, setProject);
+  const { initProjectHistory, modifyProject, saveHistorySnapshot, handleUndo, handleRedo, canUndo, canRedo, aiHistory } = useProjectHistory(project, setProject);
+  useEffect(() => { if (view !== 'editor') aiHistory.clear(); }, [view]);
 
   const [bgCropModal, setBgCropModal] = useState<{ src: string } | null>(null);
   const [bgCropPosition, setBgCropPosition] = useState({ x: 0, y: 0 });
@@ -1427,6 +1428,7 @@ const App: React.FC = () => {
   const cropAspect = project ? project.canvasConfig.width / project.canvasConfig.height : 1;
   const aiWorkspace: WorkspaceOptions = {
     project,
+    aiHistory: view === 'editor' ? aiHistory : undefined,
     getAssetFolder: () => getAssetFolder(storageType, localFileAdapter),
     getCanvasPreview: async () => {
       const preview = await withDeselectedExportPreview(async () => {
@@ -1465,7 +1467,7 @@ const App: React.FC = () => {
     },
     onCommit: next => {
       latestProjectRef.current = next;
-      setProject(next);
+      aiHistory.commit(next);
       setSelectedLayerIds(next.selectedLayerId ? [next.selectedLayerId] : []);
     },
     onOpen: async (next, localPath) => {

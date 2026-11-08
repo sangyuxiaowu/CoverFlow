@@ -48,6 +48,50 @@ it('keeps image payloads out of structured clones across 40 generated images whi
   }
 });
 
+it('pins one immediate AI checkpoint beyond 100 steps without grouping normal undo and invalidates manual edits', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const initial = syncProjectPages({ id: 'ai', title: 'Before AI', layers: [], selectedLayerId: null, updatedAt: 1,
+    background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 },
+    canvasConfig: { width: 100, height: 100, ratio: '1:1' } });
+  let state: ReturnType<typeof useProjectHistory> & { project: ProjectState | null };
+  function Harness() {
+    const [project, setProject] = useState<ProjectState | null>(initial);
+    state = { ...useProjectHistory(project, setProject), project };
+    return null;
+  }
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(<Harness />));
+    let token!: symbol;
+    await act(async () => { token = state!.aiHistory.begin()!; });
+    for (let index = 0; index < 100; index++) {
+      await act(async () => state!.aiHistory.commit({ ...state!.project!, title: `AI ${index}` }));
+    }
+    state!.aiHistory.setRunning(token, false);
+    expect(state!.aiHistory.isValid(token)).toBe(true);
+    let restored: ProjectState | null = null;
+    await act(async () => { restored = state!.aiHistory.restore(token); });
+    expect(restored!.title).toBe('Before AI');
+    expect(state!.aiHistory.isValid(token)).toBe(false);
+    await act(async () => state!.handleUndo());
+    expect(state!.project!.title).toBe('AI 98');
+    await act(async () => { token = state!.aiHistory.begin()!; });
+    state!.aiHistory.setRunning(token, false);
+    await act(async () => state!.modifyProject(current => ({ ...current, title: 'Manual' })));
+    expect(state!.aiHistory.isValid(token)).toBe(false);
+    await act(async () => { token = state!.aiHistory.begin()!; });
+    state!.aiHistory.setRunning(token, false);
+    await act(async () => state!.handleUndo());
+    expect(state!.aiHistory.isValid(token)).toBe(false);
+    await act(async () => { token = state!.aiHistory.begin()!; });
+    await act(async () => state!.initProjectHistory(initial));
+    expect(state!.aiHistory.isValid(token)).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+    vi.unstubAllGlobals();
+  }
+});
+
 it('isolates snapshots, groups continuous edits, truncates redo and caps all commits at 50', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const initial: ProjectState = {

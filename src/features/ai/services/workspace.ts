@@ -5,9 +5,11 @@ import { parseManageProjectsRequest } from '../tools/requests.ts';
 import { generateId } from '../../../utils/helpers.ts';
 import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
 import { copyProject } from '../../../utils/projectPages.ts';
+import type { AiProjectHistory } from '../../../hooks/useProjectHistory.ts';
 
 export interface WorkspaceOptions {
   project: ProjectState | null;
+  aiHistory?: AiProjectHistory;
   getCanvasPreview?: () => Promise<Blob>;
   getLayerPreview?: (layerId: string) => Promise<Blob>;
   getAssetFolder?: () => Promise<FileSystemDirectoryHandle | null>;

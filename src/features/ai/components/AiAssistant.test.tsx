@@ -114,3 +114,23 @@ it('keeps held images and restores the text draft when a text-only request fails
   expect(host.querySelector('[aria-label="Remove image: test.webp"]')).not.toBeNull();
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('Request failed');
 });
+
+it('shows chat redo only for the last reply with a valid immediate checkpoint', async () => {
+  assistant.entries = [
+    { id: 'older', role: 'assistant', content: 'Older reply' },
+    { id: 'latest', role: 'assistant', content: 'Latest reply' }
+  ];
+  assistant.regenerate = vi.fn(async () => {});
+  assistant.canRegenerate = false;
+  await render(true);
+  expect(host.querySelector('[aria-label="Regenerate (Redo)"]')).toBeNull();
+  expect(host.querySelectorAll('[aria-label="Copy response"]')).toHaveLength(2);
+  assistant.canRegenerate = true;
+  await render(true);
+  expect(host.querySelectorAll('[aria-label="Regenerate (Redo)"]')).toHaveLength(1);
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Regenerate (Redo)"]')!.click());
+  expect(assistant.regenerate).toHaveBeenCalledOnce();
+  assistant.canRegenerate = false;
+  await render(true);
+  expect(host.querySelector('[aria-label="Regenerate (Redo)"]')).toBeNull();
+});

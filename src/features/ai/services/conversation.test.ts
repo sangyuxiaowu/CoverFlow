@@ -1,11 +1,15 @@
 import { beforeAll, test } from 'vitest';
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createRequire } from 'node:module';
 import 'fake-indexeddb/auto';
 import { ConversationAbortError, conversationAbortDetails, readResponse, runConversation, normalizeUsage, sanitizeResponseItems } from './conversation.ts';
 import type { Response as AiResponse, ResponseStreamEvent } from 'openai/resources/responses/responses';
 import { DEFAULT_IMAGE_TOOL_PROMPT, SYSTEM_PROMPT, defaultConfig, saveConfig, normalizeConfig, normalizeEndpoint, selectModel, toRequestConfig, reasoningPayload, loadConfig, createEndpoint, validateRequestConfig } from './config.ts';
 import type { ProjectState } from '../../../types.ts';
-import type { AiRequestConfig, ChatEntry, ChatSession, RequestUsage, ResponseItem, ToolEvent, WorkspaceBridge } from '../types.ts';
+import type { AiRequestConfig, ChatSession, RequestUsage, ResponseItem, ToolEvent, WorkspaceBridge } from '../types.ts';
 import { AI_DATABASE_NAME, listStoredSessions, saveStoredImage, loadStoredImage, saveStoredSession, deleteStoredSession, replaceEncryptionKey } from './configStore.ts';
 import { generateEncryptionKey } from './encryptionKeys.ts';
 import { createFileChatStore, type ChatFileAccess } from './chatStore.ts';
@@ -1033,70 +1037,37 @@ test('sumUsage computes single-turn token output accurately', () => {
   assert.equal(turn2Usage.outputTokens, 50);
 });
 
-test('regenerate reverts project snapshot and resets turn without branching', async () => {
-  let committedProject: any = null;
-  const mockBridge = {
-    ...bridge,
-    commit: async (p: any) => { committedProject = p; }
-  };
-
-  const initialProject: ProjectState = {
-    id: 'proj-1',
-    title: 'Initial Title',
-    layers: [],
-    background: { type: 'color' as const, value: '#000000', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0.1, overlayScale: 20 },
-    canvasConfig: { width: 1200, height: 630, ratio: '1200x630' },
-    selectedLayerId: null,
-    updatedAt: 1
-  };
-
-  const modifiedProject: ProjectState = {
-    ...initialProject,
-    title: 'AI Modified Title',
-    layers: [{ id: 'layer-1', name: 'AI Layer', type: 'text', content: 'Hello', x: 0, y: 0, width: 100, height: 50, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }]
-  };
-
-  const previousResponseItems: ResponseItem[] = [
-    { role: 'user', content: '第一轮对话' },
-    { role: 'assistant', content: '第一轮回复' }
-  ];
-
-  const assistantEntry: ChatEntry = {
-    id: 'asst-2',
-    role: 'assistant',
-    content: '修改了标题和图层',
-    projectSnapshot: initialProject,
-    previousResponseItems
-  };
-
-  const userEntry: ChatEntry = {
-    id: 'user-2',
-    role: 'user',
-    content: '添加一个图层并修改标题'
-  };
-
-  const entries: ChatEntry[] = [
-    { id: 'user-1', role: 'user', content: '第一轮对话' },
-    { id: 'asst-1', role: 'assistant', content: '第一轮回复' },
-    userEntry,
-    assistantEntry
-  ];
-
-  // 模拟 regenerate 操作逻辑
-  // 1. 恢复 snapshot
-  await mockBridge.commit(assistantEntry.projectSnapshot);
-  assert.equal(committedProject.title, 'Initial Title');
-  assert.equal(committedProject.layers.length, 0);
-
-  // 2. 移除上一轮的用户和助手 entry，撤销历史不分叉
-  const filteredEntries = entries.filter(e => e.id !== assistantEntry.id && e.id !== userEntry.id);
-  assert.equal(filteredEntries.length, 2);
-  assert.equal(filteredEntries[filteredEntries.length - 1].id, 'asst-1');
-
-  // 3. 恢复 responseItems 到该轮之前的状态
-  const restoredResponseItems = assistantEntry.previousResponseItems!;
-  assert.equal(restoredResponseItems.length, 2);
-  assert.equal((restoredResponseItems[1] as any).content, '第一轮回复');
+test('one-time session cleanup removes only obsolete checkpoints and preserves chat data, images and invalid originals', () => {
+  const { cleanSessions } = createRequire(import.meta.url)('../../../../.vscode/cleanup-chat-sessions.cjs');
+  const root = mkdtempSync(join(tmpdir(), 'coverflow-chat-cleanup-'));
+  const directory = join(root, 'sessions');
+  mkdirSync(directory);
+  const session = { id: 'session', title: 'Keep title', createdAt: 1, updatedAt: 2,
+    entries: [{ id: 'assistant', role: 'assistant', content: 'Keep response', images: [{ id: 'image' }],
+      projectSnapshot: { layers: [{ content: 'data:image/png;base64,original' }] }, previousResponseItems: [{ role: 'user', content: 'Old' }] }],
+    responseItems: [{ role: 'user', content: 'Keep prompt' }], requests: [{ id: 'request', usage: { totalTokens: 100 } }], custom: 'Keep unknown fields' };
+  const file = join(directory, 'session.json');
+  const image = join(root, 'image.png');
+  const temporary = join(directory, 'session.json.crswap');
+  try {
+    writeFileSync(file, JSON.stringify(session));
+    writeFileSync(image, 'original image bytes');
+    writeFileSync(temporary, 'temporary file');
+    const dry = cleanSessions(directory, { dryRun: true });
+    assert.equal(dry.changed, 1);
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), session);
+    const report = cleanSessions(directory);
+    assert.equal(report.removedFields, 2);
+    assert.deepEqual(report.errors, []);
+    const expected = { ...session, entries: session.entries.map(({ projectSnapshot, previousResponseItems, ...entry }) => entry) };
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), expected);
+    assert.equal(readFileSync(image, 'utf8'), 'original image bytes');
+    assert.equal(readFileSync(temporary, 'utf8'), 'temporary file');
+    assert.equal(cleanSessions(directory).changed, 0);
+    writeFileSync(join(directory, 'broken.json'), '{');
+    assert.equal(cleanSessions(directory).errors.length, 1);
+    assert.equal(readFileSync(join(directory, 'broken.json'), 'utf8'), '{');
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 

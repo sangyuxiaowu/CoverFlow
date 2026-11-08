@@ -67,6 +67,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
   const controllerRef = useRef<AbortController | null>(null);
+  const redoRef = useRef<{ token: symbol; sessionId: string; entryId: string; responseCount: number; storeId: string } | null>(null);
   const bridgeRef = useRef<ReturnType<typeof createWorkspaceBridge> | null>(null);
   if (!bridgeRef.current) bridgeRef.current = createWorkspaceBridge(() => workspaceRef.current, (message, signal) => new Promise<boolean>((resolve, reject) => {
     const cancel = () => { setConfirmation(null); reject(signal.reason); };
@@ -75,7 +76,19 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     setConfirmation({ message, resolve: accepted => { signal.removeEventListener('abort', cancel); setConfirmation(null); resolve(accepted); } });
   }));
 
+  const invalidateRegenerate = () => {
+    redoRef.current = null;
+    workspaceRef.current.aiHistory?.clear();
+  };
+  const hasRegenerateCheckpoint = () => {
+    const redo = redoRef.current;
+    const current = sessionRef.current;
+    return Boolean(redo && current?.id === redo.sessionId && storeRef.current.id === redo.storeId
+      && current.entries.filter(entry => entry.role === 'assistant').at(-1)?.id === redo.entryId
+      && workspaceRef.current.aiHistory?.isValid(redo.token));
+  };
   const activate = (session: ChatSession) => {
+    invalidateRegenerate();
     sessionRef.current = session;
     setActiveSessionId(session.id);
     setEntries(session.entries);
@@ -117,6 +130,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     void reloadConfig();
     return () => {
       mountedRef.current = false;
+      invalidateRegenerate();
       controllerRef.current?.abort(new ConversationAbortError(storeRef.current.id !== store.id ? 'storage_changed' : 'assistant_disposed'));
     };
   }, [store]);
@@ -234,8 +248,9 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     }
 
     const currentProject = bridgeRef.current?.getProject() || workspaceRef.current.project;
-    const projectSnapshot = currentProject ? clonePlainData(currentProject) : null;
     const previousResponseItems = clonePlainData(working.responseItems);
+    const token = workspaceRef.current.aiHistory?.begin(currentProject);
+    redoRef.current = token ? { token, sessionId: working.id, entryId: id, responseCount: previousResponseItems.length, storeId: targetStore.id } : null;
     const images = attachments.map(item => item.image);
     const attachmentText = images.length
       ? `${prompt.trim()}\n\n<available_images>\n${images.map(({ id, name }) => `- ID: ${id}, Name: ${name}`).join('\n')}\n</available_images>`
@@ -249,7 +264,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     working.responseItems = [...working.responseItems, user];
     working.entries.push(
       { id: generateId(), role: 'user', content: prompt.trim(), ...(images.length ? { images } : {}) },
-      { id, role: 'assistant', content: '', tools: [], projectSnapshot, previousResponseItems }
+      { id, role: 'assistant', content: '', tools: [] }
     );
     const publish = () => {
       working.updatedAt = Date.now();
@@ -337,6 +352,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
       try { await persist(working, targetStore); }
       catch (error) { if (storeRef.current === targetStore) setConfigError(error instanceof Error ? error.message : 'Chat save failed.'); }
       await targetStore.pruneImages(working.id, working.entries.flatMap(entry => entry.images || []).map(image => image.id)).catch(() => {});
+      if (token) workspaceRef.current.aiHistory?.setRunning(token, false);
       controllerRef.current = null;
       setBusy(false);
       onBusyChange(false);
@@ -345,6 +361,8 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
 
   const continueTurn = async (assistantId: string, userApprovedRetry = false) => {
     if (controllerRef.current || loading || loadError || keyError || savingRef.current || !sessionRef.current) return;
+    const token = redoRef.current?.entryId === assistantId && hasRegenerateCheckpoint() ? redoRef.current.token : null;
+    if (token) workspaceRef.current.aiHistory?.setRunning(token, true);
     const controller = new AbortController();
     controllerRef.current = controller;
     setBusy(true);
@@ -452,6 +470,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
       try { await persist(working, targetStore); }
       catch (error) { if (storeRef.current === targetStore) setConfigError(error instanceof Error ? error.message : 'Chat save failed.'); }
       await targetStore.pruneImages(working.id, working.entries.flatMap(entry => entry.images || []).map(image => image.id)).catch(() => {});
+      if (token) workspaceRef.current.aiHistory?.setRunning(token, false);
       controllerRef.current = null;
       setBusy(false);
       onBusyChange(false);
@@ -502,22 +521,13 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   };
 
   const regenerate = async () => {
-    if (controllerRef.current || loading || loadError || keyError || savingRef.current || !sessionRef.current) return;
+    if (controllerRef.current || loading || loadError || keyError || savingRef.current || !sessionRef.current || !hasRegenerateCheckpoint()) return;
     setExecutionError(null);
     const working = clonePlainData(sessionRef.current);
-
-    // 找到最后一条 AI 回复
-    let lastAssistantIdx = -1;
-    for (let i = working.entries.length - 1; i >= 0; i--) {
-      if (working.entries[i].role === 'assistant') {
-        lastAssistantIdx = i;
-        break;
-      }
-    }
+    const redo = redoRef.current!;
+    const lastAssistantIdx = working.entries.findIndex(entry => entry.id === redo.entryId);
     if (lastAssistantIdx === -1) return;
     const lastAssistant = working.entries[lastAssistantIdx];
-
-    // 找到该 AI 回复对应的上一条用户输入
     let lastUserIdx = -1;
     for (let i = lastAssistantIdx - 1; i >= 0; i--) {
       if (working.entries[i].role === 'user') {
@@ -528,52 +538,30 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     if (lastUserIdx === -1) return;
     const lastUserEntry = working.entries[lastUserIdx];
     const promptToRerun = lastUserEntry.content;
-
-    // 1. 撤销之前的 AI 操作：恢复快照
-    const snapshot = lastAssistant.projectSnapshot;
-    if (snapshot) {
-      try {
-        if (bridgeRef.current) {
-          await bridgeRef.current.commit(clonePlainData(snapshot));
-        } else if (workspaceRef.current) {
-          workspaceRef.current.onCommit(clonePlainData(snapshot));
-          await workspaceRef.current.storage.saveProject(clonePlainData(snapshot));
-        }
-      } catch (err) {
-        console.warn('Failed to revert project snapshot on regenerate:', err);
-      }
+    savingRef.current = true;
+    setSaving(true);
+    let uploads: ChatImageUpload[];
+    try {
+      uploads = await loadUploads(working.id, lastUserEntry.images);
+      if (!hasRegenerateCheckpoint() || redoRef.current !== redo) return;
+      const restored = workspaceRef.current.aiHistory?.restore(redo.token);
+      if (!restored) return;
+      redoRef.current = null;
+      await bridgeRef.current!.commit(restored);
+      working.entries = working.entries.filter((_, index) => index !== lastAssistantIdx && index !== lastUserIdx);
+      working.responseItems = working.responseItems.slice(0, redo.responseCount);
+      working.requests = working.requests.filter(request => request.entryId !== lastAssistant.id);
+      sessionRef.current = working;
+      setEntries([...working.entries]);
+      await persist(working);
+    } catch (error) {
+      setConfigError(error instanceof Error ? error.message : 'Unable to regenerate the last turn.');
+      return;
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
-
-    // 2. 移除上一轮的用户和助手 entry，撤销历史不分叉
-    working.entries = working.entries.filter((_, idx) => idx !== lastAssistantIdx && idx !== lastUserIdx);
-
-    // 3. 恢复 responseItems 到该次用户提问之前的状态
-    if (lastAssistant.previousResponseItems) {
-      working.responseItems = clonePlainData(lastAssistant.previousResponseItems);
-    } else {
-      working.responseItems = sanitizeResponseItems(working.responseItems);
-      let userPromptIdx = -1;
-      for (let i = working.responseItems.length - 1; i >= 0; i--) {
-        const item = working.responseItems[i];
-        if ('role' in item && item.role === 'user' && item.content === promptToRerun) {
-          userPromptIdx = i;
-          break;
-        }
-      }
-      if (userPromptIdx !== -1) {
-        working.responseItems = working.responseItems.slice(0, userPromptIdx);
-      }
-    }
-
-    // 清理该 assistant entry 的单次 requests 记录
-    working.requests = working.requests.filter(r => r.entryId !== lastAssistant.id);
-
-    sessionRef.current = working;
-    setEntries([...working.entries]);
-    await persist(working);
-
-    // 4. 从上次用户输入重新发起
-    await send(promptToRerun, await loadUploads(working.id, lastUserEntry.images));
+    await send(promptToRerun, uploads);
   };
 
   const insertImageToCanvas = async (input: {
@@ -665,7 +653,11 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     config, configure, entries, sessions, activeSessionId, newSession, selectSession,
     renameSession, deleteSession, deleteImages, insertImageToCanvas, busy, loading, saving, loadError, keyError, configError,
     reloadConfig, send, clear, confirmation,
-    stop: (source: 'user_stop' | 'panel_closed' = 'user_stop') => controllerRef.current?.abort(new ConversationAbortError(source)),
+    stop: (source: 'user_stop' | 'panel_closed' = 'user_stop') => {
+      if (source === 'panel_closed') invalidateRegenerate();
+      controllerRef.current?.abort(new ConversationAbortError(source));
+    },
+    canRegenerate: !busy && !loading && !saving && !loadError && !keyError && hasRegenerateCheckpoint(),
     executionError, clearExecutionError, retry, regenerate
   };
 }

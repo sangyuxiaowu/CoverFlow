@@ -148,8 +148,6 @@ export interface ChatEntry {
   usage?: TokenUsage;
   durationMs?: number;
   images?: ChatImageRef[];
-  projectSnapshot?: ProjectState | null;
-  previousResponseItems?: ResponseItem[];
 }
 
 export interface ChatSession {

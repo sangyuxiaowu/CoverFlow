@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { useAiAssistant } from './useAiAssistant.ts';
@@ -10,6 +10,9 @@ import type { WorkspaceOptions } from '../services/workspace.ts';
 import type { StorageAdapter } from '../../../storage/StorageAdapter.ts';
 import type { ChatSession } from '../types.ts';
 import { ConfigDecryptionError } from '../services/configStore.ts';
+import { useProjectHistory } from '../../../hooks/useProjectHistory.ts';
+import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
+import type { ProjectState } from '../../../types.ts';
 
 vi.mock('../services/conversation.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../services/conversation.ts')>(),
@@ -55,6 +58,110 @@ function waitForAbort() {
   });
   return () => signal!;
 }
+
+async function mountEditor(store = memoryStore(), saveProject = async (_project: ProjectState) => {}) {
+  const initial = syncProjectPages({ id: 'editor', title: 'Before AI', layers: [], selectedLayerId: null, updatedAt: 1,
+    background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 },
+    canvasConfig: { width: 100, height: 100, ratio: '1:1' } });
+  let state: { assistant: ReturnType<typeof useAiAssistant>; history: ReturnType<typeof useProjectHistory>; project: ProjectState | null };
+  function Harness() {
+    const [project, setProject] = useState<ProjectState | null>(initial);
+    const history = useProjectHistory(project, setProject);
+    const assistant = useAiAssistant({ ...workspace, project, aiHistory: history.aiHistory,
+      storage: { ...workspace.storage, ensureReady: async () => true, saveProject },
+      onCommit: history.aiHistory.commit }, () => {}, store);
+    state = { assistant, history, project };
+    return null;
+  }
+  const root = createRoot(document.createElement('div'));
+  roots.add(root);
+  await act(async () => root.render(<Harness />));
+  return { getState: () => state!, store, root };
+}
+
+it('regenerates only from the immediate editor checkpoint and never persists project or duplicate response snapshots', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const starts: string[] = [];
+  vi.mocked(runConversation).mockImplementation(async options => {
+    const project = options.bridge.getProject()!;
+    starts.push(project.title);
+    await options.bridge.commit({ ...project, title: 'AI result' });
+    options.onHistory?.([...options.input, { role: 'assistant', content: 'Done' }]);
+    return 'Done';
+  });
+  const harness = await mountEditor();
+  await act(async () => { await harness.getState().assistant.send('Change the title'); });
+  expect(harness.getState().assistant.canRegenerate).toBe(true);
+  const saved = vi.mocked(harness.store.saveSession).mock.calls.at(-1)![0];
+  expect(JSON.stringify(saved)).not.toContain('projectSnapshot');
+  expect(JSON.stringify(saved)).not.toContain('previousResponseItems');
+  await act(async () => { await harness.getState().assistant.regenerate(); });
+  expect(starts).toEqual(['Before AI', 'Before AI']);
+  expect(harness.getState().assistant.entries).toHaveLength(2);
+  expect(vi.mocked(runConversation).mock.calls[1][0].input).toHaveLength(1);
+  expect(harness.getState().assistant.canRegenerate).toBe(true);
+  await act(async () => harness.getState().history.modifyProject(current => ({ ...current, title: 'Manual edit' })));
+  expect(harness.getState().assistant.canRegenerate).toBe(false);
+  await act(async () => { await harness.getState().assistant.regenerate(); });
+  expect(runConversation).toHaveBeenCalledTimes(2);
+  expect(harness.getState().project!.title).toBe('Manual edit');
+});
+
+it('invalidates immediate chat redo on panel close, session switch and reload', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.mocked(runConversation).mockResolvedValue('Done');
+  const harness = await mountEditor();
+  await act(async () => { await harness.getState().assistant.send('First'); });
+  expect(harness.getState().assistant.canRegenerate).toBe(true);
+  await act(async () => harness.getState().assistant.stop('panel_closed'));
+  expect(harness.getState().assistant.canRegenerate).toBe(false);
+  await act(async () => { await harness.getState().assistant.send('Second'); });
+  expect(harness.getState().assistant.canRegenerate).toBe(true);
+  await act(async () => { await harness.getState().assistant.newSession(); });
+  expect(harness.getState().assistant.canRegenerate).toBe(false);
+  await act(async () => { await harness.getState().assistant.send('Third'); });
+  expect(harness.getState().assistant.canRegenerate).toBe(true);
+  await act(async () => { await harness.getState().assistant.reloadConfig(); });
+  expect(harness.getState().assistant.canRegenerate).toBe(false);
+});
+
+it('does not rerun the model when restoring the immediate project cannot be saved', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.mocked(runConversation).mockImplementation(async options => {
+    await options.bridge.commit({ ...options.bridge.getProject()!, title: 'AI result' });
+    return 'Done';
+  });
+  let fail = false;
+  const harness = await mountEditor(memoryStore(), async () => { if (fail) throw new Error('Disk full'); });
+  await act(async () => { await harness.getState().assistant.send('First'); });
+  expect(harness.getState().assistant.canRegenerate).toBe(true);
+  fail = true;
+  await act(async () => { await harness.getState().assistant.regenerate(); });
+  expect(runConversation).toHaveBeenCalledOnce();
+  expect(harness.getState().assistant.configError).toBe('Disk full');
+  expect(harness.getState().assistant.canRegenerate).toBe(false);
+  expect(harness.getState().assistant.entries).toHaveLength(2);
+});
+
+it('does not resurrect chat redo after a manual edit during an active AI turn', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  let resume!: () => void;
+  const gate = new Promise<void>(resolve => { resume = resolve; });
+  vi.mocked(runConversation).mockImplementation(async options => {
+    await options.bridge.commit({ ...options.bridge.getProject()!, title: 'AI first step' });
+    await gate;
+    await options.bridge.commit({ ...options.bridge.getProject()!, title: 'AI last step' });
+    return 'Done';
+  });
+  const harness = await mountEditor();
+  let pending: Promise<void>;
+  await act(async () => { pending = harness.getState().assistant.send('Edit'); });
+  await act(async () => harness.getState().history.modifyProject(current => ({ ...current, title: 'Manual during AI' })));
+  await act(async () => { resume(); await pending!; });
+  expect(harness.getState().assistant.canRegenerate).toBe(false);
+  await act(async () => harness.getState().history.handleUndo());
+  expect(harness.getState().project!.title).toBe('Manual during AI');
+});
 
 afterEach(async () => {
   await act(async () => { for (const root of roots) root.unmount(); });
@@ -113,7 +220,7 @@ it('rejects new attachments for a text-only model even when image generation is 
   expect(harness.getAssistant().entries).toEqual(entries);
 });
 
-it('deletes selected images and history references before pruning, preserving other assets and snapshots', async () => {
+it('deletes selected images and history references before pruning, preserving other assets', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const image = { id: 'preview', name: 'canvas-preview.webp', type: 'image/webp' as const, size: 100 };
   const keep = { ...image, id: 'generated', name: 'generated.png' };
@@ -126,7 +233,7 @@ it('deletes selected images and history references before pruning, preserving ot
     entries: [{ id: 'entry', role: 'assistant', content: 'Kept', images: [image, keep], tools: [
       { id: 'tool', name: 'get_canvas_preview', arguments: '{}', status: 'success', image },
       { id: 'other', name: 'generate_image', arguments: '{}', status: 'success', image: keep }
-    ], previousResponseItems: history, projectSnapshot: null }]
+    ] }]
   };
   const store = memoryStore();
   store.listSessions = async () => [structuredClone(session)];
@@ -139,7 +246,6 @@ it('deletes selected images and history references before pruning, preserving ot
   expect(next.entries[0].tools?.[1].image).toEqual(keep);
   expect(JSON.stringify(next)).not.toContain('attachment://preview');
   expect(JSON.stringify(next.responseItems)).toContain('Keep text');
-  expect(next.entries[0].projectSnapshot).toBeNull();
   expect(next.updatedAt).toBe(2);
   expect(harness.getAssistant().entries).toEqual(next.entries);
   expect(store.pruneImages).toHaveBeenCalledWith('session', ['generated', 'generated']);

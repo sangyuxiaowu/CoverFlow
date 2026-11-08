@@ -51,7 +51,6 @@ export function removeSessionImages(session: ChatSession, imageIds: Set<string>)
       ...entry,
       images: entry.images?.filter(image => !imageIds.has(image.id)),
       tools: entry.tools?.map(tool => tool.image && imageIds.has(tool.image.id) ? { ...tool, image: undefined } : tool),
-      previousResponseItems: entry.previousResponseItems ? cleanHistory(entry.previousResponseItems) : undefined
     })),
     responseItems: cleanHistory(session.responseItems)
   };

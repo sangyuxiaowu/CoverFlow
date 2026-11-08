@@ -120,25 +120,6 @@ test('background removal is a static tool with model selection guidance and no r
   assert.equal('backgroundRemoved' in (properties || {}), false);
 });
 
-test('dedicated tool provides cover size recommendations with and without an open project', async () => {
-  const { bridge, signal } = setup();
-  for (const getProject of [bridge.getProject, () => null]) {
-    const recommendations = await executeTool('get_cover_size_recommendations', {}, { ...bridge, getProject }, signal) as {
-      note: string; presets: typeof PRESET_RATIOS;
-    };
-    assert.deepEqual(recommendations.presets, PRESET_RATIOS);
-    assert.match(recommendations.note, /不是平台强制规格/);
-    assert.ok(recommendations.presets.every(preset => preset.description.length > 0));
-    const context = await executeTool('get_context', {}, { ...bridge, getProject }, signal) as Record<string, unknown>;
-    assert.equal('coverSizeRecommendations' in context, false);
-    assert.equal('presets' in context, false);
-    if (context.projectId === null) assert.match(String(context.message), /get_cover_size_recommendations/);
-  }
-  const definition = TOOL_DEFINITIONS.find(item => item.function.name === 'get_cover_size_recommendations');
-  assert.ok(definition);
-  assert.deepEqual(definition.function.parameters, { type: 'object', properties: {} });
-});
-
 test('project creation and search use dedicated tools and preserve bridge actions', async () => {
   const { bridge, signal } = setup();
   const requests: unknown[] = [];

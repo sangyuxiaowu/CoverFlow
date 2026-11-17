@@ -15,7 +15,10 @@ import { generateEncryptionKey } from './encryptionKeys.ts';
 import { createFileChatStore, type ChatFileAccess } from './chatStore.ts';
 import { estimateInput, sessionUsage, sumUsage } from './usage.ts';
 import { parseMarkdown } from './markdown.ts';
-import { skillToolDefinitions, TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import { IMAGE_TOOL_SCHEMAS } from '../tools/imageTools.ts';
+import { builtInToolDefinitions } from 'sang-ai-kit/built-in-tools';
+import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
 import { exampleSkill } from './skills.ts';
 
 
@@ -77,7 +80,7 @@ test('skills default empty, persist as plain text and inject only an index witho
   delete profiles.skills;
   assert.deepEqual(normalizeConfig(profiles).skills, []);
   assert.equal(toRequestConfig(profiles).systemPrompt, profiles.systemPrompt);
-  assert.deepEqual(skillToolDefinitions(), []);
+  assert.ok(!builtInToolDefinitions().some(tool => tool.name === 'skill'));
   profiles.skills = [exampleSkill()];
   profiles.systemPrompt = 'Keep my custom system instructions.';
   await saveConfig(profiles);
@@ -115,8 +118,8 @@ test('skill loads full content on demand through Responses without requiring an 
     await runConversation({ config: requestConfig, input: [], bridge, signal: new AbortController().signal,
       onText: () => {}, onTool: event => events.push(event), onUsage: usage => usages.push(usage) });
     assert.equal(requests.length, 2);
-    const definition = skillToolDefinitions([skill])[0];
-    assert.deepEqual(requests[0].tools.find((tool: { name: string }) => tool.name === 'skill'), { type: 'function', ...definition.function, strict: false });
+    const definition = builtInToolDefinitions({ skills: [skill] }).find(tool => tool.name === 'skill')!;
+    assert.deepEqual(requests[0].tools.find((tool: { name: string }) => tool.name === 'skill'), { type: 'function', ...definition, strict: false });
     assert.ok(requests[0].instructions.includes(skill.description));
     assert.ok(!JSON.stringify(requests[0]).includes(skill.content));
     assert.ok(!JSON.stringify(requests[0].tools).includes(skill.description));
@@ -124,11 +127,11 @@ test('skill loads full content on demand through Responses without requiring an 
     const output = requests[1].input.find((item: { type: string }) => item.type === 'function_call_output');
     assert.deepEqual(JSON.parse(output.output), skill);
     assert.equal(events.at(-1)!.status, 'success');
-    assert.equal(usages[0].inputEstimate, estimateInput([], requestConfig.systemPrompt, requestConfig.supportsVision, false, undefined, [skill]));
+    assert.equal(usages[0].inputEstimate, estimateInput([], requestConfig.systemPrompt, requestConfig.supportsVision, false, undefined, [skill], undefined, false));
     const largeSkill = { ...skill, content: 'A'.repeat(40000) };
     assert.equal(estimateInput([], requestConfig.systemPrompt, false, false, undefined, [largeSkill]), estimateInput([], requestConfig.systemPrompt, false, false, undefined, [skill]));
     const breakdown = sessionUsage(undefined, { ...requestConfig, skills: [skill] }, [], '');
-    assert.equal(breakdown.breakdown.systemAndTools, usages[0].inputEstimate);
+    assert.equal(breakdown.breakdown.systemAndTools, estimateInput([], requestConfig.systemPrompt, requestConfig.supportsVision, false, undefined, [skill]));
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -263,7 +266,7 @@ for (const maxToolRounds of [1, 3, 25]) test(`stops after the configured ${maxTo
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('background removal remains statically registered and sends model-not-ready errors back to Responses', async () => {
+test('background removal registers the host schema and reports missing attachments', async () => {
   const originalFetch = globalThis.fetch;
   const requests: Record<string, any>[] = [];
   const events: ToolEvent[] = [];
@@ -279,25 +282,22 @@ test('background removal remains statically registered and sends model-not-ready
     requests.push(JSON.parse(options!.body as string));
     return streamResponse(responsePayload(requests.length === 1
       ? [{ type: 'function_call', call_id: 'removal-call', name: 'remove_background',
-        arguments: JSON.stringify({ projectId: project.id, layerId: 'image', modelId: 'birefnet' }) }]
+        arguments: JSON.stringify({ projectId: 'removal-project', imageId: 'missing-image', modelId: 'birefnet' }) }]
       : [textOutput]));
   };
   try {
     await runConversation({ config: { ...config, supportsVision: false, imageToolsEnabled: false }, input: [],
       bridge: { ...bridge, getProject: () => project, commit: async () => { commits++; } },
-      signal: new AbortController().signal, onText: () => {}, onTool: event => events.push(event) });
+      signal: new AbortController().signal, onText: () => {}, onTool: event => events.push(event),
+      loadImage: async () => null, saveImage: async () => { throw new Error('Not reached'); } });
     assert.equal(requests.length, 2);
-    const definition = TOOL_DEFINITIONS.find(item => item.function.name === 'remove_background')!;
+    const definition = builtInToolDefinitions({ imageStorage: true, imageExtensions: IMAGE_TOOL_SCHEMAS }).find(item => item.name === 'remove_background')!;
     const sent = requests[0].tools.find((item: { name: string }) => item.name === 'remove_background');
-    assert.deepEqual(sent, { type: 'function', ...definition.function, strict: false });
+    assert.deepEqual(sent, { type: 'function', ...definition, strict: false });
     assert.deepEqual(requests[1].tools, requests[0].tools);
     const output = requests[1].input.find((item: { type: string; call_id?: string }) => item.type === 'function_call_output' && item.call_id === 'removal-call');
     assert.equal(output.type, 'function_call_output');
-    assert.deepEqual(JSON.parse(output.output), {
-      success: false, code: 'MODEL_NOT_READY', stage: 'model',
-      error: 'BiRefNet is not ready. Download the model in AI Settings > Background Removal; models are not downloaded automatically.',
-      projectId: project.id, layerId: 'image', modelId: 'birefnet', runtimeDownloaded: false
-    });
+    assert.deepEqual(JSON.parse(output.output), { error: 'Image not found.' });
     assert.equal(events.at(-1)!.status, 'error');
     assert.equal(commits, 0);
   } finally { globalThis.fetch = originalFetch; }
@@ -382,13 +382,30 @@ test('custom prompts are not silently extended with visual capability instructio
   try {
     await runConversation({ config: requestConfig, input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}, onUsage: usage => { inputEstimate = usage.inputEstimate ?? 0; } });
     assert.equal(sentInstructions, requestConfig.systemPrompt);
-    assert.deepEqual(sentTools, [...TOOL_DEFINITIONS, ...VISION_TOOL_DEFINITIONS].map(definition => ({ type: 'function', ...definition.function, strict: false })));
+    assert.deepEqual(sentTools, [
+      ...TOOL_DEFINITIONS.map(definition => definition.function),
+      ...VISION_TOOL_DEFINITIONS.map(definition => definition.function),
+      ...builtInToolDefinitions({ imageExtensions: IMAGE_TOOL_SCHEMAS })
+    ].map(definition => ({ type: 'function', ...definition, strict: false })));
     assert.doesNotMatch(JSON.stringify(sentTools), /"\$(?:defs|ref)"/);
     assert.deepEqual(sentTools.filter(tool => (tool as { name: string }).name.startsWith('add_')).map(tool => (tool as { name: string }).name), ['add_layer']);
     assert.ok(sentTools.filter((tool: { name: string; parameters: unknown }) => ['get_context', 'get_cover_size_recommendations', 'get_selected_layers', 'get_canvas_preview'].includes(tool.name)).every(tool => JSON.stringify(tool.parameters) === JSON.stringify({ type: 'object', properties: {} })));
-    assert.equal(inputEstimate, estimateInput([], requestConfig.systemPrompt, requestConfig.supportsVision));
-    assert.ok(inputEstimate > estimateInput([], original));
+    assert.equal(inputEstimate, estimateInput([], requestConfig.systemPrompt, requestConfig.supportsVision, false, undefined, undefined, undefined, false));
+    assert.ok(inputEstimate > estimateInput([], original, requestConfig.supportsVision, false, undefined, undefined, undefined, false));
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test('migrates only the previous default image workflow prompt, preserving custom prompts', () => {
+  const profiles = configuredConfig();
+  profiles.imageModels = profiles.imageModels?.map(model => ({ ...model, enabled: true, endpointId: profiles.endpoints[0].id }));
+  const previous = DEFAULT_IMAGE_TOOL_PROMPT.replace('- 作背景时置底并锁定', `- generate_image、remove_background 只返回图片 ID，不会修改画布；需要上画布时继续调用 place_image。
+- 使用已有图层作为参考或抠图前，read_layers 设置 includeImages:true，使用返回的原图 imageId，不用预览图。保留 sourceRevision，应用结果时传回。
+- place_image 必须传当前 projectId 和图片 imageId，放置到当前页；应用到原图层时传 layerId、sourceRevision，默认保留并隐藏原图。抠图结果设置 backgroundRemoved:true。
+- 作背景时置底并锁定`);
+  assert.equal(normalizeConfig({ ...profiles, imageToolPrompt: previous }).imageToolPrompt, DEFAULT_IMAGE_TOOL_PROMPT);
+  assert.equal(toRequestConfig({ ...profiles, imageToolPrompt: previous }).systemPrompt, `${profiles.systemPrompt}\n\n${DEFAULT_IMAGE_TOOL_PROMPT}`);
+  assert.equal(normalizeConfig({ ...profiles, imageToolPrompt: `${previous}\n自定义` }).imageToolPrompt, `${previous}\n自定义`);
+  assert.doesNotMatch(DEFAULT_IMAGE_TOOL_PROMPT, /place_image|includeImages|sourceRevision/);
 });
 
 test('Responses text deltas and final output are returned', async () => {
@@ -433,6 +450,7 @@ test('selected image layers are sent as WebP input only to vision models', async
   const requests: Record<string, any>[] = [];
   let round = 0;
   globalThis.fetch = async (_url, options) => {
+    if (String(_url).startsWith('data:')) return originalFetch(_url, options);
     requests.push(JSON.parse(options!.body as string));
     round++;
     return streamResponse(responsePayload(round === 1
@@ -440,8 +458,8 @@ test('selected image layers are sent as WebP input only to vision models', async
       : [textOutput]));
   };
   try {
-    const imageLayer = { id: 'image-1', name: 'Photo', type: 'image' as const, content: 'data:image/png;base64,abc', x: 10, y: 20, width: 300, height: 200, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 };
-    const project: ProjectState = { id: 'p1', title: 'Test', updatedAt: 0, selectedLayerId: imageLayer.id, layers: [imageLayer], canvasConfig: { width: 800, height: 600, ratio: '4:3' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } };
+    const imageLayer = { id: 'image-1', name: 'Photo', type: 'image' as const, content: 'data:image/png;base64,iVBORw0KGgo=', x: 10, y: 20, width: 300, height: 200, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 };
+    const project: ProjectState = syncProjectPages({ id: 'p1', title: 'Test', updatedAt: 0, selectedLayerId: imageLayer.id, layers: [imageLayer], canvasConfig: { width: 800, height: 600, ratio: '4:3' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } });
     const image = new Blob(['webp-bytes'], { type: 'image/webp' });
     let previewRequests = 0;
     const saved: string[] = [];
@@ -449,7 +467,7 @@ test('selected image layers are sent as WebP input only to vision models', async
       config: { ...config, supportsVision: true }, input: [],
       bridge: { ...bridge, getProject: () => project, getSelection: () => [imageLayer.id], getLayerPreview: async () => { previewRequests++; return image; } },
       signal: new AbortController().signal, onText: () => {}, onTool: () => {},
-      saveImage: async (_blob, name) => { saved.push(name); return { id: 'selected-image', name, type: 'image/webp', size: image.size }; },
+      saveImage: async (_blob, name) => { saved.push(name); return { id: `selected-image-${saved.length}`, name, type: 'image/webp', size: image.size }; },
       loadImage: async () => image
     });
     assert.equal(previewRequests, 1);
@@ -474,6 +492,18 @@ test('selected image layers are sent as WebP input only to vision models', async
     const metadata = JSON.parse(requests[1].input.at(-1).output);
     assert.equal(metadata.layers[0].image.content, undefined);
     assert.equal(metadata.layers[0].image.imageInfo.previewStatus, 'not_requested');
+    requests.length = 0;
+    round = 0;
+    saved.length = 0;
+    await runConversation({
+      config, input: [],
+      bridge: { ...bridge, getProject: () => project, getSelection: () => [imageLayer.id] },
+      signal: new AbortController().signal, onText: () => {}, onTool: () => {},
+      saveImage: async (_blob, name) => { saved.push(name); return { id: 'unexpected', name, type: 'image/webp', size: image.size }; },
+      loadImage: async () => image
+    });
+    assert.deepEqual(saved, []);
+    assert.equal(JSON.parse(requests[1].input.at(-1).output).layers[0].imageId, undefined);
   } finally { globalThis.fetch = originalFetch; }
 });
 

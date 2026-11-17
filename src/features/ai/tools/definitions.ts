@@ -1,5 +1,4 @@
-import type { AiSkillConfig, ImagePromptConfig, ToolDefinition } from '../types.ts';
-import { imageCapabilities, imageTimeoutSeconds } from 'sang-ai-kit/image-generation';
+import type { ToolDefinition } from '../types.ts';
 import { ADD_LAYER_TYPES, ALIGN_MODES, DISTRIBUTE_MODES, PROJECT_MANAGE_RULES, REORDER_POSITIONS } from './requests.ts';
 
 const string = (description: string) => ({ type: 'string', description });
@@ -24,7 +23,6 @@ const layerInfoDefinition = { ...object('通用图层属性。创建和更新时
 }), minProperties: 1 };
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
-  tool('list_fonts', '读取用户提供的本地字体及内置 Google Fonts 精选目录，使用 family 设置字体。', noParameters),
   // 项目管理
   tool('get_cover_size_recommendations', '获取常见封面尺寸、比例及适配建议。', noParameters),
   tool('create_project', '新建并打开项目。', object('', {
@@ -179,62 +177,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       })
     })
   }, ['projectId'])),
-  // 图片处理
-  tool('remove_background', '移除图片图层背景，成功后返回结果图层 ID；已抠图图片不可重复处理。', object('处理当前项目的一个图片图层。', {
-    projectId,
-    layerId: string('当前项目的 image 图层 ID，来自 get_context、get_selected_layers 或 read_layers，不可编造。锁定图层须先获用户许可解锁。'),
-    modelId: enumeration('可选，默认 u2netp 轻量模型；所有模型须预先下载或导入。birefnet：Lite 512，适合复杂边缘。modnet：人像专用。', ['u2netp', 'birefnet', 'modnet']),
-    keepOriginal: boolean('可选，默认 true：成功后保留并隐藏原图，在相同位置创建已抠图副本并选中。'),
-    device: enumeration('可选，默认 auto：优先 WebGPU，失败回退 CPU/WASM。', ['auto', 'webgpu', 'wasm'])
-  }, ['projectId', 'layerId'])),
 ];
-
-export function skillToolDefinitions(skills: AiSkillConfig[] = []): ToolDefinition[] {
-  return skills.length ? [tool('skill', '读取 SKILL。', object('', {
-    name: enumeration('SKILL 精确名称，来自 available_skills 列表。', skills.map(skill => skill.name))
-  }, ['name']))] : [];
-}
 
 export const VISION_TOOL_DEFINITIONS: ToolDefinition[] = [
   tool('get_canvas_preview', '预览当前画布效果，用于视觉分析；返回缩放后的图片。', noParameters)
 ];
-
-export const IMAGE_TOOL_DEFINITIONS: ToolDefinition[] = [
-  tool('list_image_models', '读取可用生图模型，能力及参数信息', noParameters),
-  tool('generate_image', '生成或修改图像。成功后自动添加图片图层并返回图层 ID，可用 update_layers 调整属性或 reorder_layers 排序。', object('生图请求', {
-    projectId,
-    modelConfigId: { ...string('模型 ID'), maxLength: 9 },
-    prompt: { type: 'string', maxLength: 10000, minLength: 1, description: '生图提示词' },
-    size: string('输出尺寸，省略使用配置默认值。根据用法选择合适的尺寸即可，分辨率越高生图越慢。'),
-    ratio: string('宽高比(如16:9)。仅部分模型支持，当不传 size 时生效'),
-    quality: string('生成质量。越高越慢，省略用默认值。'),
-    referenceImageId: string('[可选] 传入会话附件 ID 作为参考图。'),
-    referenceLayerId: string('[可选] 传入项目 image 图层 ID 作为参考图。')
-  }, ['projectId', 'modelConfigId', 'prompt']))
-];
-
-export function imageToolDefinitions(models: ImagePromptConfig[] = []): ToolDefinition[] {
-  const single = models.length === 1 ? models[0] : undefined;
-  return IMAGE_TOOL_DEFINITIONS.filter(definition => !single || definition.function.name !== 'list_image_models').map(definition => {
-    if (definition.function.name !== 'generate_image') return definition;
-    const parameters = definition.function.parameters;
-    const properties = parameters.properties as Record<string, Record<string, unknown>>;
-    const next = { ...properties };
-    let required = ['projectId', 'modelConfigId', 'prompt'];
-    if (single) {
-      delete next.modelConfigId;
-      required = ['projectId', 'prompt'];
-      const capabilities = imageCapabilities(single);
-      next.size = { ...properties.size, description: `${properties.size.description} 默认值：${single.size}；${capabilities.exactSizeSupported ? '推荐尺寸' : '支持尺寸'}：${capabilities.sizes.join('、')}。` };
-      if (!capabilities.ratios) delete next.ratio;
-      else next.ratio = { type: 'string', description: `仅档位尺寸使用；省略为 ${single.ratio}。`, enum: capabilities.ratios };
-      if (!capabilities.qualities) delete next.quality;
-      else next.quality = { type: 'string', description: `生成质量。越高越慢，省略为 ${single.quality ?? 'high'}。`, enum: capabilities.qualities };
-    } else {
-      next.modelConfigId = { ...properties.modelConfigId, ...(models.length ? { enum: models.map(model => model.id) } : {}) };
-    }
-    return { ...definition, function: { ...definition.function, parameters: {
-      ...parameters, properties: next, required
-    } } };
-  });
-}

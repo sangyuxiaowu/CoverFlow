@@ -21,6 +21,19 @@ export const DEFAULT_IMAGE_TOOL_PROMPT = `## 生图
 - 参考生图提示词建议描述为：[改变要求] + [新风格 / 场景] + [需要添加或移除的元素] + [需要保留的元素]
 `;
 
+const LEGACY_IMAGE_FLOW = `- generate_image、remove_background 只返回图片 ID，不会修改画布；需要上画布时继续调用 place_image。
+- 使用已有图层作为参考或抠图前，read_layers 设置 includeImages:true，使用返回的原图 imageId，不用预览图。保留 sourceRevision，应用结果时传回。
+`;
+const LEGACY_IMAGE_PROMPTS = [
+  ...[
+    '- place_image 必须传当前 projectId 和图片 imageId，放置到当前页；应用到原图层时传 layerId、sourceRevision，默认保留并隐藏原图。抠图结果设置 backgroundRemoved:true。\n',
+    '- place_image 必须传目标 projectId、pageId；应用到原图层时传 layerId、sourceRevision，默认保留并隐藏原图。抠图结果设置 backgroundRemoved:true。\n'
+  ].map(line => DEFAULT_IMAGE_TOOL_PROMPT.replace('- 作背景时置底并锁定', LEGACY_IMAGE_FLOW + line + '- 作背景时置底并锁定'))
+];
+function imageToolPrompt(value: unknown): string {
+  return typeof value !== 'string' || LEGACY_IMAGE_PROMPTS.includes(value) ? DEFAULT_IMAGE_TOOL_PROMPT : value;
+}
+
 export const SYSTEM_PROMPT = `你是 CoverFlow 封面和 PPT 设计助手。请直接操作画布完成设计，不要只输出修改方案。
 
 ## 流程
@@ -113,7 +126,7 @@ export function normalizeConfig(value: unknown, preserveKeys = true): AiConfig {
     localFonts: normalizeLocalFonts(input.localFonts),
     maxToolRounds: input.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS,
     maxImageFailures: input.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES,
-    imageToolPrompt: typeof input.imageToolPrompt === 'string' ? input.imageToolPrompt : DEFAULT_IMAGE_TOOL_PROMPT,
+    imageToolPrompt: imageToolPrompt(input.imageToolPrompt),
     quickSnippets: Array.isArray(input.quickSnippets) && input.quickSnippets.length
       ? input.quickSnippets
       : [...DEFAULT_QUICK_SNIPPETS]
@@ -128,11 +141,11 @@ export function toRequestConfig(config: AiConfig, featureSettings: Partial<AiFea
   const features = normalizeAiFeatures(featureSettings);
   const imageModels = features.imageGeneration ? availableImageModels(config) : [];
   const imageToolsEnabled = imageModels.length > 0;
-  const imageToolPrompt = config.imageToolPrompt ?? DEFAULT_IMAGE_TOOL_PROMPT;
+  const imagePrompt = imageToolPrompt(config.imageToolPrompt);
   const skills = features.skills ? normalizeSkills(config.skills) : [];
   const skillPrompt = skillsPrompt(skills);
-  const basePrompt = imageToolsEnabled && imageToolPrompt.trim() && !config.systemPrompt.includes(imageToolPrompt)
-    ? `${config.systemPrompt}\n\n${imageToolPrompt}`
+  const basePrompt = imageToolsEnabled && imagePrompt.trim() && !config.systemPrompt.includes(imagePrompt)
+    ? `${config.systemPrompt}\n\n${imagePrompt}`
     : config.systemPrompt;
   const systemPrompt = skillPrompt && !basePrompt.includes(skillPrompt) ? `${basePrompt}\n\n${skillPrompt}` : basePrompt;
   return {

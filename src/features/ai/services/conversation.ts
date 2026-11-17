@@ -5,14 +5,14 @@ import { runToolLoop } from 'sang-ai-kit/tool-loop';
 import type { Response, ResponseFunctionCallOutputItemList } from 'openai/resources/responses/responses';
 import type { AiConfig, AiRequestConfig, ChatImageRef, RequestUsage, ResponseItem, ToolEvent, WorkspaceBridge } from '../types.ts';
 import { generateId } from '../../../utils/helpers.ts';
-import { imageToolDefinitions, IMAGE_TOOL_DEFINITIONS, skillToolDefinitions, TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
-import { executeImageTool } from '../tools/imageTools.ts';
+import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import { createImageToolExtensions } from '../tools/imageTools.ts';
+import { createBuiltInTools } from 'sang-ai-kit/built-in-tools';
 import { executeTool } from '../tools/execute.ts';
 import { record } from '../tools/validation.ts';
-import { DEFAULT_MAX_IMAGE_FAILURES, DEFAULT_MAX_TOOL_ROUNDS, normalizeEndpoint, reasoningPayload, validateRequestConfig } from './config.ts';
-import { estimateInput } from './usage.ts';
-import { normalizeSkills, readSkill } from './skills.ts';
-import { normalizeLocalFonts } from 'sang-ai-kit/fonts';
+import { DEFAULT_MAX_TOOL_ROUNDS, normalizeEndpoint, reasoningPayload, validateRequestConfig } from './config.ts';
+import { estimateToolInput } from './usage.ts';
+import { normalizeSkills } from './skills.ts';
 import { normalizeAiFeatures } from 'sang-ai-kit/features';
 
 export { readResponse } from 'sang-ai-kit/responses';
@@ -76,11 +76,21 @@ export async function runConversation(options: ConversationOptions): Promise<str
   const input = structuredClone(options.input);
   const features = normalizeAiFeatures(config.features);
   const skills = features.skills ? normalizeSkills(config.skills) : [];
-  const localFonts = features.fontManagement ? normalizeLocalFonts(config.localFonts) : [];
-  const tools = [...TOOL_DEFINITIONS.filter(tool => (tool.function.name !== 'list_fonts' || features.fontManagement) && (tool.function.name !== 'remove_background' || features.backgroundRemoval)), ...skillToolDefinitions(skills), ...(config.supportsVision ? VISION_TOOL_DEFINITIONS : []), ...(features.imageGeneration && config.imageToolsEnabled && options.getImageConfig && options.loadImage && options.saveImage ? imageToolDefinitions(config.imageToolModels) : [])];
+  const toolImages: ChatImageRef[] = [];
+  const onImage = (image: ChatImageRef) => { toolImages.push(image); options.onImage?.(image); };
+  const imageExtensions = createImageToolExtensions(bridge);
+  const builtIn = createBuiltInTools({
+    config: { ...(options.getImageConfig?.() ?? { endpoints: [], activeSelection: { endpointId: '', modelId: '' } }),
+      systemPrompt: config.systemPrompt, imageToolPrompt: '', skills, localFonts: config.localFonts, maxImageFailures: config.maxImageFailures },
+    features: { ...features, imageGeneration: features.imageGeneration && Boolean(config.imageToolsEnabled) },
+    loadImage: options.loadImage, saveImage: options.saveImage, onImage, imageExtensions
+  });
+  const tools = [
+    ...TOOL_DEFINITIONS,
+    ...(config.supportsVision ? VISION_TOOL_DEFINITIONS : []),
+    ...builtIn.tools.map(({ execute, ...definition }) => ({ type: 'function' as const, function: definition }))
+  ];
   let previewCount = 0;
-  let imageFailures = 0;
-  const maxImageFailures = config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES;
   const maxToolRounds = config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
   return runToolLoop<ResponseItem, Extract<Response['output'][number], { type: 'function_call' }>>({
     input, signal, maxRounds: maxToolRounds, onText, onHistory: options.onHistory, onLimit: options.onLimit,
@@ -96,10 +106,10 @@ export async function runConversation(options: ConversationOptions): Promise<str
     let reported = false;
     let streamedText = '';
     const startTime = Date.now();
-    const request = { id: generateId(), endpoint: baseURL, model: config.model, createdAt: startTime, inputEstimate: estimateInput(input, config.systemPrompt, config.supportsVision, tools.some(tool => tool.function.name === 'generate_image'), config.imageToolModels, skills, features) };
+    const request = { id: generateId(), endpoint: baseURL, model: config.model, createdAt: startTime, inputEstimate: estimateToolInput(input, builtIn.instructions, tools) };
     try {
       const stream = await client.responses.create({
-        model: config.model, instructions: config.systemPrompt, input: await prepareResponseInput(input, Boolean(config.supportsVision), options.loadImage),
+        model: config.model, instructions: builtIn.instructions, input: await prepareResponseInput(input, Boolean(config.supportsVision), options.loadImage),
         tools: tools.map(tool => ({ type: 'function' as const, ...tool.function, strict: false })),
         stream: true, store: false, max_output_tokens: config.maxTokens,
         ...reasoningPayload(config),
@@ -136,25 +146,16 @@ export async function runConversation(options: ConversationOptions): Promise<str
       let output: string | ResponseFunctionCallOutputItemList;
       let imageRef: ChatImageRef | undefined;
       let status: 'success' | 'error' = 'success';
+      toolImages.length = 0;
       try {
         signal.throwIfAborted();
         if (cancelled) throw new Error('User cancelled. Do not retry this operation without new approval.');
         if (!tools.some(tool => tool.function.name === call.name)) throw new Error('Unknown tool.');
         const args = record(JSON.parse(call.arguments));
-        const isImageTool = IMAGE_TOOL_DEFINITIONS.some(tool => tool.function.name === call.name);
-        if (call.name === 'generate_image' && maxImageFailures > 0 && imageFailures >= maxImageFailures) throw new Error('Image generation failure limit reached in this turn.');
-        const generated = isImageTool ? await executeImageTool(call.name, args, {
-          getConfig: options.getImageConfig!,
-          defaultModelConfigId: config.imageToolModels?.length === 1 ? config.imageToolModels[0].id : undefined,
-          loadImage: options.loadImage!, saveImage: options.saveImage!, onImage: image => options.onImage?.(image), bridge
-        }, signal) : undefined;
-        const value = generated ? generated.value : call.name === 'skill' ? readSkill(skills, args) : await executeTool(call.name, args, bridge, signal, Boolean(config.supportsVision), localFonts, features);
-        if (call.name === 'remove_background' && value && typeof value === 'object' && 'success' in value && value.success === false) status = 'error';
-        if (generated) {
-          imageRef = generated.image;
-          result = JSON.stringify(value);
-          output = result;
-        } else if (call.name === 'get_canvas_preview' && value instanceof Blob) {
+        const sharedTool = builtIn.tools.find(tool => tool.name === call.name);
+        const value = sharedTool ? await sharedTool.execute(args, signal)
+          : await executeTool(call.name, args, bridge, signal, Boolean(config.supportsVision));
+        if (call.name === 'get_canvas_preview' && value instanceof Blob) {
           if (!options.saveImage) throw new Error('Image storage is unavailable.');
           imageRef = await options.saveImage(value, `canvas-preview-${++previewCount}.webp`);
           options.onImage?.(imageRef);
@@ -178,7 +179,6 @@ export async function runConversation(options: ConversationOptions): Promise<str
           output = result;
         }
       } catch (error) {
-        if (call.name === 'generate_image' && !signal.aborted && (maxImageFailures === 0 || imageFailures < maxImageFailures)) imageFailures++;
         status = 'error';
         result = JSON.stringify(signal.aborted ? {
           error: 'Operation interrupted.', ...conversationAbortDetails(signal),
@@ -186,6 +186,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
         } : { error: error instanceof Error ? error.message : 'Tool failed.' });
         output = result;
       }
+      imageRef ??= toolImages[0];
       onTool({ id: call.call_id, name: call.name, arguments: call.arguments, status, startedAt, durationMs: Math.max(0, performance.now() - started), result, ...(imageRef ? { image: imageRef } : {}) });
       return { output: { type: 'function_call_output', call_id: call.call_id, output }, cancelled: status === 'error' && result.includes('User cancelled') };
     }

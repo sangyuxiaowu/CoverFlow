@@ -1,14 +1,22 @@
-import type { AiRequestConfig, AiSkillConfig, ChatSession, ImagePromptConfig, RequestUsage, ResponseItem, TokenUsage } from '../types.ts';
+import type { AiRequestConfig, AiSkillConfig, ChatSession, ImagePromptConfig, RequestUsage, ResponseItem, TokenUsage, ToolDefinition } from '../types.ts';
 import { normalizeEndpoint } from './config.ts';
-import { imageToolDefinitions, skillToolDefinitions, TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import { builtInToolDefinitions } from 'sang-ai-kit/built-in-tools';
 import { sumUsage } from 'sang-ai-kit/conversation-utils';
 import { normalizeAiFeatures, type AiFeatures } from 'sang-ai-kit/features';
+import { IMAGE_TOOL_SCHEMAS } from '../tools/imageTools.ts';
 
 export { sumUsage } from 'sang-ai-kit/conversation-utils';
 
-export function estimateInput(input: ResponseItem[], instructions: string, supportsVision = false, imageToolsEnabled = false, imageModels?: ImagePromptConfig[], skills?: AiSkillConfig[], featureSettings?: Partial<AiFeatures>): number {
+export function estimateInput(input: ResponseItem[], instructions: string, supportsVision = false, imageToolsEnabled = false, imageModels?: ImagePromptConfig[], skills?: AiSkillConfig[], featureSettings?: Partial<AiFeatures>, imageStorage = true): number {
   const features = normalizeAiFeatures(featureSettings);
-  const tools = [...TOOL_DEFINITIONS.filter(tool => (tool.function.name !== 'list_fonts' || features.fontManagement) && (tool.function.name !== 'remove_background' || features.backgroundRemoval)), ...skillToolDefinitions(features.skills ? skills : []), ...(supportsVision ? VISION_TOOL_DEFINITIONS : []), ...(imageToolsEnabled && features.imageGeneration ? imageToolDefinitions(imageModels) : [])];
+  const tools = [...TOOL_DEFINITIONS, ...(supportsVision ? VISION_TOOL_DEFINITIONS : []),
+    ...builtInToolDefinitions({ features: { ...features, imageGeneration: features.imageGeneration && imageToolsEnabled }, skills, imageModels, imageStorage, imageExtensions: IMAGE_TOOL_SCHEMAS })
+      .map(definition => ({ type: 'function' as const, function: definition }))];
+  return estimateToolInput(input, instructions, tools);
+}
+
+export function estimateToolInput(input: ResponseItem[], instructions: string, tools: ToolDefinition[]): number {
   const bytes = new TextEncoder().encode(JSON.stringify({ input, instructions, tools }));
   return Math.ceil(bytes.length / 3);
 }

@@ -15,8 +15,7 @@ import {
 import type { Layer } from '../types.ts';
 import { getModel, MODELS, type ModelId } from 'sang-ai-kit/background-removal/models.ts';
 import { blobDataUrl, removeBackground } from 'sang-ai-kit/background-removal/index.ts';
-import { download, installRuntime } from 'sang-ai-kit/background-removal/resources.ts';
-import { readRuntime } from 'sang-ai-kit/background-removal/storage.ts';
+import { download } from 'sang-ai-kit/background-removal/resources.ts';
 import { errorText, progressText } from 'sang-ai-kit/background-removal/status.ts';
 import { useResources } from 'sang-ai-kit/background-removal/useResources.ts';
 import type { Progress } from 'sang-ai-kit/background-removal/types.ts';
@@ -58,8 +57,6 @@ export default function RemoveBackgroundButton({ layer, english, onApply }: {
     ? text('此图片已完成抠图，不可重复处理。', 'Background already removed. This image cannot be processed again.')
     : layer.locked ? text('请先解锁图片图层。', 'Unlock the image layer first.')
     : resources.loading ? text('正在读取抠图设置…', 'Loading background-removal settings...')
-    : !resources.models[modelId]
-      ? text('所选模型未安装，请前往 AI 助手 > 配置中心 > 抠图下载模型。', 'Download the selected model in AI Assistant > Settings > Background Removal.')
     : '';
 
   const remove = async () => {
@@ -80,21 +77,6 @@ export default function RemoveBackgroundButton({ layer, english, onApply }: {
     try {
       const url = new URL(original, window.location.href);
       if (!['data:', 'blob:', 'https:', 'http:'].includes(url.protocol)) throw new Error('Unsupported image URL');
-      if (!await readRuntime()) {
-        setProgress({ stage: 'runtime_download' });
-        let runtimeFile = '';
-        try {
-          await installRuntime(AbortSignal.any([abort.signal, AbortSignal.timeout(180_000)]), value => {
-            runtimeFile = value.stage;
-            if (mounted.current) setProgress({ ...value, stage: 'runtime_download' });
-          });
-        } catch (reason) {
-          if (abort.signal.aborted) throw reason;
-          throw new Error(`${text('运行时下载失败，请重试', 'Runtime download failed; try again')}${runtimeFile ? ` (${runtimeFile})` : ''}: ${errorText(reason, english)}`, { cause: reason });
-        }
-        abort.signal.throwIfAborted();
-        if (!await readRuntime()) throw new Error(text('运行时下载完成但缓存不可用，请重试。', 'Runtime download completed but cached resources are unavailable. Try again.'));
-      }
       abort.signal.throwIfAborted();
       currentImage();
       const image = await download(url.href, 50 * 1024 * 1024, abort.signal);
@@ -166,9 +148,8 @@ export default function RemoveBackgroundButton({ layer, english, onApply }: {
                 onChange={event => { setModelOverride(event.target.value as ModelId); setError(''); }}
                 className="w-full min-w-0 cursor-pointer appearance-none truncate rounded border border-blue-500/20 bg-blue-500/10 py-0.5 pl-5 pr-4 text-[9px] font-mono font-medium text-blue-300 outline-none focus:border-blue-400 disabled:cursor-wait disabled:opacity-60"
               >
-                {MODELS.map(model => <option key={model.id} value={model.id}
-                  disabled={!resources.models[model.id]} className="bg-slate-900 text-slate-200">
-                  {model.name}{!resources.models[model.id] ? text(' [未安装]', ' [Not installed]') : ''}
+                {MODELS.map(model => <option key={model.id} value={model.id} className="bg-slate-900 text-slate-200">
+                  {model.name}{!resources.models[model.id] ? text(' [自动下载]', ' [Auto-download]') : ''}
                 </option>)}
               </select>
               <ChevronDown className="pointer-events-none absolute right-1 w-2.5 h-2.5 text-blue-400" />

@@ -5,7 +5,8 @@ import type { ProjectState } from '../../../types.ts';
 import type { WorkspaceBridge } from '../types.ts';
 import { executeTool } from './execute.ts';
 import { layerPatch, safeImage } from './validation.ts';
-import { IMAGE_TOOL_DEFINITIONS, TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from './definitions.ts';
+import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from './definitions.ts';
+import { builtInToolDefinitions } from 'sang-ai-kit/built-in-tools';
 import { PRESET_RATIOS } from '../../../constants.ts';
 import { ADD_LAYER_TYPES, ALIGN_MODES, DISTRIBUTE_MODES, EDIT_LAYER_RULES, LAYER_TOOL_ACTIONS, PROJECT_MANAGE_RULES, PROJECT_RULES, REORDER_POSITIONS, parseEditLayersRequest, parseLayerToolRequest, parseManageProjectsRequest } from './requests.ts';
 
@@ -16,6 +17,12 @@ test('add_layer uses an inline schema and creates the requested layer type', asy
   const { bridge, signal } = setup();
   await executeTool('add_layer', { projectId: 'p1', type: 'text', properties: { text: { content: 'Title' } } }, bridge, signal);
   assert.equal(bridge.getProject()!.layers[0].type, 'text');
+});
+
+test('layer reads do not expose image-export parameters or a separate placement tool', () => {
+  const schema = TOOL_DEFINITIONS.find(item => item.function.name === 'read_layers')!.function.parameters;
+  assert.equal(Object.hasOwn(schema.properties as object, 'includeImages'), false);
+  assert.equal(TOOL_DEFINITIONS.some(item => item.function.name === 'place_image'), false);
 });
 
 test('dedicated layer requests isolate updates, organization and ordering', () => {
@@ -107,13 +114,12 @@ function setup(layers: ProjectState['layers'] = [], selectedLayerIds: string[] =
   return { bridge, signal };
 }
 
-test('background removal is a static tool with model selection guidance and no readiness filtering', () => {
-  const definitions = TOOL_DEFINITIONS.filter(item => item.function.name === 'remove_background');
-  assert.equal(definitions.length, 1);
-  const parameters = definitions[0].function.parameters;
+test('background removal comes only from the shared tool with image IDs and automatic preparation', () => {
+  assert.equal(TOOL_DEFINITIONS.some(item => item.function.name === 'remove_background'), false);
+  const parameters = builtInToolDefinitions({ imageStorage: true }).find(item => item.name === 'remove_background')!.parameters;
   const properties = parameters.properties as Record<string, Record<string, unknown>>;
-  assert.deepEqual(parameters.required, ['projectId', 'layerId']);
-  assert.deepEqual(properties.modelId.enum, ['u2netp', 'birefnet', 'modnet']);
+  assert.deepEqual(parameters.required, ['imageId']);
+  assert.deepEqual(properties.modelId.enum, ['color', 'u2netp', 'birefnet', 'modnet']);
   assert.match(String(properties.modelId.description), /轻量|快速/);
   assert.match(String(properties.modelId.description), /毛发|复杂边缘/);
   assert.match(String(properties.modelId.description), /modnet.*人像/);
@@ -207,7 +213,7 @@ test('tool schemas describe every parameter and nested field with valid required
     if (Array.isArray(schema.anyOf)) schema.anyOf.forEach((child, index) => inspect(child, `${path}.anyOf[${index}]`));
   };
   const noParameterNames = ['get_context', 'get_cover_size_recommendations', 'get_selected_layers', 'get_canvas_preview', 'list_image_models', 'list_fonts'];
-  const definitions = [...TOOL_DEFINITIONS, ...VISION_TOOL_DEFINITIONS, ...IMAGE_TOOL_DEFINITIONS];
+  const definitions = [...TOOL_DEFINITIONS, ...VISION_TOOL_DEFINITIONS, ...builtInToolDefinitions({ imageStorage: true }).map(definition => ({ type: 'function', function: definition }))];
   for (const definition of definitions) {
     if (noParameterNames.includes(definition.function.name)) {
       assert.deepEqual(definition.function.parameters, { type: 'object', properties: {} }, definition.function.name);

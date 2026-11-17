@@ -10,6 +10,7 @@ import { removeSessionImages } from '../services/chatStore.ts';
 import { sumUsage } from '../services/usage.ts';
 import { generateId } from '../../../utils/helpers.ts';
 import { blobToDataUrl, imageMimeType } from 'sang-ai-kit/image-attachments';
+import { appendReasoningActivity, orderResponseActivity } from 'sang-ai-kit/conversation-utils';
 import { ConfigDecryptionError } from '../services/configStore.ts';
 import { clonePlainData } from '../../../utils/clonePlainData.ts';
 
@@ -35,43 +36,7 @@ function appendAssistantText(entry: ChatEntry, text: string): ChatEntry {
 }
 
 function appendAssistantReasoning(entry: ChatEntry, text: string, itemId?: string): ChatEntry {
-  const activity = [...(entry.activity || [])];
-  const index = itemId
-    ? activity.findIndex(item => item.type === 'reasoning' && item.id === itemId)
-    : activity.at(-1)?.type === 'reasoning' ? activity.length - 1 : -1;
-  const existing = activity[index];
-  if (existing?.type === 'reasoning') activity[index] = { ...existing, text: existing.text + text };
-  else activity.push({ id: itemId || generateId(), type: 'reasoning', text });
-  return { ...entry, activity };
-}
-
-function orderResponseActivity(items: ResponseItem[], activity: NonNullable<ChatEntry['activity']>): NonNullable<ChatEntry['activity']> {
-  const result: NonNullable<ChatEntry['activity']> = [];
-  const reasoning = activity.filter(item => item.type === 'reasoning');
-  const usedReasoning = new Set<string>();
-  const textParts = (value: unknown) => Array.isArray(value)
-    ? value.flatMap(part => part && typeof part === 'object' && 'text' in part && typeof part.text === 'string' ? [part.text]
-      : part && typeof part === 'object' && 'refusal' in part && typeof part.refusal === 'string' ? [part.refusal] : []).join('')
-    : typeof value === 'string' ? value : '';
-  for (const [index, value] of items.entries()) {
-    const item = value as { id?: string; type?: string; role?: string; call_id?: string; content?: unknown; summary?: unknown };
-    if (item.type === 'reasoning') {
-      const id = item.id || `reasoning-${index}`;
-      const streamed = reasoning.find(part => part.id === id && !usedReasoning.has(part.id))
-        || reasoning.find(part => !usedReasoning.has(part.id) && !items.some(candidate => 'id' in candidate && candidate.id === part.id));
-      if (streamed) usedReasoning.add(streamed.id);
-      const text = streamed?.text || textParts(item.summary) || textParts(item.content);
-      if (text) result.push({ id, type: 'reasoning', text });
-    } else if (item.type === 'function_call' && item.call_id) {
-      result.push({ id: item.call_id, type: 'tool', toolId: item.call_id });
-    } else if (item.role === 'assistant' || item.type === 'message' && item.role !== 'user') {
-      const text = textParts(item.content);
-      if (text) result.push({ id: item.id || `message-${index}`, type: 'text', text });
-    }
-  }
-  if (reasoning.length && !items.some(item => 'type' in item && item.type === 'reasoning')) return activity;
-  if (!result.some(item => item.type === 'text')) result.push(...activity.filter(item => item.type === 'text'));
-  return result;
+  return { ...entry, activity: appendReasoningActivity(entry.activity || [], text, itemId) };
 }
 
 function updateToolActivity(entry: ChatEntry, event: ToolEvent): ChatEntry {

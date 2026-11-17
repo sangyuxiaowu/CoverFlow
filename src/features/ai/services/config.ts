@@ -1,5 +1,7 @@
 import { normalizeLocalFonts } from 'sang-ai-kit/fonts';
 import { createEndpoint } from 'sang-ai-kit';
+import { ALL_REASONING_EFFORTS, selectModel as selectSharedModel, updateActiveModel as updateSharedModel } from 'sang-ai-kit/model-config';
+import { reasoningRequestParams } from 'sang-ai-kit/responses';
 import type { AiConfig, AiModelConfig, AiRequestConfig, ReasoningEffort } from '../types.ts';
 import { loadStoredConfig, saveStoredConfig } from './configStore.ts';
 import { availableImageModels, createImageModel, IMAGE_MODEL_PRESETS, imageModelToolId, imageTimeoutSeconds, validateImageModel } from 'sang-ai-kit/image-generation';
@@ -41,7 +43,7 @@ export const SYSTEM_PROMPT = `你是 CoverFlow 封面和 PPT 设计助手。请�
 - 始终使用与用户当前消息相同的语言回复
 `;
 
-export const ALL_REASONING_EFFORTS: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+export { ALL_REASONING_EFFORTS };
 export const REASONING_EFFORTS: ReasoningEffort[] = ALL_REASONING_EFFORTS;
 export const DEFAULT_MAX_TOOL_ROUNDS = 24;
 export const DEFAULT_MAX_IMAGE_FAILURES = 3;
@@ -156,82 +158,14 @@ export function toRequestConfig(config: AiConfig, featureSettings: Partial<AiFea
 }
 
 export function selectModel(config: AiConfig, endpointId: string, modelId: string): AiConfig {
-  const ep = config.endpoints.find(endpoint => endpoint.id === endpointId);
-  const targetModel = ep?.models.find(model => model.id === modelId);
-  if (!ep || !targetModel) throw new Error('Model not found.');
-
-  // 切换该模型时自动处理为该模型设置的默认开启思考与思考强度
-  const shouldThink = Boolean(targetModel.thinkingAvailable && (targetModel.defaultThinkingEnabled ?? targetModel.thinkingEnabled));
-  const defaultEffort = targetModel.defaultReasoningEffort ?? (targetModel.reasoningEffort !== 'none' ? targetModel.reasoningEffort : 'medium');
-  const nextReasoningEffort: ReasoningEffort = shouldThink ? defaultEffort : 'none';
-
-  return {
-    ...config,
-    activeSelection: { endpointId, modelId },
-    endpoints: config.endpoints.map(endpoint =>
-      endpoint.id !== endpointId
-        ? endpoint
-        : {
-            ...endpoint,
-            models: endpoint.models.map(model =>
-              model.id !== modelId
-                ? model
-                : {
-                    ...model,
-                    thinkingEnabled: shouldThink,
-                    reasoningEffort: nextReasoningEffort
-                  }
-            )
-          }
-    )
-  };
+  return selectSharedModel(config, endpointId, modelId, { restoreThinkingDefaults: true });
 }
 
 export function updateActiveModel(
   config: AiConfig,
   patch: Partial<Pick<AiModelConfig, 'thinkingEnabled' | 'reasoningEffort'>>
 ): AiConfig {
-  return {
-    ...config,
-    endpoints: config.endpoints.map(endpoint =>
-      endpoint.id !== config.activeSelection.endpointId
-        ? endpoint
-        : {
-            ...endpoint,
-            models: endpoint.models.map(model => {
-              if (model.id !== config.activeSelection.modelId) return model;
-
-              let nextEnabled = patch.thinkingEnabled !== undefined ? patch.thinkingEnabled : model.thinkingEnabled;
-              let nextEffort = patch.reasoningEffort !== undefined ? patch.reasoningEffort : model.reasoningEffort;
-
-              // 如果思考强度设为 none，则思考模式关闭
-              if (patch.reasoningEffort === 'none') {
-                nextEnabled = false;
-                nextEffort = 'none';
-              } else if (patch.thinkingEnabled === false) {
-                nextEnabled = false;
-                if (patch.reasoningEffort) {
-                  nextEffort = patch.reasoningEffort;
-                }
-              } else if (patch.thinkingEnabled === true && (nextEffort === 'none' || !nextEffort)) {
-                // 点击开启思考模式，恢复为该模型的默认强度或 medium
-                nextEnabled = true;
-                nextEffort = model.defaultReasoningEffort && model.defaultReasoningEffort !== 'none' ? model.defaultReasoningEffort : 'medium';
-              } else if (patch.reasoningEffort) {
-                // 选择非 none 强度，自动开启思考
-                nextEnabled = true;
-              }
-
-              return {
-                ...model,
-                ...patch,
-                thinkingEnabled: nextEnabled,
-                reasoningEffort: nextEffort
-              };
-            })
-          }
-    )
-  };
+  return updateSharedModel(config, patch, { synchronizeThinking: true });
 }
 
 export async function loadConfig(): Promise<AiConfig> {
@@ -295,12 +229,6 @@ export async function saveConfig(config: AiConfig): Promise<void> {
 }
 
 export function reasoningPayload(config: AiRequestConfig): Record<string, unknown> {
-  if (!config.thinkingAvailable) {
-    return {};
-  }
-  return {
-    reasoning: {
-      effort: !config.thinkingEnabled || config.reasoningEffort === 'none' ? 'none' : (config.reasoningEffort || 'medium')
-    }
-  };
+  if (!config.thinkingAvailable) return {};
+  return reasoningRequestParams(config.model, !config.thinkingEnabled || config.reasoningEffort === 'none' ? 'none' : (config.reasoningEffort || 'medium'));
 }

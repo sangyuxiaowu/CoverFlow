@@ -98,6 +98,15 @@ async function enterPrompt(value: string) {
   });
 }
 
+it('allows a keyless endpoint to send text and image attachments', async () => {
+  resolveSelection(assistant.config).endpoint.apiKey = '';
+  await render(true);
+  await pasteImage();
+  await enterPrompt('Inspect this page');
+  await act(async () => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  expect(assistant.send).toHaveBeenCalledWith('Inspect this page', [expect.objectContaining({ image: expect.objectContaining({ id: 'upload' }) })]);
+});
+
 it('holds pending images while sending text and restores them when switching back to vision', async () => {
   await render(true);
   expect(host.querySelector<HTMLButtonElement>('[aria-label="Attach image"]')?.disabled).toBe(false);

@@ -326,6 +326,7 @@ for (const outcome of ['success', 'error', 'aborted'] as const) {
           return new Blob(['image'], { type: 'image/webp' });
         } },
         saveImage: async () => ({ id: 'timed-image', name: 'preview.webp', type: 'image/webp', size: 5 }),
+        loadImage: async () => new Blob(['image'], { type: 'image/webp' }),
         onText: () => {}, onTool: event => events.push(event), onHistory: items => { history = items; }
       });
       if (outcome === 'aborted') await assert.rejects(run);
@@ -527,7 +528,8 @@ test('canvas preview names and images stay associated with their tool events', a
       saveImage: async (_blob, name) => {
         names.push(name);
         return { id: `image-${names.length}`, name, type: 'image/webp', size: image.size };
-      }
+      },
+      loadImage: async () => image
     });
     assert.deepEqual(names, ['canvas-preview-1.webp', 'canvas-preview-2.webp']);
     assert.deepEqual(completedTools.map(tool => tool.image?.name), names);
@@ -551,6 +553,20 @@ test('uploaded image references are hydrated only for vision requests', async ()
     assert.equal(request!.input[0].content[1].type, 'input_image');
     assert.match(request!.input[0].content[1].image_url, /^data:image\/webp;base64,/);
     assert.equal(request!.tools.some((tool: { name: string }) => tool.name === 'get_canvas_preview'), true);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('rejects unresolved vision attachments instead of sending local references', async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => { requests++; return streamResponse(responsePayload([textOutput])); };
+  try {
+    await assert.rejects(runConversation({
+      config: { ...config, supportsVision: true },
+      input: [{ role: 'user', content: [{ type: 'input_image', image_url: 'attachment://missing', detail: 'auto' }] }],
+      bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}
+    }), /referenced chat image is missing/);
+    assert.equal(requests, 0);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -752,6 +768,26 @@ test('Responses uses one reasoning format with model-specific levels', () => {
   assert.deepEqual(reasoningPayload({ ...config, thinkingAvailable: true, thinkingEnabled: false }), { reasoning: { effort: 'none' } });
   assert.throws(() => validateRequestConfig({ ...config, contextWindow: 1000 }), /Context window/);
   assert.throws(() => validateRequestConfig({ ...config, thinkingAvailable: true, thinkingEnabled: true, supportedReasoningEfforts: ['low'], reasoningEffort: 'max' }), /does not support/);
+});
+
+test('sends Agnes disabled-thinking parameters and omits authorization for a keyless endpoint', async () => {
+  const originalFetch = globalThis.fetch;
+  let body: Record<string, unknown> = {};
+  let authorization: string | null = 'not-called';
+  globalThis.fetch = async (_url, options) => {
+    body = JSON.parse(String(options?.body));
+    authorization = new Headers(options?.headers).get('authorization');
+    return streamResponse(responsePayload([textOutput]));
+  };
+  try {
+    await runConversation({
+      config: { ...config, model: 'agnes-3.0-flash', apiKey: '', thinkingAvailable: true, thinkingEnabled: false },
+      input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}
+    });
+    assert.deepEqual(body.chat_template_kwargs, { enable_thinking: false });
+    assert.equal(body.reasoning, undefined);
+    assert.equal(authorization, null);
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test('saving without a removed endpoint deletes its encrypted key', async () => {

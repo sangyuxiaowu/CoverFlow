@@ -32,13 +32,14 @@ src/features/ai/
   components/                宿主界面适配器及 CoverFlow 专用设置面板
 ```
 
-字体目录、图片附件和生图协议直接使用 SangAIKit。沿用项目已有的 React、Vite、lucide-react 和 StorageAdapter，不引入第二套项目存储。参考 SangDocCraft 的 OpenAI 兼容工具调用、浮窗与加密密钥存储设计，按 CoverFlow 的项目和图层模型独立实现。fake-indexeddb 仅用于测试，不进入生产包。
+字体目录、图片附件、生图协议、通用配置与会话类型、思考请求参数及消息活动排序直接使用 SangAIKit；项目和页面校验、画布工具、用户确认、即时重做与原生文件存储留在 CoverFlow。沿用项目已有的 React、Vite、lucide-react 和 StorageAdapter，不引入第二套项目存储。fake-indexeddb 仅用于测试，不进入生产包。
 
 ## 模型与浮窗
 
 - 配置包含 endpoints，每个接入点维护独立的 API 地址、Key 与 models；activeSelection 使用接入点 ID 和模型配置 ID，不用模型名称作为唯一标识。
 - 接入地址是 SDK baseURL，不填写完整请求地址。DeepSeek 官方使用 https://api.deepseek.com，Ollama 使用 http://localhost:11434/v1。
-- 模型分别配置上下文窗口、输出限制、思考能力与支持档位。统一使用 reasoning.effort 和 max_output_tokens，不设置或发送 temperature。DeepSeek 预设支持 none/low/high/max。
+- 模型分别配置上下文窗口、输出限制、思考能力与支持档位；切换时沿用 CoverFlow 的恢复模型思考默认值和强度联动策略。通常使用 `reasoning.effort`，Agnes 模型关闭思考时使用 `chat_template_kwargs.enable_thinking: false`；输出限制使用 `max_output_tokens`，不设置或发送 temperature。DeepSeek 预设支持 none/low/high/max。
+- 助手界面不强制前端 Key；空 Key 的模型请求和连接测试不发送 `Authorization`，是否允许由服务端决定。非空 Key 仍使用 Bearer 认证，密钥解密失败仍单独进入恢复状态。
 - 通过 SDK 读取 Responses 语义事件：正文、原始思考/推理摘要、工具参数以及 completed/incomplete/failed。推理在独立折叠区域显示，不混入最终回答；不同服务商不保证提供相同的可见推理内容。
 - DeepSeek 和 Ollama 均采用无状态会话，完整 reasoning/message/function_call 输出与 function_call_output 按顺序保存并回传，不使用 previous_response_id。OpenAI 官方请求关闭服务端存储，并保留返回的加密推理项用于续接。
 - 每次终结事件保存 usage（输入、输出、总量及可选缓存/思考明细），按操作及会话汇总；缓存与思考是子集，不额外加到总数。中断或缺失 usage 明确标记未知，已返回的用量仍保留。
@@ -224,6 +225,7 @@ chat/
 - 对话上传入口和图片粘贴仅在当前模型支持视觉输入时开放；启用生图模型不会放开此限制。
 - 切到非多模态模型后，待发图片保留在输入区并标记暂存，文字消息不携带这些图片；只有图片而没有文字时不能发送空消息。切回多模态后可继续发送暂存图片；文字发送失败不清空暂存图片，发送前校验抛出错误时恢复文字草稿。暂存属于当前输入区状态，不是跨刷新持久化草稿。
 - 历史图片不删除。每轮非多模态请求仅在出站副本中将消息和工具结果里的图片替换为“当前模型不支持图片输入”的文字标记，不加载图片二进制，不改写原始历史、图片资源或工具调用配对。切回多模态后重新加载原始图片；已有文字、图片来源及生图参考 ID 保留。
+- 视觉请求由 SangAIKit 的共享水合逻辑读取消息和工具结果中的 `attachment://` 图片；引用缺失或图片类型不是 PNG/JPEG/WebP 时明确报错，不向模型发送无效引用。画布预览与选区预览的获取、保存及项目边界仍由 CoverFlow 实现。
 
 ## 生图配置与调用
 

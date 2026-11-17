@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
-import { readResponse } from 'sang-ai-kit/responses';
-import { normalizeUsage } from 'sang-ai-kit/conversation-utils';
+import { openAiAuthOptions, readResponse } from 'sang-ai-kit/responses';
+import { normalizeUsage, prepareResponseInput } from 'sang-ai-kit/conversation-utils';
 import { runToolLoop } from 'sang-ai-kit/tool-loop';
 import type { Response, ResponseFunctionCallOutputItemList } from 'openai/resources/responses/responses';
 import type { AiConfig, AiRequestConfig, ChatImageRef, RequestUsage, ResponseItem, ToolEvent, WorkspaceBridge } from '../types.ts';
@@ -11,7 +11,6 @@ import { executeTool } from '../tools/execute.ts';
 import { record } from '../tools/validation.ts';
 import { DEFAULT_MAX_IMAGE_FAILURES, DEFAULT_MAX_TOOL_ROUNDS, normalizeEndpoint, reasoningPayload, validateRequestConfig } from './config.ts';
 import { estimateInput } from './usage.ts';
-import { blobToDataUrl } from 'sang-ai-kit/image-attachments';
 import { normalizeSkills, readSkill } from './skills.ts';
 import { normalizeLocalFonts } from 'sang-ai-kit/fonts';
 import { normalizeAiFeatures } from 'sang-ai-kit/features';
@@ -69,30 +68,11 @@ function responseText(response: Response): string {
   return texts.join('');
 }
 
-async function prepareRequestInput(items: ResponseItem[], supportsVision: boolean, loadImage?: (imageId: string) => Promise<Blob | null>): Promise<ResponseItem[]> {
-  const result = structuredClone(items) as unknown as Record<string, unknown>[];
-  const hydrateParts = async (parts: unknown[]) => Promise.all(parts.map(async part => {
-    if (!part || typeof part !== 'object') return part;
-    const image = part as { type?: string; image_url?: string | null };
-    if (image.type !== 'input_image') return part;
-    if (!supportsVision) return { type: 'input_text', text: '[Image not provided: the current model does not support image input.]' };
-    if (!loadImage || !image.image_url?.startsWith('attachment://')) return part;
-    const blob = await loadImage(image.image_url.slice('attachment://'.length));
-    if (!blob) throw new Error('A referenced chat image is missing.');
-    return { ...image, image_url: await blobToDataUrl(blob) };
-  }));
-  for (const item of result) {
-    if (Array.isArray(item.content)) item.content = await hydrateParts(item.content);
-    if (item.type === 'function_call_output' && Array.isArray(item.output)) item.output = await hydrateParts(item.output);
-  }
-  return result as unknown as ResponseItem[];
-}
-
 export async function runConversation(options: ConversationOptions): Promise<string> {
   const { config, bridge, signal, onText, onTool } = options;
   validateRequestConfig(config);
   const baseURL = normalizeEndpoint(config.endpoint);
-  const client = new OpenAI({ baseURL, apiKey: config.apiKey || 'local', dangerouslyAllowBrowser: true, maxRetries: 0 });
+  const client = new OpenAI({ baseURL, ...openAiAuthOptions(config.apiKey), dangerouslyAllowBrowser: true, maxRetries: 0 });
   const input = structuredClone(options.input);
   const features = normalizeAiFeatures(config.features);
   const skills = features.skills ? normalizeSkills(config.skills) : [];
@@ -119,7 +99,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
     const request = { id: generateId(), endpoint: baseURL, model: config.model, createdAt: startTime, inputEstimate: estimateInput(input, config.systemPrompt, config.supportsVision, tools.some(tool => tool.function.name === 'generate_image'), config.imageToolModels, skills, features) };
     try {
       const stream = await client.responses.create({
-        model: config.model, instructions: config.systemPrompt, input: await prepareRequestInput(input, Boolean(config.supportsVision), options.loadImage),
+        model: config.model, instructions: config.systemPrompt, input: await prepareResponseInput(input, Boolean(config.supportsVision), options.loadImage),
         tools: tools.map(tool => ({ type: 'function' as const, ...tool.function, strict: false })),
         stream: true, store: false, max_output_tokens: config.maxTokens,
         ...reasoningPayload(config),

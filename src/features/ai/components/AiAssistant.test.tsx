@@ -8,14 +8,15 @@ import { defaultConfig, resolveSelection } from '../services/config.ts';
 import { createImageUpload } from '../services/imageAttachments.ts';
 import type { WorkspaceOptions } from '../services/workspace.ts';
 import type { StorageAdapter } from '../../../storage/StorageAdapter.ts';
+import { AI_FEATURES } from '../featureConfig.ts';
 
 vi.mock('../hooks/useAiAssistant.ts', () => ({ useAiAssistant: vi.fn() }));
 vi.mock('../hooks/useChatStore.ts', () => ({ useChatStore: () => ({ id: 'test' }) }));
-vi.mock('../hooks/useFloatingPanel.ts', () => ({ useFloatingPanel: () => ({ minimized: false, setMinimized: vi.fn() }) }));
-vi.mock('../hooks/useChatScroll.ts', () => ({ useChatScroll: () => ({ resetScroll: vi.fn() }) }));
+vi.mock('sang-ai-kit/floating', () => ({ useFloatingPanel: () => ({ minimized: false, setMinimized: vi.fn() }) }));
+vi.mock('sang-ai-kit/chat-scroll', () => ({ useChatScroll: () => ({ resetScroll: vi.fn() }) }));
 vi.mock('./TokenUsageBar.tsx', () => ({ default: () => null }));
-vi.mock('./ModelControls.tsx', () => ({ default: () => null }));
-vi.mock('./ChatScrollbar.tsx', () => ({ default: () => null }));
+vi.mock('sang-ai-kit/model-controls', () => ({ default: () => null }));
+vi.mock('sang-ai-kit/chat-scrollbar', () => ({ default: () => null }));
 vi.mock('../services/imageAttachments.ts', () => ({ createImageUpload: vi.fn() }));
 
 let root: Root;
@@ -64,6 +65,18 @@ async function pasteImage() {
   await act(async () => { host.querySelector('textarea')!.dispatchEvent(event); });
   return event;
 }
+
+it('hides quick snippets when the feature is disabled and restores them when enabled', async () => {
+  const features = AI_FEATURES as { quickSnippets: boolean };
+  try {
+    features.quickSnippets = false;
+    await render(false);
+    expect(host.querySelectorAll('.cf-ai-quick-btn')).toHaveLength(0);
+    features.quickSnippets = true;
+    await render(false);
+    expect(host.querySelectorAll('.cf-ai-quick-btn').length).toBeGreaterThan(0);
+  } finally { features.quickSnippets = true; }
+});
 
 it.each([false, true])('hides uploads and ignores pasted images for text-only models even with image generation enabled=%s', async enabled => {
   assistant.config.imageModels = [{ enabled } as NonNullable<typeof assistant.config.imageModels>[number]];

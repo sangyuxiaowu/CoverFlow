@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Download, Share, PlusSquare, CheckCircle, Info, X } from 'lucide-react';
-import { isTauri } from '@tauri-apps/api/core';
 import { usePWAInstall } from '../../hooks/usePWAInstall.ts';
 import { translations, Language } from '../../translations.ts';
+import { isTauriRuntime } from '../../utils/tauriRuntime.ts';
 
 interface PWAInstallButtonProps {
   lang: Language;
@@ -13,9 +13,7 @@ export const PWAInstallButton = ({ lang }: PWAInstallButtonProps) => {
   const t = translations[lang];
   const [showIOSGuide, setShowIOSGuide] = useState(false);
   const [showDesktopHelp, setShowDesktopHelp] = useState(false);
-  const isTauriRuntime = import.meta.env.VITE_APP_MODE === 'tauri' || isTauri();
-
-  if (import.meta.env.DEV || isTauriRuntime || isInstalled) {
+  if (import.meta.env.DEV || isTauriRuntime() || isInstalled) {
     return null;
   }
 

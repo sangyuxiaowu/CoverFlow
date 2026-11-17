@@ -170,6 +170,102 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+it('preserves ordered reasoning, tool and text activity across a continued turn', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.mocked(runConversation).mockImplementationOnce(async options => {
+    options.onReasoning?.('Plan', 'reason-1');
+    options.onReasoning?.(' first', 'reason-1');
+    options.onTool({ id: 'tool-1', name: 'read', arguments: '{}', status: 'running' });
+    options.onTool({ id: 'tool-1', name: 'read', arguments: '{}', status: 'success' });
+    options.onReasoning?.('Then', 'reason-2');
+    options.onText('Answer');
+    options.onHistory?.([...options.input, { role: 'assistant', content: 'Answer' }]);
+    throw new Error('Interrupted');
+  }).mockImplementationOnce(async options => {
+    options.onReasoning?.('Continue', 'reason-3');
+    options.onText(' done');
+    return ' done';
+  });
+  const harness = await mount();
+  await act(async () => { await harness.getAssistant().send('Question'); });
+  const assistantEntry = harness.getAssistant().entries[1];
+  expect(assistantEntry.activity).toEqual([
+    { id: 'reason-1', type: 'reasoning', text: 'Plan first' },
+    { id: 'tool-1', type: 'tool', toolId: 'tool-1' },
+    { id: 'reason-2', type: 'reasoning', text: 'Then' },
+    expect.objectContaining({ type: 'text', text: 'Answer' })
+  ]);
+  expect(assistantEntry).not.toHaveProperty('reasoning');
+  await act(async () => { await harness.getAssistant().retry(); });
+  const continued = harness.getAssistant().entries[1];
+  expect(continued.activity?.slice(-2)).toEqual([
+    { id: 'reason-3', type: 'reasoning', text: 'Continue' },
+    expect.objectContaining({ type: 'text', text: ' done' })
+  ]);
+  expect(vi.mocked(harness.store.saveSession).mock.calls.at(-1)![0].entries[1].activity).toEqual(continued.activity);
+});
+
+it('orders activity by native response history instead of tool execution callbacks', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.mocked(runConversation).mockImplementation(async options => {
+    options.onReasoning?.('Plan', 'rs-1');
+    options.onText('Answer');
+    options.onTool({ id: 'call-1', name: 'read', arguments: '{}', status: 'running' });
+    options.onTool({ id: 'call-1', name: 'read', arguments: '{}', status: 'success' });
+    options.onHistory?.([...options.input,
+      { type: 'reasoning', id: 'rs-1', summary: [] },
+      { type: 'function_call', call_id: 'call-1', name: 'read', arguments: '{}' },
+      { type: 'message', id: 'msg-1', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Answer', annotations: [] }] },
+      { type: 'function_call_output', call_id: 'call-1', output: 'ok' }
+    ]);
+    return 'Answer';
+  });
+  const harness = await mount();
+  await act(async () => { await harness.getAssistant().send('Question'); });
+  expect(harness.getAssistant().entries[1].activity).toEqual([
+    { id: 'rs-1', type: 'reasoning', text: 'Plan' },
+    { id: 'call-1', type: 'tool', toolId: 'call-1' },
+    { id: 'msg-1', type: 'text', text: 'Answer' }
+  ]);
+});
+
+it('retries a reasoning-only failure without merging the next reasoning into the previous item', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.mocked(runConversation).mockImplementationOnce(async options => {
+    options.onReasoning?.('First');
+    throw new Error('Interrupted');
+  }).mockImplementationOnce(async options => {
+    options.onReasoning?.('Second');
+    options.onText('Done');
+    options.onHistory?.([...options.input, { type: 'reasoning', id: 'rs-2', summary: [] }, { role: 'assistant', content: 'Done' }]);
+    return 'Done';
+  });
+  const harness = await mount();
+  await act(async () => { await harness.getAssistant().send('Question'); });
+  await act(async () => { await harness.getAssistant().retry(); });
+  expect(harness.getAssistant().entries).toHaveLength(2);
+  expect(harness.getAssistant().entries[1].activity).toEqual([
+    expect.objectContaining({ type: 'reasoning', text: 'First' }),
+    { id: 'rs-2', type: 'reasoning', text: 'Second' },
+    expect.objectContaining({ type: 'text', text: 'Done' })
+  ]);
+});
+
+it('does not duplicate a non-streamed limit message already in response history', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.mocked(runConversation).mockImplementation(async options => {
+    options.onLimit?.();
+    options.onHistory?.([...options.input, { role: 'assistant', content: 'Limit reached' }]);
+    return 'Limit reached';
+  });
+  const harness = await mount();
+  await act(async () => { await harness.getAssistant().send('Question'); });
+  expect(harness.getAssistant().entries[1].content).toBe('Limit reached');
+  expect(harness.getAssistant().entries[1].activity).toEqual([
+    expect.objectContaining({ type: 'text', text: 'Limit reached' })
+  ]);
+});
+
 it('keeps chat accessible when API keys cannot be decrypted without overwriting configuration', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const store = memoryStore();

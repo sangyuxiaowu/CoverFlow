@@ -2,6 +2,7 @@ import type { ProjectState } from '../../types.ts';
 import type { ResponseInputItem } from 'openai/resources/responses/responses';
 import type { ImageModelConfig, ImagePromptConfig } from './image-generation/types.ts';
 import type { LocalFontSelection } from './services/fonts.ts';
+import type { AiFeatures } from 'sang-ai-kit/features';
 export type { ImageAdapterId, ImageModelConfig, ImagePromptConfig, ImageQuality } from './image-generation/types.ts';
 
 export type ResponseItem = ResponseInputItem;
@@ -78,6 +79,7 @@ export interface AiRequestConfig {
   imageToolModels?: ImagePromptConfig[];
   skills?: AiSkillConfig[];
   localFonts?: LocalFontSelection[];
+  features?: Partial<AiFeatures>;
   endpoint: string;
   model: string;
   apiKey: string;
@@ -122,6 +124,7 @@ export interface ToolEvent {
 
 export type AssistantActivityEvent =
   | { id: string; type: 'text'; text: string }
+  | { id: string; type: 'reasoning'; text: string }
   | { id: string; type: 'tool'; toolId: string };
 
 export interface ChatImageRef {
@@ -142,7 +145,6 @@ export interface ChatEntry {
   content: string;
   activity?: AssistantActivityEvent[];
   continuable?: boolean;
-  reasoning?: string;
   tools?: ToolEvent[];
   error?: boolean;
   usage?: TokenUsage;

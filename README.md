@@ -178,6 +178,8 @@ API Key 参考 SangDocCraft 使用 AES-GCM 256 位加密，配合随机 IV 和�
 
 前置要求：安装 Bun；Node.js 需为 20.19+（20.x）或 22.12+，以满足 Vite 7 的运行要求。
 
+当前通过 `file:../SangAIKit` 引用独立的 SangAIKit 组件项目；安装和构建前，需将 SangAIKit 放在与 CoverFlow 并列的目录。单独克隆 CoverFlow 的开发环境和 CI 也需要提供该目录，或在 SangAIKit 发布后改用固定的 Git 提交或包版本。AI 浮窗、配置界面、SKILL、生图协议、浏览器加密存储和工具轮次调度由 SangAIKit 提供；CoverFlow 保留原有数据库与备份格式、文件存储适配器、专用工具和画布操作。
+
 ```bash
 bun install
 bun run dev

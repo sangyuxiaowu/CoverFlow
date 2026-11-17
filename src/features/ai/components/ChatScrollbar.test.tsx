@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import ChatScrollbar from './ChatScrollbar.tsx';
+import ChatScrollbar from 'sang-ai-kit/chat-scrollbar';
 
 afterEach(() => vi.unstubAllGlobals());
 

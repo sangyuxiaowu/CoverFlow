@@ -167,3 +167,20 @@ it('restores file ciphertext if preserving local credentials prevents the key re
     expect((await store.loadConfig()).endpoints[0].apiKey).toBe('preserve-on-commit-failure');
   } finally { await writeSecret(secret.ciphertext); db.close(); }
 });
+
+it('reads the original CoverFlow backup format after extraction', async () => {
+  const password = 'original backup password';
+  const raw = new Uint8Array(32).fill(7);
+  const salt = new Uint8Array(16).fill(2);
+  const iv = new Uint8Array(12).fill(3);
+  const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  const wrapping = await crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 600_000 }, material, { name: 'AES-GCM', length: 256 }, false, ['encrypt']);
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: new TextEncoder().encode('CoverFlow encryption key backup v1') }, wrapping, raw);
+  const base64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
+  const backup = JSON.stringify({ format: 'coverflow-encryption-key', version: 1, kdf: 'PBKDF2-SHA256', iterations: 600_000, salt: base64(salt), iv: base64(iv), ciphertext: base64(new Uint8Array(ciphertext)) });
+  const restored = await readKeyBackup(backup, password);
+  const original = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt']);
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, original, new TextEncoder().encode('compatible'));
+  expect(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, restored, encrypted))).toBe('compatible');
+  raw.fill(0);
+});

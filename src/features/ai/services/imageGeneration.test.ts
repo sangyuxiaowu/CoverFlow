@@ -719,6 +719,24 @@ describe('image tools and persistence', () => {
     expect(outputs.at(-1)).toEqual({ error: 'Image generation failure limit reached in this turn.' });
     for (const output of outputs.slice(0, -1)) expect(output).toEqual({ error: 'Image generation failed (HTTP 503).' });
   });
+  it('does not impose a failure budget when the limit is zero', async () => {
+    const { model, context, config } = toolContext();
+    const profiles = defaultConfig();
+    profiles.imageModels = [model];
+    profiles.endpoints[0].id = 'endpoint';
+    profiles.endpoints[0].endpoint = 'https://example.com/v1';
+    let imageRequests = 0;
+    let round = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith('/images/generations')) { imageRequests++; return new Response('', { status: 503 }); }
+      const output = ++round <= 4
+        ? [{ type: 'function_call', call_id: `zero-${round}`, name: 'generate_image', arguments: JSON.stringify({ projectId: 'project', prompt: 'City' }) }]
+        : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] }];
+      return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+    }));
+    await runConversation({ config: { ...toRequestConfig(profiles), maxImageFailures: 0, maxToolRounds: 0 }, input: [], bridge: context.bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}, getImageConfig: () => config, loadImage: context.loadImage, saveImage: context.saveImage });
+    expect(imageRequests).toBe(4);
+  });
   it('accumulates failures across successful generations and enforces the budget within one response batch', async () => {
     mockCanvas();
     const { context, model, config, getProject } = toolContext();

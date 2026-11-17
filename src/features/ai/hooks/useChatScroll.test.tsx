@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { useChatScroll } from './useChatScroll.ts';
+import { useChatScroll } from 'sang-ai-kit/chat-scroll';
 
 afterEach(() => { vi.unstubAllGlobals(); });
 

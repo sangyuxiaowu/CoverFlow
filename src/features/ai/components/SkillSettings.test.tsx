@@ -49,7 +49,7 @@ it('starts empty and supports adding presets, saving edits, cloning and deleting
   await view.click('编辑');
   view.fill('技能唯一标识', 'my-brand');
   view.fill('触发场景与使用建议', '品牌任务');
-  view.fill('完整设计规则内容', '保持原色');
+  view.fill('完整规则内容', '保持原色');
   expect(view.skills()[0].name).toBe('xiaohongshu-cover');
   await view.click('保存修改');
   expect(view.skills()[0]).toEqual({ name: 'my-brand', description: '品牌任务', content: '保持原色' });

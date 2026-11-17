@@ -35,6 +35,17 @@ describe('managed font catalog', () => {
     controller.abort();
     await expect(executeTool('list_fonts', {}, bridge, controller.signal)).rejects.toThrow();
   });
+  it('honors the font management switch and its online font option', async () => {
+    const bridge: WorkspaceBridge = { getProject: () => null, getSelection: () => [], commit: async () => {}, manageProjects: async () => {} };
+    const selected = [{ family: 'Demo', fullName: 'Demo', styles: ['Regular'] }];
+    const local = await executeTool('list_fonts', {}, bridge, new AbortController().signal, false, selected, { fontManagement: true, onlineFonts: false }) as { source: string }[];
+    const all = await executeTool('list_fonts', {}, bridge, new AbortController().signal, false, selected, { fontManagement: true, onlineFonts: true }) as { source: string }[];
+    expect(local).toHaveLength(1);
+    expect(local.every(font => font.source === 'local')).toBe(true);
+    expect(all.filter(font => font.source === 'google')).toHaveLength(9);
+    expect(all.filter(font => font.source === 'local')).toHaveLength(1);
+    await expect(executeTool('list_fonts', {}, bridge, new AbortController().signal, false, selected, { fontManagement: false, onlineFonts: true })).rejects.toThrow('not enabled');
+  });
   it('returns the curated catalog and only explicitly selected local fonts', () => {
     const selected = [{ family: 'Example Font', fullName: '示例字体', styles: ['Regular', 'Bold'] }];
     const fonts = listFonts(selected);

@@ -12,8 +12,9 @@ import { executeAssetTool } from './assets.ts';
 import { listFonts, type LocalFontSelection } from '../services/fonts.ts';
 import { ensureProjectFonts } from '../services/fontLoading.ts';
 import { executePageTool, pageContext } from './pages.ts';
+import type { AiFeatures } from 'sang-ai-kit/features';
 
-export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false, localFonts: LocalFontSelection[] = []): Promise<unknown> {
+export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false, localFonts: LocalFontSelection[] = [], features?: Partial<AiFeatures>): Promise<unknown> {
   signal.throwIfAborted();
   if (name === 'manage_pages') return executePageTool(input, bridge, signal);
   if (name === 'search_assets' || name === 'place_asset') return executeAssetTool(name, input, bridge, signal);
@@ -21,7 +22,8 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
   const args = record(input);
   if (name === 'list_fonts') {
     if (Object.keys(args).length) throw new Error('list_fonts does not accept parameters.');
-    return listFonts(localFonts);
+    if (features?.fontManagement === false) throw new Error('Font management is not enabled.');
+    return listFonts(localFonts, { localFonts: true, onlineFonts: features?.onlineFonts !== false });
   }
   if (name === 'get_cover_size_recommendations') return {
     note: '以下为常见用途的设计建议，不是平台强制规格。用户明确指定的尺寸优先；调整已有画布尺寸前应确认需求，图层不会自动缩放。',

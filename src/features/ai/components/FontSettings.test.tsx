@@ -123,3 +123,20 @@ it('uses inspector display names, family grouping, Chinese-first ordering and bi
   await view.click('加入 Chinese Sans');
   expect(view.fonts()).toEqual([{ family: 'Chinese Sans', fullName: '中文字体', styles: ['Regular', 'Bold'] }]);
 });
+
+it('toggles local and online fonts independently and removes disabled previews', async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  cleanup = () => { act(() => root.unmount()); container.remove(); };
+  await act(async () => { root.render(<FontSettings fonts={[]} onChange={() => {}} english={false} showLocalFonts showOnlineFonts />); });
+  expect(document.getElementById('coverflow-google-fonts-catalog')).not.toBeNull();
+  await act(async () => { root.render(<FontSettings fonts={[]} onChange={() => {}} english={false} showLocalFonts showOnlineFonts={false} />); });
+  expect(document.getElementById('coverflow-google-fonts-catalog')).toBeNull();
+  expect(container.textContent).toContain('读取本机字体');
+  expect(container.textContent).not.toContain('Google Fonts');
+  await act(async () => { root.render(<FontSettings fonts={[]} onChange={() => {}} english={false} showLocalFonts={false} showOnlineFonts />); });
+  expect(document.getElementById('coverflow-google-fonts-catalog')).not.toBeNull();
+  expect(container.textContent).not.toContain('读取本机字体');
+  expect(container.textContent).toContain('Google Fonts');
+});

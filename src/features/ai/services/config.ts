@@ -1,9 +1,12 @@
 import { normalizeLocalFonts } from './fonts.ts';
-import type { AiConfig, AiEndpointConfig, AiModelConfig, AiRequestConfig, ReasoningEffort } from '../types.ts';
-import { generateId } from '../../../utils/helpers.ts';
+import { createEndpoint } from 'sang-ai-kit';
+import type { AiConfig, AiModelConfig, AiRequestConfig, ReasoningEffort } from '../types.ts';
 import { loadStoredConfig, saveStoredConfig } from './configStore.ts';
 import { availableImageModels, createImageModel, IMAGE_MODEL_PRESETS, imageModelToolId, imageTimeoutSeconds, validateImageModel } from '../image-generation/index.ts';
 import { normalizeSkills, skillsPrompt } from './skills.ts';
+import { normalizeAiFeatures } from 'sang-ai-kit/features';
+import type { AiFeatures } from 'sang-ai-kit/features';
+import { AI_FEATURES } from '../featureConfig.ts';
 
 export const DEFAULT_IMAGE_TOOL_PROMPT = `## 生图
 你可以按需使用生图工具生成需要的图像。
@@ -54,37 +57,7 @@ export const DEFAULT_QUICK_SNIPPETS = [
   '添加精美装饰点缀并提升视觉层次感'
 ];
 
-export function createModel(modelId = 'gpt-4o-mini'): AiModelConfig {
-  const deepseek = /^deepseek-/i.test(modelId);
-  const local = /^(qwen|llama|gemma|gpt-oss)/i.test(modelId);
-  const supportsVision = /^(gpt-4o|gpt-4\.1|gpt-4\.5|gpt-5|o[1-4](?:-|$))/i.test(modelId);
-  const thinkingAvailable = deepseek || /^(qwen3|gpt-oss|o[134](?:-|$)|gpt-5)/i.test(modelId);
-  const supportedReasoningEfforts: ReasoningEffort[] = deepseek
-    ? ['none', 'low', 'high', 'max']
-    : ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
-  const defaultEffort: ReasoningEffort = deepseek ? 'high' : 'medium';
-  return {
-    id: generateId(),
-    label: modelId,
-    modelId,
-    maxTokens: deepseek ? 16384 : 4096,
-    contextWindow: deepseek ? 1000000 : local ? 32768 : 128000,
-    thinkingAvailable,
-    supportsVision,
-    supportedReasoningEfforts,
-    thinkingEnabled: thinkingAvailable,
-    reasoningEffort: thinkingAvailable ? defaultEffort : 'none',
-    defaultThinkingEnabled: thinkingAvailable,
-    defaultReasoningEffort: defaultEffort
-  };
-}
-
-export function createEndpoint(provider: 'openai' | 'deepseek' | 'local' | 'custom' = 'custom'): AiEndpointConfig {
-  const preset = provider === 'deepseek' ? { name: 'DeepSeek', endpoint: 'https://api.deepseek.com', models: [createModel('deepseek-flash'), createModel('deepseek-v4-pro')] }
-    : provider === 'local' ? { name: 'Ollama', endpoint: 'http://localhost:11434/v1', models: [createModel('qwen3')] }
-    : { name: provider === 'custom' ? 'Custom' : 'OpenAI', endpoint: 'https://api.openai.com/v1', models: [createModel('gpt-4o-mini'), createModel('gpt-4o')] };
-  return { id: generateId(), apiKey: '', ...preset };
-}
+export { createEndpoint };
 
 export function defaultConfig(): AiConfig {
   const endpoint = createEndpoint('openai');
@@ -148,12 +121,13 @@ export function normalizeConfig(value: unknown, preserveKeys = true): AiConfig {
   return config;
 }
 
-export function toRequestConfig(config: AiConfig): AiRequestConfig {
+export function toRequestConfig(config: AiConfig, featureSettings: Partial<AiFeatures> = AI_FEATURES): AiRequestConfig {
   const { endpoint, model } = resolveSelection(config);
-  const imageModels = availableImageModels(config);
+  const features = normalizeAiFeatures(featureSettings);
+  const imageModels = features.imageGeneration ? availableImageModels(config) : [];
   const imageToolsEnabled = imageModels.length > 0;
   const imageToolPrompt = config.imageToolPrompt ?? DEFAULT_IMAGE_TOOL_PROMPT;
-  const skills = normalizeSkills(config.skills);
+  const skills = features.skills ? normalizeSkills(config.skills) : [];
   const skillPrompt = skillsPrompt(skills);
   const basePrompt = imageToolsEnabled && imageToolPrompt.trim() && !config.systemPrompt.includes(imageToolPrompt)
     ? `${config.systemPrompt}\n\n${imageToolPrompt}`
@@ -162,7 +136,8 @@ export function toRequestConfig(config: AiConfig): AiRequestConfig {
   return {
     imageToolsEnabled,
     skills,
-    localFonts: normalizeLocalFonts(config.localFonts),
+    localFonts: features.fontManagement ? normalizeLocalFonts(config.localFonts) : [],
+    features,
     maxToolRounds: config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS,
     maxImageFailures: config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES,
     imageToolModels: imageModels.map(model => ({ id: imageModelToolId(model), label: model.label, adapter: model.adapter, modelId: model.modelId, version: model.version, releasedAt: model.releasedAt, timeoutSeconds: imageTimeoutSeconds(model), description: model.description, size: model.size, ratio: model.ratio, quality: model.quality, n: model.n })),
@@ -270,9 +245,10 @@ export async function loadConfig(): Promise<AiConfig> {
 }
 
 export function validateRequestConfig(config: AiRequestConfig): void {
+  normalizeAiFeatures(config.features);
   normalizeSkills(config.skills);
-  if (!Number.isSafeInteger(config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS) || (config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS) < 1) throw new Error('Tool round limit must be a positive safe integer.');
-  if (!Number.isSafeInteger(config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES) || (config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES) < 1) throw new Error('Image failure limit must be a positive safe integer.');
+  if (!Number.isSafeInteger(config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS) || (config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS) < 0) throw new Error('Tool round limit must be a non-negative safe integer.');
+  if (!Number.isSafeInteger(config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES) || (config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES) < 0) throw new Error('Image failure limit must be a non-negative safe integer.');
   const url = new URL(config.endpoint);
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) throw new Error('Use HTTPS, or HTTP on localhost.');
   if (url.username || url.password || url.search || url.hash) throw new Error('Endpoint cannot contain credentials, query parameters or fragments.');

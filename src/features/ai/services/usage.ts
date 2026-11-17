@@ -1,31 +1,21 @@
 import type { AiRequestConfig, AiSkillConfig, ChatSession, ImagePromptConfig, RequestUsage, ResponseItem, TokenUsage } from '../types.ts';
 import { normalizeEndpoint } from './config.ts';
 import { imageToolDefinitions, skillToolDefinitions, TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import { sumUsage } from 'sang-ai-kit/conversation-utils';
+import { normalizeAiFeatures, type AiFeatures } from 'sang-ai-kit/features';
 
-export function estimateInput(input: ResponseItem[], instructions: string, supportsVision = false, imageToolsEnabled = false, imageModels?: ImagePromptConfig[], skills?: AiSkillConfig[]): number {
-  const tools = [...TOOL_DEFINITIONS, ...skillToolDefinitions(skills), ...(supportsVision ? VISION_TOOL_DEFINITIONS : []), ...(imageToolsEnabled ? imageToolDefinitions(imageModels) : [])];
+export { sumUsage } from 'sang-ai-kit/conversation-utils';
+
+export function estimateInput(input: ResponseItem[], instructions: string, supportsVision = false, imageToolsEnabled = false, imageModels?: ImagePromptConfig[], skills?: AiSkillConfig[], featureSettings?: Partial<AiFeatures>): number {
+  const features = normalizeAiFeatures(featureSettings);
+  const tools = [...TOOL_DEFINITIONS.filter(tool => tool.function.name !== 'list_fonts' || features.fontManagement), ...skillToolDefinitions(features.skills ? skills : []), ...(supportsVision ? VISION_TOOL_DEFINITIONS : []), ...(imageToolsEnabled && features.imageGeneration ? imageToolDefinitions(imageModels) : [])];
   const bytes = new TextEncoder().encode(JSON.stringify({ input, instructions, tools }));
   return Math.ceil(bytes.length / 3);
 }
 
-export function sumUsage(requests: RequestUsage[]): TokenUsage | undefined {
-  const known = requests.filter(request => request.usage);
-  if (!known.length) return undefined;
-  return known.reduce<TokenUsage>((total, request) => {
-    const usage = request.usage!;
-    return {
-      inputTokens: total.inputTokens + usage.inputTokens,
-      outputTokens: total.outputTokens + usage.outputTokens,
-      totalTokens: total.totalTokens + usage.totalTokens,
-      ...(usage.cachedTokens !== undefined || total.cachedTokens !== undefined ? { cachedTokens: (total.cachedTokens || 0) + (usage.cachedTokens || 0) } : {}),
-      ...(usage.reasoningTokens !== undefined || total.reasoningTokens !== undefined ? { reasoningTokens: (total.reasoningTokens || 0) + (usage.reasoningTokens || 0) } : {})
-    };
-  }, { inputTokens: 0, outputTokens: 0, totalTokens: 0 });
-}
-
 export interface ContextBreakdown {
   systemAndTools: number;
-  canvasAndToolData: number;
+  toolData: number;
   historyMessages: number;
   currentTurnEstimate: number;
   contextTokens: number;
@@ -48,7 +38,7 @@ export function sessionUsage(session: ChatSession | undefined, config: AiRequest
   const current = requests.filter(request => request.entryId === lastEntry?.id);
   const matching = [...requests].reverse().find(request => request.usage && request.endpoint === normalizeEndpoint(config.endpoint) && request.model === config.model);
   const projectedInput: ResponseItem[] = prompt.trim() ? [...input, { role: 'user', content: prompt.trim() }] : input;
-  const estimate = estimateInput(projectedInput, config.systemPrompt, config.supportsVision, config.imageToolsEnabled, config.imageToolModels, config.skills);
+  const estimate = estimateInput(projectedInput, config.systemPrompt, config.supportsVision, config.imageToolsEnabled, config.imageToolModels, config.skills, config.features);
   const contextTokens = matching?.usage && matching.inputEstimate !== undefined
     ? Math.max(0, matching.usage.inputTokens + estimate - matching.inputEstimate)
     : estimate;
@@ -59,11 +49,11 @@ export function sessionUsage(session: ChatSession | undefined, config: AiRequest
   const remainingTokens = Math.max(0, contextWindow - contextTokens - reservedOutput);
 
   // 1. 系统指令与工具定义基础开销
-  const systemAndTools = estimateInput([], config.systemPrompt, config.supportsVision, config.imageToolsEnabled, config.imageToolModels, config.skills);
+  const systemAndTools = estimateInput([], config.systemPrompt, config.supportsVision, config.imageToolsEnabled, config.imageToolModels, config.skills, config.features);
 
   // 2. 画布与工具调用数据 (图层属性、设计快照与工具输出)
   const toolDataItems = projectedInput.filter(item => 'type' in item && (item.type === 'function_call' || item.type === 'function_call_output'));
-  const canvasAndToolData = Math.ceil(new TextEncoder().encode(JSON.stringify(toolDataItems)).length / 3);
+  const toolData = Math.ceil(new TextEncoder().encode(JSON.stringify(toolDataItems)).length / 3);
 
   // 3. 历史对话记录
   const messageItems = projectedInput.filter(item => !('type' in item && (item.type === 'function_call' || item.type === 'function_call_output')));
@@ -106,7 +96,7 @@ export function sessionUsage(session: ChatSession | undefined, config: AiRequest
     requestCount: requests.length,
     breakdown: {
       systemAndTools,
-      canvasAndToolData,
+      toolData,
       historyMessages,
       currentTurnEstimate,
       contextTokens,

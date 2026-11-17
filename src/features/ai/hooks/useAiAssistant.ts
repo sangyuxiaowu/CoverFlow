@@ -34,6 +34,46 @@ function appendAssistantText(entry: ChatEntry, text: string): ChatEntry {
   return { ...entry, content: entry.content + text, activity };
 }
 
+function appendAssistantReasoning(entry: ChatEntry, text: string, itemId?: string): ChatEntry {
+  const activity = [...(entry.activity || [])];
+  const index = itemId
+    ? activity.findIndex(item => item.type === 'reasoning' && item.id === itemId)
+    : activity.at(-1)?.type === 'reasoning' ? activity.length - 1 : -1;
+  const existing = activity[index];
+  if (existing?.type === 'reasoning') activity[index] = { ...existing, text: existing.text + text };
+  else activity.push({ id: itemId || generateId(), type: 'reasoning', text });
+  return { ...entry, activity };
+}
+
+function orderResponseActivity(items: ResponseItem[], activity: NonNullable<ChatEntry['activity']>): NonNullable<ChatEntry['activity']> {
+  const result: NonNullable<ChatEntry['activity']> = [];
+  const reasoning = activity.filter(item => item.type === 'reasoning');
+  const usedReasoning = new Set<string>();
+  const textParts = (value: unknown) => Array.isArray(value)
+    ? value.flatMap(part => part && typeof part === 'object' && 'text' in part && typeof part.text === 'string' ? [part.text]
+      : part && typeof part === 'object' && 'refusal' in part && typeof part.refusal === 'string' ? [part.refusal] : []).join('')
+    : typeof value === 'string' ? value : '';
+  for (const [index, value] of items.entries()) {
+    const item = value as { id?: string; type?: string; role?: string; call_id?: string; content?: unknown; summary?: unknown };
+    if (item.type === 'reasoning') {
+      const id = item.id || `reasoning-${index}`;
+      const streamed = reasoning.find(part => part.id === id && !usedReasoning.has(part.id))
+        || reasoning.find(part => !usedReasoning.has(part.id) && !items.some(candidate => 'id' in candidate && candidate.id === part.id));
+      if (streamed) usedReasoning.add(streamed.id);
+      const text = streamed?.text || textParts(item.summary) || textParts(item.content);
+      if (text) result.push({ id, type: 'reasoning', text });
+    } else if (item.type === 'function_call' && item.call_id) {
+      result.push({ id: item.call_id, type: 'tool', toolId: item.call_id });
+    } else if (item.role === 'assistant' || item.type === 'message' && item.role !== 'user') {
+      const text = textParts(item.content);
+      if (text) result.push({ id: item.id || `message-${index}`, type: 'text', text });
+    }
+  }
+  if (reasoning.length && !items.some(item => 'type' in item && item.type === 'reasoning')) return activity;
+  if (!result.some(item => item.type === 'text')) result.push(...activity.filter(item => item.type === 'text'));
+  return result;
+}
+
 function updateToolActivity(entry: ChatEntry, event: ToolEvent): ChatEntry {
   const tools = [...(entry.tools || []).filter(tool => tool.id !== event.id), event];
   const activity = [...(entry.activity || [])];
@@ -279,6 +319,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
       for (const attachment of attachments) await targetStore.saveImage(working.id, attachment.image.id, attachment.blob);
       await persist(working, targetStore);
       let streamedText = '';
+      const historyStart = working.responseItems.length;
       const content = await runConversation({
         config: toRequestConfig(config), input: working.responseItems, bridge: bridgeRef.current!, signal: controller.signal,
         getImageConfig: () => configRef.current,
@@ -286,7 +327,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
           streamedText += chunk;
           update(entry => appendAssistantText(entry, chunk));
         },
-        onReasoning: chunk => update(entry => ({ ...entry, reasoning: (entry.reasoning || '') + chunk })),
+        onReasoning: (chunk, itemId) => update(entry => appendAssistantReasoning(entry, chunk, itemId)),
         onTool: event => update(entry => updateToolActivity(entry, event)),
         loadImage: imageId => targetStore.loadImage(working.id, imageId),
         saveImage: async (blob, name) => {
@@ -305,9 +346,17 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
           working.entries = working.entries.map(entry => entry.id === id ? { ...entry, usage: turnUsage, durationMs: turnDurationMs || undefined } : entry);
           publish();
         },
-        onHistory: input => { working.responseItems = input; publish(); }
+        onHistory: input => {
+          working.responseItems = input;
+          update(entry => ({ ...entry, activity: orderResponseActivity(input.slice(historyStart), entry.activity || []) }));
+        }
       });
-      if (!streamedText && content) update(entry => appendAssistantText(entry, content));
+      if (!streamedText && content) update(entry => {
+        const last = entry.activity?.at(-1);
+        return last?.type === 'text' && last.text === content
+          ? { ...entry, content: entry.content + content }
+          : appendAssistantText(entry, content);
+      });
     } catch (error) {
       if (controller.signal.aborted) {
         const message = stoppedConversationMessage(controller.signal);
@@ -320,7 +369,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
         const errorMessage = error instanceof Error ? error.message : 'AI 请求失败。';
         const currentAssistantEntry = working.entries.find(entry => entry.id === id);
         const hasTools = Boolean(currentAssistantEntry?.tools && currentAssistantEntry.tools.length > 0);
-        const hasReasoning = Boolean(currentAssistantEntry?.reasoning && currentAssistantEntry.reasoning.trim().length > 0);
+        const hasReasoning = Boolean(currentAssistantEntry?.activity?.some(item => item.type === 'reasoning' && item.text.trim().length > 0));
         const hasContent = Boolean(currentAssistantEntry?.content && currentAssistantEntry.content.trim().length > 0);
 
         if (!hasTools && !hasReasoning && !hasContent && working.responseItems.length === previousResponseItems.length + 1) {
@@ -406,6 +455,9 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     try {
       await persist(working, targetStore);
       let streamedText = '';
+      const historyStart = working.responseItems.length;
+      const previousActivity = [...(working.entries.find(entry => entry.id === assistantId)?.activity || [])];
+      let newActivityStarted = false;
       const content = await runConversation({
         config: toRequestConfig(config),
         input: working.responseItems,
@@ -414,10 +466,26 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
         signal: controller.signal,
         onText: chunk => {
           streamedText += chunk;
-          update(entry => appendAssistantText(entry, chunk));
+          update(entry => {
+            if (!newActivityStarted && entry.activity?.at(-1)?.type === 'text') {
+              newActivityStarted = true;
+              return { ...entry, content: entry.content + chunk, activity: [...entry.activity, { id: generateId(), type: 'text', text: chunk }] };
+            }
+            newActivityStarted = true;
+            return appendAssistantText(entry, chunk);
+          });
         },
-        onReasoning: chunk => update(entry => ({ ...entry, reasoning: (entry.reasoning || '') + chunk })),
-        onTool: event => update(entry => updateToolActivity(entry, event)),
+        onReasoning: (chunk, itemId) => {
+          update(entry => {
+            if (!newActivityStarted && entry.activity?.at(-1)?.type === 'reasoning') {
+              newActivityStarted = true;
+              return { ...entry, activity: [...entry.activity, { id: itemId || generateId(), type: 'reasoning', text: chunk }] };
+            }
+            newActivityStarted = true;
+            return appendAssistantReasoning(entry, chunk, itemId);
+          });
+        },
+        onTool: event => { newActivityStarted = true; update(entry => updateToolActivity(entry, event)); },
         loadImage: imageId => targetStore.loadImage(working.id, imageId),
         saveImage: async (blob, name) => {
           const image = { id: generateId(), name, type: imageMimeType(blob.type), size: blob.size };
@@ -435,9 +503,18 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
           working.entries = working.entries.map(entry => entry.id === assistantId ? { ...entry, usage: turnUsage, durationMs: turnDurationMs || undefined } : entry);
           publish();
         },
-        onHistory: input => { working.responseItems = input; publish(); }
+        onHistory: input => {
+          working.responseItems = input;
+          update(entry => ({ ...entry, activity: [...previousActivity, ...orderResponseActivity(input.slice(historyStart), (entry.activity || []).slice(previousActivity.length))] }));
+        }
       });
-      if (!streamedText && content) update(entry => appendAssistantText(entry, `${entry.content ? '\n\n' : ''}${content}`));
+      if (!streamedText && content) update(entry => {
+        const text = `${entry.content ? '\n\n' : ''}${content}`;
+        const last = entry.activity?.at(-1);
+        return last?.type === 'text' && last.text === content
+          ? { ...entry, content: entry.content + text }
+          : appendAssistantText(entry, text);
+      });
     } catch (error) {
       if (controller.signal.aborted) {
         const message = stoppedConversationMessage(controller.signal);
@@ -497,7 +574,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     const hasProgress = Boolean(
       targetEntry && (
         (targetEntry.tools && targetEntry.tools.length > 0) ||
-        (targetEntry.reasoning && targetEntry.reasoning.trim().length > 0)
+        targetEntry.activity?.some(item => item.type === 'reasoning' && item.text.trim().length > 0)
       )
     );
 
@@ -564,11 +641,11 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     await send(promptToRerun, uploads);
   };
 
-  const insertImageToCanvas = async (input: {
+  const insertImage = async (input: {
     sessionId: string;
     imageId: string;
     name: string;
-    category: 'generated' | 'attachment';
+    category: 'generated' | 'preview' | 'attachment';
     prompt?: string;
     modelId?: string;
   }) => {
@@ -651,7 +728,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
 
   return {
     config, configure, entries, sessions, activeSessionId, newSession, selectSession,
-    renameSession, deleteSession, deleteImages, insertImageToCanvas, busy, loading, saving, loadError, keyError, configError,
+    renameSession, deleteSession, deleteImages, insertImage, busy, loading, saving, loadError, keyError, configError,
     reloadConfig, send, clear, confirmation,
     stop: (source: 'user_stop' | 'panel_closed' = 'user_stop') => {
       if (source === 'panel_closed') invalidateRegenerate();

@@ -2,7 +2,7 @@
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
-import SessionList from './SessionList.tsx';
+import SessionList from 'sang-ai-kit/session-list';
 import type { ChatSession } from '../types.ts';
 
 it('selects and inverts only the current category and confirms before deleting', async () => {
@@ -24,9 +24,9 @@ it('selects and inverts only the current category and confirms before deleting',
     await act(async () => { element!.click(); });
   };
   try {
-    await act(async () => { root.render(<SessionList sessions={[session]} activeId="session" disabled={false} english={false} onNew={async () => {}} onSelect={async () => {}} onRename={async () => {}} onDelete={async () => {}} onDeleteImages={onDeleteImages} />); });
+    await act(async () => { root.render(<SessionList sessions={[session]} activeId="session" disabled={false} english={false} onNew={async () => {}} onSelect={async () => {}} onRename={async () => {}} onDelete={async () => {}} onDeleteImages={onDeleteImages} classifyGalleryImage={image => image.name.includes('preview') ? 'preview' : undefined} />); });
     await click('[title="点击打开图片画廊并预览保存"]');
-    await click('[title="画布与图层实时预览快照"]');
+    await click('[title="预览图片"]');
     await click('[aria-label="批量选择"]');
     await click('[aria-label="全选当前分类"]');
     expect(host.querySelectorAll('input:checked')).toHaveLength(2);
@@ -100,7 +100,8 @@ it('shows insert-to-canvas action for generated and attachment images but not pr
           activeId="session"
           disabled={false}
           english={false}
-          canInsertImage={true}
+          imageInsertAction={{ label: '插入到当前画布' }}
+          classifyGalleryImage={image => image.name.includes('preview') ? 'preview' : undefined}
           onNew={async () => {}}
           onSelect={async () => {}}
           onRename={async () => {}}

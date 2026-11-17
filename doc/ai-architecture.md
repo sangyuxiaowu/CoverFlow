@@ -4,11 +4,12 @@ AI 助手通过受校验的工具调用连接模型服务、项目工作区与�
 
 ## 目录职责
 
+通用助手界面、配置中心、SKILL、字体管理、加密存储、生图协议、工具轮次调度及用量展示已迁至同级 SangAIKit 组件项目；本仓库通过本地包路径引用。下面列出的部分文件是维持现有导入路径的适配器或重导出。
+
 ```text
 src/features/ai/
   types.ts                    协议与工作区桥接契约
   domain/layerOperations.ts   纯图层规则、分组几何与批量操作
-  domain/floatingGeometry.ts  浮窗位置与尺寸边界
   tools/definitions.ts        模型可见的 JSON Schema
   tools/requests.ts           动作契约、派生联合类型与请求解析
   tools/validation.ts         运行时白名单、数值范围及内容安全校验
@@ -17,25 +18,20 @@ src/features/ai/
   tools/assets.ts             已授权文件夹素材搜索与精确放置
   tools/imageTools.ts         生图发现、单图参考与图片资源放置
   services/config.ts          多接入点、多模型、思考参数及配置校验
-  services/skills.ts          纯文本 SKILL 校验、目录提示与示例
-  services/fonts.ts           用户所选本地字体校验及 Google Fonts 精选目录
+  services/skills.ts          共享 SKILL 规则的重导出及 CoverFlow 示例
+  services/fonts.ts           共享字体校验、搜索及 Google Fonts 目录的重导出
   services/fontLoading.ts     精选字体按需加载、请求合并与失败重试
-  services/configStore.ts     IndexedDB 配置与 AES-GCM 加密密钥存储
-  services/encryptionKeys.ts  一次性主密钥备份、口令保护及不可导出导入
+  services/configStore.ts     共享 IndexedDB 存储的 CoverFlow 数据库实例
+  services/encryptionKeys.ts  共享加密备份的 CoverFlow 格式适配
   services/chatStore.ts       浏览器/文件双模式配置、会话与界面状态
   services/chatFileAccess.ts  File System Access 与 Tauri 文件适配
-  services/conversation.ts    OpenAI SDK Responses 事件、原生历史、工具循环
-  image-generation/index.ts   生图统一入口、校验、超时及请求调度
-  image-generation/types.ts   生图配置、能力及适配器契约
-  image-generation/models.ts  模型预设、适配器注册与能力查询
-  image-generation/adapters/  Kolors / Agnes / GPT-Image 协议实现
-  image-generation/results.ts 结果下载、安全校验与原始图片归一化
+  services/conversation.ts    CoverFlow 模型请求、工具执行与共享轮次调度适配
+  image-generation/           共享生图协议、模型及类型的重导出
   services/usage.ts           服务端用量汇总、上下文估算与输出预算
   services/workspace.ts       项目生命周期与真实存储适配器
   hooks/useAiAssistant.ts     React 会话、确认、错误和工作区实时值
-  hooks/useFloatingPanel.ts   指针拖动、缩放、窗口状态及位置记忆
   hooks/useChatStore.ts       按当前存储模式或原生项目目录选择存储
-  components/                聊天面板、模型设置及局部样式
+  components/                宿主界面适配器及 CoverFlow 专用设置面板
 ```
 
 沿用项目已有的 React、Vite、lucide-react 和 StorageAdapter，不引入第二套项目存储。参考 SangDocCraft 的 OpenAI 兼容工具调用、浮窗与加密密钥存储设计，按 CoverFlow 的项目和图层模型独立实现。fake-indexeddb 仅用于测试，不进入生产包。
@@ -54,7 +50,8 @@ src/features/ai/
 
 ## 单轮调用限制
 
-- AI 配置中心最后的“其他设置”页包含密钥管理及单轮调用限制：`maxToolRounds`（工具调用轮次上限，默认 24）和 `maxImageFailures`（生图累计失败上限，默认 3），均为正整数，可恢复默认。设置随现有 ChatStore 在浏览器或文件模式保存，并在下一轮对话生效。
+- AI 能力由宿主接入配置 `AI_FEATURES` 控制，不保存在用户模型配置中。生图、SKILL、快捷短语和字体管理可分别启停；在线字体是字体管理开启后的子选项。关闭能力不删除保存的配置；关闭字体管理时不注册 `list_fonts`。在线字体选项只影响 AI 可用字体及设置预览，不改变项目中已有字体的加载与渲染。
+- “其他设置”还包含密钥管理及单轮调用限制：`maxToolRounds`（工具调用轮次上限，默认 24）和 `maxImageFailures`（生图累计失败上限，默认 3），均为非负安全整数；`0` 表示该项无上限，可恢复默认。设置随现有 ChatStore 在浏览器或文件模式保存，并在下一轮对话生效；无限制可能增加请求次数和费用。
 - 工具轮次按一次模型响应及其工具批次计数，不是逐个工具计数；每个响应仍最多接受 30 个工具调用。达到轮次上限保留已完成操作及配对历史，并可继续。
 - 生图失败在单次 `runConversation` 内跨模型、跨批次累计，成功不清零。默认第 3 次失败后拦截该轮后续生图，不再向生图服务发请求；普通生图错误仅返回 `{ error: 具体原因 }`，不附加失败预算、计费警告或重试指令。达到上限时仅返回上限错误，放置失败保留已生成图片 ID 及失败原因。失败预算不是强制重试次数，SDK 和底层生图请求仍不自动重发。
 - 停止或关闭面板仍中止整轮，不消耗生图失败预算；新一轮重新计数。已生成并保存的图片应复用，不因放置失败重复生成。失败及超时的服务商请求可能已经计费，提高上限可能增加费用。
@@ -76,6 +73,7 @@ chat/
 - 浏览器文件模式使用用户已授权的项目存储根目录；Tauri 文件模式使用当前 .cfj 旁的 chat 文件夹。
 - 会话有独立 ID，支持新建、选择、重命名和确认删除。每轮开始与结束立即保存，流式显示记录节流保存；刷新后恢复当前会话，并标记未完成工具为中断。
 - 完整 Responses 输入历史（responseItems）、逐请求用量（requests）与显示条目一起按会话保存；新会话不会继承其他会话的消息。只使用当前配置与会话结构，不维护开发阶段的旧格式兼容或自动迁移。
+- 助手消息的 `activity` 按 Responses 原生历史顺序保存 `reasoning`、`tool` 和 `text` 项，流式思考增量使用 Responses 条目 ID 归并。
 - 配置、窗口状态和会话写入各自文件。目录模式使用 FileSystemWritableFileStream.close 提交，Tauri 先写临时文件再重命名。文件路径严格限制会话 ID，不允许路径穿越。
 - 切换模式或项目文件目录时重新加载对应存储，禁止把旧请求结果和窗口状态写入新位置。文件权限失败如实展示，不回退到 IndexedDB。
 - Tauri 的 prepare_chat_storage 只为已有文件访问权限的 .cfj 授权其旁的 chat 目录，拒绝链接目录；创建、列目录、删除和重命名命令遵循最小权限。
@@ -88,6 +86,7 @@ chat/
 - 手动内容编辑或普通撤销/重做后丢弃起点；下一轮指令、切换项目或会话、离开编辑器、关闭聊天面板和卸载后失效。选区和同项目切页仍是导航，不算内容编辑。
 - 只有最新 AI 回复且检查点仍有效时显示重做按钮。执行前、异步附件读取后都重新校验；恢复项目并保存成功后，截断本轮聊天、请求记录和模型 transcript，再重跑原用户输入。附件缺失或恢复保存失败时停止，不继续请求模型。
 - 重做只回退当前项目内容，不撤销已发生的付费生图或外部操作。失败后的“重试”继续已有进度，不等同于整轮重做。
+- CoverFlow 不启用共享助手的 `onFork` 事件，因此消息操作栏不显示分叉入口；会话仍由 CoverFlow 的 `ChatStore` 管理。
 
 ## 项目模型与工作区
 
@@ -208,7 +207,7 @@ chat/
 - 用户主动加入或移除本地字体，最多 100 个家族；按大小写不敏感的家族名拒绝重复。配置保存 `family/fullName/styles` 和用户可选填写的 `description`（最多 1000 字符，保存时去除首尾空白），随现有 AI 配置保存，不读取或上传字体文件。未填写的本地介绍保持空白，不自动添加任何介绍。界面明确说明字体使用及商用版权风险由用户承担；本地字体在其他设备可能不可用，名称不证明字形覆盖或商业授权。
 - 设置与属性检查器共用字体家族去重、字重样式合并、显示名称尾部字重词清理，以及按显示名/家族名搜索的规则；中文界面优先中文命名字体，英文界面优先西文命名字体。这里只按名称分组，不作为中文字形覆盖检测。属性检查器始终前置 9 款 Google 精选字体并标注来源，后接本机字体或常用回退列表，同家族不重复显示。
 - 内置 9 款 Google Fonts 精选字体：中文包含 Noto Sans SC、Noto Serif SC、ZCOOL KuaiLe、ZCOOL QingKe HuangYou、ZCOOL XiaoWei、Ma Shan Zheng，覆盖通用商务、文化出版、活动促销、文艺复古和国风标题；英文包含 Bebas Neue（窄体大写展示字）、Montserrat（几何无衬线）、Playfair Display（高对比衬线），用于海报、品牌科技和杂志时尚标题，这三款不含中文字形。均按 OFL-1.1 标注，首版通过 Google Fonts 在线服务加载，不在应用内打包或重新分发字体文件。
-- `list_fonts` 无参数、无需打开项目，不触发本地读取或授权。固定注册并直接返回字体数组，不再包装 `fonts` 或附加 `note`。所有字体仅含 `family/name/source/description`；Google 精选字体保留内置介绍，本地字体 `description` 为用户填写的介绍，未填写返回空字符串。不返回 `styles/fontFamily/license/weights`；这些数据仅供应用内部使用。本轮所选列表使用隔离配置快照，未加入的本机字体不返回，不把字体名称提前写入系统提示。
+- `list_fonts` 无参数、无需打开项目，不触发本地读取或授权。字体管理开启时注册并返回已选本地字体；在线字体选项开启时额外返回 Google 精选字体。字体管理关闭时不注册，无论在线字体选项如何配置。所有字体仅含 `family/name/source/description`；Google 精选字体保留内置介绍，本地字体 `description` 为用户填写的介绍，未填写返回空字符串。不返回 `styles/fontFamily/license/weights`；这些数据仅供应用内部使用。本轮所选列表使用隔离配置快照，未加入的本机字体不返回，不把字体名称提前写入系统提示。
 - 模型将返回的 `family` 用双引号包裹后写入现有 `add_layer/update_layers` 的 `text.fontFamily`。精选字体在当前画布、项目缩略图、AI 提交以及位图导出/复制/视觉预览前按需加载；CSS 请求按家族合并，失败可重试。等待加载后取消或切换项目不提交旧状态。加载错误明确展示或作为工具错误返回，Google 服务在当前网络不可达时不保证可用。
 - 字体 CSS 请求不含 `text=`，不会主动将封面文字发给 Google；字体及 CSS 资源请求本身仍会连接 Google 服务。浏览器可能缓存资源，但不保证离线可用。本期不含同源镜像、字体包导入、字形覆盖检测、本地字体文件嵌入或转曲。SVG 仍沿用现有 `foreignObject + font-family` 导出，未新增字体嵌入，跨设备及不同 SVG 查看器的显示仍受字体与渲染能力影响。
 
@@ -271,8 +270,8 @@ chat/
 
 ### 扩展生图模型
 
-1. 同协议模型：在 `image-generation/models.ts` 的 `IMAGE_MODEL_PRESETS` 添加预设，填写已有适配器 ID、API 模型 ID、默认尺寸及介绍；如能力不同，在对应适配器中按模型 ID 返回限制。
-2. 新协议服务：在 `image-generation/adapters/` 添加实现 `ImageAdapter` 的模块，实现 `capabilities`、`validate`、`buildRequest`、`readResults`，并在 `models.ts` 注册，扩展适配器 ID 类型。
+1. 同协议模型：在 SangAIKit 的 `src/image-generation/models.ts` 中为 `IMAGE_MODEL_PRESETS` 添加预设，填写已有适配器 ID、API 模型 ID、默认尺寸及介绍；如能力不同，在对应适配器中按模型 ID 返回限制。
+2. 新协议服务：在 SangAIKit 的 `src/image-generation/adapters/` 添加实现 `ImageAdapter` 的模块，实现 `capabilities`、`validate`、`buildRequest`、`readResults`，并在 `models.ts` 注册，扩展适配器 ID 类型。
 3. 设置页从预设与能力表生成添加选项、尺寸、比例、质量和数量控件；工具发现与单模型 Schema 使用相同能力来源。新增特有参数时扩展统一类型与相应控件，不在工具层复制协议分支。
 4. 在已有生图测试中补充文生图/参考图请求、参数边界和响应用例。适配器不直接访问 App、存储或 DOM；凭据授权、超时/取消、安全下载和资源放置继续由统一层负责。
 

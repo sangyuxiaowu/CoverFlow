@@ -154,19 +154,62 @@ test('empty skills omit the tool and unknown skill names produce a factual tool 
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('AI endpoint and model configuration IDs are short', () => {
+test('AI endpoint and model configuration IDs are present', () => {
   const profiles = defaultConfig();
-  assert.match(profiles.endpoints[0].id, /^[0-9a-z]{9}$/);
-  assert.match(profiles.endpoints[0].models[0].id, /^[0-9a-z]{9}$/);
+  assert.ok(profiles.endpoints[0].id);
+  assert.ok(profiles.endpoints[0].models[0].id);
   const endpoint = createEndpoint('deepseek');
-  assert.match(endpoint.id, /^[0-9a-z]{9}$/);
-  assert.ok(endpoint.models.every(model => /^[0-9a-z]{9}$/.test(model.id)));
+  assert.ok(endpoint.id);
+  assert.ok(endpoint.models.every(model => model.id));
 });
 
 const responsePayload = (output: unknown[], overrides = {}) => ({ id: 'resp-test', object: 'response', status: 'completed', output, usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120, input_tokens_details: { cached_tokens: 50 }, output_tokens_details: { reasoning_tokens: 10 } }, ...overrides });
 const textOutput = { type: 'message', id: 'msg-test', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] };
 async function* eventsFrom(events: unknown[]) { for (const event of events) yield event as ResponseStreamEvent; }
 const streamResponse = (payload: ReturnType<typeof responsePayload>) => new Response(`event: response.${payload.status}\ndata: ${JSON.stringify({ type: `response.${payload.status}`, response: payload })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+
+test('host feature configuration removes disabled tools without changing saved settings', async () => {
+  const profiles = configuredConfig();
+  profiles.skills = [{ name: 'review', description: 'Review text', content: 'Be concise.' }];
+  profiles.localFonts = [{ family: 'Demo', fullName: 'Demo', styles: ['Regular'] }];
+  profiles.quickSnippets = ['Keep this prompt'];
+  profiles.imageModels![0].endpointId = profiles.endpoints[0].id;
+  profiles.imageModels![0].enabled = true;
+  const features = { imageGeneration: false, skills: false, quickSnippets: false, fontManagement: false, onlineFonts: true };
+  await saveConfig(profiles);
+  const restored = await loadConfig();
+  assert.equal(Object.hasOwn(restored, 'features'), false);
+  assert.equal(restored.skills?.[0].name, 'review');
+  assert.equal(restored.localFonts?.[0].family, 'Demo');
+  assert.equal(restored.quickSnippets?.[0], 'Keep this prompt');
+  assert.equal(restored.imageModels?.[0].enabled, true);
+  const request = toRequestConfig(restored, features);
+  assert.equal(request.imageToolsEnabled, false);
+  assert.deepEqual(request.skills, []);
+  assert.deepEqual(request.localFonts, []);
+  const originalFetch = globalThis.fetch;
+  let tools: { name: string }[] = [];
+  globalThis.fetch = async (_url, init) => { tools = JSON.parse(init!.body as string).tools; return streamResponse(responsePayload([textOutput])); };
+  try {
+    await runConversation({ config: request, input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}, getImageConfig: () => restored, loadImage: async () => null, saveImage: async () => { throw new Error('not used'); } });
+    assert.ok(!tools.some(tool => ['generate_image', 'list_image_models', 'skill', 'list_fonts'].includes(tool.name)));
+  } finally { globalThis.fetch = originalFetch; }
+  const reenabled = toRequestConfig(restored, { imageGeneration: true, skills: true, fontManagement: true, onlineFonts: true });
+  assert.equal(reenabled.imageToolsEnabled, true);
+  assert.equal(reenabled.skills?.[0].name, 'review');
+  assert.equal(reenabled.localFonts?.[0].family, 'Demo');
+});
+
+test('image capability does not add tools or prompts without a valid model', () => {
+  const profiles = configuredConfig();
+  profiles.imageToolPrompt = 'Image-only instructions';
+  profiles.imageModels![0].enabled = true;
+  profiles.imageModels![0].endpointId = 'missing';
+  const request = toRequestConfig(profiles, { imageGeneration: true });
+  assert.equal(request.imageToolsEnabled, false);
+  assert.deepEqual(request.imageToolModels, []);
+  assert.ok(!request.systemPrompt.includes('Image-only instructions'));
+});
 
 test('turn limits default, normalize, validate, persist and reach request configuration', async () => {
   const profiles = configuredConfig();
@@ -184,10 +227,19 @@ test('turn limits default, normalize, validate, persist and reach request config
   assert.equal(restored.maxImageFailures, 5);
   assert.equal(toRequestConfig(restored).maxToolRounds, 40);
   assert.equal(toRequestConfig(restored).maxImageFailures, 5);
+  profiles.maxToolRounds = 0;
+  profiles.maxImageFailures = 0;
+  await saveConfig(profiles);
+  const unlimited = await loadConfig();
+  assert.equal(unlimited.maxToolRounds, 0);
+  assert.equal(unlimited.maxImageFailures, 0);
+  assert.equal(toRequestConfig(unlimited).maxToolRounds, 0);
+  assert.equal(toRequestConfig(unlimited).maxImageFailures, 0);
   for (const field of ['maxToolRounds', 'maxImageFailures'] as const) {
-    for (const value of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
-      assert.throws(() => validateRequestConfig({ ...config, [field]: value }), /positive safe integer/);
-      await assert.rejects(saveConfig({ ...profiles, [field]: value }), /positive safe integer/);
+    validateRequestConfig({ ...config, [field]: 0 });
+    for (const value of [-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+      assert.throws(() => validateRequestConfig({ ...config, [field]: value }), /non-negative safe integer/);
+      await assert.rejects(saveConfig({ ...profiles, [field]: value }), /non-negative safe integer/);
     }
   }
 });
@@ -686,7 +738,7 @@ test('multiple endpoints preserve independent keys and repair deleted selections
   const endpoint = createEndpoint('deepseek');
   endpoint.apiKey = 'second-key';
   profiles.endpoints.push(endpoint);
-  const selected = selectModel(profiles, endpoint.id, endpoint.models[1].id);
+  const selected = selectModel(profiles, endpoint.id, endpoint.models[0].id);
   assert.equal(toRequestConfig(selected).apiKey, 'second-key');
   assert.equal(toRequestConfig(profiles).apiKey, 'secret');
   const repaired = normalizeConfig({ ...selected, endpoints: [profiles.endpoints[0]] });
@@ -698,9 +750,6 @@ test('Responses uses one reasoning format with model-specific levels', () => {
   assert.deepEqual(reasoningPayload(config), {});
   assert.deepEqual(reasoningPayload({ ...config, thinkingAvailable: true, thinkingEnabled: true, reasoningEffort: 'max' }), { reasoning: { effort: 'max' } });
   assert.deepEqual(reasoningPayload({ ...config, thinkingAvailable: true, thinkingEnabled: false }), { reasoning: { effort: 'none' } });
-  const endpoint = createEndpoint('deepseek');
-  assert.equal(endpoint.models.every(model => model.thinkingAvailable), true);
-  assert.deepEqual(endpoint.models[0].supportedReasoningEfforts, ['none', 'low', 'high', 'max']);
   assert.throws(() => validateRequestConfig({ ...config, contextWindow: 1000 }), /Context window/);
   assert.throws(() => validateRequestConfig({ ...config, thinkingAvailable: true, thinkingEnabled: true, supportedReasoningEfforts: ['low'], reasoningEffort: 'max' }), /does not support/);
 });

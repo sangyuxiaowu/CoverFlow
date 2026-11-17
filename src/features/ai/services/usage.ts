@@ -8,7 +8,7 @@ export { sumUsage } from 'sang-ai-kit/conversation-utils';
 
 export function estimateInput(input: ResponseItem[], instructions: string, supportsVision = false, imageToolsEnabled = false, imageModels?: ImagePromptConfig[], skills?: AiSkillConfig[], featureSettings?: Partial<AiFeatures>): number {
   const features = normalizeAiFeatures(featureSettings);
-  const tools = [...TOOL_DEFINITIONS.filter(tool => tool.function.name !== 'list_fonts' || features.fontManagement), ...skillToolDefinitions(features.skills ? skills : []), ...(supportsVision ? VISION_TOOL_DEFINITIONS : []), ...(imageToolsEnabled && features.imageGeneration ? imageToolDefinitions(imageModels) : [])];
+  const tools = [...TOOL_DEFINITIONS.filter(tool => (tool.function.name !== 'list_fonts' || features.fontManagement) && (tool.function.name !== 'remove_background' || features.backgroundRemoval)), ...skillToolDefinitions(features.skills ? skills : []), ...(supportsVision ? VISION_TOOL_DEFINITIONS : []), ...(imageToolsEnabled && features.imageGeneration ? imageToolDefinitions(imageModels) : [])];
   const bytes = new TextEncoder().encode(JSON.stringify({ input, instructions, tools }));
   return Math.ceil(bytes.length / 3);
 }

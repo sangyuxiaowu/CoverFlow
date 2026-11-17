@@ -6,7 +6,7 @@ import { useAiAssistant } from '../hooks/useAiAssistant.ts';
 import { useChatStore } from '../hooks/useChatStore.ts';
 import { useFloatingPanel } from 'sang-ai-kit/floating';
 import { DEFAULT_QUICK_SNIPPETS, resolveSelection, selectModel, updateActiveModel } from '../services/config.ts';
-import { createImageUpload } from '../services/imageAttachments.ts';
+import { createImageUpload } from 'sang-ai-kit/image-attachments';
 import { sumUsage } from '../services/usage.ts';
 import { imageModelForTool } from './imageToolModel.ts';
 import AiSettings from './AiSettings.tsx';

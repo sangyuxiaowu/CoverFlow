@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { Layer, ProjectState } from '../../types.ts';
-import { applyRemovalResult } from './layerResult.ts';
-import type { RemovalResult } from './types.ts';
+import type { Layer, ProjectState } from '../types.ts';
+import { applyRemovalResult } from './backgroundRemovalResult.ts';
+import type { RemovalResult } from './backgroundRemovalResult.ts';
 
 const image: Layer = {
   id: 'image', name: 'Photo', type: 'image', content: 'original', x: 10, y: 20, width: 200, height: 100,

@@ -1,6 +1,6 @@
 import type { AiConfig, ChatImageRef, WorkspaceBridge } from '../types.ts';
-import { availableImageModels, generateImages, imageCapabilities, imageModelToolId, imageTimeoutSeconds, type ImageQuality } from '../image-generation/index.ts';
-import { blobToDataUrl, encodeWebp, IMAGE_FORMATS, imageMimeType } from '../services/imageAttachments.ts';
+import { availableImageModels, generateImages, imageCapabilities, imageModelToolId, imageTimeoutSeconds, type ImageQuality } from 'sang-ai-kit/image-generation';
+import { blobToDataUrl, encodeWebp, IMAGE_FORMATS, imageMimeType } from 'sang-ai-kit/image-attachments';
 import { text } from './validation.ts';
 import { generateId } from '../../../utils/helpers.ts';
 

@@ -17,8 +17,8 @@ import AiAssistant from './features/ai/components/AiAssistant.tsx';
 import type { WorkspaceOptions } from './features/ai/services/workspace.ts';
 import { updateProjectLayer } from './features/ai/domain/layerOperations.ts';
 import { ensureProjectFonts, projectFontEmbedCSS } from './features/ai/services/fontLoading.ts';
-import { applyRemovalResult } from './features/background-removal/layerResult.ts';
-import type { RemovalResult } from './features/background-removal/types.ts';
+import { applyRemovalResult } from './utils/backgroundRemovalResult.ts';
+import type { RemovalResult } from './utils/backgroundRemovalResult.ts';
 import { PWAUpdatePrompt } from './components/pwa/PWAUpdatePrompt.tsx';
 import { OfflineIndicator } from './components/pwa/OfflineIndicator.tsx';
 // Tauri 环境下的本地文件适配器
@@ -49,7 +49,7 @@ import { exportProjectPages, getExportPixelRatio, type PageExportSettings } from
 import { clampDecorationSize } from './utils/decorationStyles.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
 import { computeCroppedLayerGeometry } from './utils/imageLayer.ts';
-import { encodeWebp, MAX_IMAGE_EDGE } from './features/ai/services/imageAttachments.ts';
+import { encodeWebp, MAX_IMAGE_EDGE } from 'sang-ai-kit/image-attachments';
 import { type Area } from 'react-easy-crop';
 import {
   Download, ArrowLeft, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, X, Save, Bot, Presentation

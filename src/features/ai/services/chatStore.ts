@@ -1,6 +1,6 @@
 import type { AiConfig, ChatSession, ChatUiState } from '../types.ts';
 import { defaultConfig, loadConfig, normalizeConfig, validateConfig } from './config.ts';
-import { IMAGE_FORMATS, imageMimeType } from './imageAttachments.ts';
+import { IMAGE_FORMATS, imageMimeType } from 'sang-ai-kit/image-attachments';
 import { ConfigDecryptionError, decryptEndpointKeys, deleteStoredSession, encryptEndpointKeys, listStoredSessions, loadStoredImage, loadStoredUiState, pruneStoredImages, readEncryptionKey, replaceEncryptionKey, saveStoredConfig, saveStoredImage, saveStoredSession, saveStoredUiState, validateSession, verifyStoredEncryptionKey } from './configStore.ts';
 import { generateEncryptionKey, type EncryptionManager } from './encryptionKeys.ts';
 import { clonePlainData } from '../../../utils/clonePlainData.ts';

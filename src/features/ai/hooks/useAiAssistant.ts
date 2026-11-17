@@ -9,7 +9,7 @@ import type { ChatStore } from '../services/chatStore.ts';
 import { removeSessionImages } from '../services/chatStore.ts';
 import { sumUsage } from '../services/usage.ts';
 import { generateId } from '../../../utils/helpers.ts';
-import { blobToDataUrl, imageMimeType } from '../services/imageAttachments.ts';
+import { blobToDataUrl, imageMimeType } from 'sang-ai-kit/image-attachments';
 import { ConfigDecryptionError } from '../services/configStore.ts';
 import { clonePlainData } from '../../../utils/clonePlainData.ts';
 

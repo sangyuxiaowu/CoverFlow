@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AiConfig, ChatImageRef, WorkspaceBridge } from '../types.ts';
 import type { ProjectState } from '../../../types.ts';
-import { availableImageModels, createImageModel, generateImages, imageCapabilities, IMAGE_MODEL_PRESETS, imageModelToolId, imageRequestUrl, imageTimeoutSeconds, validateImageModel, type ImagePresetId } from '../image-generation/index.ts';
+import { availableImageModels, createImageModel, generateImages, imageCapabilities, IMAGE_MODEL_PRESETS, imageModelToolId, imageRequestUrl, imageTimeoutSeconds, validateImageModel, type ImagePresetId } from 'sang-ai-kit/image-generation';
 import { imageToolDefinitions } from '../tools/definitions.ts';
 import { executeImageTool, type ImageToolContext } from '../tools/imageTools.ts';
 import { executeTool } from '../tools/execute.ts';
 import { ConversationAbortError, runConversation } from './conversation.ts';
 import { DEFAULT_IMAGE_TOOL_PROMPT, defaultConfig, toRequestConfig, validateConfig } from './config.ts';
 import { createFileChatStore } from './chatStore.ts';
-import { imageMimeType } from './imageAttachments.ts';
+import { imageMimeType } from 'sang-ai-kit/image-attachments';
 
 const reference = 'data:image/png;base64,iVBORw0KGgo=';
 function setup(adapter: ImagePresetId) {

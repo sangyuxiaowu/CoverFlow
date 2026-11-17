@@ -19,14 +19,12 @@ src/features/ai/
   tools/imageTools.ts         生图发现、单图参考与图片资源放置
   services/config.ts          多接入点、多模型、思考参数及配置校验
   services/skills.ts          共享 SKILL 规则的重导出及 CoverFlow 示例
-  services/fonts.ts           共享字体校验、搜索及 Google Fonts 目录的重导出
   services/fontLoading.ts     精选字体按需加载、请求合并与失败重试
   services/configStore.ts     共享 IndexedDB 存储的 CoverFlow 数据库实例
   services/encryptionKeys.ts  共享加密备份的 CoverFlow 格式适配
   services/chatStore.ts       浏览器/文件双模式配置、会话与界面状态
   services/chatFileAccess.ts  File System Access 与 Tauri 文件适配
   services/conversation.ts    CoverFlow 模型请求、工具执行与共享轮次调度适配
-  image-generation/           共享生图协议、模型及类型的重导出
   services/usage.ts           服务端用量汇总、上下文估算与输出预算
   services/workspace.ts       项目生命周期与真实存储适配器
   hooks/useAiAssistant.ts     React 会话、确认、错误和工作区实时值
@@ -34,7 +32,7 @@ src/features/ai/
   components/                宿主界面适配器及 CoverFlow 专用设置面板
 ```
 
-沿用项目已有的 React、Vite、lucide-react 和 StorageAdapter，不引入第二套项目存储。参考 SangDocCraft 的 OpenAI 兼容工具调用、浮窗与加密密钥存储设计，按 CoverFlow 的项目和图层模型独立实现。fake-indexeddb 仅用于测试，不进入生产包。
+字体目录、图片附件和生图协议直接使用 SangAIKit。沿用项目已有的 React、Vite、lucide-react 和 StorageAdapter，不引入第二套项目存储。参考 SangDocCraft 的 OpenAI 兼容工具调用、浮窗与加密密钥存储设计，按 CoverFlow 的项目和图层模型独立实现。fake-indexeddb 仅用于测试，不进入生产包。
 
 ## 模型与浮窗
 
@@ -275,4 +273,6 @@ chat/
 3. 设置页从预设与能力表生成添加选项、尺寸、比例、质量和数量控件；工具发现与单模型 Schema 使用相同能力来源。新增特有参数时扩展统一类型与相应控件，不在工具层复制协议分支。
 4. 在已有生图测试中补充文生图/参考图请求、参数边界和响应用例。适配器不直接访问 App、存储或 DOM；凭据授权、超时/取消、安全下载和资源放置继续由统一层负责。
 
-新增工具时先补 definition 与参数校验，再实现 executor 或 workspace 行为，并添加相邻测试。模型通信不要直接导入 App 或操作 DOM。已授权素材搜索与放置由 `src/storage/assets.ts` 和 `tools/assets.ts` 实现；AI 导出工具尚未实现。本地抠图的资源、模型及设备约定见 [本地抠图](background-removal.md)。
+新增工具时先补 definition 与参数校验，再实现 executor 或 workspace 行为，并添加相邻测试。模型通信不要直接导入 App 或操作 DOM。已授权素材搜索与放置由 `src/storage/assets.ts` 和 `tools/assets.ts` 实现；AI 导出工具尚未实现。本地抠图的资源、模型及设备约定见 SangAIKit 的 `docs/background-removal.md`。
+
+CoverFlow 在启动时将抠图资源数据库配置为原有的 `coverflow-background-removal`，继续使用已有模型和运行时缓存，不迁移或删除数据。图片图层接入 SangAIKit 的颜色编辑器，提供画布取色、容差、连通区域、羽化及手动擦除、恢复；图层抠图工具在异步处理前后校验项目、页面和原图，默认隐藏原图并创建透明副本，结果可撤销。保存失败时结果可能已应用，应先读取工作区再重试。

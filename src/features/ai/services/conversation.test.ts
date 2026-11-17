@@ -295,7 +295,7 @@ test('background removal remains statically registered and sends model-not-ready
     assert.equal(output.type, 'function_call_output');
     assert.deepEqual(JSON.parse(output.output), {
       success: false, code: 'MODEL_NOT_READY', stage: 'model',
-      error: 'BiRefNet is not ready. Import or download the model in AI Settings > Background Removal; the large model was not downloaded automatically.',
+      error: 'BiRefNet is not ready. Download the model in AI Settings > Background Removal; models are not downloaded automatically.',
       projectId: project.id, layerId: 'image', modelId: 'birefnet', runtimeDownloaded: false
     });
     assert.equal(events.at(-1)!.status, 'error');

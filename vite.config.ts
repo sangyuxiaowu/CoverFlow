@@ -58,7 +58,7 @@ export default defineConfig(({ mode }) => {
           ]
         },
         workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,onnx}'],
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           cleanupOutdatedCaches: true
         }
@@ -73,6 +73,7 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        fs: { allow: [path.resolve(__dirname), path.resolve(__dirname, '../SangAIKit')] },
         watch: {
           ignored: ['**/src-tauri/target/**', '**/doc/**', '**/docs/**', '**/*.md', '**/*.mdx'],
         },

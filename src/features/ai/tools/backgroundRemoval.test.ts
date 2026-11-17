@@ -2,13 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Layer, ProjectState } from '../../../types.ts';
 import type { WorkspaceBridge } from '../types.ts';
 import { executeTool } from './execute.ts';
-import { blobDataUrl, removeBackground } from '../../background-removal/index.ts';
-import { download, installRuntime } from '../../background-removal/resources.ts';
-import { readModel, readRuntime } from '../../background-removal/storage.ts';
+import { blobDataUrl, removeBackground } from 'sang-ai-kit/background-removal/index.ts';
+import { download, installRuntime } from 'sang-ai-kit/background-removal/resources.ts';
+import { readModel, readRuntime } from 'sang-ai-kit/background-removal/storage.ts';
 
-vi.mock('../../background-removal/index.ts', () => ({ removeBackground: vi.fn(), blobDataUrl: vi.fn() }));
-vi.mock('../../background-removal/resources.ts', () => ({ download: vi.fn(), installRuntime: vi.fn() }));
-vi.mock('../../background-removal/storage.ts', () => ({ readModel: vi.fn(), readRuntime: vi.fn() }));
+vi.hoisted(() => { vi.resetModules(); });
+vi.mock('sang-ai-kit/background-removal/index.ts', () => ({ removeBackground: vi.fn(), blobDataUrl: vi.fn() }));
+vi.mock('sang-ai-kit/background-removal/resources.ts', () => ({ download: vi.fn(), installRuntime: vi.fn() }));
+vi.mock('sang-ai-kit/background-removal/storage.ts', () => ({ readModel: vi.fn(), readRuntime: vi.fn() }));
 
 const layer: Layer = {
   id: 'image', name: 'Photo', type: 'image', content: 'data:image/png;base64,AA==', imageSource: 'upload', imageDescription: 'original',
@@ -32,7 +33,7 @@ function setup() {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(readRuntime).mockResolvedValue(runtime);
-  vi.mocked(readModel).mockResolvedValue(undefined);
+  vi.mocked(readModel).mockResolvedValue({ blob: new Blob(['onnx']), name: 'model', provider: 'wasm', importedAt: 1 });
   vi.mocked(download).mockResolvedValue(new Blob(['image']));
   vi.mocked(installRuntime).mockResolvedValue();
   vi.mocked(removeBackground).mockResolvedValue({ blob: new Blob(['png']), provider: 'wasm', modelId: 'u2netp' });
@@ -60,6 +61,7 @@ describe('static AI background-removal execution', () => {
     expect(context.bridge.getProject()!.layers[0].backgroundRemoved).toBe(true);
   });
   it('returns a missing-model result instead of hiding the tool or downloading a large model', async () => {
+    vi.mocked(readModel).mockResolvedValue(undefined);
     const context = setup();
     expect(await context.run({ ...args, modelId: 'birefnet' })).toMatchObject({ success: false, code: 'MODEL_NOT_READY', stage: 'model', error: expect.stringContaining('BiRefNet') });
     expect(installRuntime).not.toHaveBeenCalled();
@@ -67,6 +69,7 @@ describe('static AI background-removal execution', () => {
     expect(context.commit).not.toHaveBeenCalled();
   });
   it('requires installed MODNet and forwards its model profile without changing defaults', async () => {
+    vi.mocked(readModel).mockResolvedValue(undefined);
     const context = setup();
     expect(await context.run({ ...args, modelId: 'modnet' })).toMatchObject({ success: false, code: 'MODEL_NOT_READY', error: expect.stringContaining('MODNet') });
     expect(download).not.toHaveBeenCalled();

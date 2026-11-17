@@ -1,6 +1,12 @@
-import type { Layer, ProjectState } from '../../types.ts';
-import { updateProjectLayer } from '../ai/domain/layerOperations.ts';
-import type { RemovalResult } from './types.ts';
+import type { Layer, ProjectState } from '../types.ts';
+import { updateProjectLayer } from '../features/ai/domain/layerOperations.ts';
+
+export interface RemovalResult {
+  layerId: string;
+  originalContent: string;
+  content: string;
+  keepOriginal: boolean;
+}
 
 export function applyRemovalResult(project: ProjectState, result: RemovalResult, copyId: string): ProjectState {
   const original = project.layers.find(layer => layer.id === result.layerId);

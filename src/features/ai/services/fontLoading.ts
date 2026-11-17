@@ -1,5 +1,5 @@
 import type { ProjectState } from '../../../types.ts';
-import { GOOGLE_FONTS, type ManagedFont } from './fonts.ts';
+import { GOOGLE_FONTS, type ManagedFont } from 'sang-ai-kit/fonts';
 import { generate, parse, walk } from 'css-tree';
 
 const stylesheets = new Map<string, Promise<void>>();

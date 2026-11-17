@@ -113,7 +113,7 @@ HTML 预览不将页面转为整页位图，原有图片仍保持其原始像素
 - 生图：独立配置 Kolors、Agnes 或 GPT-Image 兼容模型，支持文生图、单图参考和按模型能力批量生成，结果自动加入当前画布并保留原始 PNG/JPEG/WebP 字节
 - 素材工具：搜索已授权素材文件夹并按精确 ID 放置 SVG/PNG；不搜索内置素材，不弹出授权窗口
 - 纯文本 SKILL：按需配置设计规则，模型先读取名称和简介，调用工具后才获取正文；默认列表为空，不执行脚本
-- 本地抠图：图片图层和 AI 均可调用 U2NetP、BiRefNet Lite 512、MODNet，图片在本地 Worker 中处理；模型与运行时说明见 [本地抠图](doc/background-removal.md)
+- 本地抠图：图片图层支持颜色抠图及取色、容差和羽化调整；AI 模型 U2NetP、BiRefNet Lite 512、MODNet 需在线下载，图片在本地处理。模型与运行时说明见 SangAIKit 的 `docs/background-removal.md`。
 
 #### 模型接入与用量
 
@@ -207,7 +207,7 @@ bun run typecheck
 ├─ src/                # 前端应用源码，测试与对应模块放在一起
 │  ├─ assets/          # 随前端打包的图片与 Logo
 │  ├─ components/      # UI 组件与面板
-│  ├─ features/        # AI、背景移除等独立功能模块
+│  ├─ features/        # AI 工作区与宿主接入
 │  ├─ hooks/           # 业务 Hooks
 │  ├─ views/           # 落地页、项目浏览区与预览条目
 │  ├─ storage/         # 存储适配器

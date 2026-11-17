@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fontListItems, GOOGLE_FONTS, listFonts, normalizeFontDisplayName, normalizeLocalFonts } from './fonts.ts';
+import { fontListItems, GOOGLE_FONTS, listFonts, normalizeFontDisplayName, normalizeLocalFonts } from 'sang-ai-kit/fonts';
 import { executeTool } from '../tools/execute.ts';
 import type { WorkspaceBridge } from '../types.ts';
 

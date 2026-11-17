@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import AiAssistant from './AiAssistant.tsx';
 import { useAiAssistant } from '../hooks/useAiAssistant.ts';
 import { defaultConfig, resolveSelection } from '../services/config.ts';
-import { createImageUpload } from '../services/imageAttachments.ts';
+import { createImageUpload } from 'sang-ai-kit/image-attachments';
 import type { WorkspaceOptions } from '../services/workspace.ts';
 import type { StorageAdapter } from '../../../storage/StorageAdapter.ts';
 import { AI_FEATURES } from '../featureConfig.ts';
@@ -17,7 +17,10 @@ vi.mock('sang-ai-kit/chat-scroll', () => ({ useChatScroll: () => ({ resetScroll:
 vi.mock('./TokenUsageBar.tsx', () => ({ default: () => null }));
 vi.mock('sang-ai-kit/model-controls', () => ({ default: () => null }));
 vi.mock('sang-ai-kit/chat-scrollbar', () => ({ default: () => null }));
-vi.mock('../services/imageAttachments.ts', () => ({ createImageUpload: vi.fn() }));
+vi.mock('sang-ai-kit/image-attachments', async importOriginal => ({
+  ...await importOriginal<typeof import('sang-ai-kit/image-attachments')>(),
+  createImageUpload: vi.fn()
+}));
 
 let root: Root;
 let host: HTMLDivElement;
@@ -146,4 +149,25 @@ it('shows chat redo only for the last reply with a valid immediate checkpoint', 
   assistant.canRegenerate = false;
   await render(true);
   expect(host.querySelector('[aria-label="Regenerate (Redo)"]')).toBeNull();
+});
+
+it('renders tool duration through the shared assistant and stops timing on completion', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(100000);
+  try {
+    assistant.entries = [{
+      id: 'reply', role: 'assistant', content: '',
+      tools: [{ id: 'tool', name: 'generate_image', arguments: '{}', status: 'running', startedAt: Date.now() }]
+    }];
+    await render(true);
+    expect(host.querySelector('.cf-ai-tool-duration')?.textContent).toBe('0s');
+    await act(async () => { vi.advanceTimersByTime(68000); });
+    expect(host.querySelector('.cf-ai-tool-duration')?.textContent).toBe('1m 08s');
+    assistant.entries[0].tools![0] = { id: 'tool', name: 'generate_image', arguments: '{}', status: 'success', durationMs: 68500 };
+    await render(true);
+    await act(async () => { vi.advanceTimersByTime(120000); });
+    expect(host.querySelector('.cf-ai-tool-duration')?.textContent).toBe('1m 08s');
+  } finally {
+    vi.useRealTimers();
+  }
 });

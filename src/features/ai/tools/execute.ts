@@ -9,7 +9,7 @@ import { ADD_LAYER_TYPES, LAYER_TOOL_ACTIONS, parseLayerToolRequest, parseManage
 import { executeBackgroundRemovalTool } from './backgroundRemoval.ts';
 import { generateId } from '../../../utils/helpers.ts';
 import { executeAssetTool } from './assets.ts';
-import { listFonts, type LocalFontSelection } from '../services/fonts.ts';
+import { listFonts, type LocalFontSelection } from 'sang-ai-kit/fonts';
 import { ensureProjectFonts } from '../services/fontLoading.ts';
 import { executePageTool, pageContext } from './pages.ts';
 import type { AiFeatures } from 'sang-ai-kit/features';

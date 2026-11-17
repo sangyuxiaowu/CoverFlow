@@ -1,0 +1,72 @@
+.cf-removal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.cf-removal-actions button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 12px;
+  color: #cbd5e1;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.cf-removal-actions button:hover:not(:disabled) {
+  background: #334155;
+  color: #ffffff;
+  border-color: #475569;
+}
+
+.cf-removal-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cf-removal-layer button:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 2px;
+}
+
+.cf-removal-error {
+  color: #fda4af;
+  overflow-wrap: anywhere;
+  margin-top: 10px;
+}
+
+.cf-removal-layer {
+  min-width: 0;
+}
+
+.cf-removal-keep-original {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #cbd5e1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cf-removal-keep-original input {
+  width: 14px;
+  height: 14px;
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
+.cf-removal-hint {
+  color: #94a3b8;
+  line-height: 1.5;
+}

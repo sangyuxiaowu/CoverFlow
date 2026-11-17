@@ -11,9 +11,9 @@ import { executeTool } from '../tools/execute.ts';
 import { record } from '../tools/validation.ts';
 import { DEFAULT_MAX_IMAGE_FAILURES, DEFAULT_MAX_TOOL_ROUNDS, normalizeEndpoint, reasoningPayload, validateRequestConfig } from './config.ts';
 import { estimateInput } from './usage.ts';
-import { blobToDataUrl } from './imageAttachments.ts';
+import { blobToDataUrl } from 'sang-ai-kit/image-attachments';
 import { normalizeSkills, readSkill } from './skills.ts';
-import { normalizeLocalFonts } from './fonts.ts';
+import { normalizeLocalFonts } from 'sang-ai-kit/fonts';
 import { normalizeAiFeatures } from 'sang-ai-kit/features';
 
 export { readResponse } from 'sang-ai-kit/responses';
@@ -97,7 +97,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
   const features = normalizeAiFeatures(config.features);
   const skills = features.skills ? normalizeSkills(config.skills) : [];
   const localFonts = features.fontManagement ? normalizeLocalFonts(config.localFonts) : [];
-  const tools = [...TOOL_DEFINITIONS.filter(tool => tool.function.name !== 'list_fonts' || features.fontManagement), ...skillToolDefinitions(skills), ...(config.supportsVision ? VISION_TOOL_DEFINITIONS : []), ...(features.imageGeneration && config.imageToolsEnabled && options.getImageConfig && options.loadImage && options.saveImage ? imageToolDefinitions(config.imageToolModels) : [])];
+  const tools = [...TOOL_DEFINITIONS.filter(tool => (tool.function.name !== 'list_fonts' || features.fontManagement) && (tool.function.name !== 'remove_background' || features.backgroundRemoval)), ...skillToolDefinitions(skills), ...(config.supportsVision ? VISION_TOOL_DEFINITIONS : []), ...(features.imageGeneration && config.imageToolsEnabled && options.getImageConfig && options.loadImage && options.saveImage ? imageToolDefinitions(config.imageToolModels) : [])];
   let previewCount = 0;
   let imageFailures = 0;
   const maxImageFailures = config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES;

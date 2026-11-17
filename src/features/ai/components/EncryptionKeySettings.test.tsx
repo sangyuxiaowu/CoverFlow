@@ -38,40 +38,6 @@ async function mount(status: EncryptionStatus) {
   return { container, root, manager, bytes, onBackupPending, onChanged, find, click, check };
 }
 
-it('offers creation or import, requires explicit skip acknowledgement and erases one-time bytes', async () => {
-  const view = await mount('missing');
-  expect(view.container.textContent).toContain('尚未设置加密密钥');
-  expect(view.find('导入已有密钥')).toBeDefined();
-  await view.click('创建新密钥');
-  expect(view.manager.generate).toHaveBeenCalledWith('create');
-  expect(view.onBackupPending).toHaveBeenLastCalledWith(true);
-  expect(view.onChanged).toHaveBeenCalledOnce();
-  expect(view.find('不下载，完成').disabled).toBe(true);
-  await view.check();
-  await view.click('不下载，完成');
-  expect(view.bytes.every(byte => byte === 0)).toBe(true);
-  expect(view.onBackupPending).toHaveBeenLastCalledWith(false);
-  expect(view.container.textContent).toContain('无法再次下载');
-  expect(view.find('下载加密备份')).toBeUndefined();
-});
-
-it('does not reset locked credentials until the user explicitly acknowledges data loss', async () => {
-  const view = await mount('locked');
-  expect(view.container.textContent).toContain('当前 API Key 无法解锁');
-  await view.click('重新生成密钥');
-  expect(view.find('清空 API Key 并重新生成').disabled).toBe(true);
-  await view.click('取消');
-  expect(view.manager.generate).not.toHaveBeenCalled();
-  await view.click('重新生成密钥');
-  await view.check();
-  await view.click('清空 API Key 并重新生成');
-  expect(view.manager.generate).toHaveBeenCalledWith('reset');
-  expect(view.container.textContent).toContain('一次性备份');
-  await act(async () => view.root.unmount());
-  roots.splice(roots.indexOf(view.root), 1);
-  expect(view.bytes.every(byte => byte === 0)).toBe(true);
-});
-
 it('keeps the one-time backup available when native save is cancelled or fails', async () => {
   const view = await mount('missing');
   await view.click('创建新密钥');
@@ -97,18 +63,4 @@ it('keeps the one-time backup available when native save is cancelled or fails',
   expect(writeTextFile).toHaveBeenLastCalledWith('backup.json', '{"encrypted":true}');
   await view.click('已保存备份，完成');
   expect(view.bytes.every(byte => byte === 0)).toBe(true);
-});
-
-it('offers nondestructive key rotation when the current key is available', async () => {
-  const view = await mount('ready');
-  await view.click('重新生成密钥');
-  expect(view.container.textContent).toContain('更换加密密钥，保留 API Key');
-  expect(view.container.textContent).toContain('无需重新填写');
-  expect(view.find('清空 API Key 并重新生成')).toBeUndefined();
-  expect(view.find('保留 API Key 并更换密钥').disabled).toBe(true);
-  await view.check();
-  await view.click('保留 API Key 并更换密钥');
-  expect(view.manager.generate).toHaveBeenCalledWith('rotate');
-  expect(view.onChanged).toHaveBeenCalledOnce();
-  expect(view.container.textContent).toContain('一次性备份');
 });

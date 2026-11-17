@@ -1,18 +1,26 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, useEffect, useRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Layer } from '../../types.ts';
+import type { Layer } from '../types.ts';
 import RemoveBackgroundButton from './RemoveBackgroundButton.tsx';
-import { blobDataUrl, removeBackground } from './index.ts';
-import { download, installRuntime } from './resources.ts';
-import { readRuntime } from './storage.ts';
-import { useResources } from './useResources.ts';
+import { blobDataUrl, removeBackground } from 'sang-ai-kit/background-removal/index.ts';
+import { download, installRuntime } from 'sang-ai-kit/background-removal/resources.ts';
+import { readRuntime } from 'sang-ai-kit/background-removal/storage.ts';
+import { useResources } from 'sang-ai-kit/background-removal/useResources.ts';
 
-vi.mock('./index.ts', () => ({ removeBackground: vi.fn(), blobDataUrl: vi.fn() }));
-vi.mock('./resources.ts', () => ({ download: vi.fn(), installRuntime: vi.fn() }));
-vi.mock('./storage.ts', () => ({ readRuntime: vi.fn() }));
-vi.mock('./useResources.ts', () => ({ useResources: vi.fn() }));
+vi.mock('sang-ai-kit/background-removal/index.ts', () => ({ removeBackground: vi.fn(), blobDataUrl: vi.fn() }));
+vi.mock('sang-ai-kit/background-removal/resources.ts', () => ({ download: vi.fn(), installRuntime: vi.fn() }));
+vi.mock('sang-ai-kit/background-removal/storage.ts', () => ({ readRuntime: vi.fn() }));
+vi.mock('sang-ai-kit/background-removal/useResources.ts', () => ({ useResources: vi.fn() }));
+vi.mock('sang-ai-kit/background-removal/ColorMattingEditor.tsx', () => ({
+  default: ({ onApply, onClose }: { onApply: (blob: Blob, signal: AbortSignal) => Promise<void>; onClose: () => void }) => {
+    const controller = useRef(new AbortController());
+    useEffect(() => () => controller.current.abort(), []);
+    return <><button type="button" onClick={() => { void onApply(new Blob(['edited']), controller.current.signal).catch(() => {}); }}>提交颜色抠图</button>
+      <button type="button" onClick={onClose}>关闭颜色抠图</button></>;
+  }
+}));
 
 const layer: Layer = {
   id: 'image-1', name: 'Image', type: 'image', content: 'data:image/png;base64,AA==',
@@ -22,10 +30,11 @@ const layer: Layer = {
 let root: Root;
 let container: HTMLDivElement;
 const runtime = { script: new Blob(['js']), loader: new Blob(['loader']), wasm: new Blob(['wasm']) };
+const installed = { blob: new Blob(['model']), name: 'model.onnx', importedAt: 1, provider: 'wasm' as const };
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  vi.mocked(useResources).mockReturnValue({ runtime: true, loading: false, error: '', models: {}, settings: { modelId: 'u2netp', device: 'auto' } });
+  vi.mocked(useResources).mockReturnValue({ runtime: true, loading: false, error: '', models: { u2netp: installed }, settings: { modelId: 'u2netp', device: 'auto' } });
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
@@ -66,6 +75,35 @@ async function selectModel(modelId: string) {
 
 describe('image layer removal action', () => {
   const installed = { blob: new Blob(['model']), name: 'model.onnx', importedAt: 1, provider: 'wasm' as const };
+  it('applies the shared editor result to the original layer and preserves the chosen policy', async () => {
+    const apply = await render(layer);
+    await act(async () => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
+    await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === '颜色抠图')!.click());
+    await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === '提交颜色抠图')!.click());
+    expect(apply).toHaveBeenCalledExactlyOnceWith({ layerId: layer.id, originalContent: layer.content,
+      content: 'data:image/png;base64,RESULT', keepOriginal: false });
+  });
+  it('rejects a shared editor result if the selected image changes while it is encoded', async () => {
+    let finish!: (value: string) => void;
+    vi.mocked(blobDataUrl).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const apply = await render(layer);
+    await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === '颜色抠图')!.click());
+    await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === '提交颜色抠图')!.click());
+    await render({ ...layer, id: 'another-image' }, apply);
+    await act(async () => finish('data:image/png;base64,RESULT'));
+    expect(apply).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain('提交颜色抠图');
+  });
+  it('does not apply an editor result after closing during encoding', async () => {
+    let finish!: (value: string) => void;
+    vi.mocked(blobDataUrl).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const apply = await render(layer);
+    await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === '颜色抠图')!.click());
+    await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === '提交颜色抠图')!.click());
+    await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === '关闭颜色抠图')!.click());
+    await act(async () => finish('data:image/png;base64,RESULT'));
+    expect(apply).not.toHaveBeenCalled();
+  });
   it('follows changed defaults and displays MODNet rather than hardcoding U2NetP', async () => {
     await render(layer);
     expect(container.querySelector('select')?.value).toBe('u2netp');
@@ -132,7 +170,7 @@ describe('image layer removal action', () => {
     expect(apply).toHaveBeenCalledWith(expect.objectContaining({ keepOriginal: false }));
   });
   it('automatically installs a missing runtime with progress before processing the image', async () => {
-    vi.mocked(useResources).mockReturnValue({ runtime: false, loading: false, error: '', models: {}, settings: { modelId: 'u2netp', device: 'auto' } });
+    vi.mocked(useResources).mockReturnValue({ runtime: false, loading: false, error: '', models: { u2netp: installed }, settings: { modelId: 'u2netp', device: 'auto' } });
     vi.mocked(readRuntime).mockResolvedValueOnce(undefined);
     vi.mocked(installRuntime).mockImplementation(async (_signal, report) => {
       report?.({ stage: 'ort-wasm-simd-threaded.asyncify.wasm', loaded: 5, total: 10 });

@@ -1,8 +1,8 @@
-import { normalizeLocalFonts } from './fonts.ts';
+import { normalizeLocalFonts } from 'sang-ai-kit/fonts';
 import { createEndpoint } from 'sang-ai-kit';
 import type { AiConfig, AiModelConfig, AiRequestConfig, ReasoningEffort } from '../types.ts';
 import { loadStoredConfig, saveStoredConfig } from './configStore.ts';
-import { availableImageModels, createImageModel, IMAGE_MODEL_PRESETS, imageModelToolId, imageTimeoutSeconds, validateImageModel } from '../image-generation/index.ts';
+import { availableImageModels, createImageModel, IMAGE_MODEL_PRESETS, imageModelToolId, imageTimeoutSeconds, validateImageModel } from 'sang-ai-kit/image-generation';
 import { normalizeSkills, skillsPrompt } from './skills.ts';
 import { normalizeAiFeatures } from 'sang-ai-kit/features';
 import type { AiFeatures } from 'sang-ai-kit/features';

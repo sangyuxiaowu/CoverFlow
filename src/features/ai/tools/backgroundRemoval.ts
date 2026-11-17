@@ -1,11 +1,11 @@
 import type { WorkspaceBridge } from '../types.ts';
 import { choice, record, safeImage, text } from './validation.ts';
-import { blobDataUrl, removeBackground } from '../../background-removal/index.ts';
-import { download, installRuntime } from '../../background-removal/resources.ts';
-import { readModel, readRuntime } from '../../background-removal/storage.ts';
-import { applyRemovalResult } from '../../background-removal/layerResult.ts';
+import { blobDataUrl, removeBackground } from 'sang-ai-kit/background-removal/index.ts';
+import { download, installRuntime } from 'sang-ai-kit/background-removal/resources.ts';
+import { readModel, readRuntime } from 'sang-ai-kit/background-removal/storage.ts';
+import { applyRemovalResult } from '../../../utils/backgroundRemovalResult.ts';
 import { generateId } from '../../../utils/helpers.ts';
-import type { ModelId } from '../../background-removal/models.ts';
+import type { ModelId } from 'sang-ai-kit/background-removal/models.ts';
 
 function target(bridge: WorkspaceBridge, projectId: string, layerId: string, originalContent?: string, pageId?: string) {
   const project = bridge.getProject();
@@ -61,9 +61,9 @@ export async function executeBackgroundRemovalTool(input: unknown, bridge: Works
 
     stage = 'model';
     code = 'MODEL_NOT_READY';
-    if (modelId !== 'u2netp' && !await readModel(modelId)) {
-      const name = modelId === 'modnet' ? 'MODNet' : 'BiRefNet';
-      throw new Error(`${name} is not ready. Import or download the model in AI Settings > Background Removal; the large model was not downloaded automatically.`);
+    if (!await readModel(modelId)) {
+      const name = modelId === 'modnet' ? 'MODNet' : modelId === 'birefnet' ? 'BiRefNet' : 'U2NetP';
+      throw new Error(`${name} is not ready. Download the model in AI Settings > Background Removal; models are not downloaded automatically.`);
     }
     signal.throwIfAborted();
     stage = 'runtime';

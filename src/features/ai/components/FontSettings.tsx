@@ -1,5 +1,5 @@
 import FontSettingsView from 'sang-ai-kit/font-settings';
-import type { LocalFontSelection } from '../services/fonts.ts';
+import type { LocalFontSelection } from 'sang-ai-kit/fonts';
 
 interface Props {
   fonts: LocalFontSelection[];

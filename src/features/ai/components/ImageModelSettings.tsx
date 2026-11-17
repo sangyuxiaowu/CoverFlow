@@ -1,1 +1,0 @@
-export { default } from 'sang-ai-kit/image-settings';

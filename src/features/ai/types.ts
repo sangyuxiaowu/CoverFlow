@@ -1,9 +1,9 @@
 import type { ProjectState } from '../../types.ts';
 import type { ResponseInputItem } from 'openai/resources/responses/responses';
-import type { ImageModelConfig, ImagePromptConfig } from './image-generation/types.ts';
-import type { LocalFontSelection } from './services/fonts.ts';
+import type { ImageModelConfig, ImagePromptConfig } from 'sang-ai-kit/image-types';
+import type { LocalFontSelection } from 'sang-ai-kit/fonts';
 import type { AiFeatures } from 'sang-ai-kit/features';
-export type { ImageAdapterId, ImageModelConfig, ImagePromptConfig, ImageQuality } from './image-generation/types.ts';
+export type { ImageAdapterId, ImageModelConfig, ImagePromptConfig, ImageQuality } from 'sang-ai-kit/image-types';
 
 export type ResponseItem = ResponseInputItem;
 

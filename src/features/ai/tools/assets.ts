@@ -2,7 +2,7 @@ import type { Layer } from '../../../types.ts';
 import { type AssetEntry, findAsset, folderAssets } from '../../../storage/assets.ts';
 import { generateId, normalizeSVG } from '../../../utils/helpers.ts';
 import type { WorkspaceBridge } from '../types.ts';
-import { blobToDataUrl } from '../services/imageAttachments.ts';
+import { blobToDataUrl } from 'sang-ai-kit/image-attachments';
 import { choice, number, record, text, validateContent } from './validation.ts';
 
 function fields(args: Record<string, unknown>, allowed: string[]) {

@@ -8,10 +8,10 @@ import { IMAGE_TOOL_SCHEMAS } from '../tools/imageTools.ts';
 
 export { sumUsage } from 'sang-ai-kit/conversation-utils';
 
-export function estimateInput(input: ResponseItem[], instructions: string, supportsVision = false, imageToolsEnabled = false, imageModels?: ImagePromptConfig[], skills?: AiSkillConfig[], featureSettings?: Partial<AiFeatures>, imageStorage = true): number {
+export function estimateInput(input: ResponseItem[], instructions: string, supportsVision = false, imageToolsEnabled = false, imageModels?: ImagePromptConfig[], skills?: AiSkillConfig[], featureSettings?: Partial<AiFeatures>, imageStorage = true, config?: AiRequestConfig): number {
   const features = normalizeAiFeatures(featureSettings);
   const tools = [...TOOL_DEFINITIONS, ...(supportsVision ? VISION_TOOL_DEFINITIONS : []),
-    ...builtInToolDefinitions({ features: { ...features, imageGeneration: features.imageGeneration && imageToolsEnabled }, skills, imageModels, imageStorage, imageExtensions: IMAGE_TOOL_SCHEMAS })
+    ...builtInToolDefinitions({ config, features: { ...features, imageGeneration: features.imageGeneration && imageToolsEnabled }, skills, imageModels, imageStorage, imageExtensions: IMAGE_TOOL_SCHEMAS })
       .map(definition => ({ type: 'function' as const, function: definition }))];
   return estimateToolInput(input, instructions, tools);
 }
@@ -46,7 +46,7 @@ export function sessionUsage(session: ChatSession | undefined, config: AiRequest
   const current = requests.filter(request => request.entryId === lastEntry?.id);
   const matching = [...requests].reverse().find(request => request.usage && request.endpoint === normalizeEndpoint(config.endpoint) && request.model === config.model);
   const projectedInput: ResponseItem[] = prompt.trim() ? [...input, { role: 'user', content: prompt.trim() }] : input;
-  const estimate = estimateInput(projectedInput, config.systemPrompt, config.supportsVision, config.imageToolsEnabled, config.imageToolModels, config.skills, config.features);
+  const estimate = estimateInput(projectedInput, config.systemPrompt, config.supportsVision, config.imageToolsEnabled, config.imageToolModels, config.skills, config.features, true, config);
   const contextTokens = matching?.usage && matching.inputEstimate !== undefined
     ? Math.max(0, matching.usage.inputTokens + estimate - matching.inputEstimate)
     : estimate;
@@ -57,7 +57,7 @@ export function sessionUsage(session: ChatSession | undefined, config: AiRequest
   const remainingTokens = Math.max(0, contextWindow - contextTokens - reservedOutput);
 
   // 1. 系统指令与工具定义基础开销
-  const systemAndTools = estimateInput([], config.systemPrompt, config.supportsVision, config.imageToolsEnabled, config.imageToolModels, config.skills, config.features);
+  const systemAndTools = estimateInput([], config.systemPrompt, config.supportsVision, config.imageToolsEnabled, config.imageToolModels, config.skills, config.features, true, config);
 
   // 2. 画布与工具调用数据 (图层属性、设计快照与工具输出)
   const toolDataItems = projectedInput.filter(item => 'type' in item && (item.type === 'function_call' || item.type === 'function_call_output'));

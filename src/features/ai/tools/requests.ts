@@ -35,7 +35,6 @@ type RequestUnion<Fields, Rules extends Record<string, ActionRule>> = {
 }[keyof Rules];
 
 interface EditLayerFields {
-  projectId: string;
   layerIds: string[];
   properties: LayerUpdateProperties;
   name: string;
@@ -43,17 +42,17 @@ interface EditLayerFields {
 }
 
 export const EDIT_LAYER_RULES = {
-  update: { required: ['projectId', 'layerIds', 'properties'], optional: [] },
-  delete: { required: ['projectId', 'layerIds'], optional: [] },
-  duplicate: { required: ['projectId', 'layerIds'], optional: [] },
-  group: { required: ['projectId', 'layerIds'], optional: ['name'] },
-  ungroup: { required: ['projectId', 'layerIds'], optional: [] },
-  front: { required: ['projectId', 'layerIds'], optional: [] },
-  back: { required: ['projectId', 'layerIds'], optional: [] },
-  forward: { required: ['projectId', 'layerIds'], optional: [] },
-  backward: { required: ['projectId', 'layerIds'], optional: [] },
-  align: { required: ['projectId', 'layerIds', 'mode'], optional: [] },
-  distribute: { required: ['projectId', 'layerIds', 'mode'], optional: [] }
+  update: { required: ['layerIds', 'properties'], optional: [] },
+  delete: { required: ['layerIds'], optional: [] },
+  duplicate: { required: ['layerIds'], optional: [] },
+  group: { required: ['layerIds'], optional: ['name'] },
+  ungroup: { required: ['layerIds'], optional: [] },
+  front: { required: ['layerIds'], optional: [] },
+  back: { required: ['layerIds'], optional: [] },
+  forward: { required: ['layerIds'], optional: [] },
+  backward: { required: ['layerIds'], optional: [] },
+  align: { required: ['layerIds', 'mode'], optional: [] },
+  distribute: { required: ['layerIds', 'mode'], optional: [] }
 } as const satisfies Record<LayerAction, { required: readonly (keyof EditLayerFields)[]; optional: readonly (keyof EditLayerFields)[] }>;
 
 type EditLayerVariants = RequestUnion<EditLayerFields, typeof EDIT_LAYER_RULES>;
@@ -113,7 +112,6 @@ function parseActionRequest(input: unknown, rules: Record<string, ActionRule>, p
 
 export function parseEditLayersRequest(input: unknown): EditLayersRequest {
   const args = parseActionRequest(input, EDIT_LAYER_RULES, {
-    projectId: value => text(value, 'projectId'),
     layerIds: ids,
     properties: value => {
       const patch = layerPatch(value);

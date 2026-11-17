@@ -17,10 +17,10 @@ export async function executePageTool(input: unknown, bridge: WorkspaceBridge, s
   signal.throwIfAborted();
   const args = record(input);
   const action = choice(args.action, 'action', ['list', 'create', 'switch', 'duplicate', 'delete']);
-  const allowed = action === 'create' ? ['projectId', 'action', 'name', 'width', 'height'] : action === 'list' ? ['projectId', 'action'] : ['projectId', 'action', 'pageId'];
+  const allowed = action === 'create' ? ['action', 'name', 'width', 'height'] : action === 'list' ? ['action'] : ['action', 'pageId'];
   if (Object.keys(args).some(key => !allowed.includes(key))) throw new Error('Unsupported page parameter.');
   const current = bridge.getProject();
-  if (!current || current.id !== text(args.projectId, 'projectId')) throw new Error('The active project changed. Read get_context again.');
+  if (!current) throw new Error('No project open.');
   const project = syncProjectPages(current);
   if (action === 'list') return { projectId: project.id, ...pageContext(project) };
   let next: ProjectState;

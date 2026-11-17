@@ -18,9 +18,9 @@ function pageNumber(value: unknown, field: string, fallback: number, maximum: nu
   return result;
 }
 
-function activeProject(bridge: WorkspaceBridge, projectId: string, pageId?: string) {
+function activeProject(bridge: WorkspaceBridge, projectId?: string, pageId?: string) {
   const project = bridge.getProject();
-  if (!project || project.id !== projectId) throw new Error('The active project changed or is not open. Read get_context again.');
+  if (!project || (projectId !== undefined && project.id !== projectId)) throw new Error('The active project changed or is not open. Read get_context again.');
   if (pageId !== undefined && project.activePageId !== pageId) throw new Error('The active page changed. Read get_context again.');
   return project;
 }
@@ -52,14 +52,13 @@ export async function executeAssetTool(name: 'search_assets' | 'place_asset', in
     return { items, total: matches.length, page, pageSize, hasMore: page * pageSize < matches.length, folder };
   }
 
-  fields(args, ['projectId', 'assetId', 'x', 'y', 'width', 'height']);
-  const projectId = text(args.projectId, 'projectId');
+  fields(args, ['assetId', 'x', 'y', 'width', 'height']);
   const assetId = text(args.assetId, 'assetId');
   const x = args.x === undefined ? undefined : number(args.x, 'x');
   const y = args.y === undefined ? undefined : number(args.y, 'y');
   const requestedWidth = args.width === undefined ? undefined : number(args.width, 'width', 1, 100000);
   const requestedHeight = args.height === undefined ? undefined : number(args.height, 'height', 1, 100000);
-  const pageId = activeProject(bridge, projectId).activePageId;
+  const { id: projectId, activePageId: pageId } = activeProject(bridge);
   if (!assetId.startsWith('folder:')) throw new Error('Invalid assetId. Use an ID from search_assets.');
   const directory = await bridge.getAssetFolder?.();
   signal.throwIfAborted();

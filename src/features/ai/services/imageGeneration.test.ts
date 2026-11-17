@@ -493,7 +493,7 @@ describe('image tools and persistence', () => {
       requests.push(JSON.parse(options.body as string));
       round++;
       const output = round <= (maxImageFailures ?? 3) + 1
-        ? [{ type: 'function_call', call_id: `call-${round}`, name: 'generate_image', arguments: JSON.stringify({ projectId: 'project', prompt: 'City' }) }]
+        ? [{ type: 'function_call', call_id: `call-${round}`, name: 'generate_image', arguments: JSON.stringify({ prompt: 'City' }) }]
         : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Generation failed', annotations: [] }] }];
       return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
     }));
@@ -523,7 +523,7 @@ describe('image tools and persistence', () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
       if (String(url).endsWith('/images/generations')) { imageRequests++; return new Response('', { status: 503 }); }
       const output = ++round <= 4
-        ? [{ type: 'function_call', call_id: `zero-${round}`, name: 'generate_image', arguments: JSON.stringify({ projectId: 'project', prompt: 'City' }) }]
+        ? [{ type: 'function_call', call_id: `zero-${round}`, name: 'generate_image', arguments: JSON.stringify({ prompt: 'City' }) }]
         : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] }];
       return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
     }));
@@ -546,7 +546,7 @@ describe('image tools and persistence', () => {
         return imageRequests === 2 ? Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] }) : new Response('', { status: 503 });
       }
       const output = ++rounds === 1
-        ? Array.from({ length: 5 }, (_, index) => ({ type: 'function_call', call_id: `batch-${index}`, name: 'generate_image', arguments: JSON.stringify({ projectId: 'project', prompt: 'City' }) }))
+        ? Array.from({ length: 5 }, (_, index) => ({ type: 'function_call', call_id: `batch-${index}`, name: 'generate_image', arguments: JSON.stringify({ prompt: 'City' }) }))
         : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] }];
       return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
     }));
@@ -583,7 +583,7 @@ describe('image tools and persistence', () => {
         return turn === 1 ? new Response('', { status: 503 }) : Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] });
       }
       const output = modelRequests++ % 2 === 0
-        ? [{ type: 'function_call', call_id: `call-${turn}`, name: 'generate_image', arguments: JSON.stringify({ projectId: 'project', prompt: 'City' }) }]
+        ? [{ type: 'function_call', call_id: `call-${turn}`, name: 'generate_image', arguments: JSON.stringify({ prompt: 'City' }) }]
         : [{ type: 'message', id: `message-${turn}`, role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] }];
       return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
     }));
@@ -618,7 +618,7 @@ describe('image tools and persistence', () => {
       if (String(url).endsWith('/images/generations')) return Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] });
       requests.push(JSON.parse(options.body as string));
       const output = requests.length === 1
-        ? [{ type: 'function_call', call_id: 'generate', name: 'generate_image', arguments: JSON.stringify({ projectId: 'project', prompt: 'City' }) }]
+        ? [{ type: 'function_call', call_id: 'generate', name: 'generate_image', arguments: JSON.stringify({ prompt: 'City' }) }]
         : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Placed', annotations: [] }] }];
       return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
     }));
@@ -652,7 +652,7 @@ describe('image tools and persistence', () => {
         return Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] });
       }
       const output = ++round === 1
-        ? [{ type: 'function_call', call_id: 'generate', name: 'generate_image', arguments: JSON.stringify({ projectId: 'project', prompt: 'City', referenceLayerId: 'source' }) }]
+        ? [{ type: 'function_call', call_id: 'generate', name: 'generate_image', arguments: JSON.stringify({ prompt: 'City', referenceLayerId: 'source' }) }]
         : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] }];
       return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
     }));
@@ -679,7 +679,7 @@ describe('image tools and persistence', () => {
         return Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] });
       }
       const output = ++round <= 2
-        ? [{ type: 'function_call', call_id: `generate-${round}`, name: 'generate_image', arguments: JSON.stringify({ projectId: 'project', prompt: 'City' }) }]
+        ? [{ type: 'function_call', call_id: `generate-${round}`, name: 'generate_image', arguments: JSON.stringify({ prompt: 'City' }) }]
         : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Failed', annotations: [] }] }];
       return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
     }));
@@ -719,7 +719,7 @@ describe('image tools and persistence', () => {
       if (++round === 2) result = JSON.parse(request.input.at(-1).output);
       const output = round === 1
         ? [{ type: 'function_call', call_id: 'remove', name: 'remove_background', arguments: JSON.stringify({
-          projectId: 'project', modelId: 'color', colorOptions: { tolerance: 0, feather: 0, contiguous: false },
+          modelId: 'color', colorOptions: { tolerance: 0, feather: 0, contiguous: false },
           ...(source === 'layer' ? { layerId: 'source' } : { imageId: 'attachment' })
         }) }]
         : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] }];

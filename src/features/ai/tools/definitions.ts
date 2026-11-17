@@ -9,7 +9,6 @@ const object = (description: string, properties: Record<string, unknown>, requir
 const layerIds = (description: string) => ({ type: 'array', description, items: string('图层 ID，须来自上下文，不可编造。'), minItems: 1, maxItems: 500 });
 const noParameters = { type: 'object', properties: {} };
 const tool = (name: string, description: string, parameters: Record<string, unknown>): ToolDefinition => ({ type: 'function', function: { name, description, parameters } });
-const projectId = string('当前活动项目 ID，来自 get_context。');
 const layerInfoDefinition = { ...object('通用图层属性。创建和更新时均可选；省略时使用默认值或保留原值。', {
   x: numeric('位置 X，单位 px。'),
   y: numeric('位置 Y，单位 px。'),
@@ -37,7 +36,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   })),
   tool('manage_projects', '打开、重命名、复制、删除或保存项目。删除需用户确认。', object('', {
     action: enumeration('操作', Object.keys(PROJECT_MANAGE_RULES)),
-    projectId,
+    projectId: string('目标项目 ID，来自 get_context 或 search_projects，不限于当前项目。'),
     title: string('项目名称，rename 必填，duplicate 省略时自动追加 (copy)。')
   }, ['action', 'projectId'])),
   tool('search_assets', '搜索素材文件夹中的素材。', object('搜索条件', {
@@ -47,31 +46,27 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     pageSize: { type: 'integer', description: '每页数量，默认 20。', minimum: 1, maximum: 50 }
   })),
   tool('place_asset', '添加指定素材为置顶图层，选中并返回图层 ID。', object('放置参数。', {
-    projectId,
     assetId: string('精确文件夹素材 ID，来自 search_assets 或规则中的已知引用，例如 folder:Brand-品牌/logo.svg。区分大小写。'),
     x: numeric('[可选] 左上角 X，单位 px；省略水平居中。'),
     y: numeric('[可选] 左上角 Y，单位 px；省略垂直居中。'),
     width: numeric('[可选] 宽度，单位 px；只传宽度时按原比例计算高度。宽高均省略时不放大，等比缩小到画布内且最长边不超过 300px。', 1),
     height: numeric('[可选] 高度，单位 px；只传高度时按原比例计算宽度。同时提供宽高必须保持原比例。', 1)
-  }, ['projectId', 'assetId'])),
+  }, ['assetId'])),
   // 图层管理
   tool('get_context', '读取项目页面列表、当前页画布、背景、选区及图层元数据。图层工具仅操作当前页，跨页前使用 manage_pages 切换。', noParameters),
   tool('manage_pages', '管理项目页面。新增与复制后切换到新页；删除需用户确认。', object('页面操作参数。图层工具只操作当前页。', {
-    projectId,
     action: enumeration('list 读取页面列表；create 在当前页后新增空白页；switch 切页；duplicate 在目标页后复制并切换；delete 删除目标页，至少保留一页。', ['list', 'create', 'switch', 'duplicate', 'delete']),
     pageId: string('switch、duplicate、delete 必填，使用 get_context 或 list 返回的稳定页面 ID，不是顺序编号。'),
     name: { ...string('仅 create 可选，页面名称最多 100 字符；省略或空白按 P01-P99 显示。'), maxLength: 100 },
     width: numeric('仅 create 可选，宽度 px，省略沿用当前页。', 10, 10000),
     height: numeric('仅 create 可选，高度 px，省略沿用当前页。', 10, 10000)
-  }, ['projectId', 'action'])),
+  }, ['action'])),
   tool('read_layers', '读取图层属性，含图层详细内容，内嵌图片内容使用占位符。可按 ID 或名称/内容关键词筛选，同时提供时取交集。修改已有内容前先调用。', object('', {
-    projectId,
     layerIds: layerIds('可选；省略时读取所有匹配图层。'),
     query: string('可选名称或内容关键词，不区分大小写；省略时不过滤，提供时不得为空白。')
-  }, ['projectId'])),
+  })),
   tool('get_selected_layers', '读取当前选中图层属性。视觉模型还会收到图片预览。用户输入有明确指代时使用。', noParameters),
   tool('add_layer', '添加图层并选中。', object('图层创建参数。', {
-    projectId,
     type: enumeration('图层类型。properties 必须包含同名属性组及其 content，不得提供其他类型的属性组。', [...ADD_LAYER_TYPES]),
     properties: object('图层名称作为 name 单独填写；其他通用属性填写在 layerInfo 分组；类型专属属性只填写与 type 同名的 text/image/svg/decoration 分组，且该组 content 必填。省略名称使用默认名称；省略位置默认为 (40,40)，宽高默认为 300×100，透明度默认为 1；新图层默认置顶。', {
       name: string('图层名称，用于图层列表与搜索。'),
@@ -130,40 +125,38 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         content: string('必填：完整 CSS 声明或静态 HTML。建议使用var定义必要的颜色，以便用户后续自行调整。1. CSS 声明会直接作用于装饰容器，不得包含选择器或规则花括号，示例：`--accent: rgba(255,255,255,0.5); background: var(--accent); border-radius: 8px;`。2. 静态 HTML：需要显示文字、布局子元素或使用选择器时，用 HTML 元素，并建议把选择器规则放进 <style> 标签。必须包含实际显示的文字节点。HTML 示例：`<style>:root { --accent: rgba(255,255,255,0.5); } span { display: block; color: var(--accent);line-height: 30px; }</style><span>文本</span>`。CSS 最多 6000 字符、24 条声明；HTML 最多 24000 字符、300 个元素。禁止脚本、事件、外部资源、url()/image-set()、CSS at-rule、动画/transition、fixed/sticky、pointer-events 和视口单位，图片仅允许嵌入位图。')
       }, ['content'])
     })
-  }, ['projectId', 'type', 'properties'])),
+  }, ['type', 'properties'])),
   tool('update_layers', '批量更新图层通用属性或对应类型的专属属性。组合变换会传递到子图层；锁定图层须先单独解锁。', object('图层属性更新参数。', {
-    projectId,
     layerIds: layerIds('操作目标 ID 列表；同一属性补丁会应用于全部目标，不要混合需要不同属性的图层。'),
     properties: { ...object('更新图层属性。name 单独填写；图层属性放在 layerInfo，类型专属字段放在 image/text/svg/decoration 分组。字段列表与限制见 add_layer 和读取工具定义；省略字段保持原值。结构字段、zIndex 及只读属性不可更新。', {}), minProperties: 1 }
-  }, ['projectId', 'layerIds', 'properties'])),
+  }, ['layerIds', 'properties'])),
   tool('delete_layers', '删除图层，删除组合时包含子图层；锁定图层须先解锁。', object('图层删除参数。', {
-    projectId, layerIds: layerIds('要删除的图层 ID。')
-  }, ['projectId', 'layerIds'])),
+    layerIds: layerIds('要删除的图层 ID。')
+  }, ['layerIds'])),
   tool('duplicate_layers', '复制图层，复制组合时包含子图层；锁定图层须先解锁。', object('图层复制参数。', {
-    projectId, layerIds: layerIds('要复制的图层 ID。')
-  }, ['projectId', 'layerIds'])),
+    layerIds: layerIds('要复制的图层 ID。')
+  }, ['layerIds'])),
   tool('group_layers', '将图层编为一组；锁定图层须先解锁。', object('图层编组参数。', {
-    projectId, layerIds: { ...layerIds('至少两个未编组的图层 ID；不支持嵌套组合。'), minItems: 2 },
+    layerIds: { ...layerIds('至少两个未编组的图层 ID；不支持嵌套组合。'), minItems: 2 },
     name: string('组名，不得为空白；省略为 Group。')
-  }, ['projectId', 'layerIds'])),
+  }, ['layerIds'])),
   tool('ungroup_layers', '拆开组合并保留子图层；锁定组合须先解锁。', object('图层拆组参数。', {
-    projectId, layerIds: layerIds('要拆开的 group 图层 ID，不接受普通图层。')
-  }, ['projectId', 'layerIds'])),
+    layerIds: layerIds('要拆开的 group 图层 ID，不接受普通图层。')
+  }, ['layerIds'])),
   tool('reorder_layers', '调整图层堆叠顺序，保持多选相对顺序；组合包含子图层，锁定图层须先解锁。', object('图层排序参数。', {
-    projectId, layerIds: layerIds('要调整堆叠顺序的图层 ID。'),
+    layerIds: layerIds('要调整堆叠顺序的图层 ID。'),
     position: enumeration('front/back 为置顶/置底；forward/backward 为上移/下移一层，跨过相邻的一个未选中图层，到达边界不再移动。', [...REORDER_POSITIONS])
-  }, ['projectId', 'layerIds', 'position'])),
+  }, ['layerIds', 'position'])),
   tool('align_layers', '将图层对齐到画布，组合变换传递到子图层；锁定图层须先解锁。', object('图层对齐参数。', {
-    projectId, layerIds: layerIds('要对齐的图层 ID。'),
+    layerIds: layerIds('要对齐的图层 ID。'),
     mode: enumeration('left/center/right 为画布水平对齐，top/middle/bottom 为画布垂直对齐。', [...ALIGN_MODES])
-  }, ['projectId', 'layerIds', 'mode'])),
+  }, ['layerIds', 'mode'])),
   tool('distribute_layers', '在现有首尾边界之间等间距分布图层；锁定图层须先解锁。', object('图层分布参数。', {
-    projectId, layerIds: { ...layerIds('至少三个独立图层 ID；不能同时选择组合及其子图层。'), minItems: 3 },
+    layerIds: { ...layerIds('至少三个独立图层 ID；不能同时选择组合及其子图层。'), minItems: 3 },
     mode: enumeration('horizontal 为水平等间距，vertical 为垂直等间距。', [...DISTRIBUTE_MODES])
-  }, ['projectId', 'layerIds', 'mode'])),
+  }, ['layerIds', 'mode'])),
   // 画布与背景
   tool('update_canvas', '更新当前画布及背景。调整画布尺寸不会缩放已有图层。', object('画布与背景的部分更新；省略的字段保持不变。', {
-    projectId,
     width: numeric('画布宽度（px）。', 10, 10000),
     height: numeric('画布高度（px）。', 10, 10000),
     background: object('背景部分更新。切换 type 时应同时提供对应格式的 value。', {
@@ -176,7 +169,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         scale: numeric('尺寸与间距（px）', 20, 1000)
       })
     })
-  }, ['projectId'])),
+  })),
 ];
 
 export const VISION_TOOL_DEFINITIONS: ToolDefinition[] = [

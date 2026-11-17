@@ -282,7 +282,7 @@ test('background removal registers the host schema and reports missing attachmen
     requests.push(JSON.parse(options!.body as string));
     return streamResponse(responsePayload(requests.length === 1
       ? [{ type: 'function_call', call_id: 'removal-call', name: 'remove_background',
-        arguments: JSON.stringify({ projectId: 'removal-project', imageId: 'missing-image', modelId: 'birefnet' }) }]
+        arguments: JSON.stringify({ imageId: 'missing-image', modelId: 'birefnet' }) }]
       : [textOutput]));
   };
   try {
@@ -342,18 +342,30 @@ for (const outcome of ['success', 'error', 'aborted'] as const) {
   });
 }
 
-test('Responses function definitions provide empty parameters for tools without arguments', async () => {
+test('Responses schemas omit current-target project IDs while retaining navigation and object IDs', async () => {
   const originalFetch = globalThis.fetch;
+  const profiles = configuredConfig();
+  profiles.imageModels = profiles.imageModels?.map(model => ({ ...model, enabled: true, endpointId: profiles.endpoints[0].id }));
   let sentTools: Record<string, unknown>[] = [];
   globalThis.fetch = async (_url, options) => {
     sentTools = JSON.parse(options!.body as string).tools;
     return streamResponse(responsePayload([textOutput]));
   };
   try {
-    await runConversation({ config: { ...config, supportsVision: true }, input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {} });
+    await runConversation({ config: { ...toRequestConfig(profiles), supportsVision: true }, input: [], bridge, signal: new AbortController().signal,
+      onText: () => {}, onTool: () => {}, getImageConfig: () => profiles });
     const noArgumentTools = sentTools.filter(tool => ['get_context', 'get_cover_size_recommendations', 'get_selected_layers', 'get_canvas_preview'].includes(String(tool.name)));
     assert.equal(noArgumentTools.length, 4);
     assert.ok(noArgumentTools.every(tool => JSON.stringify(tool.parameters) === JSON.stringify({ type: 'object', properties: {} })));
+    for (const tool of sentTools) {
+      const parameters = tool.parameters as { properties: Record<string, unknown>; required?: string[] };
+      assert.equal(Object.hasOwn(parameters.properties, 'projectId'), tool.name === 'manage_projects', String(tool.name));
+      assert.equal(parameters.required?.includes('projectId') ?? false, tool.name === 'manage_projects');
+    }
+    for (const [name, field] of [['manage_pages', 'pageId'], ['update_layers', 'layerIds'], ['place_asset', 'assetId'], ['generate_image', 'referenceLayerId'], ['remove_background', 'layerId']]) {
+      const parameters = sentTools.find(tool => tool.name === name)!.parameters as { properties: Record<string, unknown> };
+      assert.ok(Object.hasOwn(parameters.properties, field), `${name}.${field}`);
+    }
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -928,6 +940,86 @@ test('user rejection pairs all pending tool calls without executing or retrying 
     assert.equal(count, 1);
     assert.equal(content, '操作已取消。');
     assert.equal(history.filter(item => 'type' in item && item.type === 'function_call_output').length, 2);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test.each([
+  ['manage_pages', JSON.stringify({ action: 'switch', pageId: 'missing' })],
+  ['manage_pages', JSON.stringify({ action: 'create', width: 0 })],
+  ['manage_pages', JSON.stringify({ action: 'duplicate', pageId: 'missing' })],
+  ['manage_pages', JSON.stringify({ action: 'delete', pageId: 'missing' })],
+  ['manage_projects', JSON.stringify({ action: 'open', projectId: 'missing' })],
+  ['create_project', '{}'],
+  ['manage_pages', '{'],
+  ['manage_projects', '{']
+])('navigation failures skip all remaining calls only in their batch: %s %s', async (name, args) => {
+  const originalFetch = globalThis.fetch;
+  let project = syncProjectPages({ id: 'project', title: 'Test', layers: [], selectedLayerId: null, updatedAt: 0,
+    canvasConfig: { width: 800, height: 600, ratio: '4:3' },
+    background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } });
+  const pageId = project.activePageId;
+  const events: ToolEvent[] = [];
+  let history: ResponseItem[] = [];
+  let round = 0;
+  let previews = 0;
+  const widths: number[] = [];
+  const currentBridge: WorkspaceBridge = { ...bridge, getProject: () => project,
+    commit: async next => { project = syncProjectPages(next); widths.push(project.canvasConfig.width); },
+    manageProjects: async () => { throw new Error('Project navigation failed.'); },
+    getCanvasPreview: async () => { previews++; return new Blob(['preview'], { type: 'image/webp' }); }
+  };
+  const call = (call_id: string, name: string, argumentsText = '{}') => ({ type: 'function_call', call_id, name, arguments: argumentsText });
+  globalThis.fetch = async () => streamResponse(responsePayload(++round === 1 ? [
+    call('before', 'update_canvas', '{"width":900}'),
+    call('navigation', name, args),
+    call('skipped-write', 'add_layer', '{"type":"text","properties":{"text":{"content":"Wrong page"}}}'),
+    call('skipped-read', 'get_canvas_preview'),
+    call('skipped-management', 'manage_pages', '{"action":"list"}'),
+    call('skipped-shared', 'list_fonts')
+  ] : round === 2 ? [call('next-batch', 'update_canvas', '{"width":1000}')] : [textOutput]));
+  try {
+    await runConversation({ config: { ...config, supportsVision: true }, input: [], bridge: currentBridge,
+      signal: new AbortController().signal, onText: () => {}, onTool: event => events.push(event), onHistory: input => { history = input; } });
+    assert.deepEqual(events.filter(event => event.status !== 'running').map(event => [event.id, event.status]), [
+      ['before', 'success'], ['navigation', 'error'], ['skipped-write', 'error'], ['skipped-read', 'error'],
+      ['skipped-management', 'error'], ['skipped-shared', 'error'], ['next-batch', 'success']
+    ]);
+    for (const event of events.filter(event => event.id.startsWith('skipped-') && event.status === 'error')) {
+      assert.match(JSON.parse(event.result!).error, /Skipped.*navigation.*failed.*batch/);
+    }
+    assert.deepEqual(widths, [900, 1000]);
+    assert.equal(project.activePageId, pageId);
+    assert.deepEqual(project.layers, []);
+    assert.equal(previews, 0);
+    assert.equal(round, 3);
+    const outputs = history.filter(item => 'type' in item && item.type === 'function_call_output');
+    assert.equal(outputs.length, 7);
+    for (const event of events.filter(event => event.status !== 'running')) {
+      const output = outputs.find(item => 'call_id' in item && item.call_id === event.id);
+      assert.ok(output && 'output' in output);
+      assert.equal(output.output, event.result);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test.each([
+  ['manage_pages', { action: 'list' }],
+  ['manage_projects', { action: 'rename', projectId: 'project', title: 'New title' }],
+  ['manage_projects', { action: 'duplicate', projectId: 'project' }],
+  ['manage_projects', { action: 'save', projectId: 'project' }]
+])('non-navigation failures do not block unrelated calls: %s %j', async (name, args) => {
+  const originalFetch = globalThis.fetch;
+  const events: ToolEvent[] = [];
+  let round = 0;
+  globalThis.fetch = async () => streamResponse(responsePayload(++round === 1 ? [
+    { type: 'function_call', call_id: 'failed', name, arguments: JSON.stringify(args) },
+    { type: 'function_call', call_id: 'fonts', name: 'list_fonts', arguments: '{}' }
+  ] : [textOutput]));
+  try {
+    await runConversation({ config, input: [], bridge: { ...bridge, manageProjects: async () => { throw new Error('Storage unavailable.'); } },
+      signal: new AbortController().signal, onText: () => {}, onTool: event => events.push(event) });
+    assert.deepEqual(events.filter(event => event.status !== 'running').map(event => [event.id, event.status]), [['failed', 'error'], ['fonts', 'success']]);
+    assert.equal(round, 2);
   } finally { globalThis.fetch = originalFetch; }
 });
 

@@ -11,26 +11,22 @@ export const IMAGE_TOOL_SCHEMAS: ImageToolExtensions<ImageToolSchemaExtension> =
   generate_image: {
     description: '生成或修改图像并直接添加到当前画布，返回图层 ID。',
     properties: {
-      projectId: { type: 'string', description: '当前项目 ID，来自 get_context。' },
       referenceLayerId: { type: 'string', description: '可选，当前页图片图层 ID，使用完整原图作为参考；不能与 referenceImageId 同时使用。' }
-    },
-    required: ['projectId']
+    }
   },
   remove_background: {
     description: '移除图层或附件图片背景并直接应用到当前画布。',
     properties: {
-      projectId: { type: 'string', description: '当前项目 ID，来自 get_context。' },
       layerId: { type: 'string', description: '当前页图片图层 ID；与 imageId 二选一。' },
       keepOriginal: { type: 'boolean', description: '仅图层抠图可用，默认 true：保留并隐藏原图；false 替换原图。' }
     },
-    required: ['projectId'],
     optional: ['imageId']
   }
 };
 
-function currentProject(bridge: WorkspaceBridge, projectId: string): ProjectState {
+function currentProject(bridge: WorkspaceBridge, projectId?: string): ProjectState {
   const project = bridge.getProject();
-  if (!project || project.id !== projectId) throw new Error('The active project changed or is not open. Read get_context again.');
+  if (!project || (projectId !== undefined && project.id !== projectId)) throw new Error('The active project changed or is not open. Read get_context again.');
   return project;
 }
 
@@ -112,8 +108,8 @@ export function createImageToolExtensions(bridge: WorkspaceBridge): ImageToolExt
     generate_image: {
       ...IMAGE_TOOL_SCHEMAS.generate_image!,
       prepare: async (args, signal) => {
-        const projectId = text(args.projectId, 'projectId');
-        const initial = currentProject(bridge, projectId);
+        const initial = currentProject(bridge);
+        const projectId = initial.id;
         const pageId = initial.activePageId;
         if (args.referenceLayerId !== undefined && args.referenceImageId !== undefined) throw new Error('Only one reference image is supported.');
         const layerId = args.referenceLayerId === undefined ? undefined : text(args.referenceLayerId, 'referenceLayerId');
@@ -129,8 +125,8 @@ export function createImageToolExtensions(bridge: WorkspaceBridge): ImageToolExt
     remove_background: {
       ...IMAGE_TOOL_SCHEMAS.remove_background!,
       prepare: async (args, signal) => {
-        const projectId = text(args.projectId, 'projectId');
-        const initial = currentProject(bridge, projectId);
+        const initial = currentProject(bridge);
+        const projectId = initial.id;
         const pageId = initial.activePageId;
         if ((args.layerId === undefined) === (args.imageId === undefined)) throw new Error('Provide either layerId or imageId.');
         if (args.keepOriginal !== undefined && typeof args.keepOriginal !== 'boolean') throw new Error('keepOriginal must be a boolean.');

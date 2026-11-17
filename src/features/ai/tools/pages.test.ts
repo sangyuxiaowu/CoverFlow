@@ -8,7 +8,7 @@ it('manages pages, retains each page content and confirms deletion', async () =>
   const confirm = vi.fn(async () => true);
   const bridge: WorkspaceBridge = { getProject: () => project, getSelection: () => [], commit: async next => { project = syncProjectPages(next); }, manageProjects: async () => {}, confirm };
   const signal = new AbortController().signal;
-  const run = (action: string, rest = {}) => executePageTool({ projectId: 'project', action, ...rest }, bridge, signal);
+  const run = (action: string, rest = {}) => executePageTool({ action, ...rest }, bridge, signal);
   const firstId = project.activePageId!;
   await run('create', { name: 'Detail', width: 500 });
   expect(project.canvasConfig).toEqual({ width: 500, height: 383, ratio: '500x383' });
@@ -28,5 +28,6 @@ it('manages pages, retains each page content and confirms deletion', async () =>
   expect(project.pages).toHaveLength(2);
   await expect(run('switch', { pageId: 'missing' })).rejects.toThrow('not found');
   await expect(run('list', { width: 100 })).rejects.toThrow('Unsupported');
-  await expect(executePageTool({ projectId: 'wrong', action: 'list' }, bridge, signal)).rejects.toThrow('changed');
+  await expect(executePageTool({ projectId: 'wrong', action: 'list' }, bridge, signal)).rejects.toThrow('Unsupported');
+  await expect(executePageTool({ action: 'list' }, { ...bridge, getProject: () => null }, signal)).rejects.toThrow('No project open');
 });

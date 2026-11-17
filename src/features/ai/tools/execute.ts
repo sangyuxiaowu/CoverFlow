@@ -75,7 +75,7 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     }
     return { kind: 'selected_layers', projectId: project.id, pageId: project.activePageId, layers, images };
   }
-  if (text(args.projectId, 'projectId') !== project.id) throw new Error('The active project changed. Read get_context again.');
+  if (Object.hasOwn(args, 'projectId')) throw new Error(`${name}: unsupported field projectId. This tool operates on the current page.`);
   if (name === 'read_layers') {
     const selected = args.layerIds === undefined ? null : ids(args.layerIds);
     const query = args.query === undefined ? '' : text(args.query, 'query').toLowerCase();
@@ -84,7 +84,7 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
   let next = project;
   if (name === 'add_layer') {
     for (const field of Object.keys(args)) {
-      if (!['projectId', 'type', 'properties'].includes(field)) throw new Error(`${name}: unsupported field ${field}.`);
+      if (!['type', 'properties'].includes(field)) throw new Error(`${name}: unsupported field ${field}.`);
     }
     const type = choice(args.type, 'type', ADD_LAYER_TYPES);
     if (Object.hasOwn(record(args.properties), 'zIndex')) throw new Error(`${name}: unsupported field zIndex. Use reorder_layers after creation.`);

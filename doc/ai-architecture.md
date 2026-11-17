@@ -34,7 +34,7 @@ src/features/ai/
 
 字体目录、图片附件、生图协议、通用配置与会话类型、思考请求参数及消息活动排序直接使用 SangAIKit；项目和页面校验、画布工具、用户确认、即时重做与原生文件存储留在 CoverFlow。沿用项目已有的 React、Vite、lucide-react 和 StorageAdapter，不引入第二套项目存储。fake-indexeddb 仅用于测试，不进入生产包。
 
-`list_fonts`、`skill`、`generate_image`、`list_image_models` 和 `remove_background` 的基础 Schema 及执行函数来自 SangAIKit `createBuiltInTools`，CoverFlow 不再重复定义同名工具。生图和抠图通过组件的宿主扩展注入项目/图层参数，处理前捕获目标并提供原图，处理后直接将 Blob 应用到画布；普通图片保存回调没有画布副作用。
+`list_fonts`、`skill`、`generate_image`、`list_image_models` 和 `remove_background` 的基础 Schema 及执行函数来自 SangAIKit `createBuiltInTools`，CoverFlow 不再重复定义同名工具。生图和抠图通过组件的宿主扩展注入图层参数，处理前捕获当前项目与页面并提供原图，处理后直接将 Blob 应用到画布；普通图片保存回调没有画布副作用。
 
 ## 模型与浮窗
 
@@ -107,7 +107,8 @@ chat/
 用户消息 -> SDK Responses -> 工具 Schema -> 运行时校验 -> WorkspaceBridge -> App 状态 / StorageAdapter -> function_call_output -> 模型最终回复。
 
 - 工具从实时桥接状态读取，不依赖请求发出时的 React 闭包快照。
-- 所有画布修改要求 `projectId` 与当前项目一致。图层读取、修改、画布更新和视觉预览只针对当前页；跨页工作先读取页面列表，再通过 `manage_pages` 切换，不支持跨页混用图层 ID。
+- 图层读取、修改、画布更新、素材放置、生图、抠图和页面管理使用当前项目，不接受目标 `projectId` 入参；无项目时明确报错。图层和画布工具只针对当前页；跨页工作先读取页面列表，再通过 `manage_pages` 切换，不支持跨页混用图层 ID。`manage_projects` 保留目标 `projectId`，`manage_pages` 的切换、复制和删除保留目标 `pageId`；工具结果中的项目、页面及对象 ID 保持不变。
+- 工具按模型响应中的顺序执行。切页、打开项目及会改变活动项目/页面的新建、复制页面、删除操作失败后，同一响应批次尚未执行的全部工具均返回明确的跳过错误，不执行读写、组件内置工具或其他管理调用；失败前已完成的操作保留，不回滚。每个调用仍保存配对的结果，模型收到错误后可在下一批次重新规划。无法解析的项目/页面管理调用同样阻断本批后续执行；已识别的只读页面列表及项目重命名、复制、保存失败不触发该规则。用户取消仍按原逻辑结束本轮。
 - 素材读取、生图和抠图在异步操作前后检查项目与页面身份，提交时读取实时内容。同页其他编辑不会被旧快照覆盖；图层原图改变或锁定时拒绝应用。结果正常情况下直接写入画布，不创建中间会话图片。
 - 每次图层修改提交完整 ProjectState，进入现有历史，并等待存储结果。保存失败会作为工具错误报告；已经显示在画布上的修改不会自动回滚。
 - 打开另一项目之前保存当前项目；新建和复制先持久化，成功后更新项目列表。复制项目包含所有页面，并重建页面 ID、图层 ID 和父子引用。
@@ -116,11 +117,11 @@ chat/
 
 ## 工具能力
 
-工具采用分层 JSON Schema 描述：函数 `description` 只说明用途与整体行为；字段含义、单位、默认值、适用操作及内容限制写在对应参数的 `description` 中，包括嵌套属性、数组元素和联合类型分支。可执行约束用 `enum`、`required`、`minimum/maximum`、`minItems/maxItems` 等表达，执行器仍负责最终校验。创建图层统一使用 `add_layer`，要求 `projectId`、`type` 和 `properties`；`type` 为 `text/image/svg/decoration`，必须提供对应的 `properties.<type>.content`，禁止提供其他类型的属性组。通用 `layerInfo` 与四类专属属性在同一个参数 Schema 中完整内联，不使用 `$defs/$ref`，以兼容不支持引用的远端。各组内容的格式与安全限制分别写在字段说明中。`update_layers.properties` 保持开放对象，不重复枚举字段，由创建/读取函数说明属性，运行时白名单负责校验；它仍是部分字段补丁，组内 `content` 可省略。
+工具采用分层 JSON Schema 描述：函数 `description` 只说明用途与整体行为；字段含义、单位、默认值、适用操作及内容限制写在对应参数的 `description` 中，包括嵌套属性、数组元素和联合类型分支。可执行约束用 `enum`、`required`、`minimum/maximum`、`minItems/maxItems` 等表达，执行器仍负责最终校验。创建图层统一使用 `add_layer`，要求 `type` 和 `properties`；`type` 为 `text/image/svg/decoration`，必须提供对应的 `properties.<type>.content`，禁止提供其他类型的属性组。通用 `layerInfo` 与四类专属属性在同一个参数 Schema 中完整内联，不使用 `$defs/$ref`，以兼容不支持引用的远端。各组内容的格式与安全限制分别写在字段说明中。`update_layers.properties` 保持开放对象，不重复枚举字段，由创建/读取函数说明属性，运行时白名单负责校验；它仍是部分字段补丁，组内 `content` 可省略。
 
 图层函数与内部操作的映射、请求字段规则集中在 `tools/requests.ts`，独立函数的输入经白名单和必填校验后转换为内部可辨识动作联合类型，复用现有图层操作内核。图层工具以独立函数表达操作，不接受 `action` 字段。项目新建和搜索分别由 `create_project`、`search_projects` 提供，其他生命周期操作由 `manage_projects` 提供。为兼容自定义模型端点，对外使用对象 Schema 与 `strict:false`，不发送顶层 `oneOf`、`$defs/$ref` 或 OpenAPI `discriminator`。条件约束由运行时执行，不依赖模型遵守说明。所有请求先校验再产生存储或界面副作用。
 
-更新、组织和排列图层的函数均要求 `projectId` 和非空 `layerIds`；仅 `update_layers` 接受且必须提供非空 `properties`，它只更新属性，不负责编组、删除或排序，禁止提交 `zIndex`。仅 `group_layers` 接受顶层可选 `name`；`align_layers`、`distribute_layers` 必须提供各自允许的 `mode`；`reorder_layers` 必须提供 `position`。创建图层默认置顶，不接受 `zIndex`，后续排序统一使用 `reorder_layers`。`create_project` 的 `title/width/height` 可选；`search_projects` 的 `query/page/pageSize` 可选；`manage_projects` 只接受 `open/rename/duplicate/delete/save`，并要求 `projectId`。`rename.title` 必填，`duplicate.title` 可选，其余管理动作禁止。跨操作字段与未知字段均报错，不忽略。
+更新、组织和排列图层的函数均要求非空 `layerIds`；仅 `update_layers` 接受且必须提供非空 `properties`，它只更新属性，不负责编组、删除或排序，禁止提交 `zIndex`。仅 `group_layers` 接受顶层可选 `name`；`align_layers`、`distribute_layers` 必须提供各自允许的 `mode`；`reorder_layers` 必须提供 `position`。创建图层默认置顶，不接受 `zIndex`，后续排序统一使用 `reorder_layers`。`create_project` 的 `title/width/height` 可选；`search_projects` 的 `query/page/pageSize` 可选；`manage_projects` 只接受 `open/rename/duplicate/delete/save`，并要求 `projectId`。`rename.title` 必填，`duplicate.title` 可选，其余管理动作禁止。跨操作字段与未知字段均报错，不忽略。
 
 图层工具读写采用一致的属性分组：`name` 与身份字段 `id/type/parentId` 在外层，通用属性统一位于 `layerInfo`（含位置、尺寸、旋转、层级、透明度、显隐、锁定和比例锁定），类型专属属性分别位于 `text/image/svg/decoration`；组合子图层位于 `group.children`。创建时不允许设置 `zIndex`，更新时层级通过 `reorder_layers` 调整。内容位于对应类型分组的 `content`，不提供外层 `content`。例如创建文字调用 `add_layer`，传入 `type: "text"` 及 `properties: {name: "标题", layerInfo: {x: 52}, text: {content: "标题", fontSize: 78, color: "#fff6ea"}}`；更新时 `properties.name` 单独设置名称，其他通用属性通过 `properties.layerInfo`，类型专属字段仍放对应分组。不接受扁平属性或与目标类型不符的分组；混合类型批量更新在提交前完整校验，不会部分生效。
 
@@ -130,7 +131,7 @@ chat/
 
 图层更新支持位置、宽高、旋转、透明度、锁定、显隐、比例锁定、名称、内容、文字颜色/字体/字号/字重/字距/行距/对齐/书写方向/渐变/阴影。`properties.text.content` 为纯文本，保留换行和空行，不使用 HTML 换行标签；`properties.text.lineHeight` 为可选字号倍数，默认 1.1，允许有限数值 0.5-5，竖排时控制列间距。该属性在读取结果的 `text` 分组中返回，随页面保存及复制保留；旧图层省略时仍使用默认行高，文字框尺寸不自动增长。画布、预览及图片型导出与 SVG 使用相同的换行和行高规则。层级统一通过排序函数调整。结构字段 id/type/parentId/children 不允许直接修改，分组操作负责维护关系。不允许嵌套分组。组合图层变换传递到子图层，子图层变化会刷新组合边界。App 手动图层更新和 AI 更新共用 updateProjectLayer，保持变换规则一致。
 
-层级微调使用 `reorder_layers` 的 `position: forward/backward`，分别上移/下移一层，同时提供 `projectId` 和 `layerIds`，不接受 `properties/mode/name/action`。按实际堆叠顺序跨过相邻的一个未选中图层，不是简单增减 `zIndex`；多选保持相对顺序，到达顶层/底层不再移动。选中组合时包含子图层，沿用现有锁定校验；`position: front/back` 表示直接置顶/置底。
+层级微调使用 `reorder_layers` 的 `position: forward/backward`，分别上移/下移一层，同时提供 `layerIds`，不接受 `properties/mode/name/action`。按实际堆叠顺序跨过相邻的一个未选中图层，不是简单增减 `zIndex`；多选保持相对顺序，到达顶层/底层不再移动。选中组合时包含子图层，沿用现有锁定校验；`position: front/back` 表示直接置顶/置底。
 
 装饰只通过 `decoration.content` 读写，CSS/HTML 格式由内容自动识别，不保存或接受格式字段。调色前通过 `read_layers` 读取源码，再用 `update_layers` 更新相应 CSS 变量，保留其他样式和 alpha；装饰没有主色字段，避免无效调色返回成功。文字与 SVG 分别使用 `text.color` 和 `svg.color`。变量颜色支持 HEX（含透明度）、RGB/RGBA、HSL/HSLA、OKLCH 与命名颜色，人工拾色器不是 AI 操作目标。背景自定义 CSS 使用 `background: {type: css, value: 声明文本}`，不支持 HTML 背景。
 
@@ -185,20 +186,20 @@ chat/
 
 | manage_pages 动作 | 必需字段 | 可选字段与行为 |
 | --- | --- | --- |
-| list | projectId、action | 读取全部页面元数据，不修改项目 |
-| create | projectId、action | name 可空且最多 100 字符；width/height 各为 10-10000，省略时沿用当前页，四舍五入；在当前页后插入并切换 |
-| switch | projectId、action、pageId | 切换真实页面 ID，清理图层选区 |
-| duplicate | projectId、action、pageId | 在被复制页后插入独立副本并切换；不接受 name/width/height |
-| delete | projectId、action、pageId | 用户确认后删除；不可删最后一页，确认期间项目变化则拒绝提交 |
+| list | action | 读取全部页面元数据，不修改项目 |
+| create | action | name 可空且最多 100 字符；width/height 各为 10-10000，省略时沿用当前页，四舍五入；在当前页后插入并切换 |
+| switch | action、pageId | 切换真实页面 ID，清理图层选区 |
+| duplicate | action、pageId | 在被复制页后插入独立副本并切换；不接受 name/width/height |
+| delete | action、pageId | 用户确认后删除；不可删最后一页，确认期间项目变化则拒绝提交 |
 
-参数按动作白名单校验，未知字段和跨动作参数报错；所有动作要求 `projectId` 与当前项目一致。切页清理图层选区，但不单独提交内容历史；新增、复制和删除通过工作区桥接提交完整项目。页面隔离与异步结果校验遵循“数据流”中的统一规则。
+参数按动作白名单校验，未知字段和跨动作参数报错；所有动作操作当前项目，不接受 `projectId`。切页清理图层选区，但不单独提交内容历史；新增、复制和删除通过工作区桥接提交完整项目。页面隔离与异步结果校验遵循“数据流”中的统一规则。
 
 ## 素材搜索与放置
 
 - `search_assets` 无需打开项目，参数为可选 `query/type/page/pageSize`。`type` 为 `svg/image`；默认搜索已授权文件夹中的全部素材，页码 1，每页 20，最多 50。关键词不区分大小写，匹配名称、ID、相对路径及中英文分类。结果只含元数据，不读取文件内容、不返回 SVG 或 Base64。不提供来源筛选，不包含内置素材。
 - 文件夹 ID 为 `folder:Brand-品牌/logo.svg` 等，保留真实分类目录名和文件名，区分大小写，不是绝对路径。可以直接在规则中使用已知 ID；重命名或移动文件后需更新引用。当前复用人工素材库的扫描规则，只支持一级分类子目录下的 SVG 和 PNG，不递归、不含根目录文件，也不包含 Font Awesome 或装饰模板。
 - 浏览器模式使用素材面板选择的已授权文件夹；本地文件模式使用存储根目录下已有的 `lib`。通过工作区实时解析文件夹，与 Sidebar 当前标签和加载状态无关。工具不创建目录、不弹出授权窗口。搜索结果的 `folder.status` 为 `ready/not_configured/unavailable`；不可访问时返回空列表并附带错误原因，避免把无权限误判为没有匹配素材，也不会回退到内置资源。
-- `place_asset` 必须提供当前 `projectId` 与精确 `assetId`，可选 `x/y/width/height`。坐标为图层左上角，省略时按各轴居中。宽高均省略时不放大，等比缩小到画布内且最长边不超过 300px；仅提供一个尺寸时推导另一个，同时提供宽高必须保持原比例。新图层置顶、选中并锁定比例，保留素材原色，不使用人工图标放置时的蓝色覆盖。
+- `place_asset` 必须提供精确 `assetId`，放置到当前页，可选 `x/y/width/height`。坐标为图层左上角，省略时按各轴居中。宽高均省略时不放大，等比缩小到画布内且最长边不超过 300px；仅提供一个尺寸时推导另一个，同时提供宽高必须保持原比例。新图层置顶、选中并锁定比例，保留素材原色，不使用人工图标放置时的蓝色覆盖。
 - SVG 使用现有标准化与安全校验，禁止脚本、事件、style 元素、动画和外部引用，限制 2MB；PNG 验证文件签名，限制 32MB 和 6400 万像素，原始字节直接内嵌，不重新编码。内容快照保存在项目内，图片来源记录精确素材 ID；后续素材更新、删除或失去目录权限不会影响已保存图层。没有新增项目资源身份字段、逻辑 ID 清单或自动迁移。
 - 放置返回 `success/projectId/pageId/assetId/layerId/type/x/y/width/height`，不回传文件内容。读取完成后重新获取当前项目并保留同一页面期间的编辑；取消、文件缺失、无权限、格式错误或项目/当前页已切换时不提交图层，不生成替代资源。后续调整通过 `update_layers` 和 `reorder_layers` 完成。
 
@@ -249,7 +250,7 @@ chat/
 
 ## 统一抠图
 
-CoverFlow 不提供独立 `remove_background` 实现或资源下载执行器。组件工具通过宿主扩展接收当前 `projectId`、图层 `layerId` 和可选 `keepOriginal`，或通过 `imageId` 使用附件；两种来源互斥。默认 `u2netp`，颜色模式须显式指定 `color`。组件处理后回调宿主应用结果。
+CoverFlow 不提供独立 `remove_background` 实现或资源下载执行器。组件工具通过宿主扩展接收当前页图层 `layerId` 和可选 `keepOriginal`，或通过 `imageId` 使用附件；两种来源互斥，不接收目标 `projectId`。宿主在处理前捕获当前项目与页面，组件处理后回调宿主校验并应用结果。默认 `u2netp`，颜色模式须显式指定 `color`。
 
 手动抠图按钮同样调用组件 `removeBackground`。未安装的模型仍可选择并开始处理：组件自动下载缺失运行时和模型，实际验证后缓存，再继续抠图；手动入口显示进度并可取消。下载失败、验证失败与取消不会修改原图。模型无需用户预先进入设置下载，离线已缓存资源仍可直接使用。保留原图、分组、撤销与保存使用原有宿主逻辑。
 

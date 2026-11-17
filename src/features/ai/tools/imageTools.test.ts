@@ -24,7 +24,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe('host image tool callbacks', () => {
   it('uses original reference bytes and adds multiple generated results in one commit', async () => {
     const { tools, signal, commit, getProject } = setup();
-    const prepared = await tools.generate_image!.prepare({ projectId: 'project', referenceLayerId: 'source' }, signal);
+    const prepared = await tools.generate_image!.prepare({ referenceLayerId: 'source' }, signal);
     expect(await prepared.inputImage!.arrayBuffer()).toEqual(Uint8Array.from(atob('iVBORw0KGgo='), c => c.charCodeAt(0)).buffer);
     const result = await prepared.complete({ images: [output, output], model: 'model', prompt: 'City' }, signal) as { layerIds: string[] };
     expect(commit).toHaveBeenCalledOnce();
@@ -37,7 +37,7 @@ describe('host image tool callbacks', () => {
     const { tools, signal, getProject } = setup();
     getProject().layers[0].parentId = 'group';
     getProject().layers.push({ ...original, id: 'group', type: 'group', children: ['source'], content: '' });
-    const prepared = await tools.remove_background!.prepare({ projectId: 'project', layerId: 'source', keepOriginal }, signal);
+    const prepared = await tools.remove_background!.prepare({ layerId: 'source', keepOriginal }, signal);
     const result = await prepared.complete({ images: [output], model: 'u2netp' }, signal) as { layerId: string };
     const layer = getProject().layers.find(item => item.id === result.layerId)!;
     expect(layer).toMatchObject({ x: 20, y: 30, width: 200, height: 300, rotation: 25, opacity: 0.7, parentId: 'group', backgroundRemoved: true });
@@ -47,7 +47,7 @@ describe('host image tool callbacks', () => {
   });
   it.each(['original', 'locked', 'group', 'removed', 'project', 'page'] as const)('rejects %s changes during processing', async change => {
     const { tools, signal, getProject, setProject, commit } = setup();
-    const prepared = await tools.remove_background!.prepare({ projectId: 'project', layerId: 'source' }, signal);
+    const prepared = await tools.remove_background!.prepare({ layerId: 'source' }, signal);
     const project = getProject();
     if (change === 'original') project.layers[0].content = 'data:image/png;base64,AAAA';
     if (change === 'locked') project.layers[0].locked = true;
@@ -63,14 +63,14 @@ describe('host image tool callbacks', () => {
   });
   it('rejects a page switch during decoding and preserves unrelated edits', async () => {
     const { tools, signal, getProject, setProject, commit } = setup();
-    const prepared = await tools.generate_image!.prepare({ projectId: 'project' }, signal);
+    const prepared = await tools.generate_image!.prepare({}, signal);
     vi.stubGlobal('createImageBitmap', vi.fn(async () => {
       setProject(insertProjectPage(getProject(), 'Second'));
       return { width: 100, height: 100, close: vi.fn() };
     }));
     await expect(prepared.complete({ images: [output], model: 'model', prompt: 'City' }, signal)).rejects.toThrow('active page changed');
     expect(commit).not.toHaveBeenCalled();
-    const next = await tools.generate_image!.prepare({ projectId: 'project' }, signal);
+    const next = await tools.generate_image!.prepare({}, signal);
     vi.stubGlobal('createImageBitmap', vi.fn(async () => {
       getProject().title = 'Updated during decoding';
       return { width: 100, height: 100, close: vi.fn() };
@@ -80,10 +80,10 @@ describe('host image tool callbacks', () => {
   });
   it('rejects changed references, invalid source combinations and cancellation', async () => {
     const { tools, signal, getProject, commit } = setup();
-    await expect(tools.generate_image!.prepare({ projectId: 'project', referenceLayerId: 'source', referenceImageId: 'attachment' }, signal)).rejects.toThrow('one reference');
-    await expect(tools.remove_background!.prepare({ projectId: 'project' }, signal)).rejects.toThrow('either layerId or imageId');
-    await expect(tools.remove_background!.prepare({ projectId: 'project', imageId: 'attachment', keepOriginal: true }, signal)).rejects.toThrow('requires layerId');
-    const prepared = await tools.generate_image!.prepare({ projectId: 'project', referenceLayerId: 'source' }, signal);
+    await expect(tools.generate_image!.prepare({ referenceLayerId: 'source', referenceImageId: 'attachment' }, signal)).rejects.toThrow('one reference');
+    await expect(tools.remove_background!.prepare({}, signal)).rejects.toThrow('either layerId or imageId');
+    await expect(tools.remove_background!.prepare({ imageId: 'attachment', keepOriginal: true }, signal)).rejects.toThrow('requires layerId');
+    const prepared = await tools.generate_image!.prepare({ referenceLayerId: 'source' }, signal);
     getProject().layers[0].content = 'data:image/png;base64,AAAA';
     await expect(prepared.complete({ images: [output], model: 'model', prompt: 'City' }, signal)).rejects.toThrow('changed');
     const controller = new AbortController();
@@ -93,7 +93,7 @@ describe('host image tool callbacks', () => {
   });
   it('reports an uncertain save without retrying', async () => {
     const { tools, signal, commit } = setup();
-    const prepared = await tools.generate_image!.prepare({ projectId: 'project' }, signal);
+    const prepared = await tools.generate_image!.prepare({}, signal);
     commit.mockRejectedValueOnce(new Error('Disk full'));
     await expect(prepared.complete({ images: [output], model: 'model', prompt: 'City' }, signal)).rejects.toThrow('may already be applied');
     expect(commit).toHaveBeenCalledOnce();

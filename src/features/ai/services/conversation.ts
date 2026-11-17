@@ -91,6 +91,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
     ...builtIn.tools.map(({ execute, ...definition }) => ({ type: 'function' as const, function: definition }))
   ];
   let previewCount = 0;
+  let failedNavigation: { name: string; callId: string } | undefined;
   const maxToolRounds = config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
   return runToolLoop<ResponseItem, Extract<Response['output'][number], { type: 'function_call' }>>({
     input, signal, maxRounds: maxToolRounds, onText, onHistory: options.onHistory, onLimit: options.onLimit,
@@ -136,6 +137,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
     }
     const calls = response.output.filter(item => item.type === 'function_call');
     const output = response.output.filter(item => item.type === 'message' || item.type === 'reasoning' || item.type === 'function_call');
+    failedNavigation = undefined;
     return { content: responseText(response), streamedText, calls, output, unsupportedOutput: output.length !== response.output.length };
     },
     execute: async (call, cancelled) => {
@@ -146,12 +148,17 @@ export async function runConversation(options: ConversationOptions): Promise<str
       let output: string | ResponseFunctionCallOutputItemList;
       let imageRef: ChatImageRef | undefined;
       let status: 'success' | 'error' = 'success';
+      let navigation = call.name === 'create_project' || call.name === 'manage_projects' || call.name === 'manage_pages';
       toolImages.length = 0;
       try {
         signal.throwIfAborted();
         if (cancelled) throw new Error('User cancelled. Do not retry this operation without new approval.');
+        if (failedNavigation) throw new Error(`Skipped: ${failedNavigation.name} (${failedNavigation.callId}) failed earlier in this tool batch. No operation was performed. Read the current context before continuing.`);
         if (!tools.some(tool => tool.function.name === call.name)) throw new Error('Unknown tool.');
         const args = record(JSON.parse(call.arguments));
+        navigation = call.name === 'create_project'
+          || (call.name === 'manage_pages' && args.action !== 'list')
+          || (call.name === 'manage_projects' && args.action !== 'rename' && args.action !== 'duplicate' && args.action !== 'save');
         const sharedTool = builtIn.tools.find(tool => tool.name === call.name);
         const value = sharedTool ? await sharedTool.execute(args, signal)
           : await executeTool(call.name, args, bridge, signal, Boolean(config.supportsVision));
@@ -180,6 +187,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
         }
       } catch (error) {
         status = 'error';
+        if (navigation && !failedNavigation) failedNavigation = { name: call.name, callId: call.call_id };
         result = JSON.stringify(signal.aborted ? {
           error: 'Operation interrupted.', ...conversationAbortDetails(signal),
           retryPolicy: 'Do not automatically retry in this turn. A new explicit user request may retry.'

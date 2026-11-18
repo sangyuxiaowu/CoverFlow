@@ -10,7 +10,7 @@ it('manages pages, retains each page content and confirms deletion', async () =>
   const signal = new AbortController().signal;
   const run = (action: string, rest = {}) => executePageTool({ action, ...rest }, bridge, signal);
   const firstId = project.activePageId!;
-  await run('create', { name: 'Detail', width: 500 });
+  await run('create', { pageInfo: { name: 'Detail', width: 500 } });
   expect(project.canvasConfig).toEqual({ width: 500, height: 383, ratio: '500x383' });
   const secondId = project.activePageId!;
   const context = await run('list');
@@ -20,6 +20,7 @@ it('manages pages, retains each page content and confirms deletion', async () =>
   await run('duplicate', { pageId: secondId });
   expect(project.pages).toHaveLength(3);
   expect(project.canvasConfig.width).toBe(500);
+  expect(project.pages!.map(page => page.id)).toEqual([firstId, project.activePageId, secondId]);
   await run('delete', { pageId: secondId });
   expect(confirm).toHaveBeenCalledOnce();
   expect(project.pages).toHaveLength(2);

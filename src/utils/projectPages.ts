@@ -38,6 +38,48 @@ export function insertProjectPage(project: ProjectState, name: string, canvasCon
   return selectProjectPage({ ...synced, pages, updatedAt: Date.now() }, page.id);
 }
 
+export function insertProjectPages(project: ProjectState, name: string, canvasConfig: ProjectPage['canvasConfig'], background: ProjectPage['background'], count: number): ProjectState {
+  const synced = syncProjectPages(project);
+  if (!synced.pages!.length || synced.pages!.length + count > MAX_PROJECT_PAGES) throw new Error('A project can contain at most 99 pages.');
+  if (!Number.isFinite(canvasConfig.width) || !Number.isFinite(canvasConfig.height) || canvasConfig.width < 10 || canvasConfig.height < 10) throw new Error('Invalid page dimensions.');
+  const activeIndex = synced.pages!.findIndex(page => page.id === synced.activePageId);
+  if (activeIndex < 0) throw new Error('Page not found.');
+  const pages = [...synced.pages!];
+  let firstId = '';
+  for (let index = 0; index < count; index += 1) {
+    const page: ProjectPage = { id: generateId(), name: name.trim(), layers: [], background: { ...background }, canvasConfig: { ...canvasConfig } };
+    pages.splice(activeIndex + 1 + index, 0, page);
+    if (!firstId) firstId = page.id;
+  }
+  return selectProjectPage({ ...synced, pages, updatedAt: Date.now() }, firstId);
+}
+
+export function duplicateProjectPages(project: ProjectState, pageId: string, count: number): ProjectState {
+  const synced = syncProjectPages(project);
+  if (synced.pages!.length + count > MAX_PROJECT_PAGES) throw new Error('A project can contain at most 99 pages.');
+  const source = synced.pages!.find(page => page.id === pageId);
+  if (!source) throw new Error('Page not found.');
+  const activeIndex = synced.pages!.findIndex(page => page.id === synced.activePageId);
+  if (activeIndex < 0) throw new Error('Page not found.');
+  const pages = [...synced.pages!];
+  const copies = Array.from({ length: count }, () => copyPage(source));
+  pages.splice(activeIndex + 1, 0, ...copies);
+  return selectProjectPage({ ...synced, pages, updatedAt: Date.now() }, copies[0].id);
+}
+
+export function moveProjectPageAfter(project: ProjectState, pageId: string, targetId: string): ProjectState {
+  const synced = syncProjectPages(project);
+  const from = synced.pages!.findIndex(page => page.id === pageId);
+  const target = synced.pages!.findIndex(page => page.id === targetId);
+  if (from < 0 || target < 0) throw new Error('Page not found.');
+  if (from === target) return synced;
+  const pages = [...synced.pages!];
+  const [moved] = pages.splice(from, 1);
+  const adjustedTarget = pages.findIndex(page => page.id === targetId);
+  pages.splice(adjustedTarget + 1, 0, moved);
+  return { ...synced, pages, updatedAt: Date.now() };
+}
+
 export function deleteProjectPage(project: ProjectState, pageId: string): ProjectState {
   const synced = syncProjectPages(project);
   if (synced.pages!.length <= 1) throw new Error('The last page cannot be deleted.');

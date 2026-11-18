@@ -379,7 +379,7 @@ test('removed project IDs, missing projects, aborts and invalid fields never com
 
 test('tools follow the current project and page without target parameters and retain result IDs', async () => {
   const { bridge, signal } = setup();
-  const pages = await executeTool('manage_pages', { action: 'create', name: 'Second' }, bridge, signal) as { pageId: string; pages: { id: string }[] };
+  const pages = await executeTool('manage_pages', { action: 'create', pageInfo: { name: 'Second' } }, bridge, signal) as { pageId: string; pages: { id: string }[] };
   const result = await executeTool('add_layer', { type: 'text', properties: { text: { content: 'Second page' } } }, bridge, signal) as { projectId: string; pageId: string };
   assert.equal(result.projectId, 'p1');
   assert.equal(result.pageId, pages.pageId);
@@ -393,6 +393,49 @@ test('tools follow the current project and page without target parameters and re
   const updated = await executeTool('update_page', { width: 1200 }, bridge, signal) as { projectId: string; pageId: string };
   assert.equal(updated.projectId, 'p2');
   assert.equal(updated.pageId, pages.pageId);
+});
+
+test('manage_pages creates, duplicates and moves pages in batches', async () => {
+  const { bridge, signal } = setup();
+  const created = await executeTool('manage_pages', {
+    action: 'create',
+    count: 3,
+    pageInfo: { name: 'Batch', width: 800, height: 450 }
+  }, bridge, signal) as { pageId: string; pages: { id: string; name: string; active: boolean; canvas: { width: number; height: number } }[] };
+  assert.equal(created.pages.length, 4);
+  assert.equal(created.pages.filter(page => page.name === 'Batch').length, 3);
+  assert.equal(created.pages.filter(page => page.canvas.width === 800 && page.canvas.height === 450).length, 3);
+  assert.equal(created.pageId, created.pages.find(page => page.active)?.id);
+
+  const sourceId = created.pages.find(page => page.name === 'Batch')!.id;
+  await executeTool('add_layer', { type: 'text', properties: { text: { content: 'Batch source' } } }, bridge, signal);
+  const sourceLayerId = bridge.getProject()!.layers[0].id;
+  const targetId = created.pages.at(-1)!.id;
+  await executeTool('manage_pages', { action: 'switch', pageId: targetId }, bridge, signal);
+  const existingIds = new Set(created.pages.map(page => page.id));
+  const duplicated = await executeTool('manage_pages', { action: 'duplicate', pageId: sourceId, count: 2 }, bridge, signal) as { pageId: string; pages: { id: string }[] };
+  const copyIds = duplicated.pages.map(page => page.id).filter(id => !existingIds.has(id));
+  assert.equal(duplicated.pages.length, 6);
+  assert.equal(copyIds.length, 2);
+  assert.equal(new Set(duplicated.pages.map(page => page.id)).size, 6);
+  assert.equal(duplicated.pageId, copyIds[0]);
+  const targetIndex = duplicated.pages.findIndex(page => page.id === targetId);
+  assert.deepEqual(duplicated.pages.slice(targetIndex + 1, targetIndex + 3).map(page => page.id), copyIds);
+  const copies = bridge.getProject()!.pages!.filter(page => copyIds.includes(page.id));
+  assert.equal(copies.length, 2);
+  for (const copy of copies) {
+    assert.equal(copy.layers[0].content, 'Batch source');
+    assert.notEqual(copy.layers[0].id, sourceLayerId);
+    assert.equal(copy.canvasConfig.width, 800);
+    assert.equal(copy.canvasConfig.height, 450);
+  }
+  assert.notEqual(copies[0].layers[0].id, copies[1].layers[0].id);
+
+  const movedPageId = created.pages[0].id;
+  await executeTool('manage_pages', { action: 'move', pageId: movedPageId }, bridge, signal);
+  const moved = bridge.getProject()!.pages!;
+  const activeIndex = moved.findIndex(page => page.id === bridge.getProject()!.activePageId);
+  assert.equal(moved[activeIndex + 1]?.id, movedPageId);
 });
 
 test('unsafe image sources are rejected', () => {

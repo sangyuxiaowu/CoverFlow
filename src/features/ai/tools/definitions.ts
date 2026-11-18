@@ -165,12 +165,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       })
     })
   })),
-  tool('manage_pages', '管理项目页面。新增与复制后切换到新页；删除需用户确认。', object('页面操作参数。图层工具只操作当前页。', {
-    action: enumeration('list 读取页面列表；create 在当前页后新增空白页；switch 切页；duplicate 在目标页后复制并切换；delete 删除目标页，至少保留一页。', ['list', 'create', 'switch', 'duplicate', 'delete']),
-    pageId: string('switch、duplicate、delete 必填，使用 get_context 或 list 返回的稳定页面 ID，不是顺序编号。'),
-    name: { ...string('仅 create 可选，页面名称最多 100 字符；省略或空白按 P01-P99 显示。'), maxLength: 100 },
-    width: numeric('仅 create 可选，宽度 px，省略沿用当前页。', 10, 10000),
-    height: numeric('仅 create 可选，高度 px，省略沿用当前页。', 10, 10000)
+  tool('manage_pages', '管理项目页面。页面列表，页面切换，页面移动，批量新增与复制；单个新增与复制后会切换到新页；删除需用户确认。', object('页面操作参数。图层工具只操作当前页。', {
+    action: enumeration('list 读取页面列表；create 在当前页后新增空白页；switch 切页；duplicate 复制目标页到当前页后；move 移动目标页到当前页后；delete 删除目标页，至少保留一页。创建和复制成功后会自动切换到第一个新页。', ['list', 'create', 'switch', 'duplicate', 'delete', 'move']),
+    count: { type: 'integer', description: '仅 create/duplicate 可用；批量创建或复制的页面数量，默认 1。', minimum: 1, maximum: 99 },
+    pageId: string('目标页，必填于 switch、duplicate、move、delete 操作，使用 get_context 或 list 返回的稳定页面 ID，不是顺序编号。'),
+    pageInfo: { ...object('仅 create 可用的页面属性；省略字段沿用当前页，name 省略为空白。字段含义与 update_page 相同。', {}), minProperties: 1 }
   }, ['action'])),
 ];
 

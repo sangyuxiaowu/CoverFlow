@@ -90,7 +90,7 @@ export default function AiAssistant({ workspace, lang, onBusyChange, open, onOpe
     active={resolveSelection(assistant.config)}
     imageToolsEnabled={AI_FEATURES.imageGeneration && assistant.config.imageModels?.some(model => model.enabled)}
     toolLabels={toolLabels}
-    loadImage={(sessionId, imageId) => chatStore.loadImage(sessionId, imageId)}
+    loadImage={(sessionId, imageId, type?: string) => chatStore.loadImage(sessionId, imageId, type)}
     createImageUpload={createImageUpload}
     imageModelForTool={tool => imageModelForTool(tool, assistant.config.imageModels)}
     sumUsage={sumUsage}

@@ -478,6 +478,16 @@ describe('image tools and persistence', () => {
     expect(binary.has('chat/images/current/png.png')).toBe(false);
     expect(binary.has('chat/images/current/png.jpg')).toBe(true);
   });
+  it('reads the hinted format first and falls back when the hint is stale', async () => {
+    const readBinary = vi.fn(async (path: string) => path.endsWith('.webp') ? new Blob(['image'], { type: 'image/webp' }) : null);
+    const store = createFileChatStore({ read: async () => null, write: async () => {}, readBinary,
+      writeBinary: async () => {}, remove: async () => {}, removeDirectory: async () => {}, list: async () => [] }, 'files');
+    expect((await store.loadImage('session', 'image', 'image/webp'))?.type).toBe('image/webp');
+    expect(readBinary.mock.calls.map(([path]) => path)).toEqual(['chat/images/session/image.webp']);
+    readBinary.mockClear();
+    expect((await store.loadImage('session', 'image', 'image/jpeg'))?.type).toBe('image/webp');
+    expect(readBinary.mock.calls.map(([path]) => path)).toEqual(['chat/images/session/image.jpg', 'chat/images/session/image.png', 'chat/images/session/image.webp']);
+  });
   it.each([undefined, 1, 2, 5])('forwards dynamic image tools and enforces failure budget %s', async maxImageFailures => {
     const { model, context, config } = toolContext();
     const profiles = defaultConfig();
@@ -605,7 +615,7 @@ describe('image tools and persistence', () => {
     expect(signal.aborted).toBe(false);
     expect(getProject().layers).toHaveLength(1);
   });
-  it('generates directly onto the canvas in one tool call without a session image', async () => {
+  it('archives the generated image and places it on the canvas in one tool call', async () => {
     mockCanvas();
     const { context, model, config, getProject, images, refs } = toolContext();
     context.bridge.getSelection = () => getProject().selectedLayerId ? [getProject().selectedLayerId!] : [];
@@ -628,8 +638,10 @@ describe('image tools and persistence', () => {
     expect(result.layerId.length).toBeLessThanOrEqual(9);
     expect(getProject().layers).toHaveLength(1);
     expect(getProject().layers[0]).toMatchObject({ imageSource: model.modelId, imageDescription: 'City' });
-    expect(images.size).toBe(0);
-    expect(refs).toHaveLength(0);
+    expect(images.size).toBe(1);
+    expect(refs).toHaveLength(1);
+    expect(refs[0].name).toMatch(/^generated-/);
+    expect(result.images).toMatchObject([{ id: refs[0].id }]);
     expect(result).not.toHaveProperty('imageId');
     expect(JSON.stringify(requests.map(request => request.input))).not.toContain('base64');
   });
@@ -660,8 +672,9 @@ describe('image tools and persistence', () => {
       onText: () => {}, onTool: () => {}, getImageConfig: () => config, loadImage: context.loadImage, saveImage: context.saveImage, onImage: context.onImage });
     expect(generationBody?.extra_body.image).toEqual([reference]);
     expect(getProject().layers).toHaveLength(2);
-    expect(images.size).toBe(0);
-    expect(refs).toHaveLength(0);
+    expect(images.size).toBe(1);
+    expect(refs).toHaveLength(1);
+    expect(refs[0].name).toMatch(/^generated-/);
   });
   it('saves a recovery image after failed canvas commit and prevents automatic regeneration', async () => {
     mockCanvas();

@@ -150,7 +150,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     mode: enumeration('horizontal 为水平等间距，vertical 为垂直等间距。', [...DISTRIBUTE_MODES])
   }, ['layerIds', 'mode'])),
   // 画布与背景
-  tool('update_canvas', '更新当前画布、背景及当前页面名称。调整画布尺寸不会缩放已有图层。', object('画布、背景与当前页面名称的部分更新；省略的字段保持不变。', {
+  tool('update_canvas', '更新当前页面画布、背景及当前页面名称。调整画布尺寸不会缩放已有图层。', object('画布、背景与当前页面名称的部分更新；省略的字段保持不变。', {
     name: { ...string('当前页面名称，最多 100 字符；空白表示清除名称。'), maxLength: 100 },
     width: numeric('画布宽度（px）。', 10, 10000),
     height: numeric('画布高度（px）。', 10, 10000),

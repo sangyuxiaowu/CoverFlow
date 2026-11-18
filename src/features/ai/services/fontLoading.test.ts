@@ -85,7 +85,7 @@ it.each(['changed', 'aborted'])('does not commit an AI layer after font loading 
   const commit = vi.fn();
   const bridge: WorkspaceBridge = { getProject: () => current, getSelection: () => [], commit, manageProjects: async () => {} };
   const controller = new AbortController();
-  const pending = executeTool('add_layer', { type: 'text', properties: { text: { content: '中文', fontFamily: '"Ma Shan Zheng", cursive', fontWeight: 400 } } }, bridge, controller.signal);
+  const pending = executeTool('add_layers', { layers: [{ type: 'text', properties: { text: { content: '中文', fontFamily: '"Ma Shan Zheng", cursive', fontWeight: 400 } } }] }, bridge, controller.signal);
   const rejected = expect(pending).rejects.toThrow(reason === 'changed' ? 'active project changed' : /abort/i);
   if (reason === 'changed') current = { ...original, id: 'p2' };
   else controller.abort();

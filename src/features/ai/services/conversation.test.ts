@@ -400,7 +400,7 @@ test('custom prompts are not silently extended with visual capability instructio
       ...builtInToolDefinitions({ imageExtensions: IMAGE_TOOL_SCHEMAS })
     ].map(definition => ({ type: 'function', ...definition, strict: false })));
     assert.doesNotMatch(JSON.stringify(sentTools), /"\$(?:defs|ref)"/);
-    assert.deepEqual(sentTools.filter(tool => (tool as { name: string }).name.startsWith('add_')).map(tool => (tool as { name: string }).name), ['add_layer']);
+    assert.deepEqual(sentTools.filter(tool => (tool as { name: string }).name.startsWith('add_')).map(tool => (tool as { name: string }).name), ['add_layers']);
     assert.ok(sentTools.filter((tool: { name: string; parameters: unknown }) => ['get_context', 'get_cover_size_recommendations', 'get_selected_layers', 'get_canvas_preview'].includes(tool.name)).every(tool => JSON.stringify(tool.parameters) === JSON.stringify({ type: 'object', properties: {} })));
     assert.equal(inputEstimate, estimateInput([], requestConfig.systemPrompt, requestConfig.supportsVision, false, undefined, undefined, undefined, false));
     assert.ok(inputEstimate > estimateInput([], original, requestConfig.supportsVision, false, undefined, undefined, undefined, false));
@@ -972,7 +972,7 @@ test.each([
   globalThis.fetch = async () => streamResponse(responsePayload(++round === 1 ? [
     call('before', 'update_page', '{"width":900}'),
     call('navigation', name, args),
-    call('skipped-write', 'add_layer', '{"type":"text","properties":{"text":{"content":"Wrong page"}}}'),
+    call('skipped-write', 'add_layers', '{"layers":[{"type":"text","properties":{"text":{"content":"Wrong page"}}}]}'),
     call('skipped-read', 'get_canvas_preview'),
     call('skipped-management', 'manage_pages', '{"action":"list"}'),
     call('skipped-shared', 'list_fonts')

@@ -84,29 +84,40 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     return project.layers.filter(layer => (!selected || selected.includes(layer.id)) && (!query || (layer.name + ' ' + layer.content).toLowerCase().includes(query))).map(layer => layerDetails({ ...layer, content: layer.content.startsWith('data:') ? '[embedded image]' : layer.content }));
   }
   let next = project;
-  if (name === 'add_layer') {
+  let createdLayerIds: string[] | undefined;
+  if (name === 'add_layers') {
     for (const field of Object.keys(args)) {
-      if (!['type', 'properties'].includes(field)) throw new Error(`${name}: unsupported field ${field}.`);
+      if (field !== 'layers') throw new Error(`${name}: unsupported field ${field}.`);
     }
-    const type = choice(args.type, 'type', ADD_LAYER_TYPES);
-    if (Object.hasOwn(record(args.properties), 'zIndex')) throw new Error(`${name}: unsupported field zIndex. Use reorder_layers after creation.`);
-    const patch = layerPatch(args.properties);
-    validateLayerGroups(args.properties, type);
-    const content = validateContent(type, text(patch.content, `properties.${type}.content`));
-    const layer: Layer = { id: generateId(), name: type, type, content, x: 40, y: 40, width: 300, height: 100, rotation: 0, zIndex: Math.max(0, ...project.layers.map(item => item.zIndex)) + 1, visible: true, locked: false, opacity: 1, ...(type === 'text' ? { fontSize: 48, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: '#ffffff', textAlign: 'left' } : {}), ...patch };
-    if (type === 'image') {
-      layer.imageSource ??= 'unknown';
-      layer.imageDescription ??= '';
-      if (patch.imageFilters !== undefined) {
-        const normalizedFilters = normalizeImageFilters(patch.imageFilters);
-        layer.imageFilters = hasActiveImageFilters(normalizedFilters) ? normalizedFilters : undefined;
+    if (!Array.isArray(args.layers) || !args.layers.length || args.layers.length > 500) throw new Error('layers must contain 1-500 layers.');
+    const topZIndex = Math.max(0, ...project.layers.map(item => item.zIndex));
+    const layers = args.layers.map((input, index) => {
+      const item = record(input);
+      for (const field of Object.keys(item)) {
+        if (!['type', 'properties'].includes(field)) throw new Error(`${name}: unsupported field ${field}.`);
       }
-      if (patch.imageCrop !== undefined) {
-        const normalizedCrop = normalizeImageCrop(patch.imageCrop);
-        layer.imageCrop = hasActiveImageCrop(normalizedCrop) ? normalizedCrop : undefined;
+      const type = choice(item.type, 'type', ADD_LAYER_TYPES);
+      if (Object.hasOwn(record(item.properties), 'zIndex')) throw new Error(`${name}: unsupported field zIndex. Use reorder_layers after creation.`);
+      const patch = layerPatch(item.properties);
+      validateLayerGroups(item.properties, type);
+      const content = validateContent(type, text(patch.content, `properties.${type}.content`));
+      const layer: Layer = { id: generateId(), name: type, type, content, x: 40, y: 40, width: 300, height: 100, rotation: 0, zIndex: topZIndex + index + 1, visible: true, locked: false, opacity: 1, ...(type === 'text' ? { fontSize: 48, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: '#ffffff', textAlign: 'left' } : {}), ...patch };
+      if (type === 'image') {
+        layer.imageSource ??= 'unknown';
+        layer.imageDescription ??= '';
+        if (patch.imageFilters !== undefined) {
+          const normalizedFilters = normalizeImageFilters(patch.imageFilters);
+          layer.imageFilters = hasActiveImageFilters(normalizedFilters) ? normalizedFilters : undefined;
+        }
+        if (patch.imageCrop !== undefined) {
+          const normalizedCrop = normalizeImageCrop(patch.imageCrop);
+          layer.imageCrop = hasActiveImageCrop(normalizedCrop) ? normalizedCrop : undefined;
+        }
       }
-    }
-    next = { ...project, layers: [...project.layers, layer], selectedLayerId: layer.id };
+      return layer;
+    });
+    createdLayerIds = layers.map(layer => layer.id);
+    next = { ...project, layers: [...project.layers, ...layers], selectedLayerId: layers[layers.length - 1].id };
   } else if (Object.hasOwn(LAYER_TOOL_ACTIONS, name)) {
     const request = parseLayerToolRequest(name as keyof typeof LAYER_TOOL_ACTIONS, args);
     const { action, layerIds: selected } = request;
@@ -150,5 +161,5 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
   signal.throwIfAborted();
   if (bridge.getProject() !== project) throw new Error('The active project changed while loading fonts. Read get_context again.');
   await bridge.commit({ ...next, updatedAt: Date.now() });
-  return { success: true, projectId: next.id, pageId: next.activePageId, selectedLayerId: next.selectedLayerId, layerIds: next.layers.map(layer => layer.id) };
+  return { success: true, projectId: next.id, pageId: next.activePageId, selectedLayerId: next.selectedLayerId, layerIds: next.layers.map(layer => layer.id), ...(createdLayerIds ? { createdLayerIds } : {}) };
 }

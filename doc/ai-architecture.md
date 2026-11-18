@@ -117,13 +117,13 @@ chat/
 
 ## 工具能力
 
-工具采用分层 JSON Schema 描述：函数 `description` 只说明用途与整体行为；字段含义、单位、默认值、适用操作及内容限制写在对应参数的 `description` 中，包括嵌套属性、数组元素和联合类型分支。可执行约束用 `enum`、`required`、`minimum/maximum`、`minItems/maxItems` 等表达，执行器仍负责最终校验。创建图层统一使用 `add_layer`，要求 `type` 和 `properties`；`type` 为 `text/image/svg/decoration`，必须提供对应的 `properties.<type>.content`，禁止提供其他类型的属性组。通用 `layerInfo` 与四类专属属性在同一个参数 Schema 中完整内联，不使用 `$defs/$ref`，以兼容不支持引用的远端。各组内容的格式与安全限制分别写在字段说明中。`update_layers.properties` 保持开放对象，不重复枚举字段，由创建/读取函数说明属性，运行时白名单负责校验；它仍是部分字段补丁，组内 `content` 可省略。
+工具采用分层 JSON Schema 描述：函数 `description` 只说明用途与整体行为；字段含义、单位、默认值、适用操作及内容限制写在对应参数的 `description` 中，包括嵌套属性、数组元素和联合类型分支。可执行约束用 `enum`、`required`、`minimum/maximum`、`minItems/maxItems` 等表达，执行器仍负责最终校验。创建图层统一使用 `add_layers`，`layers` 数组包含 1–500 项，每项要求 `type` 和 `properties`；`type` 为 `text/image/svg/decoration`，必须提供对应的 `properties.<type>.content`，禁止提供其他类型的属性组。整批校验后一次提交，按数组顺序从下到上置顶并选中最后一项；任一项无效时不创建任何图层。通用 `layerInfo` 与四类专属属性在同一个参数 Schema 中完整内联，不使用 `$defs/$ref`，以兼容不支持引用的远端。各组内容的格式与安全限制分别写在字段说明中。`update_layers.properties` 保持开放对象，不重复枚举字段，由创建/读取函数说明属性，运行时白名单负责校验；它仍是部分字段补丁，组内 `content` 可省略。
 
 图层函数与内部操作的映射、请求字段规则集中在 `tools/requests.ts`，独立函数的输入经白名单和必填校验后转换为内部可辨识动作联合类型，复用现有图层操作内核。图层工具以独立函数表达操作，不接受 `action` 字段。项目新建和搜索分别由 `create_project`、`search_projects` 提供，其他生命周期操作由 `manage_projects` 提供。为兼容自定义模型端点，对外使用对象 Schema 与 `strict:false`，不发送顶层 `oneOf`、`$defs/$ref` 或 OpenAPI `discriminator`。条件约束由运行时执行，不依赖模型遵守说明。所有请求先校验再产生存储或界面副作用。
 
 更新、组织和排列图层的函数均要求非空 `layerIds`；仅 `update_layers` 接受且必须提供非空 `properties`，它只更新属性，不负责编组、删除或排序，禁止提交 `zIndex`。仅 `group_layers` 接受顶层可选 `name`；`align_layers`、`distribute_layers` 必须提供各自允许的 `mode`；`reorder_layers` 必须提供 `position`。创建图层默认置顶，不接受 `zIndex`，后续排序统一使用 `reorder_layers`。`create_project` 的 `title/width/height` 可选；`search_projects` 的 `query/page/pageSize` 可选；`manage_projects` 只接受 `open/rename/duplicate/delete/save`，并要求 `projectId`。`rename.title` 必填，`duplicate.title` 可选，其余管理动作禁止。跨操作字段与未知字段均报错，不忽略。
 
-图层工具读写采用一致的属性分组：`name` 与身份字段 `id/type/parentId` 在外层，通用属性统一位于 `layerInfo`（含位置、尺寸、旋转、层级、透明度、显隐、锁定和比例锁定），类型专属属性分别位于 `text/image/svg/decoration`；组合子图层位于 `group.children`。创建时不允许设置 `zIndex`，更新时层级通过 `reorder_layers` 调整。内容位于对应类型分组的 `content`，不提供外层 `content`。例如创建文字调用 `add_layer`，传入 `type: "text"` 及 `properties: {name: "标题", layerInfo: {x: 52}, text: {content: "标题", fontSize: 78, color: "#fff6ea"}}`；更新时 `properties.name` 单独设置名称，其他通用属性通过 `properties.layerInfo`，类型专属字段仍放对应分组。不接受扁平属性或与目标类型不符的分组；混合类型批量更新在提交前完整校验，不会部分生效。
+图层工具读写采用一致的属性分组：`name` 与身份字段 `id/type/parentId` 在外层，通用属性统一位于 `layerInfo`（含位置、尺寸、旋转、层级、透明度、显隐、锁定和比例锁定），类型专属属性分别位于 `text/image/svg/decoration`；组合子图层位于 `group.children`。创建时不允许设置 `zIndex`，更新时层级通过 `reorder_layers` 调整。内容位于对应类型分组的 `content`，不提供外层 `content`。例如创建文字调用 `add_layers`，传入 `layers: [{type: "text", properties: {name: "标题", layerInfo: {x: 52}, text: {content: "标题", fontSize: 78, color: "#fff6ea"}}}]`；更新时 `properties.name` 单独设置名称，其他通用属性通过 `properties.layerInfo`，类型专属字段仍放对应分组。不接受扁平属性或与目标类型不符的分组；混合类型批量更新在提交前完整校验，不会部分生效。
 
 `read_layers`、`get_selected_layers` 和 `get_context` 将 `name` 与身份字段 `id/type/parentId` 放在外层；其余通用属性位于 `layerInfo`，类型专属属性位于各自分组。组合的子图层列表位于 `group.children`，组合不返回无意义的空内容。图片只读抠图标记位于 `image.backgroundRemoved`，选区图片的来源与预览状态位于 `image.imageInfo`；这些只读字段不可作为更新属性回传。`read_layers` 的内嵌图片占位位于 `image.content`；`get_selected_layers` 仍省略图片内容，视觉模型的图片预览机制不变。
 
@@ -149,7 +149,7 @@ chat/
 | manage_projects | open/rename/duplicate/delete/save |
 | manage_pages | list/create/switch/duplicate/delete；新增、复制后打开新页，删除需确认，最多 99 页且保留最后一页 |
 | read_layers | 按 ID 或名称/内容关键词读取图层 |
-| add_layer | 按 type 添加文字、已有图片、SVG 或 CSS/HTML 装饰图层 |
+| add_layers | 批量添加文字、已有图片、SVG 或 CSS/HTML 装饰图层，按输入顺序返回 createdLayerIds |
 | update_layers | 仅更新图层属性，例如移动位置或修改图片 |
 | delete_layers / duplicate_layers | 删除或复制图层 |
 | group_layers / ungroup_layers | 编组或拆组 |
@@ -210,7 +210,7 @@ chat/
 - 设置与属性检查器共用字体家族去重、字重样式合并、显示名称尾部字重词清理，以及按显示名/家族名搜索的规则；中文界面优先中文命名字体，英文界面优先西文命名字体。这里只按名称分组，不作为中文字形覆盖检测。属性检查器始终前置 9 款 Google 精选字体并标注来源，后接本机字体或常用回退列表，同家族不重复显示。
 - 内置 9 款 Google Fonts 精选字体：中文包含 Noto Sans SC、Noto Serif SC、ZCOOL KuaiLe、ZCOOL QingKe HuangYou、ZCOOL XiaoWei、Ma Shan Zheng，覆盖通用商务、文化出版、活动促销、文艺复古和国风标题；英文包含 Bebas Neue（窄体大写展示字）、Montserrat（几何无衬线）、Playfair Display（高对比衬线），用于海报、品牌科技和杂志时尚标题，这三款不含中文字形。均按 OFL-1.1 标注，首版通过 Google Fonts 在线服务加载，不在应用内打包或重新分发字体文件。
 - `list_fonts` 无参数、无需打开项目，不触发本地读取或授权；注册条件和函数定义由 SangAIKit 根据配置决定，用量估算复用组件定义。所有字体仅含 `family/name/source/description`；Google 精选字体保留内置介绍，本地字体 `description` 为用户填写的介绍，未填写返回空字符串。不返回 `styles/fontFamily/license/weights`；这些数据仅供应用内部使用。本轮所选列表使用隔离配置快照，未加入的本机字体不返回，不把字体名称提前写入系统提示。
-- 模型将返回的 `family` 用双引号包裹后写入现有 `add_layer/update_layers` 的 `text.fontFamily`。精选字体在当前画布、项目缩略图、AI 提交以及位图导出/复制/视觉预览前按需加载；CSS 请求按家族合并，失败可重试。等待加载后取消或切换项目不提交旧状态。加载错误明确展示或作为工具错误返回，Google 服务在当前网络不可达时不保证可用。
+- 模型将返回的 `family` 用双引号包裹后写入现有 `add_layers/update_layers` 的 `text.fontFamily`。精选字体在当前画布、项目缩略图、AI 提交以及位图导出/复制/视觉预览前按需加载；CSS 请求按家族合并，失败可重试。等待加载后取消或切换项目不提交旧状态。加载错误明确展示或作为工具错误返回，Google 服务在当前网络不可达时不保证可用。
 - 字体 CSS 请求不含 `text=`，不会主动将封面文字发给 Google；字体及 CSS 资源请求本身仍会连接 Google 服务。浏览器可能缓存资源，但不保证离线可用。本期不含同源镜像、字体包导入、字形覆盖检测、本地字体文件嵌入或转曲。SVG 仍沿用现有 `foreignObject + font-family` 导出，未新增字体嵌入，跨设备及不同 SVG 查看器的显示仍受字体与渲染能力影响。
 
 参考：[Local Font Access API](https://developer.mozilla.org/en-US/docs/Web/API/Window/queryLocalFonts)、[Google Fonts 官方目录](https://github.com/google/fonts/tree/main/ofl)、[OFL 许可](https://openfontlicense.org/)。

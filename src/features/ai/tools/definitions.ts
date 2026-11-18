@@ -60,7 +60,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     query: string('可选名称或内容关键词，不区分大小写；省略时不过滤，提供时不得为空白。')
   })),
   tool('get_selected_layers', '读取当前选中图层属性。视觉模型还会收到图片预览。用户输入有明确指代时使用。', noParameters),
-  tool('add_layer', '添加图层并选中。', object('图层创建参数。', {
+  tool('add_layers', '批量添加图层并选中最后一个，返回创建的图层 ID；任一图层无效时整批不创建。', object('图层创建参数。', {
+    layers: { type: 'array', description: '待创建的图层，按数组顺序从下到上置顶。', minItems: 1, maxItems: 500, items: object('单个图层的创建参数。', {
     type: enumeration('图层类型。properties 必须包含同名属性组及其 content，不得提供其他类型的属性组。', [...ADD_LAYER_TYPES]),
     properties: object('图层名称作为 name 单独填写；其他通用属性填写在 layerInfo 分组；类型专属属性只填写与 type 同名的 text/image/svg/decoration 分组，且该组 content 必填。省略名称使用默认名称；省略位置默认为 (40,40)，宽高默认为 300×100，透明度默认为 1；新图层默认置顶。', {
       name: string('图层名称，用于图层列表与搜索。'),
@@ -119,10 +120,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         content: string('必填：完整 CSS 声明或静态 HTML。建议使用var定义必要的颜色，以便用户后续自行调整。1. CSS 声明会直接作用于装饰容器，不得包含选择器或规则花括号，示例：`--accent: rgba(255,255,255,0.5); background: var(--accent); border-radius: 8px;`。2. 静态 HTML：需要显示文字、布局子元素或使用选择器时，用 HTML 元素，并建议把选择器规则放进 <style> 标签。必须包含实际显示的文字节点。HTML 示例：`<style>:root { --accent: rgba(255,255,255,0.5); } span { display: block; color: var(--accent);line-height: 30px; }</style><span>文本</span>`。CSS 最多 6000 字符、24 条声明；HTML 最多 24000 字符、300 个元素。禁止脚本、事件、外部资源、url()/image-set()、CSS at-rule、动画/transition、fixed/sticky、pointer-events 和视口单位，图片仅允许嵌入位图。')
       }, ['content'])
     })
-  }, ['type', 'properties'])),
+    }, ['type', 'properties']) }
+  }, ['layers'])),
   tool('update_layers', '批量更新图层通用属性或对应类型的专属属性。组合变换会传递到子图层；锁定图层须先单独解锁。', object('图层属性更新参数。', {
     layerIds: layerIds('操作目标 ID 列表；同一属性补丁会应用于全部目标，不要混合需要不同属性的图层。'),
-    properties: { ...object('更新图层属性。name 单独填写；图层属性放在 layerInfo，类型专属字段放在 image/text/svg/decoration 分组。字段列表与限制见 add_layer 和读取工具定义；省略字段保持原值。结构字段、zIndex 及只读属性不可更新。', {}), minProperties: 1 }
+    properties: { ...object('更新图层属性。name 单独填写；图层属性放在 layerInfo，类型专属字段放在 image/text/svg/decoration 分组。字段列表与限制见 add_layers 和读取工具定义；省略字段保持原值。结构字段、zIndex 及只读属性不可更新。', {}), minProperties: 1 }
   }, ['layerIds', 'properties'])),
   tool('delete_layers', '删除图层，删除组合时包含子图层；锁定图层须先解锁。', object('图层删除参数。', {
     layerIds: layerIds('要删除的图层 ID。')

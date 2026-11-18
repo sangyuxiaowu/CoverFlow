@@ -125,7 +125,7 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
       });
     }
     next = editLayers(project, action, selected, patch, request.action === 'align' || request.action === 'distribute' ? request.mode : undefined);
-  } else if (name === 'update_canvas') {
+  } else if (name === 'update_page') {
     if (args.name !== undefined && (typeof args.name !== 'string' || args.name.length > 100)) throw new Error('Page name must contain at most 100 characters.');
     const width = args.width === undefined ? project.canvasConfig.width : number(args.width, 'width', 10, 10000);
     const height = args.height === undefined ? project.canvasConfig.height : number(args.height, 'height', 10, 10000);

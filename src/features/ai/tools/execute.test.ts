@@ -226,7 +226,7 @@ test('tool schemas describe every parameter and nested field with valid required
   }
   const add = TOOL_DEFINITIONS.find(definition => definition.function.name === 'add_layer')!.function;
   const edit = TOOL_DEFINITIONS.find(definition => definition.function.name === 'update_layers')!.function;
-  const canvas = TOOL_DEFINITIONS.find(definition => definition.function.name === 'update_canvas')!.function;
+  const canvas = TOOL_DEFINITIONS.find(definition => definition.function.name === 'update_page')!.function;
   const addProperties = (add.parameters.properties as Record<string, Record<string, unknown>>).properties;
   const editProperties = (edit.parameters.properties as Record<string, Record<string, unknown>>).properties;
   const updatePropertiesSchema = editProperties;
@@ -373,7 +373,7 @@ test('removed project IDs, missing projects, aborts and invalid fields never com
   assert.throws(() => layerPatch({ layerInfo: { width: Number.NaN } }), /Invalid/);
   const abort = new AbortController();
   abort.abort();
-  await assert.rejects(executeTool('update_canvas', { width: 1000 }, bridge, abort.signal));
+  await assert.rejects(executeTool('update_page', { width: 1000 }, bridge, abort.signal));
   assert.equal(bridge.getProject()!.layers.length, 0);
 });
 
@@ -385,12 +385,12 @@ test('tools follow the current project and page without target parameters and re
   assert.equal(result.pageId, pages.pageId);
   await executeTool('manage_pages', { action: 'switch', pageId: pages.pages[0].id }, bridge, signal);
   assert.deepEqual(await executeTool('read_layers', {}, bridge, signal), []);
-  await executeTool('update_canvas', { width: 1000 }, bridge, signal);
+  await executeTool('update_page', { width: 1000 }, bridge, signal);
   await executeTool('manage_pages', { action: 'switch', pageId: pages.pageId }, bridge, signal);
   assert.equal(bridge.getProject()!.canvasConfig.width, 800);
   assert.equal(bridge.getProject()!.layers[0].content, 'Second page');
   await bridge.commit({ ...bridge.getProject()!, id: 'p2' });
-  const updated = await executeTool('update_canvas', { width: 1200 }, bridge, signal) as { projectId: string; pageId: string };
+  const updated = await executeTool('update_page', { width: 1200 }, bridge, signal) as { projectId: string; pageId: string };
   assert.equal(updated.projectId, 'p2');
   assert.equal(updated.pageId, pages.pageId);
 });
@@ -404,28 +404,28 @@ test('unsafe image sources are rejected', () => {
 
 test('canvas, background and page name edits are validated and committed', async () => {
   const { bridge, signal } = setup();
-  await executeTool('update_canvas', { name: '封面页', width: 1200, background: { type: 'gradient', value: 'linear-gradient(90deg,#000,#fff)', overlay: { type: 'dots', color: '#fff', opacity: 0.3, scale: 24 } } }, bridge, signal);
+  await executeTool('update_page', { name: '封面页', width: 1200, background: { type: 'gradient', value: 'linear-gradient(90deg,#000,#fff)', overlay: { type: 'dots', color: '#fff', opacity: 0.3, scale: 24 } } }, bridge, signal);
   assert.equal(bridge.getProject()!.canvasConfig.width, 1200);
   assert.equal(bridge.getProject()!.pages![0].name, '封面页');
   assert.equal(bridge.getProject()!.background.type, 'gradient');
   assert.equal(bridge.getProject()!.background.overlayType, 'dots');
   assert.equal(bridge.getProject()!.background.overlayScale, 24);
-  await assert.rejects(executeTool('update_canvas', { background: { overlay: { scale: 19 } } }, bridge, signal), /Invalid/);
+  await assert.rejects(executeTool('update_page', { background: { overlay: { scale: 19 } } }, bridge, signal), /Invalid/);
   assert.equal(bridge.getProject()!.background.overlayScale, 24);
-  await executeTool('update_canvas', { background: { overlay: { scale: 20 } } }, bridge, signal);
+  await executeTool('update_page', { background: { overlay: { scale: 20 } } }, bridge, signal);
   assert.equal(bridge.getProject()!.background.overlayScale, 20);
-  await assert.rejects(executeTool('update_canvas', { width: -1 }, bridge, signal), /Invalid/);
+  await assert.rejects(executeTool('update_page', { width: -1 }, bridge, signal), /Invalid/);
 });
 
 test('custom CSS backgrounds and HTML decorations use the shared validation', async () => {
   const { bridge, signal } = setup();
-  await executeTool('update_canvas', { background: { type: 'css', value: 'background: linear-gradient(45deg, red, blue);' } }, bridge, signal);
+  await executeTool('update_page', { background: { type: 'css', value: 'background: linear-gradient(45deg, red, blue);' } }, bridge, signal);
   assert.equal(bridge.getProject()!.background.type, 'css');
-  await assert.rejects(executeTool('update_canvas', { background: { overlay: { type: 'dots' } } }, bridge, signal), /Overlay textures are not supported/);
-  await assert.rejects(executeTool('update_canvas', { background: { type: 'css', value: 'background: red;', overlay: { scale: 24 } } }, bridge, signal), /Overlay textures are not supported/);
-  await assert.rejects(executeTool('update_canvas', { background: { overlayType: 'dots' } }, bridge, signal), /Unsupported background field/);
+  await assert.rejects(executeTool('update_page', { background: { overlay: { type: 'dots' } } }, bridge, signal), /Overlay textures are not supported/);
+  await assert.rejects(executeTool('update_page', { background: { type: 'css', value: 'background: red;', overlay: { scale: 24 } } }, bridge, signal), /Overlay textures are not supported/);
+  await assert.rejects(executeTool('update_page', { background: { overlayType: 'dots' } }, bridge, signal), /Unsupported background field/);
   assert.equal(bridge.getProject()!.background.overlayType, 'none');
-  await assert.rejects(executeTool('update_canvas', { background: { value: 'position:fixed;' } }, bridge, signal));
+  await assert.rejects(executeTool('update_page', { background: { value: 'position:fixed;' } }, bridge, signal));
   const source = '<style>:root{--accent:#38bdf8}.badge{color:var(--accent)}</style><div class="badge">Hello</div>';
   await executeTool('add_layer', { type: 'decoration', properties: { decoration: { content: source } } }, bridge, signal);
   const layer = bridge.getProject()!.layers[0];

@@ -970,13 +970,13 @@ test.each([
   };
   const call = (call_id: string, name: string, argumentsText = '{}') => ({ type: 'function_call', call_id, name, arguments: argumentsText });
   globalThis.fetch = async () => streamResponse(responsePayload(++round === 1 ? [
-    call('before', 'update_canvas', '{"width":900}'),
+    call('before', 'update_page', '{"width":900}'),
     call('navigation', name, args),
     call('skipped-write', 'add_layer', '{"type":"text","properties":{"text":{"content":"Wrong page"}}}'),
     call('skipped-read', 'get_canvas_preview'),
     call('skipped-management', 'manage_pages', '{"action":"list"}'),
     call('skipped-shared', 'list_fonts')
-  ] : round === 2 ? [call('next-batch', 'update_canvas', '{"width":1000}')] : [textOutput]));
+  ] : round === 2 ? [call('next-batch', 'update_page', '{"width":1000}')] : [textOutput]));
   try {
     await runConversation({ config: { ...config, supportsVision: true }, input: [], bridge: currentBridge,
       signal: new AbortController().signal, onText: () => {}, onTool: event => events.push(event), onHistory: input => { history = input; } });
@@ -1163,7 +1163,7 @@ test('sanitizeResponseItems removes unpaired function_calls but keeps paired cal
   const user: ResponseItem = { role: 'user', content: '优化设计' };
   const call1: ResponseItem = { type: 'function_call', id: 'fc-1', call_id: 'c1', name: 'read_layers', arguments: '{}' };
   const out1: ResponseItem = { type: 'function_call_output', call_id: 'c1', output: '{"layers":[]}' };
-  const danglingCall: ResponseItem = { type: 'function_call', id: 'fc-2', call_id: 'c2', name: 'update_canvas', arguments: '{}' };
+  const danglingCall: ResponseItem = { type: 'function_call', id: 'fc-2', call_id: 'c2', name: 'update_page', arguments: '{}' };
 
   const sanitized = sanitizeResponseItems([user, call1, out1, danglingCall]);
   assert.equal(sanitized.length, 3);

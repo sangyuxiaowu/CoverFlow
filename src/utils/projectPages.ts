@@ -38,17 +38,17 @@ export function insertProjectPage(project: ProjectState, name: string, canvasCon
   return selectProjectPage({ ...synced, pages, updatedAt: Date.now() }, page.id);
 }
 
-export function insertProjectPages(project: ProjectState, name: string, canvasConfig: ProjectPage['canvasConfig'], background: ProjectPage['background'], count: number): ProjectState {
+export function insertProjectPages(project: ProjectState, name: string, canvasConfig: ProjectPage['canvasConfig'], background: ProjectPage['background'], count: number, targetId: string): ProjectState {
   const synced = syncProjectPages(project);
   if (!synced.pages!.length || synced.pages!.length + count > MAX_PROJECT_PAGES) throw new Error('A project can contain at most 99 pages.');
   if (!Number.isFinite(canvasConfig.width) || !Number.isFinite(canvasConfig.height) || canvasConfig.width < 10 || canvasConfig.height < 10) throw new Error('Invalid page dimensions.');
-  const activeIndex = synced.pages!.findIndex(page => page.id === synced.activePageId);
-  if (activeIndex < 0) throw new Error('Page not found.');
+  const targetIndex = synced.pages!.findIndex(page => page.id === targetId);
+  if (targetIndex < 0) throw new Error('Page not found.');
   const pages = [...synced.pages!];
   let firstId = '';
   for (let index = 0; index < count; index += 1) {
     const page: ProjectPage = { id: generateId(), name: name.trim(), layers: [], background: { ...background }, canvasConfig: { ...canvasConfig } };
-    pages.splice(activeIndex + 1 + index, 0, page);
+    pages.splice(targetIndex + 1 + index, 0, page);
     if (!firstId) firstId = page.id;
   }
   return selectProjectPage({ ...synced, pages, updatedAt: Date.now() }, firstId);

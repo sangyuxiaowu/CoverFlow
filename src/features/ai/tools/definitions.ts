@@ -152,26 +152,25 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     mode: enumeration('horizontal 为水平等间距，vertical 为垂直等间距。', [...DISTRIBUTE_MODES])
   }, ['layerIds', 'mode'])),
   // 画布与背景
-  tool('update_page', '更新当前页面画布、背景及当前页面名称。调整画布尺寸不会缩放已有图层。', object('画布、背景与当前页面名称的部分更新；省略的字段保持不变。', {
-    name: { ...string('当前页面名称，最多 100 字符；空白表示清除名称。'), maxLength: 100 },
-    width: numeric('画布宽度（px）。', 10, 10000),
-    height: numeric('画布高度（px）。', 10, 10000),
-    background: object('背景部分更新。切换 type 时应同时提供对应格式的 value。', {
-      type: enumeration('背景类型：color(纯色), gradient(CSS渐变), image(图片), css(自定义CSS)。', ['color', 'gradient', 'image', 'css']),
-      value: string('随 type 变化：\n1. color: CSS 颜色\n2. gradient: CSS 渐变\n3. image: HTTP(S) URL 或 PNG/JPEG/WebP/GIF Base64\n4. css: CSS 声明（≤6000字符，仅限背景属性和变量，禁止选择器）。注意：禁止外部资源、url()/image-set()、@rule、动画、视口单位。'),
-      overlay: object('叠加纹理设置，使用css背景时不支持', {
-        type: enumeration('纹理类型：none(无), dots(波点), grid(网格), stripes(条纹)。', ['none', 'dots', 'grid', 'stripes']),
-        color: string('纹理颜色，如 #RRGGBB。'),
-        opacity: numeric('透明度（0-1）', 0, 1),
-        scale: numeric('尺寸与间距（px）', 20, 1000)
-      })
-    })
-  })),
-  tool('manage_pages', '管理项目页面。页面列表，页面切换，页面移动，批量新增与复制；单个新增与复制后会切换到新页；删除需用户确认。', object('页面操作参数。图层工具只操作当前页。', {
-    action: enumeration('list 读取页面列表；create 在当前页后新增空白页；switch 切页；duplicate 复制目标页到当前页后；move 移动目标页到当前页后；delete 删除目标页，至少保留一页。创建和复制成功后会自动切换到第一个新页。', ['list', 'create', 'switch', 'duplicate', 'delete', 'move']),
+  tool('manage_pages', '管理项目页面。获取页面列表，更新页面画布大小、背景及名称，页面切换，页面移动，批量新增与复制；单个新增与复制后会切换到新页；调整页面画布尺寸不会缩放已有图层；删除需用户确认。', object('页面操作参数。', {
+    action: enumeration('list 读取页面列表；create 在目标页后新增空白页；switch 切页；duplicate 复制目标页到当前页后；move 移动目标页到当前页后；update 更新目标页属性；delete 删除目标页，至少保留一页。创建和复制成功后会自动切换到第一个新页。', ['list', 'create', 'switch', 'duplicate', 'delete', 'move', 'update']),
     count: { type: 'integer', description: '仅 create/duplicate 可用；批量创建或复制的页面数量，默认 1。', minimum: 1, maximum: 99 },
-    pageId: string('目标页，必填于 switch、duplicate、move、delete 操作，使用 get_context 或 list 返回的稳定页面 ID，不是顺序编号。'),
-    pageInfo: { ...object('仅 create 可用的页面属性；省略字段沿用当前页，name 省略为空白。字段含义与 update_page 相同。', {}), minProperties: 1 }
+    pageId: string('目标页，除 list 外均需填写，使用 get_context 或 list 返回的稳定页面 ID，不是顺序编号。'),
+    pageInfo: { ...object('仅 create/update 可用的页面属性；新建时省略字段沿用当前页，更新时省略的字段保持不变。', {
+      name: { ...string('页面名称，最多 100 字符；新建时空白表示沿用当前页，更新时空白表示清除名称。'), maxLength: 100 },
+      width: numeric('画布宽度（px）。', 10, 10000),
+      height: numeric('画布高度（px）。', 10, 10000),
+      background: object('背景部分更新。切换 type 时应同时提供对应格式的 value。', {
+        type: enumeration('背景类型：color(纯色), gradient(CSS渐变), image(图片), css(自定义CSS)。', ['color', 'gradient', 'image', 'css']),
+        value: string('随 type 变化：\n1. color: CSS 颜色\n2. gradient: CSS 渐变\n3. image: HTTP(S) URL 或 PNG/JPEG/WebP/GIF Base64\n4. css: CSS 声明（≤6000字符，仅限背景属性和变量，禁止选择器）。注意：禁止外部资源、url()/image-set()、@rule、动画、视口单位。'),
+        overlay: object('叠加纹理设置，使用css背景时不支持', {
+          type: enumeration('纹理类型：none(无), dots(波点), grid(网格), stripes(条纹)。', ['none', 'dots', 'grid', 'stripes']),
+          color: string('纹理颜色，如 #RRGGBB。'),
+          opacity: numeric('透明度（0-1）', 0, 1),
+          scale: numeric('尺寸与间距（px）', 20, 1000)
+        })
+      })
+    }), minProperties: 1 }
   }, ['action'])),
 ];
 

@@ -17,25 +17,28 @@ export function pageContext(project: ProjectState) {
 export async function executePageTool(input: unknown, bridge: WorkspaceBridge, signal: AbortSignal) {
   signal.throwIfAborted();
   const args = record(input);
-  const action = choice(args.action, 'action', ['list', 'create', 'switch', 'duplicate', 'move', 'delete']);
-  const allowed = action === 'create' ? ['action', 'count', 'pageInfo'] : action === 'duplicate' ? ['action', 'count', 'pageId'] : action === 'list' ? ['action'] : ['action', 'pageId'];
+  const action = choice(args.action, 'action', ['list', 'create', 'switch', 'duplicate', 'move', 'delete', 'update']);
+  const allowed = action === 'create' ? ['action', 'count', 'pageId', 'pageInfo'] : action === 'update' ? ['action', 'pageId', 'pageInfo'] : action === 'duplicate' ? ['action', 'count', 'pageId'] : action === 'list' ? ['action'] : ['action', 'pageId'];
   if (Object.keys(args).some(key => !allowed.includes(key))) throw new Error('Unsupported page parameter.');
   const current = bridge.getProject();
   if (!current) throw new Error('No project open.');
   const project = syncProjectPages(current);
   if (action === 'list') return { projectId: project.id, ...pageContext(project) };
+  const pageId = text(args.pageId, 'pageId');
+  const target = project.pages!.find(page => page.id === pageId);
+  if (!target) throw new Error('Page not found.');
   let next: ProjectState;
-  if (action === 'create') {
-    const count = args.count === undefined ? 1 : number(args.count, 'count', 1, 99);
-    if (!Number.isInteger(count)) throw new Error('Invalid count');
+  if (action === 'create' || action === 'update') {
     const pageInfo = args.pageInfo === undefined ? {} : record(args.pageInfo);
+    if ((action === 'update' || args.pageInfo !== undefined) && !Object.keys(pageInfo).length) throw new Error('pageInfo must contain at least one field.');
     if (Object.keys(pageInfo).some(field => !['name', 'width', 'height', 'background'].includes(field))) throw new Error('Unsupported pageInfo parameter.');
     if (pageInfo.name !== undefined && (typeof pageInfo.name !== 'string' || pageInfo.name.length > 100)) throw new Error('Page name must contain at most 100 characters.');
-    const name = pageInfo.name === undefined ? '' : pageInfo.name as string;
-    const width = pageInfo.width === undefined ? project.canvasConfig.width : Math.round(number(pageInfo.width, 'width', 10, 10000));
-    const height = pageInfo.height === undefined ? project.canvasConfig.height : Math.round(number(pageInfo.height, 'height', 10, 10000));
+    const source = action === 'create' ? project.pages!.find(page => page.id === project.activePageId)! : target;
+    const name = pageInfo.name === undefined || (action === 'create' && !(pageInfo.name as string).trim()) ? source.name : (pageInfo.name as string).trim();
+    const width = pageInfo.width === undefined ? source.canvasConfig.width : number(pageInfo.width, 'width', 10, 10000);
+    const height = pageInfo.height === undefined ? source.canvasConfig.height : number(pageInfo.height, 'height', 10, 10000);
     const backgroundUpdates = pageInfo.background === undefined ? {} : backgroundPatch(pageInfo.background);
-    const background = { ...project.background, ...backgroundUpdates };
+    const background = { ...source.background, ...backgroundUpdates };
     if (background.type === 'css' && ['overlayType', 'overlayColor', 'overlayOpacity', 'overlayScale'].some(field => field in backgroundUpdates)) throw new Error('Overlay textures are not supported with CSS backgrounds.');
     if (background.type === 'image') safeImage(background.value);
     if (background.type === 'css') {
@@ -43,10 +46,16 @@ export async function executePageTool(input: unknown, bridge: WorkspaceBridge, s
       if (result.issues.length) throw new Error(result.issues.join('; '));
     }
     if (background.type !== 'image' && /url\s*\(/i.test(background.value)) throw new Error('Use an image background for image URLs.');
-    next = insertProjectPages(project, name, { width, height, ratio: `${width}x${height}` }, background, count);
+    const canvasConfig = { width, height, ratio: pageInfo.width === undefined && pageInfo.height === undefined ? source.canvasConfig.ratio : `${width}x${height}` };
+    if (action === 'create') {
+      const count = args.count === undefined ? 1 : number(args.count, 'count', 1, 99);
+      if (!Number.isInteger(count)) throw new Error('Invalid count');
+      next = insertProjectPages(project, name, canvasConfig, background, count, pageId);
+    } else {
+      const pages = project.pages!.map(page => page.id === pageId ? { ...page, name, canvasConfig, background } : page);
+      next = { ...project, pages, updatedAt: Date.now(), ...(pageId === project.activePageId ? { canvasConfig, background } : {}) };
+    }
   } else {
-    const pageId = text(args.pageId, 'pageId');
-    if (!project.pages!.some(page => page.id === pageId)) throw new Error('Page not found.');
     if (action === 'switch') next = selectProjectPage(project, pageId);
     else if (action === 'duplicate') {
       const count = args.count === undefined ? 1 : number(args.count, 'count', 1, 99);

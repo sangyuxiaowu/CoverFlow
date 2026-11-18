@@ -970,13 +970,13 @@ test.each([
   };
   const call = (call_id: string, name: string, argumentsText = '{}') => ({ type: 'function_call', call_id, name, arguments: argumentsText });
   globalThis.fetch = async () => streamResponse(responsePayload(++round === 1 ? [
-    call('before', 'update_page', '{"width":900}'),
+    call('before', 'manage_pages', JSON.stringify({ action: 'update', pageId, pageInfo: { width: 900 } })),
     call('navigation', name, args),
     call('skipped-write', 'add_layers', '{"layers":[{"type":"text","properties":{"text":{"content":"Wrong page"}}}]}'),
     call('skipped-read', 'get_canvas_preview'),
     call('skipped-management', 'manage_pages', '{"action":"list"}'),
     call('skipped-shared', 'list_fonts')
-  ] : round === 2 ? [call('next-batch', 'update_page', '{"width":1000}')] : [textOutput]));
+  ] : round === 2 ? [call('next-batch', 'manage_pages', JSON.stringify({ action: 'update', pageId, pageInfo: { width: 1000 } }))] : [textOutput]));
   try {
     await runConversation({ config: { ...config, supportsVision: true }, input: [], bridge: currentBridge,
       signal: new AbortController().signal, onText: () => {}, onTool: event => events.push(event), onHistory: input => { history = input; } });
@@ -1004,6 +1004,7 @@ test.each([
 
 test.each([
   ['manage_pages', { action: 'list' }],
+  ['manage_pages', { action: 'update', pageId: 'missing', pageInfo: { width: 1000 } }],
   ['manage_projects', { action: 'rename', projectId: 'project', title: 'New title' }],
   ['manage_projects', { action: 'duplicate', projectId: 'project' }],
   ['manage_projects', { action: 'save', projectId: 'project' }]
@@ -1163,7 +1164,7 @@ test('sanitizeResponseItems removes unpaired function_calls but keeps paired cal
   const user: ResponseItem = { role: 'user', content: '优化设计' };
   const call1: ResponseItem = { type: 'function_call', id: 'fc-1', call_id: 'c1', name: 'read_layers', arguments: '{}' };
   const out1: ResponseItem = { type: 'function_call_output', call_id: 'c1', output: '{"layers":[]}' };
-  const danglingCall: ResponseItem = { type: 'function_call', id: 'fc-2', call_id: 'c2', name: 'update_page', arguments: '{}' };
+  const danglingCall: ResponseItem = { type: 'function_call', id: 'fc-2', call_id: 'c2', name: 'manage_pages', arguments: '{}' };
 
   const sanitized = sanitizeResponseItems([user, call1, out1, danglingCall]);
   assert.equal(sanitized.length, 3);

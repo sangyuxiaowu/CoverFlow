@@ -157,7 +157,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
         if (!tools.some(tool => tool.function.name === call.name)) throw new Error('Unknown tool.');
         const args = record(JSON.parse(call.arguments));
         navigation = call.name === 'create_project'
-          || (call.name === 'manage_pages' && args.action !== 'list')
+          || (call.name === 'manage_pages' && args.action !== 'list' && args.action !== 'update')
           || (call.name === 'manage_projects' && args.action !== 'rename' && args.action !== 'duplicate' && args.action !== 'save');
         const sharedTool = builtIn.tools.find(tool => tool.name === call.name);
         const value = sharedTool ? await sharedTool.execute(args, signal)

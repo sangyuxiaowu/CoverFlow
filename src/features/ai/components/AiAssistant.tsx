@@ -45,7 +45,6 @@ const toolLabels: Record<string, [string, string]> = {
   reorder_layers: ['排列图层', 'Reorder Layers'],
   align_layers: ['对齐图层', 'Align Layers'],
   distribute_layers: ['分布图层', 'Distribute Layers'],
-  update_page: ['更新页面', 'Update Page'],
   list_image_models: ['读取生图模型', 'List Image Models'],
   generate_image: ['生成图片', 'Generate Image'],
   remove_background: ['移除背景', 'Remove Background'],

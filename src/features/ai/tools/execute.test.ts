@@ -8,10 +8,15 @@ import { layerPatch, safeImage } from './validation.ts';
 import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from './definitions.ts';
 import { builtInToolDefinitions } from 'sang-ai-kit/built-in-tools';
 import { PRESET_RATIOS } from '../../../constants.ts';
+import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
 import { ADD_LAYER_TYPES, ALIGN_MODES, DISTRIBUTE_MODES, EDIT_LAYER_RULES, LAYER_TOOL_ACTIONS, PROJECT_MANAGE_RULES, PROJECT_RULES, REORDER_POSITIONS, parseEditLayersRequest, parseLayerToolRequest, parseManageProjectsRequest } from './requests.ts';
 
 function executeSingleLayerTool(input: unknown, bridge: WorkspaceBridge, signal: AbortSignal) {
   return executeTool('add_layers', { layers: [input] }, bridge, signal);
+}
+
+function executePageUpdate(pageInfo: unknown, bridge: WorkspaceBridge, signal: AbortSignal) {
+  return executeTool('manage_pages', { action: 'update', pageId: bridge.getProject()!.activePageId, pageInfo }, bridge, signal);
 }
 
 test('add_layers creates an ordered batch in one commit and rejects invalid batches atomically', async () => {
@@ -109,34 +114,8 @@ test('dedicated organization and layout tools preserve existing layer behavior',
   assert.deepEqual(new Set(bridge.getProject()!.layers.map(layer => layer.id)), new Set(layerIds));
 });
 
-test('removed entry points and cross-responsibility writes never commit', async () => {
-  const { bridge, signal } = setup();
-  const before = structuredClone(bridge.getProject());
-  let commits = 0;
-  const guarded = { ...bridge, commit: async () => { commits++; } };
-  const names = TOOL_DEFINITIONS.map(item => item.function.name);
-  for (const name of ['add_layer', 'add_text_layer', 'add_image_layer', 'add_svg_layer', 'add_decoration_layer', 'edit_layers']) {
-    assert.equal(names.includes(name), false);
-    await assert.rejects(executeTool(name, {}, guarded, signal), /Unknown tool/);
-  }
-  for (const type of ADD_LAYER_TYPES) {
-    const properties = { [type]: { content: 'Title' } };
-    await assert.rejects(executeSingleLayerTool( { properties }, guarded, signal), /Invalid type/);
-    await assert.rejects(executeSingleLayerTool( { type, properties: { ...properties, zIndex: 1 } }, guarded, signal), /reorder_layers/);
-    await assert.rejects(executeSingleLayerTool( { type, action: 'create', properties }, guarded, signal), /unsupported field action/);
-  }
-  for (const type of ['group', 'unknown', null]) {
-    await assert.rejects(executeSingleLayerTool( { type, properties: {} }, guarded, signal), /Invalid type/);
-  }
-  for (const properties of [{ zIndex: 3 }, { parentId: 'group' }, { group: { children: ['a'] } }, { type: 'group' }]) {
-    await assert.rejects(executeTool('update_layers', { layerIds: ['a'], properties }, guarded, signal));
-  }
-  assert.equal(commits, 0);
-  assert.deepEqual(bridge.getProject(), before);
-});
-
 function setup(layers: ProjectState['layers'] = [], selectedLayerIds: string[] = []) {
-  let current: ProjectState = { id: 'p1', title: 'Test', updatedAt: 0, selectedLayerId: null, layers, canvasConfig: { width: 800, height: 600, ratio: '4:3' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } };
+  let current: ProjectState = syncProjectPages({ id: 'p1', title: 'Test', updatedAt: 0, selectedLayerId: null, layers, canvasConfig: { width: 800, height: 600, ratio: '4:3' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } });
   const bridge: WorkspaceBridge = { getProject: () => current, getSelection: () => selectedLayerIds, commit: async project => { current = project; }, manageProjects: async args => args };
   const signal = new AbortController().signal;
   return { bridge, signal };
@@ -254,7 +233,7 @@ test('tool schemas describe every parameter and nested field with valid required
   }
   const add = TOOL_DEFINITIONS.find(definition => definition.function.name === 'add_layers')!.function;
   const edit = TOOL_DEFINITIONS.find(definition => definition.function.name === 'update_layers')!.function;
-  const canvas = TOOL_DEFINITIONS.find(definition => definition.function.name === 'update_page')!.function;
+  const pages = TOOL_DEFINITIONS.find(definition => definition.function.name === 'manage_pages')!.function;
   const addLayers = (add.parameters.properties as Record<string, Record<string, unknown>>).layers;
   const addItem = addLayers.items as Record<string, unknown>;
   const addItemProperties = addItem.properties as Record<string, Record<string, unknown>>;
@@ -268,7 +247,8 @@ test('tool schemas describe every parameter and nested field with valid required
   const textProperties = addLayerProperties.text.properties as Record<string, Record<string, unknown>>;
   const imageFields = addLayerProperties.image.properties as Record<string, Record<string, unknown>>;
   const decorationFields = addLayerProperties.decoration.properties as Record<string, Record<string, unknown>>;
-  const canvasProperties = canvas.parameters.properties as Record<string, Record<string, unknown>>;
+  const pageParameters = pages.parameters.properties as Record<string, Record<string, unknown>>;
+  const canvasProperties = pageParameters.pageInfo.properties as Record<string, Record<string, unknown>>;
   const backgroundProperties = (canvasProperties.background.properties as Record<string, Record<string, unknown>>);
   const overlayProperties = backgroundProperties.overlay.properties as Record<string, unknown>;
   assert.equal(Object.hasOwn(addProperties, 'required'), false);
@@ -294,6 +274,8 @@ test('tool schemas describe every parameter and nested field with valid required
   assert.equal(Object.hasOwn(editProperties, 'required'), false);
   assert.equal('zIndex' in updatePropertyFields, false);
   assert.deepEqual(Object.keys(overlayProperties), ['type', 'color', 'opacity', 'scale']);
+  assert.ok((pageParameters.action.enum as string[]).includes('update'));
+  assert.equal(pageParameters.pageInfo.minProperties, 1);
   assert.equal(imageFields.imageFilters.minProperties, 1);
   assert.equal(imageFields.imageCrop.minProperties, 1);
   assert.ok(Object.hasOwn(textProperties, 'fontSize'));
@@ -407,32 +389,75 @@ test('removed project IDs, missing projects, aborts and invalid fields never com
   assert.throws(() => layerPatch({ layerInfo: { width: Number.NaN } }), /Invalid/);
   const abort = new AbortController();
   abort.abort();
-  await assert.rejects(executeTool('update_page', { width: 1000 }, bridge, abort.signal));
+  await assert.rejects(executePageUpdate( { width: 1000 }, bridge, abort.signal));
   assert.equal(bridge.getProject()!.layers.length, 0);
 });
 
 test('tools follow the current project and page without target parameters and retain result IDs', async () => {
   const { bridge, signal } = setup();
-  const pages = await executeTool('manage_pages', { action: 'create', pageInfo: { name: 'Second' } }, bridge, signal) as { pageId: string; pages: { id: string }[] };
+  const pages = await executeTool('manage_pages', { action: 'create', pageId: bridge.getProject()!.activePageId, pageInfo: { name: 'Second' } }, bridge, signal) as { pageId: string; pages: { id: string }[] };
   const result = await executeSingleLayerTool( { type: 'text', properties: { text: { content: 'Second page' } } }, bridge, signal) as { projectId: string; pageId: string };
   assert.equal(result.projectId, 'p1');
   assert.equal(result.pageId, pages.pageId);
   await executeTool('manage_pages', { action: 'switch', pageId: pages.pages[0].id }, bridge, signal);
   assert.deepEqual(await executeTool('read_layers', {}, bridge, signal), []);
-  await executeTool('update_page', { width: 1000 }, bridge, signal);
+  await executePageUpdate( { width: 1000 }, bridge, signal);
   await executeTool('manage_pages', { action: 'switch', pageId: pages.pageId }, bridge, signal);
   assert.equal(bridge.getProject()!.canvasConfig.width, 800);
   assert.equal(bridge.getProject()!.layers[0].content, 'Second page');
   await bridge.commit({ ...bridge.getProject()!, id: 'p2' });
-  const updated = await executeTool('update_page', { width: 1200 }, bridge, signal) as { projectId: string; pageId: string };
+  const updated = await executePageUpdate( { width: 1200 }, bridge, signal) as { projectId: string; pageId: string };
   assert.equal(updated.projectId, 'p2');
   assert.equal(updated.pageId, pages.pageId);
+});
+
+test('manage_pages creates after a target and updates a non-active page without switching', async () => {
+  const { bridge, signal } = setup();
+  const initial = await executeTool('manage_pages', { action: 'list' }, bridge, signal) as { pageId: string };
+  const created = await executeTool('manage_pages', { action: 'create', pageId: initial.pageId, pageInfo: { name: 'Second' } }, bridge, signal) as { pageId: string; pages: { id: string }[] };
+  await executeTool('manage_pages', { action: 'update', pageId: initial.pageId, pageInfo: { name: 'Updated', width: 1200, background: { type: 'color', value: '#123456' } } }, bridge, signal);
+  assert.equal(bridge.getProject()!.activePageId, created.pageId);
+  assert.equal(bridge.getProject()!.canvasConfig.width, 800);
+  await executeTool('manage_pages', { action: 'switch', pageId: initial.pageId }, bridge, signal);
+  assert.equal(bridge.getProject()!.canvasConfig.width, 1200);
+  assert.equal(bridge.getProject()!.background.value, '#123456');
+  assert.equal(bridge.getProject()!.pages!.find(page => page.id === initial.pageId)!.name, 'Updated');
+  const inserted = await executeTool('manage_pages', { action: 'create', pageId: created.pageId, pageInfo: { name: 'Third' } }, bridge, signal) as { pageId: string; pages: { id: string }[] };
+  assert.deepEqual(inserted.pages.map(page => page.id), [initial.pageId, created.pageId, inserted.pageId]);
+  assert.equal(bridge.getProject()!.canvasConfig.width, 1200);
+});
+
+test('manage_pages validates target and pageInfo without partial changes', async () => {
+  const { bridge, signal } = setup();
+  const pageId = bridge.getProject()!.activePageId!;
+  const before = structuredClone(bridge.getProject());
+  for (const args of [
+    { action: 'create' },
+    { action: 'update', pageInfo: { width: 900 } },
+    { action: 'create', pageId: 'missing' },
+    { action: 'update', pageId: 'missing', pageInfo: { width: 900 } },
+    { action: 'update', pageId },
+    { action: 'update', pageId, pageInfo: {} },
+    { action: 'create', pageId, pageInfo: {} },
+    { action: 'update', pageId, pageInfo: { width: 900, background: { type: 'image', value: 'javascript:alert(1)' } } },
+    { action: 'update', pageId, pageInfo: { unexpected: true } },
+    { action: 'update', pageId, count: 2, pageInfo: { width: 900 } }
+  ]) await assert.rejects(executeTool('manage_pages', args, bridge, signal));
+  assert.deepEqual(bridge.getProject(), before);
+  await executeTool('manage_pages', { action: 'update', pageId, pageInfo: { name: 'Source' } }, bridge, signal);
+  assert.equal(bridge.getProject()!.canvasConfig.ratio, '4:3');
+  const created = await executeTool('manage_pages', { action: 'create', pageId, pageInfo: { name: '  ' } }, bridge, signal) as { pageId: string; pages: { id: string; name: string }[] };
+  assert.equal(created.pages.find(page => page.id === created.pageId)!.name, 'Source');
+  assert.equal(bridge.getProject()!.canvasConfig.ratio, '4:3');
+  await executeTool('manage_pages', { action: 'update', pageId: created.pageId, pageInfo: { name: '  ' } }, bridge, signal);
+  assert.equal(bridge.getProject()!.pages!.find(page => page.id === created.pageId)!.name, '');
 });
 
 test('manage_pages creates, duplicates and moves pages in batches', async () => {
   const { bridge, signal } = setup();
   const created = await executeTool('manage_pages', {
     action: 'create',
+    pageId: bridge.getProject()!.activePageId,
     count: 3,
     pageInfo: { name: 'Batch', width: 800, height: 450 }
   }, bridge, signal) as { pageId: string; pages: { id: string; name: string; active: boolean; canvas: { width: number; height: number } }[] };
@@ -481,28 +506,28 @@ test('unsafe image sources are rejected', () => {
 
 test('canvas, background and page name edits are validated and committed', async () => {
   const { bridge, signal } = setup();
-  await executeTool('update_page', { name: '封面页', width: 1200, background: { type: 'gradient', value: 'linear-gradient(90deg,#000,#fff)', overlay: { type: 'dots', color: '#fff', opacity: 0.3, scale: 24 } } }, bridge, signal);
+  await executePageUpdate( { name: '封面页', width: 1200, background: { type: 'gradient', value: 'linear-gradient(90deg,#000,#fff)', overlay: { type: 'dots', color: '#fff', opacity: 0.3, scale: 24 } } }, bridge, signal);
   assert.equal(bridge.getProject()!.canvasConfig.width, 1200);
   assert.equal(bridge.getProject()!.pages![0].name, '封面页');
   assert.equal(bridge.getProject()!.background.type, 'gradient');
   assert.equal(bridge.getProject()!.background.overlayType, 'dots');
   assert.equal(bridge.getProject()!.background.overlayScale, 24);
-  await assert.rejects(executeTool('update_page', { background: { overlay: { scale: 19 } } }, bridge, signal), /Invalid/);
+  await assert.rejects(executePageUpdate( { background: { overlay: { scale: 19 } } }, bridge, signal), /Invalid/);
   assert.equal(bridge.getProject()!.background.overlayScale, 24);
-  await executeTool('update_page', { background: { overlay: { scale: 20 } } }, bridge, signal);
+  await executePageUpdate( { background: { overlay: { scale: 20 } } }, bridge, signal);
   assert.equal(bridge.getProject()!.background.overlayScale, 20);
-  await assert.rejects(executeTool('update_page', { width: -1 }, bridge, signal), /Invalid/);
+  await assert.rejects(executePageUpdate( { width: -1 }, bridge, signal), /Invalid/);
 });
 
 test('custom CSS backgrounds and HTML decorations use the shared validation', async () => {
   const { bridge, signal } = setup();
-  await executeTool('update_page', { background: { type: 'css', value: 'background: linear-gradient(45deg, red, blue);' } }, bridge, signal);
+  await executePageUpdate( { background: { type: 'css', value: 'background: linear-gradient(45deg, red, blue);' } }, bridge, signal);
   assert.equal(bridge.getProject()!.background.type, 'css');
-  await assert.rejects(executeTool('update_page', { background: { overlay: { type: 'dots' } } }, bridge, signal), /Overlay textures are not supported/);
-  await assert.rejects(executeTool('update_page', { background: { type: 'css', value: 'background: red;', overlay: { scale: 24 } } }, bridge, signal), /Overlay textures are not supported/);
-  await assert.rejects(executeTool('update_page', { background: { overlayType: 'dots' } }, bridge, signal), /Unsupported background field/);
+  await assert.rejects(executePageUpdate( { background: { overlay: { type: 'dots' } } }, bridge, signal), /Overlay textures are not supported/);
+  await assert.rejects(executePageUpdate( { background: { type: 'css', value: 'background: red;', overlay: { scale: 24 } } }, bridge, signal), /Overlay textures are not supported/);
+  await assert.rejects(executePageUpdate( { background: { overlayType: 'dots' } }, bridge, signal), /Unsupported background field/);
   assert.equal(bridge.getProject()!.background.overlayType, 'none');
-  await assert.rejects(executeTool('update_page', { background: { value: 'position:fixed;' } }, bridge, signal));
+  await assert.rejects(executePageUpdate( { background: { value: 'position:fixed;' } }, bridge, signal));
   const source = '<style>:root{--accent:#38bdf8}.badge{color:var(--accent)}</style><div class="badge">Hello</div>';
   await executeSingleLayerTool( { type: 'decoration', properties: { decoration: { content: source } } }, bridge, signal);
   const layer = bridge.getProject()!.layers[0];

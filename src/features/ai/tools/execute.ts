@@ -2,16 +2,13 @@ import type { Layer } from '../../../types.ts';
 import type { WorkspaceBridge } from '../types.ts';
 import { PRESET_RATIOS } from '../../../constants.ts';
 import { editLayers } from '../domain/layerOperations.ts';
-import { backgroundPatch, choice, ids, layerDetails, layerPatch, number, record, safeImage, text, validateContent, validateLayerGroups } from './validation.ts';
-import { sanitizeBackgroundCss } from '../../../utils/customContent.ts';
+import { choice, ids, layerDetails, layerPatch, record, text, validateContent, validateLayerGroups } from './validation.ts';
 import { hasActiveImageCrop, hasActiveImageFilters, normalizeImageCrop, normalizeImageFilters } from '../../../utils/imageLayer.ts';
 import { ADD_LAYER_TYPES, LAYER_TOOL_ACTIONS, parseLayerToolRequest, parseManageProjectsRequest } from './requests.ts';
 import { generateId } from '../../../utils/helpers.ts';
 import { executeAssetTool } from './assets.ts';
 import { ensureProjectFonts } from '../services/fontLoading.ts';
 import { executePageTool, pageContext } from './pages.ts';
-import { renameProjectPage } from '../../../utils/projectPages.ts';
-import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
 
 export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false): Promise<unknown> {
   signal.throwIfAborted();
@@ -136,26 +133,6 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
       });
     }
     next = editLayers(project, action, selected, patch, request.action === 'align' || request.action === 'distribute' ? request.mode : undefined);
-  } else if (name === 'update_page') {
-    if (args.name !== undefined && (typeof args.name !== 'string' || args.name.length > 100)) throw new Error('Page name must contain at most 100 characters.');
-    const width = args.width === undefined ? project.canvasConfig.width : number(args.width, 'width', 10, 10000);
-    const height = args.height === undefined ? project.canvasConfig.height : number(args.height, 'height', 10, 10000);
-    const backgroundUpdates = args.background === undefined ? {} : backgroundPatch(args.background);
-    const background = { ...project.background, ...backgroundUpdates };
-    if (background.type === 'css' && ['overlayType', 'overlayColor', 'overlayOpacity', 'overlayScale'].some(field => field in backgroundUpdates)) {
-      throw new Error('Overlay textures are not supported with CSS backgrounds.');
-    }
-    if (background.type === 'image') safeImage(background.value);
-    if (background.type === 'css') {
-      const result = sanitizeBackgroundCss(background.value);
-      if (result.issues.length) throw new Error(result.issues.join('; '));
-    }
-    if (background.type !== 'image' && /url\s*\(/i.test(background.value)) throw new Error('Use an image background for image URLs.');
-    next = { ...project, canvasConfig: { width, height, ratio: `${width}x${height}` }, background };
-    if (args.name !== undefined) {
-      const synced = syncProjectPages(next);
-      next = renameProjectPage(synced, synced.activePageId!, args.name as string);
-    }
   } else throw new Error('Unknown tool: ' + name);
   await ensureProjectFonts(next);
   signal.throwIfAborted();

@@ -107,8 +107,8 @@ chat/
 用户消息 -> SDK Responses -> 工具 Schema -> 运行时校验 -> WorkspaceBridge -> App 状态 / StorageAdapter -> function_call_output -> 模型最终回复。
 
 - 工具从实时桥接状态读取，不依赖请求发出时的 React 闭包快照。
-- 图层读取、修改、画布更新、素材放置、生图、抠图和页面管理使用当前项目，不接受目标 `projectId` 入参；无项目时明确报错。图层和画布工具只针对当前页；跨页工作先读取页面列表，再通过 `manage_pages` 切换，不支持跨页混用图层 ID。`manage_projects` 保留目标 `projectId`，`manage_pages` 的切换、复制和删除保留目标 `pageId`；工具结果中的项目、页面及对象 ID 保持不变。
-- 工具按模型响应中的顺序执行。切页、打开项目及会改变活动项目/页面的新建、复制页面、删除操作失败后，同一响应批次尚未执行的全部工具均返回明确的跳过错误，不执行读写、组件内置工具或其他管理调用；失败前已完成的操作保留，不回滚。每个调用仍保存配对的结果，模型收到错误后可在下一批次重新规划。无法解析的项目/页面管理调用同样阻断本批后续执行；已识别的只读页面列表及项目重命名、复制、保存失败不触发该规则。用户取消仍按原逻辑结束本轮。
+- 图层读取、修改、画布更新、素材放置、生图、抠图和页面管理使用当前项目；无项目时明确报错。图层工具只针对当前页；跨页图层操作先通过 `manage_pages` 切换，不支持跨页混用图层 ID。`manage_pages` 可通过 `pageId` 更新指定页面的名称、画布和背景，不切换当前页；除 list 外的动作均要求目标 `pageId`。`manage_projects` 保留目标 `projectId`，工具结果中的项目、页面及对象 ID 保持不变。
+- 工具按模型响应中的顺序执行。切页、打开项目及会改变活动项目/页面的新建、复制页面、删除操作失败后，同一响应批次尚未执行的全部工具均返回明确的跳过错误，不执行读写、组件内置工具或其他管理调用；失败前已完成的操作保留，不回滚。每个调用仍保存配对的结果，模型收到错误后可在下一批次重新规划。无法解析的项目/页面管理调用同样阻断本批后续执行；已识别的页面列表、页面更新及项目重命名、复制、保存失败不触发该规则。用户取消仍按原逻辑结束本轮。
 - 素材读取、生图和抠图在异步操作前后检查项目与页面身份，提交时读取实时内容。同页其他编辑不会被旧快照覆盖；图层原图改变或锁定时拒绝应用。结果正常情况下直接写入画布，不创建中间会话图片。
 - 每次图层修改提交完整 ProjectState，进入现有历史，并等待存储结果。保存失败会作为工具错误报告；已经显示在画布上的修改不会自动回滚。
 - 打开另一项目之前保存当前项目；新建和复制先持久化，成功后更新项目列表。复制项目包含所有页面，并重建页面 ID、图层 ID 和父子引用。
@@ -147,7 +147,7 @@ chat/
 | place_asset | 按精确素材 ID 读取并放置 SVG / PNG，返回新图层 ID |
 | skill | 配置非空时按精确名称读取 SKILL 纯文本正文，无需打开项目 |
 | manage_projects | open/rename/duplicate/delete/save |
-| manage_pages | list/create/switch/duplicate/delete；新增、复制后打开新页，删除需确认，最多 99 页且保留最后一页 |
+| manage_pages | list/create/switch/duplicate/move/update/delete；新增、复制后打开新页，删除需确认，最多 99 页且保留最后一页 |
 | read_layers | 按 ID 或名称/内容关键词读取图层 |
 | add_layers | 批量添加文字、已有图片、SVG 或 CSS/HTML 装饰图层，按输入顺序返回 createdLayerIds |
 | update_layers | 仅更新图层属性，例如移动位置或修改图片 |
@@ -155,14 +155,13 @@ chat/
 | group_layers / ungroup_layers | 编组或拆组 |
 | reorder_layers | 按 position 调整堆叠顺序 |
 | align_layers / distribute_layers | 按 mode 对齐画布或等间距分布 |
-| update_canvas | 画布尺寸及纯色/渐变/图片/自定义 CSS 背景、纹理 |
 | list_image_models | 多模型时读取当前启用模型的介绍、版本及参数能力 |
 | generate_image | 组件文生图或单图参考生图，宿主回调直接新增图层 |
 | remove_background | 组件本地抠图，缺少资源自动准备，宿主回调直接应用结果 |
 
 ## 页面工具
 
-`get_context` 与 `manage_pages` 返回 `pageId/pageCount/pages`，每项包含 `id/number/name/canvas/layerCount/active`。`number` 是当前顺序的 `P01-P99`，会随排序变化，不能代替稳定 `pageId`。模型以工具读取到的页面 ID 为目标逐页操作；页面重命名、排序和成品导出仅由人工界面提供。
+`get_context` 与 `manage_pages` 返回 `pageId/pageCount/pages`，每项包含 `id/number/name/canvas/layerCount/active`。`number` 是当前顺序的 `P01-P99`，会随排序变化，不能代替稳定 `pageId`。模型以工具读取到的页面 ID 为目标操作；成品导出仅由人工界面提供。
 
 `manage_pages` 的 `list` 返回示例（ID 仅作示意，实际调用必须使用工具读取到的值）：
 
@@ -187,12 +186,14 @@ chat/
 | manage_pages 动作 | 必需字段 | 可选字段与行为 |
 | --- | --- | --- |
 | list | action | 读取全部页面元数据，不修改项目 |
-| create | action | name 可空且最多 100 字符；width/height 各为 10-10000，省略时沿用当前页，四舍五入；在当前页后插入并切换 |
+| create | action、pageId | 在目标页后插入 1–99 页并切换到第一张；`pageInfo` 省略的字段沿用当前页，空白名称沿用当前页名称 |
 | switch | action、pageId | 切换真实页面 ID，清理图层选区 |
-| duplicate | action、pageId | 在被复制页后插入独立副本并切换；不接受 name/width/height |
+| duplicate | action、pageId | 在当前页后插入 1–99 个目标页的独立副本并切换到第一张 |
+| move | action、pageId | 将目标页移动到当前页之后，不切换页面 |
+| update | action、pageId、pageInfo | 更新目标页名称、画布尺寸或背景；未提供的字段不变，空白名称清除名称，不切换页面或缩放图层 |
 | delete | action、pageId | 用户确认后删除；不可删最后一页，确认期间项目变化则拒绝提交 |
 
-参数按动作白名单校验，未知字段和跨动作参数报错；所有动作操作当前项目，不接受 `projectId`。切页清理图层选区，但不单独提交内容历史；新增、复制和删除通过工作区桥接提交完整项目。页面隔离与异步结果校验遵循“数据流”中的统一规则。
+`pageInfo` 必须非空，名称最多 100 字符，宽高各为 10–10000；背景沿用图层工具的安全校验。参数按动作白名单校验，未知字段和跨动作参数报错；所有动作操作当前项目，不接受 `projectId`。切页清理图层选区，但不单独提交内容历史；新增、更新、复制和删除通过工作区桥接提交完整项目。页面隔离与异步结果校验遵循“数据流”中的统一规则。
 
 ## 素材搜索与放置
 

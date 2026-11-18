@@ -74,6 +74,7 @@ export function createWorkspaceBridge(
   return {
     confirm,
     getProject: () => { read(); return current || null; },
+    getProjectById: async projectId => (await find(projectId)).project,
     getCanvasPreview: async () => {
       const options = read();
       if (!current) throw new Error('No project open.');

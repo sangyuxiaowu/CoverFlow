@@ -8,6 +8,7 @@ import { ConversationAbortError, runConversation } from './conversation.ts';
 import { DEFAULT_IMAGE_TOOL_PROMPT, defaultConfig, toRequestConfig, validateConfig } from './config.ts';
 import { createFileChatStore } from './chatStore.ts';
 import { imageMimeType } from 'sang-ai-kit/image-attachments';
+import { coverFlowImageDefinition, createImageToolExtensions, IMAGE_TOOL_SCHEMAS } from '../tools/imageTools.ts';
 
 const reference = 'data:image/png;base64,iVBORw0KGgo=';
 interface ImageToolContext {
@@ -418,6 +419,30 @@ function toolContext() {
 }
 
 describe('image tools and persistence', () => {
+  it('propagates the configured reference limit into the exposed schema and runtime', async () => {
+    const { context, model, config, images } = toolContext();
+    model.maxReferenceImages = 2;
+    const profiles = defaultConfig();
+    profiles.imageModels = [model];
+    profiles.endpoints[0].id = 'endpoint';
+    profiles.endpoints[0].endpoint = 'https://example.com/v1';
+    const snapshot = toRequestConfig(profiles);
+    expect(snapshot.imageToolModels![0].maxReferenceImages).toBe(2);
+    const definition = coverFlowImageDefinition(sharedImageDefinitions(snapshot.imageToolModels)[0]);
+    expect(definition.parameters.properties).not.toHaveProperty('referenceImageIds');
+    const hostDefinition = coverFlowImageDefinition(createBuiltInTools({ config, imageExtensions: createImageToolExtensions(context.bridge, context.loadImage) }).tools.find(tool => tool.name === 'generate_image')!);
+    expect((hostDefinition.parameters.properties as Record<string, unknown>).references).toMatchObject({ maxItems: 2 });
+    expect(IMAGE_TOOL_SCHEMAS.generate_image!.properties.references.type).toBe('array');
+    images.set('upload', new Blob(['upload'], { type: 'image/png' }));
+    const tool = createBuiltInTools({ config, imageExtensions: createImageToolExtensions(context.bridge, context.loadImage) }).tools.find(item => item.name === 'generate_image')!;
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    await expect(tool.execute({ prompt: 'City', references: ['attachment://upload', 'attachment://upload', 'attachment://upload'] }, new AbortController().signal)).rejects.toThrow('at most 2');
+    expect(fetch).not.toHaveBeenCalled();
+    model.maxReferenceImages = 0;
+    const disabled = coverFlowImageDefinition(createBuiltInTools({ config, imageExtensions: createImageToolExtensions(context.bridge, context.loadImage) }).tools.find(item => item.name === 'generate_image')!);
+    expect(disabled.parameters.properties).not.toHaveProperty('references');
+  });
   it('reports an expired download without submitting another generation request', async () => {
     const { model, config } = setup('kolors');
     const mock = vi.fn().mockResolvedValueOnce(Response.json({ images: [{ url: 'https://cdn.example.com/image.png?signature=expired' }] })).mockResolvedValueOnce(new Response('', { status: 403 }));
@@ -645,9 +670,11 @@ describe('image tools and persistence', () => {
     expect(result).not.toHaveProperty('imageId');
     expect(JSON.stringify(requests.map(request => request.input))).not.toContain('base64');
   });
-  it('uses an existing layer as generation reference without saving an intermediate image', async () => {
+  it('forwards mixed layer and attachment references in order without saving intermediate images', async () => {
     mockCanvas();
     const { context, model, config, getProject, images, refs } = toolContext();
+    model.maxReferenceImages = 2;
+    images.set('upload', new Blob(['upload'], { type: 'image/png' }));
     getProject().layers.push({ id: 'source', type: 'image', name: 'Source', content: reference,
       x: 0, y: 0, width: 100, height: 100, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 });
     const profiles = defaultConfig();
@@ -664,15 +691,15 @@ describe('image tools and persistence', () => {
         return Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] });
       }
       const output = ++round === 1
-        ? [{ type: 'function_call', call_id: 'generate', name: 'generate_image', arguments: JSON.stringify({ prompt: 'City', referenceLayerId: 'source' }) }]
+        ? [{ type: 'function_call', call_id: 'generate', name: 'generate_image', arguments: JSON.stringify({ prompt: 'City', references: ['source', 'attachment://upload'] }) }]
         : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] }];
       return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
     }));
     await runConversation({ config: { ...toRequestConfig(profiles), supportsVision: false }, input: [], bridge: context.bridge, signal: new AbortController().signal,
       onText: () => {}, onTool: () => {}, getImageConfig: () => config, loadImage: context.loadImage, saveImage: context.saveImage, onImage: context.onImage });
-    expect(generationBody?.extra_body.image).toEqual([reference]);
+    expect(generationBody?.extra_body.image).toEqual([reference, 'data:image/png;base64,dXBsb2Fk']);
     expect(getProject().layers).toHaveLength(2);
-    expect(images.size).toBe(1);
+    expect(images.size).toBe(2);
     expect(refs).toHaveLength(1);
     expect(refs[0].name).toMatch(/^generated-/);
   });

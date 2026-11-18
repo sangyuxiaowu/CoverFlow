@@ -4,7 +4,7 @@ import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.
 import { builtInToolDefinitions } from 'sang-ai-kit/built-in-tools';
 import { sumUsage } from 'sang-ai-kit/conversation-utils';
 import { normalizeAiFeatures, type AiFeatures } from 'sang-ai-kit/features';
-import { IMAGE_TOOL_SCHEMAS } from '../tools/imageTools.ts';
+import { coverFlowImageDefinition, IMAGE_TOOL_SCHEMAS } from '../tools/imageTools.ts';
 
 export { sumUsage } from 'sang-ai-kit/conversation-utils';
 
@@ -12,7 +12,7 @@ export function estimateInput(input: ResponseItem[], instructions: string, suppo
   const features = normalizeAiFeatures(featureSettings);
   const tools = [...TOOL_DEFINITIONS, ...(supportsVision ? VISION_TOOL_DEFINITIONS : []),
     ...builtInToolDefinitions({ config, features: { ...features, imageGeneration: features.imageGeneration && imageToolsEnabled }, skills, imageModels, imageStorage, imageExtensions: IMAGE_TOOL_SCHEMAS })
-      .map(definition => ({ type: 'function' as const, function: definition }))];
+      .map(definition => ({ type: 'function' as const, function: coverFlowImageDefinition(definition) }))];
   return estimateToolInput(input, instructions, tools);
 }
 

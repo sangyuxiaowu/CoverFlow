@@ -6,12 +6,13 @@ import type { WorkspaceBridge } from '../types.ts';
 import { safeImage, text } from './validation.ts';
 import { generateId } from '../../../utils/helpers.ts';
 import { applyRemovalResult } from '../../../utils/backgroundRemovalResult.ts';
+import { findAsset } from '../../../storage/assets.ts';
 
 export const IMAGE_TOOL_SCHEMAS: ImageToolExtensions<ImageToolSchemaExtension> = {
   generate_image: {
     description: '生成或修改图像并直接添加到当前画布，返回图层 ID。',
     properties: {
-      referenceLayerId: { type: 'string', description: '可选，当前页图片图层 ID，使用完整原图作为参考；不能与 referenceImageId 同时使用。' }
+      references: { type: 'array', items: { type: 'string' }, description: '可选，按顺序提供参考图标识：当前页 layerId、项目内 pageId/layerId、跨项目 projectId/pageId/layerId、素材 folder:分类/文件.png、会话图片 attachment://imageId。使用原图，可混合多种来源；数量须符合模型限制。' }
     }
   },
   remove_background: {
@@ -23,6 +24,15 @@ export const IMAGE_TOOL_SCHEMAS: ImageToolExtensions<ImageToolSchemaExtension> =
     optional: ['imageId']
   }
 };
+
+export function coverFlowImageDefinition<T extends { name: string; parameters: Record<string, unknown> }>(definition: T): T {
+  if (definition.name !== 'generate_image') return definition;
+  const { referenceImageId, referenceImageIds, references, ...properties } = definition.parameters.properties as Record<string, Record<string, unknown>>;
+  return { ...definition, parameters: { ...definition.parameters, properties: {
+    ...properties,
+    ...(referenceImageIds ? { references: { ...references, ...(referenceImageIds.maxItems !== undefined ? { maxItems: referenceImageIds.maxItems } : {}) } } : {})
+  } } };
+}
 
 function currentProject(bridge: WorkspaceBridge, projectId?: string): ProjectState {
   const project = bridge.getProject();
@@ -55,7 +65,7 @@ async function loadLayerImage(content: string, signal: AbortSignal): Promise<Blo
 }
 
 async function applyImages(bridge: WorkspaceBridge, projectId: string, pageId: string | undefined, result: ImageToolResult,
-  signal: AbortSignal, removal: boolean, source?: { layerId: string; content: string; removal: boolean; keepOriginal: boolean }) {
+  signal: AbortSignal, removal: boolean, source?: { layerId: string; content: string; removal: boolean; keepOriginal: boolean }, validateReferences?: (project: ProjectState) => void) {
   const decoded = await Promise.all(result.images.map(async blob => {
     imageMimeType(blob.type);
     if (blob.size > 25 * 1024 * 1024) throw new Error('Image exceeds the 25 MB source limit.');
@@ -68,6 +78,7 @@ async function applyImages(bridge: WorkspaceBridge, projectId: string, pageId: s
   }));
   signal.throwIfAborted();
   let project = currentPage(bridge, projectId, pageId);
+  validateReferences?.(project);
   if (source && imageLayer(project, source.layerId, source.removal).content !== source.content) throw new Error('Original image changed while processing; result was not applied.');
   const layerIds: string[] = [];
   for (const image of decoded) {
@@ -103,7 +114,7 @@ async function applyImages(bridge: WorkspaceBridge, projectId: string, pageId: s
     ...(source?.removal ? { sourceLayerId: source.layerId, keepOriginal: source.keepOriginal } : {}) };
 }
 
-export function createImageToolExtensions(bridge: WorkspaceBridge): ImageToolExtensions<ImageToolExtension> {
+export function createImageToolExtensions(bridge: WorkspaceBridge, loadImage?: (id: string) => Promise<Blob | null>): ImageToolExtensions<ImageToolExtension> {
   return {
     generate_image: {
       ...IMAGE_TOOL_SCHEMAS.generate_image!,
@@ -111,15 +122,51 @@ export function createImageToolExtensions(bridge: WorkspaceBridge): ImageToolExt
         const initial = currentProject(bridge);
         const projectId = initial.id;
         const pageId = initial.activePageId;
-        if (args.referenceLayerId !== undefined && args.referenceImageId !== undefined) throw new Error('Only one reference image is supported.');
-        const layerId = args.referenceLayerId === undefined ? undefined : text(args.referenceLayerId, 'referenceLayerId');
-        const content = layerId ? imageLayer(initial, layerId, false).content : undefined;
-        const inputImage = content ? await loadLayerImage(content, signal) : undefined;
+        if (args.references !== undefined && !Array.isArray(args.references)) throw new Error('references must be an array.');
+        const layers: { pageId: string | undefined; layerId: string; content: string }[] = [];
+        const inputImages = await Promise.all(((args.references ?? []) as unknown[]).map(async value => {
+          const reference = text(value, 'reference');
+          if (reference.startsWith('attachment://')) {
+            const id = reference.slice('attachment://'.length);
+            if (!id || id.includes('/')) throw new Error('Invalid attachment reference.');
+            const image = await loadImage?.(id);
+            if (!image) throw new Error('Reference attachment not found.');
+            imageMimeType(image.type);
+            return image;
+          }
+          if (reference.startsWith('folder:')) {
+            const entry = await findAsset(reference, await bridge.getAssetFolder?.() ?? null);
+            if (entry.type !== 'image') throw new Error('Reference asset must be a PNG image.');
+            const file = await entry.fileHandle.getFile();
+            if (file.size > 25 * 1024 * 1024) throw new Error('Image exceeds the 25 MB source limit.');
+            const signature = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+            if (![137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => signature[index] === byte)) throw new Error('Reference asset must contain a PNG.');
+            return file.slice(0, file.size, 'image/png');
+          }
+          const parts = reference.split('/');
+          if (parts.length > 3 || parts.some(part => !part)) throw new Error('Invalid layer reference.');
+          const layerId = parts.at(-1)!;
+          const referencePageId = parts.length > 1 ? parts.at(-2)! : pageId;
+          const referenceProjectId = parts.length === 3 ? parts[0] : projectId;
+          const project = referenceProjectId === projectId ? initial : await bridge.getProjectById?.(referenceProjectId);
+          if (!project) throw new Error('Reference project not found: ' + referenceProjectId);
+          const pageLayers = referencePageId === project.activePageId ? project.layers : project.pages?.find(page => page.id === referencePageId)?.layers;
+          if (!pageLayers) throw new Error('Reference page not found: ' + referencePageId);
+          const content = imageLayer({ ...project, layers: pageLayers }, layerId, false).content;
+          if (referenceProjectId === projectId) layers.push({ pageId: referencePageId, layerId, content });
+          return loadLayerImage(content, signal);
+        }));
         signal.throwIfAborted();
-        const latest = currentPage(bridge, projectId, pageId);
-        if (layerId && imageLayer(latest, layerId, false).content !== content) throw new Error('Reference image changed while reading.');
-        return { inputImage, complete: (result, signal) => applyImages(bridge, projectId, pageId, result, signal, false,
-          layerId && content ? { layerId, content, removal: false, keepOriginal: false } : undefined) };
+        const validateReferences = (project: ProjectState) => {
+          for (const layer of layers) {
+            const pageLayers = layer.pageId === project.activePageId ? project.layers : project.pages?.find(page => page.id === layer.pageId)?.layers;
+            if (!pageLayers || imageLayer({ ...project, layers: pageLayers }, layer.layerId, false).content !== layer.content) throw new Error('Reference image changed while processing.');
+          }
+        };
+        validateReferences(currentPage(bridge, projectId, pageId));
+        return { inputImages, complete: async (result, signal) => {
+          return applyImages(bridge, projectId, pageId, result, signal, false, undefined, validateReferences);
+        } };
       }
     },
     remove_background: {

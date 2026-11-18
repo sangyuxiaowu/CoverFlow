@@ -24,14 +24,60 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe('host image tool callbacks', () => {
   it('uses original reference bytes and adds multiple generated results in one commit', async () => {
     const { tools, signal, commit, getProject } = setup();
-    const prepared = await tools.generate_image!.prepare({ referenceLayerId: 'source' }, signal);
-    expect(await prepared.inputImage!.arrayBuffer()).toEqual(Uint8Array.from(atob('iVBORw0KGgo='), c => c.charCodeAt(0)).buffer);
+    const prepared = await tools.generate_image!.prepare({ references: ['source', 'source'] }, signal);
+    expect(prepared.inputImages).toHaveLength(2);
+    expect(await prepared.inputImages![0].arrayBuffer()).toEqual(Uint8Array.from(atob('iVBORw0KGgo='), c => c.charCodeAt(0)).buffer);
     const result = await prepared.complete({ images: [output, output], model: 'model', prompt: 'City' }, signal) as { layerIds: string[] };
     expect(commit).toHaveBeenCalledOnce();
     expect(getProject().layers[0]).toEqual(original);
     expect(result.layerIds).toHaveLength(2);
     expect(getProject().layers[1]).toMatchObject({ width: 840, height: 630, x: 180, y: 0, imageSource: 'model', imageDescription: 'City' });
     expect(getProject().selectedLayerId).toBe(result.layerIds[1]);
+  });
+  it('resolves mixed current, cross-page, cross-project, asset and attachment references in order', async () => {
+    const { signal, getProject } = setup();
+    const project = getProject();
+    const otherPage = { ...project.pages![0], id: 'page2', layers: [{ ...original, id: 'other' }] };
+    project.pages!.push(otherPage);
+    const external = { ...project, id: 'external', activePageId: 'page2', layers: otherPage.layers };
+    const asset = new Blob([Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 1])], { type: 'image/png' });
+    const attachment = new Blob(['attachment'], { type: 'image/jpeg' });
+    const getProjectById = vi.fn(async () => external);
+    const getFileHandle = vi.fn(async () => ({ getFile: async () => asset }));
+    const getDirectoryHandle = vi.fn(async () => ({ getFileHandle }));
+    const bridge: WorkspaceBridge = { getProject: () => project, getProjectById, getSelection: () => [],
+      getAssetFolder: async () => ({ getDirectoryHandle }) as unknown as FileSystemDirectoryHandle,
+      commit: async () => {}, manageProjects: async () => {} };
+    const prepared = await createImageToolExtensions(bridge, async id => id === 'upload' ? attachment : null).generate_image!.prepare({
+      references: ['source', 'page2/other', 'external/page2/other', 'folder:桑仔/2D.png', 'attachment://upload']
+    }, signal);
+    expect(prepared.inputImages).toHaveLength(5);
+    expect(await Promise.all(prepared.inputImages!.slice(0, 3).map(image => image.arrayBuffer()))).toEqual(
+      Array(3).fill(Uint8Array.from(atob('iVBORw0KGgo='), character => character.charCodeAt(0)).buffer));
+    expect(await prepared.inputImages![3].arrayBuffer()).toEqual(await asset.arrayBuffer());
+    expect(prepared.inputImages![4]).toBe(attachment);
+    expect(getProjectById).toHaveBeenCalledWith('external');
+    expect(getDirectoryHandle).toHaveBeenCalledWith('桑仔');
+    expect(getFileHandle).toHaveBeenCalledWith('2D.png');
+    otherPage.layers[0].content = 'data:image/png;base64,AAAA';
+    await expect(prepared.complete({ images: [output], model: 'model' }, signal)).rejects.toThrow('changed');
+  });
+  it('rejects invalid and missing reference sources', async () => {
+    const { tools, signal } = setup();
+    for (const reference of ['', 'page/', 'a/b/c/d', 'missing', 'missing/source', 'other/page/source', 'attachment://', 'attachment://missing', 'folder:../image.png']) {
+      await expect(tools.generate_image!.prepare({ references: [reference] }, signal)).rejects.toThrow();
+    }
+    await expect(tools.generate_image!.prepare({ references: [5] }, signal)).rejects.toThrow('Invalid');
+  });
+  it('checks reference changes during output decoding', async () => {
+    const { tools, signal, getProject, commit } = setup();
+    const prepared = await tools.generate_image!.prepare({ references: ['source'] }, signal);
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => {
+      getProject().layers[0].content = 'data:image/png;base64,AAAA';
+      return { width: 100, height: 100, close: vi.fn() };
+    }));
+    await expect(prepared.complete({ images: [output], model: 'model' }, signal)).rejects.toThrow('changed');
+    expect(commit).not.toHaveBeenCalled();
   });
   it.each([true, false])('applies removal with keepOriginal=%s, preserving geometry and grouping', async keepOriginal => {
     const { tools, signal, getProject } = setup();
@@ -80,10 +126,10 @@ describe('host image tool callbacks', () => {
   });
   it('rejects changed references, invalid source combinations and cancellation', async () => {
     const { tools, signal, getProject, commit } = setup();
-    await expect(tools.generate_image!.prepare({ referenceLayerId: 'source', referenceImageId: 'attachment' }, signal)).rejects.toThrow('one reference');
+    await expect(tools.generate_image!.prepare({ references: 'source' }, signal)).rejects.toThrow('array');
     await expect(tools.remove_background!.prepare({}, signal)).rejects.toThrow('either layerId or imageId');
     await expect(tools.remove_background!.prepare({ imageId: 'attachment', keepOriginal: true }, signal)).rejects.toThrow('requires layerId');
-    const prepared = await tools.generate_image!.prepare({ referenceLayerId: 'source' }, signal);
+    const prepared = await tools.generate_image!.prepare({ references: ['source'] }, signal);
     getProject().layers[0].content = 'data:image/png;base64,AAAA';
     await expect(prepared.complete({ images: [output], model: 'model', prompt: 'City' }, signal)).rejects.toThrow('changed');
     const controller = new AbortController();

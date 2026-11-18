@@ -234,10 +234,10 @@ chat/
 ## 生图配置与调用
 
 - 生图模型在独立 Tab 中管理，`imageModels` 保存内部配置 ID、API 模型 ID、介绍、适配器、尺寸参数、启用状态和 `endpointId`。通过引用已有端点复用 Base URL 与加密 Key，不复制凭据。可覆盖同源的完整请求 URL；跨域须单独配置端点，避免 Key 被发送给未授权域名。
-- 默认接口为 `/v1/images/generations`；已有版本路径的 Base URL 不重复拼接 `/v1`。Kolors 使用 `image_size`、`num_inference_steps`、`guidance_scale`，参考图为单个 `image`；返回 `images[0].url`。Agnes 使用 `size`，档位尺寸可配 `ratio`；文生图使用 `return_base64`，参考图使用 `extra_body.image` 单元素数组和 `response_format: b64_json`；解析 `data[0].b64_json` 或 URL。
-- GPT-Image 提供 `gpt-image-2.5-sunburst`、`gpt-image-2.5-flare`、`gpt-image-2` 三个可编辑预设，默认不启用，沿用已有端点凭据。文生图向 `/images/generations` 发送 JSON；单图参考向 `/images/edits` 发送 FormData，上传单个 `image`，不发送 mask，不手动设置 Content-Type。同源请求 URL 覆盖若以 `/images/generations` 或 `/images/edits` 结尾，会按模式切换尾部路径；其他自定义路径不能推导参考图接口。
+- 默认接口为 `/v1/images/generations`；已有版本路径的 Base URL 不重复拼接 `/v1`。Kolors 使用 `image_size`、`num_inference_steps`、`guidance_scale`，参考图为单个 `image`；返回 `images[0].url`。Agnes 使用 `size`，档位尺寸可配 `ratio`；文生图使用 `return_base64`，参考图使用 `extra_body.image` 数组和 `response_format: b64_json`；解析 `data[0].b64_json` 或 URL。
+- GPT-Image 提供 `gpt-image-2.5-sunburst`、`gpt-image-2.5-flare`、`gpt-image-2` 三个可编辑预设，默认不启用，沿用已有端点凭据。文生图向 `/images/generations` 发送 JSON；参考图向 `/images/edits` 发送 FormData，单图使用 `image`，多图使用多个 `image[]`，不发送 mask，不手动设置 Content-Type。同源请求 URL 覆盖若以 `/images/generations` 或 `/images/edits` 结尾，会按模式切换尾部路径；其他自定义路径不能推导参考图接口。
 - GPT-Image 固定 `output_format: png`，不发送 `response_format`，支持 `size`、`quality`、`n`。尺寸为 WIDTHxHEIGHT，两边必须是 16 的倍数、不超过 3840，比例为 1:3–3:1，总像素为 655360–8294400；2560x1440 为实验尺寸。Sunburst/Flare 质量支持 low/medium/high/xhigh/max/auto；GPT-Image-2 支持 low/medium/high。默认 1024x1024、high、1 张；客户端数量限制 1–10，实际尺寸、质量和数量仍取决于接入服务，模型 ID 可按服务提供值修改。其他未识别 GPT-Image ID 保守使用 low/medium/high。
-- 组件生成图片后调用宿主结果回调，全部结果在一次提交中新增到画布，返回项目、页面和图层 ID，不产生中间会话图片。若处理成功但应用失败，尽可能保存恢复图片到会话，并明确提示画布可能已改变；同轮阻止重复处理，不消耗生图失败预算。恢复图片可在界面手动插入。URL 返回方式还要求上游 CDN 支持跨域读取，下载不携带 API Key。
+- 组件生成图片后先保存到会话，再调用宿主结果回调，全部结果在一次提交中新增到画布，返回会话图片及项目、页面和图层 ID。若处理成功但应用失败，已保存图片可用于恢复，并明确提示画布可能已改变；同轮阻止重复处理，不消耗生图失败预算。恢复图片可在界面手动插入。URL 返回方式还要求上游 CDN 支持跨域读取，下载不携带 API Key。
 - 通用文生图、参考图提示词指导集中在 `config.ts` 的 `DEFAULT_IMAGE_TOOL_PROMPT` 中，实际请求通过全局生图提示词提供一次，不在各模型或列表中重复。模型特有要求写在模型介绍 `description` 中。仅启用一个模型时，`generate_image` 直接绑定该模型并省略 `modelConfigId`，参数说明提供能力与默认值，Kolors 不提供 ratio、quality、n。多个模型时额外注册 `list_image_models`，由列表返回各自介绍、版本和能力。已保存的自定义全局生图提示词不被默认内容覆盖。
 - 生图配置还保存可编辑的 `version` 和 `releasedAt`（YYYY-MM-DD）。预设中的日期来自已提供的模型资料，未知时留空；不从介绍文本自动解析，也不编造发布日期。多模型列表返回版本、发布日期和有效 `timeoutSeconds`，未知版本/日期为 null；单模型不重复注入这些元数据。这些字段只属于本地配置与工具上下文，不作为图像 API 请求参数。
 - 新生图模型、会话图片和生成图层沿用应用的 9 位短 ID。已有模型的长 ID 不重写存储，仅映射为稳定的短工具 ID；配置校验拒绝短 ID 冲突。单模型调用绑定请求开始时的模型，期间禁用或替换模型不会静默切换到另一个。
@@ -245,7 +245,7 @@ chat/
 - 生图失败预算仅作用于一次 `runConversation`，不跨用户消息保留；新消息可明确授权再次尝试。界面“重试”续接已有进度时，会向实际模型历史追加用户授权，要求保留成功操作及已保存图片。达到失败上限由执行器硬性拦截，不依赖 LLM 自觉停止。
 - 整轮中止与重试授权分开处理。停止、关闭面板、切换聊天存储、卸载或重新加载助手分别通过 `ConversationAbortError` 标记为 `user_stop`、`panel_closed`、`storage_changed`、`assistant_disposed`。工具结果及持久化历史保留 `abortSource` 和 `reason`；未标记的外部中止记为 `unknown`，不推断用户操作。界面显示对应的中止原因，不再统一声称缺少重试批准。旧历史没有中止来源时无法事后恢复原因；这些变更不自动修复尚未定位的意外中止。
 - 无可用模型时不注册生图工具；组件按本轮配置快照暴露启用且有效的模型，设置修改在下一轮生效，不静默切换模型。配置、Key、请求地址不会作为工具结果返回。
-- 参考已有图层使用 `referenceLayerId`，参考附件使用组件的 `referenceImageId`，不能同时提供。宿主按需读取完整原图，不保存会话副本；PNG/JPEG/WebP 原始字节保留，GIF 转换为原尺寸 WebP。`get_selected_layers` 和 `read_layers` 不再导出原图；视觉预览仍单独缩小处理。
+- `generate_image` 使用 `references` 数组按顺序混合引用当前页 `layerId`、项目内 `pageId/layerId`、跨项目 `projectId/pageId/layerId`、PNG 素材 `folder:分类/文件.png` 和当前会话图片 `attachment://imageId`。参考图数量由模型的 `maxReferenceImages` 设置限制，Kolors 最多一张。宿主按需读取完整原图，不保存中间会话副本；PNG/JPEG/WebP 原始字节保留，GIF 图层转换为原尺寸 WebP。`get_selected_layers` 和 `read_layers` 不再导出原图；视觉预览仍单独缩小处理。
 - 生图新增居中、等比适配的置顶图层；图层抠图默认保留并隐藏原图，保留位置、尺寸、变换及分组，`keepOriginal:false` 明确替换。调用前捕获当前页面和原图，处理期间切页或原图改变则拒绝提交。图片以原始格式嵌入项目；写入限制 25 MB、6400 万像素。保存失败提示可能已经应用，要求先读上下文，不盲目重复处理。
 - 所有请求直接由浏览器发送，生图接口及图片下载地址须允许 CORS。当前启停是本地配置，不是服务端管理员权限控制。
 

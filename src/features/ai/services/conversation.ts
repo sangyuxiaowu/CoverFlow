@@ -6,7 +6,7 @@ import type { Response, ResponseFunctionCallOutputItemList } from 'openai/resour
 import type { AiConfig, AiRequestConfig, ChatImageRef, RequestUsage, ResponseItem, ToolEvent, WorkspaceBridge } from '../types.ts';
 import { generateId } from '../../../utils/helpers.ts';
 import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
-import { createImageToolExtensions } from '../tools/imageTools.ts';
+import { coverFlowImageDefinition, createImageToolExtensions } from '../tools/imageTools.ts';
 import { createBuiltInTools } from 'sang-ai-kit/built-in-tools';
 import { executeTool } from '../tools/execute.ts';
 import { record } from '../tools/validation.ts';
@@ -78,12 +78,20 @@ export async function runConversation(options: ConversationOptions): Promise<str
   const skills = features.skills ? normalizeSkills(config.skills) : [];
   const toolImages: ChatImageRef[] = [];
   const onImage = (image: ChatImageRef) => { toolImages.push(image); options.onImage?.(image); };
-  const imageExtensions = createImageToolExtensions(bridge);
+  const imageExtensions = createImageToolExtensions(bridge, options.loadImage);
   const builtIn = createBuiltInTools({
     config: { ...(options.getImageConfig?.() ?? { endpoints: [], activeSelection: { endpointId: '', modelId: '' } }),
       systemPrompt: config.systemPrompt, imageToolPrompt: '', skills, localFonts: config.localFonts, maxImageFailures: config.maxImageFailures },
     features: { ...features, imageGeneration: features.imageGeneration && Boolean(config.imageToolsEnabled) },
     loadImage: options.loadImage, saveImage: options.saveImage, onImage, imageExtensions
+  });
+  builtIn.tools = builtIn.tools.map(tool => {
+    if (tool.name !== 'generate_image') return tool;
+    const definition = coverFlowImageDefinition(tool);
+    return { ...definition, execute: (args, signal) => {
+      if (args.referenceImageId !== undefined || args.referenceImageIds !== undefined) throw new Error('Use references for all reference images.');
+      return tool.execute(args, signal);
+    } };
   });
   const tools = [
     ...TOOL_DEFINITIONS,

@@ -155,7 +155,7 @@ export function toRequestConfig(config: AiConfig, featureSettings: Partial<AiFea
     features,
     maxToolRounds: config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS,
     maxImageFailures: config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES,
-    imageToolModels: imageModels.map(model => ({ id: imageModelToolId(model), label: model.label, adapter: model.adapter, modelId: model.modelId, version: model.version, releasedAt: model.releasedAt, timeoutSeconds: imageTimeoutSeconds(model), description: model.description, size: model.size, ratio: model.ratio, quality: model.quality, n: model.n })),
+    imageToolModels: imageModels.map(model => ({ id: imageModelToolId(model), label: model.label, adapter: model.adapter, modelId: model.modelId, version: model.version, releasedAt: model.releasedAt, timeoutSeconds: imageTimeoutSeconds(model), description: model.description, size: model.size, ratio: model.ratio, quality: model.quality, n: model.n, maxReferenceImages: model.maxReferenceImages })),
     endpoint: endpoint.endpoint,
     apiKey: endpoint.apiKey,
     model: model.modelId,

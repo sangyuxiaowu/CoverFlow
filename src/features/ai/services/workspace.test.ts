@@ -83,3 +83,15 @@ test('project action contracts reject invalid fields before storage or UI side e
   }
   assert.equal(effects, 0);
 });
+
+test('reads another stored or local project without changing the active project', async () => {
+  const { bridge, stored, signal, options } = setup();
+  await bridge.manageProjects({ action: 'create', title: 'Active' }, signal);
+  const active = bridge.getProject()!;
+  for (let index = 0; index < 51; index++) stored.set(`stored-${index}`, { ...active, id: `stored-${index}` });
+  options.localProjects.push({ project: { ...active, id: 'local' }, localPath: 'local.cfj' });
+  assert.equal((await bridge.getProjectById!('stored-50')).id, 'stored-50');
+  assert.equal((await bridge.getProjectById!('local')).id, 'local');
+  await assert.rejects(bridge.getProjectById!('missing'), /Project not found/);
+  assert.equal(bridge.getProject()!.id, active.id);
+});

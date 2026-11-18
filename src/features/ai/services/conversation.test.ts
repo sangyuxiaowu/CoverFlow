@@ -362,10 +362,13 @@ test('Responses schemas omit current-target project IDs while retaining navigati
       assert.equal(Object.hasOwn(parameters.properties, 'projectId'), tool.name === 'manage_projects', String(tool.name));
       assert.equal(parameters.required?.includes('projectId') ?? false, tool.name === 'manage_projects');
     }
-    for (const [name, field] of [['manage_pages', 'pageId'], ['update_layers', 'layerIds'], ['place_asset', 'assetId'], ['generate_image', 'referenceLayerId'], ['remove_background', 'layerId']]) {
+    for (const [name, field] of [['manage_pages', 'pageId'], ['update_layers', 'layerIds'], ['place_asset', 'assetId'], ['generate_image', 'references'], ['remove_background', 'layerId']]) {
       const parameters = sentTools.find(tool => tool.name === name)!.parameters as { properties: Record<string, unknown> };
       assert.ok(Object.hasOwn(parameters.properties, field), `${name}.${field}`);
     }
+    const imageProperties = (sentTools.find(tool => tool.name === 'generate_image')!.parameters as { properties: Record<string, unknown> }).properties;
+    assert.ok(!Object.hasOwn(imageProperties, 'referenceImageId'));
+    assert.ok(!Object.hasOwn(imageProperties, 'referenceImageIds'));
   } finally { globalThis.fetch = originalFetch; }
 });
 

@@ -55,6 +55,7 @@ export interface ToolDefinition {
 
 export interface WorkspaceBridge {
   getProject: () => ProjectState | null;
+  getProjectById?: (projectId: string) => Promise<ProjectState>;
   getCanvasPreview?: () => Promise<Blob>;
   getLayerPreview?: (layerId: string) => Promise<Blob>;
   getAssetFolder?: () => Promise<FileSystemDirectoryHandle | null>;

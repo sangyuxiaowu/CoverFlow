@@ -402,10 +402,11 @@ test('unsafe image sources are rejected', () => {
   assert.equal(safeImage('https://example.com/cover.png'), 'https://example.com/cover.png');
 });
 
-test('canvas and background edits are validated and committed', async () => {
+test('canvas, background and page name edits are validated and committed', async () => {
   const { bridge, signal } = setup();
-  await executeTool('update_canvas', { width: 1200, background: { type: 'gradient', value: 'linear-gradient(90deg,#000,#fff)', overlay: { type: 'dots', color: '#fff', opacity: 0.3, scale: 24 } } }, bridge, signal);
+  await executeTool('update_canvas', { name: '封面页', width: 1200, background: { type: 'gradient', value: 'linear-gradient(90deg,#000,#fff)', overlay: { type: 'dots', color: '#fff', opacity: 0.3, scale: 24 } } }, bridge, signal);
   assert.equal(bridge.getProject()!.canvasConfig.width, 1200);
+  assert.equal(bridge.getProject()!.pages![0].name, '封面页');
   assert.equal(bridge.getProject()!.background.type, 'gradient');
   assert.equal(bridge.getProject()!.background.overlayType, 'dots');
   assert.equal(bridge.getProject()!.background.overlayScale, 24);

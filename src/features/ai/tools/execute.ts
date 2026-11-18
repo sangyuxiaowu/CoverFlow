@@ -10,6 +10,8 @@ import { generateId } from '../../../utils/helpers.ts';
 import { executeAssetTool } from './assets.ts';
 import { ensureProjectFonts } from '../services/fontLoading.ts';
 import { executePageTool, pageContext } from './pages.ts';
+import { renameProjectPage } from '../../../utils/projectPages.ts';
+import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
 
 export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false): Promise<unknown> {
   signal.throwIfAborted();
@@ -124,6 +126,7 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     }
     next = editLayers(project, action, selected, patch, request.action === 'align' || request.action === 'distribute' ? request.mode : undefined);
   } else if (name === 'update_canvas') {
+    if (args.name !== undefined && (typeof args.name !== 'string' || args.name.length > 100)) throw new Error('Page name must contain at most 100 characters.');
     const width = args.width === undefined ? project.canvasConfig.width : number(args.width, 'width', 10, 10000);
     const height = args.height === undefined ? project.canvasConfig.height : number(args.height, 'height', 10, 10000);
     const backgroundUpdates = args.background === undefined ? {} : backgroundPatch(args.background);
@@ -138,6 +141,10 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     }
     if (background.type !== 'image' && /url\s*\(/i.test(background.value)) throw new Error('Use an image background for image URLs.');
     next = { ...project, canvasConfig: { width, height, ratio: `${width}x${height}` }, background };
+    if (args.name !== undefined) {
+      const synced = syncProjectPages(next);
+      next = renameProjectPage(synced, synced.activePageId!, args.name as string);
+    }
   } else throw new Error('Unknown tool: ' + name);
   await ensureProjectFonts(next);
   signal.throwIfAborted();

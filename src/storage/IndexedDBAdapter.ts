@@ -62,6 +62,21 @@ export class IndexedDBAdapter implements StorageAdapter {
 
   ensureReady = async () => this.isAvailable();
 
+  getProject = async (projectId: string) => {
+    if (!this.isAvailable()) return null;
+    const db = await openIndexedDb();
+    try {
+      return await new Promise<ProjectState | null>((resolve, reject) => {
+        const request = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(projectId);
+        request.onsuccess = () => {
+          try { resolve(request.result === undefined ? null : readProject(request.result)); }
+          catch (error) { reject(error); }
+        };
+        request.onerror = () => reject(request.error);
+      });
+    } finally { db.close(); }
+  };
+
   listProjects = async (options?: ListProjectsOptions) => {
     if (!this.isAvailable()) return { items: [], total: 0 };
     const items = await readAllProjects();

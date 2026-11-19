@@ -1,4 +1,5 @@
 import type { ProjectState } from '../../types.ts';
+import type { LayerClipboard } from '../../utils/layerClipboard.ts';
 import type { ResponseInputItem } from 'openai/resources/responses/responses';
 import type { ImagePromptConfig } from 'sang-ai-kit/image-types';
 import type { LocalFontSelection } from 'sang-ai-kit/fonts';
@@ -54,6 +55,7 @@ export interface ToolDefinition {
 }
 
 export interface WorkspaceBridge {
+  clipboard?: LayerClipboard;
   getProject: () => ProjectState | null;
   getProjectById?: (projectId: string) => Promise<ProjectState>;
   getCanvasPreview?: () => Promise<Blob>;

@@ -9,9 +9,11 @@ import { generateId } from '../../../utils/helpers.ts';
 import { executeAssetTool } from './assets.ts';
 import { ensureProjectFonts } from '../services/fontLoading.ts';
 import { executePageTool, pageContext } from './pages.ts';
+import { executeClipboardTool } from './clipboard.ts';
 
 export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false): Promise<unknown> {
   signal.throwIfAborted();
+  if (name === 'clipboard') return executeClipboardTool(input, bridge, signal);
   if (name === 'manage_pages') return executePageTool(input, bridge, signal);
   if (name === 'search_assets' || name === 'place_asset') return executeAssetTool(name, input, bridge, signal);
   const args = record(input);

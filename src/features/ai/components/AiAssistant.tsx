@@ -34,6 +34,7 @@ const toolLabels: Record<string, [string, string]> = {
   place_asset: ['放置素材', 'Place Asset'],
   manage_projects: ['项目管理', 'Manage Projects'],
   manage_pages: ['页面管理', 'Manage Pages'],
+  clipboard: ['图层剪贴板', 'Layer Clipboard'],
   read_layers: ['读取图层', 'Read Layers'],
   get_selected_layers: ['读取选中图层', 'Read Selected Layers'],
   add_layers: ['添加图层', 'Add Layers'],

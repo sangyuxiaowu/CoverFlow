@@ -107,7 +107,7 @@ chat/
 用户消息 -> SDK Responses -> 工具 Schema -> 运行时校验 -> WorkspaceBridge -> App 状态 / StorageAdapter -> function_call_output -> 模型最终回复。
 
 - 工具从实时桥接状态读取，不依赖请求发出时的 React 闭包快照。
-- 图层读取、修改、画布更新、素材放置、生图、抠图和页面管理使用当前项目；无项目时明确报错。图层工具只针对当前页；跨页图层操作先通过 `manage_pages` 切换，不支持跨页混用图层 ID。`manage_pages` 可通过 `pageId` 更新指定页面的名称、画布和背景，不切换当前页；除 list 外的动作均要求目标 `pageId`。`manage_projects` 保留目标 `projectId`，工具结果中的项目、页面及对象 ID 保持不变。
+- 图层读取、修改、画布更新、素材放置、生图、抠图和页面管理使用当前项目；无项目时明确报错。普通图层工具只针对当前页，跨页图层操作先通过 `manage_pages` 切换；`clipboard` 是跨项目、跨页引用的例外。`manage_pages` 可通过 `pageId` 更新指定页面的名称、画布和背景，不切换当前页；除 list 外的动作均要求目标 `pageId`。`manage_projects` 保留目标 `projectId`，工具结果中的项目、页面及对象 ID 保持不变。
 - 工具按模型响应中的顺序执行。切页、打开项目及会改变活动项目/页面的新建、复制页面、删除操作失败后，同一响应批次尚未执行的全部工具均返回明确的跳过错误，不执行读写、组件内置工具或其他管理调用；失败前已完成的操作保留，不回滚。每个调用仍保存配对的结果，模型收到错误后可在下一批次重新规划。无法解析的项目/页面管理调用同样阻断本批后续执行；已识别的页面列表、页面更新及项目重命名、复制、保存失败不触发该规则。用户取消仍按原逻辑结束本轮。
 - 素材读取、生图和抠图在异步操作前后检查项目与页面身份，提交时读取实时内容。同页其他编辑不会被旧快照覆盖；图层原图改变或锁定时拒绝应用。结果正常情况下直接写入画布，不创建中间会话图片。
 - 每次图层修改提交完整 ProjectState，进入现有历史，并等待存储结果。保存失败会作为工具错误报告；已经显示在画布上的修改不会自动回滚。
@@ -119,7 +119,7 @@ chat/
 
 工具采用分层 JSON Schema 描述：函数 `description` 只说明用途与整体行为；字段含义、单位、默认值、适用操作及内容限制写在对应参数的 `description` 中，包括嵌套属性、数组元素和联合类型分支。可执行约束用 `enum`、`required`、`minimum/maximum`、`minItems/maxItems` 等表达，执行器仍负责最终校验。创建图层统一使用 `add_layers`，`layers` 数组包含 1–500 项，每项要求 `type` 和 `properties`；`type` 为 `text/image/svg/decoration`，必须提供对应的 `properties.<type>.content`，禁止提供其他类型的属性组。整批校验后一次提交，按数组顺序从下到上置顶并选中最后一项；任一项无效时不创建任何图层。通用 `layerInfo` 与四类专属属性在同一个参数 Schema 中完整内联，不使用 `$defs/$ref`，以兼容不支持引用的远端。各组内容的格式与安全限制分别写在字段说明中。`update_layers.properties` 保持开放对象，不重复枚举字段，由创建/读取函数说明属性，运行时白名单负责校验；它仍是部分字段补丁，组内 `content` 可省略。
 
-图层函数与内部操作的映射、请求字段规则集中在 `tools/requests.ts`，独立函数的输入经白名单和必填校验后转换为内部可辨识动作联合类型，复用现有图层操作内核。图层工具以独立函数表达操作，不接受 `action` 字段。项目新建和搜索分别由 `create_project`、`search_projects` 提供，其他生命周期操作由 `manage_projects` 提供。为兼容自定义模型端点，对外使用对象 Schema 与 `strict:false`，不发送顶层 `oneOf`、`$defs/$ref` 或 OpenAPI `discriminator`。条件约束由运行时执行，不依赖模型遵守说明。所有请求先校验再产生存储或界面副作用。
+图层函数与内部操作的映射、请求字段规则集中在 `tools/requests.ts`，独立函数的输入经白名单和必填校验后转换为内部可辨识动作联合类型，复用现有图层操作内核。普通图层工具以独立函数表达操作，不接受 `action` 字段；`clipboard` 使用 `action` 区分操作。项目新建和搜索分别由 `create_project`、`search_projects` 提供，其他生命周期操作由 `manage_projects` 提供。为兼容自定义模型端点，对外使用对象 Schema 与 `strict:false`，不发送顶层 `oneOf`、`$defs/$ref` 或 OpenAPI `discriminator`。条件约束由运行时执行，不依赖模型遵守说明。所有请求先校验再产生存储或界面副作用。
 
 更新、组织和排列图层的函数均要求非空 `layerIds`；仅 `update_layers` 接受且必须提供非空 `properties`，它只更新属性，不负责编组、删除或排序，禁止提交 `zIndex`。仅 `group_layers` 接受顶层可选 `name`；`align_layers`、`distribute_layers` 必须提供各自允许的 `mode`；`reorder_layers` 必须提供 `position`。创建图层默认置顶，不接受 `zIndex`，后续排序统一使用 `reorder_layers`。`create_project` 的 `title/width/height` 可选；`search_projects` 的 `query/page/pageSize` 可选；`manage_projects` 只接受 `open/rename/duplicate/delete/save`，并要求 `projectId`。`rename.title` 必填，`duplicate.title` 可选，其余管理动作禁止。跨操作字段与未知字段均报错，不忽略。
 
@@ -148,6 +148,7 @@ chat/
 | skill | 配置非空时按精确名称读取 SKILL 纯文本正文，无需打开项目 |
 | manage_projects | open/rename/duplicate/delete/save |
 | manage_pages | list/create/switch/duplicate/move/update/delete；新增、复制后打开新页，删除需确认，最多 99 页且保留最后一页 |
+| clipboard | check/clear/copy/paste；用户和 AI 共用临时图层引用，支持跨项目复制 |
 | read_layers | 按 ID 或名称/内容关键词读取图层 |
 | add_layers | 批量添加文字、已有图片、SVG 或 CSS/HTML 装饰图层，按输入顺序返回 createdLayerIds |
 | update_layers | 仅更新图层属性，例如移动位置或修改图片 |
@@ -158,6 +159,8 @@ chat/
 | list_image_models | 多模型时读取当前启用模型的介绍、版本及参数能力 |
 | generate_image | 组件文生图或单图参考生图，宿主回调直接新增图层 |
 | remove_background | 组件本地抠图，缺少资源自动准备，宿主回调直接应用结果 |
+
+`clipboard.copy` 接受 `layers: [{projectId?, pageId?, layerId, info?}]`；省略项目或页面 ID 时分别使用当前项目或当前页面的 ID，无相应当前上下文时必须显式提供。它追加并按三个 ID 去重，最多 500 项；`info` 可选，最多 200 字符且不接受数据 URL。`check` 返回引用及实时读取的名称、类型、组合信息和可用状态；`clear` 清空。应用只在内存保存引用和备注，刷新后丢失；工具调用参数和返回的元数据仍可能保存到聊天记录。来源变化在粘贴时生效，来源缺失时整批失败。`paste` 的 `projectId` 和 `pageId` 可省略，分别默认为当前项目和当前页面；目标项目必须已打开，可写非活动页。粘贴保留坐标和属性，重建 ID 与组合关系，置顶并返回新 ID。来源页之间按首次加入顺序、页内按原堆叠顺序排列。用户可从图层面板加入引用，在右上角查看、删除、清空或粘贴到当前页；不占用系统粘贴快捷键。
 
 ## 页面工具
 

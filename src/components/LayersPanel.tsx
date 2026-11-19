@@ -27,7 +27,7 @@ import {
   Type as TextIcon, Image as ImageIcon, GripVertical, Link as LinkIcon, Link2Off, MoveHorizontal, MoveVertical,
   Palette, Sliders, AlignLeft, AlignCenter, AlignRight, Type, Search, ChevronDown, Check, Folder,
   Copy, Trash, ArrowUpToLine, ArrowDownToLine, Layers, Ungroup, PanelRightClose, PanelRightOpen,
-  FlipHorizontal2, FlipVertical2, Crop as CropIcon, RotateCcw
+  FlipHorizontal2, FlipVertical2, Crop as CropIcon, RotateCcw, ClipboardPlus
 } from 'lucide-react';
 
 interface LayersPanelProps {
@@ -44,6 +44,7 @@ interface LayersPanelProps {
   ) => void;
   onReorderLayers: (newLayers: Layer[]) => void;
   onCloneLayers: (ids: string[]) => void;
+  onCopyToClipboard: (ids: string[]) => void;
   onDeleteLayers: (ids: string[]) => void;
   onMoveLayersTop: (ids: string[]) => void;
   onMoveLayersBottom: (ids: string[]) => void;
@@ -102,6 +103,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   onSelectLayer,
   onReorderLayers,
   onCloneLayers,
+  onCopyToClipboard,
   onDeleteLayers,
   onMoveLayersTop,
   onMoveLayersBottom,
@@ -1122,6 +1124,9 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
       <div className="flex-1 flex flex-col min-h-0 bg-slate-900/50">
         <div className="flex items-center justify-between px-6 py-3.5 border-b border-slate-800/50 bg-slate-900 flex-shrink-0">
           <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t.layers}</h3>
+          <button type="button" disabled={!selectedLayerIds.length} onClick={() => onCopyToClipboard(selectedLayerIds)} title={lang === 'en' ? 'Add selected layers to clipboard' : '将选中图层加入剪贴板'} aria-label={lang === 'en' ? 'Add selected layers to clipboard' : '将选中图层加入剪贴板'} className="p-1.5 rounded hover:bg-slate-800 text-slate-400 disabled:opacity-30 disabled:pointer-events-none">
+            <ClipboardPlus className="w-4 h-4" />
+          </button>
         </div>
         
         <div className="flex-1 overflow-y-auto p-3 space-y-1 scrollbar-hide">
@@ -1354,6 +1359,10 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
           >
             <Copy className="w-3.5 h-3.5" />
             {t.cloneLayer}
+          </button>
+          <button className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors flex items-center gap-2" onClick={() => { onCopyToClipboard(menuSelection); setContextMenu(null); }}>
+            <ClipboardPlus className="w-3.5 h-3.5" />
+            {lang === 'en' ? 'Add to clipboard' : '加入剪贴板'}
           </button>
           <button
             className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors flex items-center gap-2"

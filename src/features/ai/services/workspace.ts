@@ -6,9 +6,11 @@ import { generateId } from '../../../utils/helpers.ts';
 import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
 import { copyProject } from '../../../utils/projectPages.ts';
 import type { AiProjectHistory } from '../../../hooks/useProjectHistory.ts';
+import type { LayerClipboard } from '../../../utils/layerClipboard.ts';
 
 export interface WorkspaceOptions {
   project: ProjectState | null;
+  clipboard?: LayerClipboard;
   aiHistory?: AiProjectHistory;
   getCanvasPreview?: () => Promise<Blob>;
   getLayerPreview?: (layerId: string) => Promise<Blob>;
@@ -25,6 +27,7 @@ export interface WorkspaceOptions {
   onDelete: (id: string, localPath?: string) => void;
   onSearch: (query: string) => void;
   saveLocal: (path: string, project: ProjectState) => Promise<unknown>;
+  readLocal?: (path: string) => Promise<ProjectState>;
 }
 
 export function createWorkspaceBridge(
@@ -58,6 +61,11 @@ export function createWorkspaceBridge(
     const local = options.localProjects.find(item => item.project.id === id);
     if (local) return local;
     await ready();
+    if (options.storage.getProject) {
+      const project = await options.storage.getProject(id);
+      if (project) return { project, localPath: undefined };
+      throw new Error('Project not found: ' + id);
+    }
     for (let page = 1; ; page++) {
       const result = await options.storage.listProjects({ page, pageSize: 50 });
       const project = result.items.find(item => item.id === id);
@@ -73,8 +81,16 @@ export function createWorkspaceBridge(
   };
   return {
     confirm,
+    get clipboard() { return read().clipboard; },
     getProject: () => { read(); return current || null; },
-    getProjectById: async projectId => (await find(projectId)).project,
+    getProjectById: async projectId => {
+      const found = await find(projectId);
+      if (read().project?.id === projectId) return current!;
+      if (!found.localPath || !read().readLocal) return found.project;
+      const project = await read().readLocal!(found.localPath);
+      if (project.id !== projectId) throw new Error('Local project ID changed: ' + projectId);
+      return project;
+    },
     getCanvasPreview: async () => {
       const options = read();
       if (!current) throw new Error('No project open.');

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Sidebar from './components/Sidebar.tsx';
 import Canvas from './components/Canvas.tsx';
 import LayersPanel from './components/LayersPanel.tsx';
+import LayerClipboardPanel from './components/LayerClipboardPanel.tsx';
 import Toast from './components/Toast.tsx';
 import ConfirmModal from './components/ConfirmModal.tsx';
 import BackgroundCropModal from './components/BackgroundCropModal.tsx';
@@ -14,7 +15,9 @@ import ProjectPreview from './components/ProjectPreview.tsx';
 import PagesPanel from './components/PagesPanel.tsx';
 import { usePageThumbnails } from './hooks/usePageThumbnails.ts';
 import AiAssistant from './features/ai/components/AiAssistant.tsx';
-import type { WorkspaceOptions } from './features/ai/services/workspace.ts';
+import { createWorkspaceBridge, type WorkspaceOptions } from './features/ai/services/workspace.ts';
+import { executeClipboardTool } from './features/ai/tools/clipboard.ts';
+import { LayerClipboard } from './utils/layerClipboard.ts';
 import { updateProjectLayer } from './features/ai/domain/layerOperations.ts';
 import { ensureProjectFonts, projectFontEmbedCSS } from './features/ai/services/fontLoading.ts';
 import { applyRemovalResult } from './utils/backgroundRemovalResult.ts';
@@ -67,6 +70,8 @@ type ExportCompression = 'lossless' | 'balanced' | 'small';
 
 const App: React.FC = () => {
   const [lang, setLang] = useState<Language>(() => getStoredLanguage('zh'));
+  const [layerClipboard] = useState(() => new LayerClipboard());
+  const clipboardWorkspaceRef = useRef<WorkspaceOptions | null>(null);
   const t = translations[lang];
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const indexedDbAdapter = useMemo(() => createIndexedDBAdapter(), []);
@@ -1428,6 +1433,7 @@ const App: React.FC = () => {
   const cropAspect = project ? project.canvasConfig.width / project.canvasConfig.height : 1;
   const aiWorkspace: WorkspaceOptions = {
     project,
+    clipboard: layerClipboard,
     aiHistory: view === 'editor' ? aiHistory : undefined,
     getAssetFolder: () => getAssetFolder(storageType, localFileAdapter),
     getCanvasPreview: async () => {
@@ -1498,7 +1504,27 @@ const App: React.FC = () => {
       }
     },
     onSearch: setProjectSearchTerm,
-    saveLocal: saveLocalProjectToFile
+    saveLocal: saveLocalProjectToFile,
+    readLocal: async path => {
+      const { readTextFile } = await import('@tauri-apps/plugin-fs');
+      return readProject(JSON.parse(await readTextFile(path)));
+    }
+  };
+  clipboardWorkspaceRef.current = {
+    ...aiWorkspace,
+    onCommit: next => {
+      latestProjectRef.current = next;
+      modifyProject(() => next);
+      setSelectedLayerIds(next.selectedLayerId ? [next.selectedLayerId] : []);
+    }
+  };
+  const clipboardBridge = useMemo(() => createWorkspaceBridge(() => clipboardWorkspaceRef.current!, async () => false), []);
+  const copyToClipboard = (ids: string[]) => {
+    if (!project?.activePageId) return;
+    const layers = ids.map(layerId => ({ projectId: project.id, pageId: project.activePageId!, layerId }));
+    void executeClipboardTool({ action: 'copy', layers }, clipboardBridge, new AbortController().signal).then(() => {
+      showToast(lang === 'en' ? 'Added to layer clipboard' : '已加入图层剪贴板');
+    }).catch(error => showToast(error instanceof Error ? error.message : String(error), 'error'));
   };
   const cropSize = (() => {
     const maxWidth = 720;
@@ -1693,6 +1719,7 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <LayerClipboardPanel clipboard={layerClipboard} bridge={clipboardBridge} project={project} lang={lang} />
           
           <div className="flex items-center gap-1 mr-4 bg-slate-800 p-1 rounded-lg">
             <button 
@@ -1928,6 +1955,7 @@ const App: React.FC = () => {
           onSelectLayer={handleSelectLayer}
           onReorderLayers={(newLayers) => modifyProject(p => ({ ...p, layers: newLayers.map((l, i) => ({ ...l, zIndex: i + 1 })) }))}
           onCloneLayers={handleCloneLayers}
+          onCopyToClipboard={copyToClipboard}
           onDeleteLayers={(ids) => setConfirmDialog({ message: t.confirmDelete, onConfirm: () => handleDeleteLayers(ids) })}
           onMoveLayersTop={(ids) => handleMoveLayers(ids, true)}
           onMoveLayersBottom={(ids) => handleMoveLayers(ids, false)}

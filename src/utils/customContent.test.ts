@@ -109,7 +109,7 @@ describe('decoration rendering boundaries', () => {
       lang, project: current, selectedLayerIds: ['moon'], onUpdateLayer: update, onRemoveBackground: noop,
       onDeleteLayer: noop, onSelectLayer: noop, onReorderLayers: noop, onCloneLayers: noop,
       onDeleteLayers: noop, onMoveLayersTop: noop, onMoveLayersBottom: noop, onGroupLayers: noop,
-      onUngroupLayer: noop, onCommit: commit
+      onUngroupLayer: noop, onCommit: commit, onCopyToClipboard: noop
     });
     try {
       await act(async () => root.render(renderPanel(state)));

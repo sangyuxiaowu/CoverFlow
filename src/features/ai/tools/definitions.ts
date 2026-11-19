@@ -54,6 +54,17 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     height: numeric('[可选] 高度，单位 px；只传高度时按原比例计算宽度。同时提供宽高必须保持原比例。', 1)
   }, ['assetId'])),
   // 图层管理
+  tool('clipboard', '临时剪贴板管理，可跨项目页面进行复制粘贴引用；同页按原堆叠顺序，不同来源页按首次加入顺序置顶。', object('剪贴板操作参数。', {
+    action: enumeration('check 查看、clear 清空、copy 添加、paste 粘贴。', ['check', 'clear', 'copy', 'paste']),
+    layers: { type: 'array', description: '仅 copy 使用；图层引用列表。', minItems: 1, maxItems: 500, items: object('图层引用。', {
+      projectId: string('[可选] 来源项目 ID，省略时使用当前项目。'), 
+      pageId: string('[可选] 来源页面 ID，省略时使用当前页面。'), 
+      layerId: string('来源图层 ID。'),
+      info: { ...string('可选的简短备注，原样返回，不要填写图层内容或数据 URL。'), maxLength: 200 }
+    }, ['layerId']) },
+    projectId: string('[可选] 仅 paste 使用，目标项目 ID，省略时使用当前项目。'),
+    pageId: string('[可选] 仅 paste 使用，目标页面 ID，省略时使用当前页面。')
+  }, ['action'])),
   tool('get_context', '读取项目页面列表、当前页画布、背景、选区及图层元数据。图层工具仅操作当前页，跨页前使用 manage_pages 切换。', noParameters),
   tool('read_layers', '读取图层属性，含图层详细内容，内嵌图片内容使用占位符。可按 ID 或名称/内容关键词筛选，同时提供时取交集。修改已有内容前先调用。', object('', {
     layerIds: layerIds('可选；省略时读取所有匹配图层。'),

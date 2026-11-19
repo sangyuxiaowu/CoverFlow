@@ -359,10 +359,10 @@ test('Responses schemas omit current-target project IDs while retaining navigati
     assert.ok(noArgumentTools.every(tool => JSON.stringify(tool.parameters) === JSON.stringify({ type: 'object', properties: {} })));
     for (const tool of sentTools) {
       const parameters = tool.parameters as { properties: Record<string, unknown>; required?: string[] };
-      assert.equal(Object.hasOwn(parameters.properties, 'projectId'), tool.name === 'manage_projects', String(tool.name));
+      assert.equal(Object.hasOwn(parameters.properties, 'projectId'), tool.name === 'manage_projects' || tool.name === 'clipboard', String(tool.name));
       assert.equal(parameters.required?.includes('projectId') ?? false, tool.name === 'manage_projects');
     }
-    for (const [name, field] of [['manage_pages', 'pageId'], ['update_layers', 'layerIds'], ['place_asset', 'assetId'], ['generate_image', 'references'], ['remove_background', 'layerId']]) {
+    for (const [name, field] of [['manage_pages', 'pageId'], ['clipboard', 'pageId'], ['clipboard', 'layers'], ['update_layers', 'layerIds'], ['place_asset', 'assetId'], ['generate_image', 'references'], ['remove_background', 'layerId']]) {
       const parameters = sentTools.find(tool => tool.name === name)!.parameters as { properties: Record<string, unknown> };
       assert.ok(Object.hasOwn(parameters.properties, field), `${name}.${field}`);
     }

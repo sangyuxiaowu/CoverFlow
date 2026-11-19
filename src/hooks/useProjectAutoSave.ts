@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
-import type { ProjectState } from '../types.ts';
+import type { ProjectDocument, ProjectState } from '../types.ts';
 import type { StorageAdapter } from '../storage/StorageAdapter.ts';
 import { writeProject } from '../storage/projectCompatibility.ts';
 
-const projectSnapshot = (project: ProjectState) => JSON.stringify(writeProject(project));
+const sameDocument = (left: ProjectDocument | null, right: ProjectDocument) => Boolean(left &&
+  left.id === right.id && left.title === right.title && left.version === right.version &&
+  left.schemaVersion === right.schemaVersion && left.updatedAt === right.updatedAt &&
+  left.pages.length === right.pages.length && left.pages.every((page, index) => {
+    const other = right.pages[index];
+    return page.id === other.id && page.name === other.name && page.layers === other.layers && page.pageInfo === other.pageInfo;
+  }));
 
 type AutoSaveOptions = {
   project: ProjectState | null;
@@ -25,7 +31,7 @@ export function useProjectAutoSave({ project, view, storageAdapter, storageReady
   activeLocalFilePath, saveLocalProjectToFile, clearActiveLocalFilePath, showToast, reportStorageError,
   savedMessage, saveFailedMessage }: AutoSaveOptions) {
   const lastSavedAtRef = useRef(0);
-  const lastSavedSnapshotRef = useRef('');
+  const lastSavedSnapshotRef = useRef<ProjectDocument | null>(null);
   const lastSavedProjectIdRef = useRef<string | null>(null);
   const saveTimerRef = useRef<number | null>(null);
   const latestProjectRef = useRef<ProjectState | null>(null);
@@ -41,12 +47,12 @@ export function useProjectAutoSave({ project, view, storageAdapter, storageReady
     latestProjectRef.current = project;
     if (!project) {
       lastSavedProjectIdRef.current = null;
-      lastSavedSnapshotRef.current = '';
+      lastSavedSnapshotRef.current = null;
       return;
     }
     if (lastSavedProjectIdRef.current !== project.id) {
       lastSavedProjectIdRef.current = project.id;
-      lastSavedSnapshotRef.current = projectSnapshot(project);
+      lastSavedSnapshotRef.current = writeProject(project);
     }
   }, [project]);
 
@@ -67,14 +73,14 @@ export function useProjectAutoSave({ project, view, storageAdapter, storageReady
       return;
     }
 
-    const snapshot = projectSnapshot(currentProject);
-    if (snapshot === lastSavedSnapshotRef.current) return;
+    const snapshot = writeProject(currentProject);
+    if (sameDocument(lastSavedSnapshotRef.current, snapshot)) return;
 
     if (canSaveLocal) {
       saveLocalProjectToFile(activeLocalFilePath!, currentProject).then(nextProject => {
         lastSavedAtRef.current = Date.now();
         lastSavedProjectIdRef.current = nextProject.id;
-        lastSavedSnapshotRef.current = projectSnapshot(nextProject);
+        lastSavedSnapshotRef.current = writeProject(nextProject);
         if (reason === 'manual') showToast(savedMessage);
       }).catch(error => {
         reportStorageError(error, `save-${reason}`, saveFailedMessage, currentProject.id, activeLocalFilePath);
@@ -96,7 +102,7 @@ export function useProjectAutoSave({ project, view, storageAdapter, storageReady
     try {
       await storageAdapter.saveProject(nextProject);
       lastSavedProjectIdRef.current = nextProject.id;
-      lastSavedSnapshotRef.current = projectSnapshot(nextProject);
+      lastSavedSnapshotRef.current = writeProject(nextProject);
     } catch (error) {
       reportStorageError(error, 'persist-project', saveFailedMessage, nextProject.id);
     }

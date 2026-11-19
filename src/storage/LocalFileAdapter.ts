@@ -20,6 +20,19 @@ const PREVIEW_DIR = 'preview';
 type IndexEntry = { name: string; size: number; lastModified: number; project: ProjectSummary; previewStamp?: string };
 type ProjectIndex = { format: 'coverflow-project-index'; version: 1; list: IndexEntry[] };
 
+const sameStoredValue = (left: unknown, right: unknown): boolean => {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => sameStoredValue(item, right[index]));
+  }
+  const leftObject = left as Record<string, unknown>;
+  const rightObject = right as Record<string, unknown>;
+  const keys = Object.keys(leftObject).filter(key => leftObject[key] !== undefined);
+  return keys.length === Object.keys(rightObject).filter(key => rightObject[key] !== undefined).length &&
+    keys.every(key => Object.hasOwn(rightObject, key) && sameStoredValue(leftObject[key], rightObject[key]));
+};
+
 const isIndex = (value: unknown): value is ProjectIndex => {
   if (!value || typeof value !== 'object') return false;
   const index = value as ProjectIndex;
@@ -287,7 +300,7 @@ export class LocalFileAdapter implements StorageAdapter {
           ? await decodeProjectArchiveWithPreviews(await readFileBytes(handle))
           : undefined;
         const stored = archive?.project ?? readLegacyCfj(await readFileText(handle));
-        if (JSON.stringify(writeProject(stored)) !== JSON.stringify(writeProject(project))) return;
+        if (!sameStoredValue(writeProject(stored), writeProject(project))) return;
         let bytes: Uint8Array | undefined;
         if (archive && Object.entries(cached).some(([pageId, preview]) => {
           const previous = archive.previews[pageId];

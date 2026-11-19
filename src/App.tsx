@@ -18,6 +18,7 @@ import AiAssistant from './features/ai/components/AiAssistant.tsx';
 import { createWorkspaceBridge, type WorkspaceOptions } from './features/ai/services/workspace.ts';
 import { executeClipboardTool } from './features/ai/tools/clipboard.ts';
 import { LayerClipboard } from './utils/layerClipboard.ts';
+import { clonePlainData } from './utils/clonePlainData.ts';
 import { updateProjectLayer } from './features/ai/domain/layerOperations.ts';
 import { ensureProjectFonts, projectFontEmbedCSS } from './features/ai/services/fontLoading.ts';
 import { applyRemovalResult } from './utils/backgroundRemovalResult.ts';
@@ -1480,7 +1481,7 @@ const App: React.FC = () => {
       clearActiveLocalFilePath();
       warnIfNewerProject(next);
       latestProjectRef.current = next;
-      setProject(structuredClone(next));
+      setProject(clonePlainData(next));
       setSelectedLayerIds(next.selectedLayerId ? [next.selectedLayerId] : []);
       setView('editor');
       initProjectHistory(next);

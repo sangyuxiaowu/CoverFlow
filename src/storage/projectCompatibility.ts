@@ -51,8 +51,9 @@ export function syncProjectPages(project: ProjectState): ProjectState {
     return { ...project, version: PROJECT_FORMAT_VERSION, pages: [page], activePageId: page.id };
   }
   const active = project.pages.find(page => page.id === project.activePageId) ?? project.pages[0];
-  const pages = project.pages.map(page => page.id !== active.id || (page.layers === project.layers && page.pageInfo === project.pageInfo)
-    ? page : { ...page, layers: project.layers, pageInfo: project.pageInfo });
+  const pages = active.layers === project.layers && active.pageInfo === project.pageInfo
+    ? project.pages
+    : project.pages.map(page => page.id !== active.id ? page : { ...page, layers: project.layers, pageInfo: project.pageInfo });
   return { ...project, version: project.version && compareVersions(project.version, PROJECT_FORMAT_VERSION) >= 0 ? project.version : PROJECT_FORMAT_VERSION, activePageId: active.id, pages };
 }
 

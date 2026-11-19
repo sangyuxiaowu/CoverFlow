@@ -166,9 +166,12 @@ test('writes a generated cover and archive preview only for matching project con
     files.set(`${project.id}.cfjx`, { bytes: await encodeProjectArchive(project), modified: 1 });
     await adapter.listProjectSummaries();
     rememberProjectPreview(project, project.pages![0], preview);
+    const stringify = vi.spyOn(JSON, 'stringify');
     await adapter.saveProjectPreview(project, project.pages![0].id, new Blob([preview]));
     await vi.advanceTimersByTimeAsync(3000);
     await (adapter as unknown as { writeQueue: Promise<void> }).writeQueue;
+    expect(stringify.mock.calls.some(([value]) => value?.id === project.id && Array.isArray(value.pages))).toBe(false);
+    stringify.mockRestore();
     expect((await decodeProjectArchiveWithPreviews(files.get(`${project.id}.cfjx`)!.bytes)).previews[project.pages![0].id]).toEqual(preview);
     expect(files.get(`preview/${project.id}.webp`)?.bytes).toEqual(preview);
     expect((await adapter.getProjectPreview(project.id))?.size).toBe(preview.length);
@@ -184,6 +187,14 @@ test('writes a generated cover and archive preview only for matching project con
     await (adapter as unknown as { writeQueue: Promise<void> }).writeQueue;
     expect((await decodeProjectArchiveWithPreviews(files.get(`${project.id}.cfjx`)!.bytes)).project.title).toBe('Changed');
     expect((await decodeProjectArchiveWithPreviews(files.get(`${project.id}.cfjx`)!.bytes)).previews).toEqual({});
+    const changedPage = { ...project, pageInfo: { ...project.pageInfo, width: 200 } };
+    files.set(`${project.id}.cfjx`, { bytes: await encodeProjectArchive(changedPage, {}), modified: 30 });
+    await adapter.saveProjectPreview(project, project.pages![0].id, new Blob([preview]));
+    await vi.advanceTimersByTimeAsync(3000);
+    await (adapter as unknown as { writeQueue: Promise<void> }).writeQueue;
+    const stored = await decodeProjectArchiveWithPreviews(files.get(`${project.id}.cfjx`)!.bytes);
+    expect(stored.project.pageInfo.width).toBe(200);
+    expect(stored.previews).toEqual({});
   } finally { vi.useRealTimers(); }
 });
 

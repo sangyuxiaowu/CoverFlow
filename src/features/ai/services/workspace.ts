@@ -7,6 +7,7 @@ import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
 import { copyProject } from '../../../utils/projectPages.ts';
 import type { AiProjectHistory } from '../../../hooks/useProjectHistory.ts';
 import type { LayerClipboard } from '../../../utils/layerClipboard.ts';
+import { clonePlainData } from '../../../utils/clonePlainData.ts';
 
 export interface WorkspaceOptions {
   project: ProjectState | null;
@@ -85,7 +86,7 @@ export function createWorkspaceBridge(
   const open = async (project: ProjectState, localPath?: string) => {
     await flush();
     const opened = await read().onOpen(project, localPath);
-    current = structuredClone(opened || project);
+    current = clonePlainData(opened || project);
   };
   return {
     confirm,

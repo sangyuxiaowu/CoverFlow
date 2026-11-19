@@ -56,21 +56,28 @@ const mapImages = async (document: ProjectDocument, transform: (value: string) =
 export async function encodeProjectArchive(project: ProjectState, previews: Record<string, Uint8Array> = projectPreviews(project)): Promise<Uint8Array> {
   const zip = new JSZip();
   const files = new Set<string>();
+  const images = new Map<string, Promise<string>>();
   let expandedSize = 0;
   const document = await mapImages(writeProject(project), async value => {
     if (!value.startsWith('data:')) return value;
-    const match = /^data:image\/([a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i.exec(value);
-    if (!match) throw new Error('Unsupported embedded image data URL.');
-    const bytes = fromBase64(match[2]);
-    if (bytes.length > MAX_IMAGE_SIZE) throw new Error('Embedded image exceeds the size limit.');
-    const path = `images/${await digest(bytes)}.${match[1].toLowerCase()}`;
-    if (!files.has(path)) {
-      expandedSize += bytes.length;
-      if (expandedSize > MAX_EXPANDED_SIZE) throw new Error('Project archive expands beyond the size limit.');
-      zip.file(path, bytes, { compression: 'STORE' });
-      files.add(path);
-    }
-    return IMAGE_REFERENCE + path;
+    const existing = images.get(value);
+    if (existing) return existing;
+    const encoding = (async () => {
+      const match = /^data:image\/([a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i.exec(value);
+      if (!match) throw new Error('Unsupported embedded image data URL.');
+      const bytes = fromBase64(match[2]);
+      if (bytes.length > MAX_IMAGE_SIZE) throw new Error('Embedded image exceeds the size limit.');
+      const path = `images/${await digest(bytes)}.${match[1].toLowerCase()}`;
+      if (!files.has(path)) {
+        expandedSize += bytes.length;
+        if (expandedSize > MAX_EXPANDED_SIZE) throw new Error('Project archive expands beyond the size limit.');
+        zip.file(path, bytes, { compression: 'STORE' });
+        files.add(path);
+      }
+      return IMAGE_REFERENCE + path;
+    })();
+    images.set(value, encoding);
+    return encoding;
   });
   const sourcePages = writeProject(project).pages;
   const previewFingerprints = sourcePages.map(page => {

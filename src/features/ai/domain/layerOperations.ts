@@ -1,5 +1,6 @@
 import type { Layer, ProjectState } from '../../../types.ts';
 import { generateId } from '../../../utils/helpers.ts';
+import { clonePlainData } from '../../../utils/clonePlainData.ts';
 import {
   computeCroppedLayerGeometry,
   hasActiveImageCrop,
@@ -132,8 +133,8 @@ export function editLayers(project: ProjectState, action: LayerAction, ids: stri
   const selected = [...new Set(ids)].map(id => {
     const layer = project.layers.find(item => item.id === id);
     if (!layer) throw new Error('Layer not found: ' + id);
-    return layer;
-  });
+      return layer;
+    });
   if (!selected.length) throw new Error('Select at least one layer.');
   const expanded = new Set(selected.flatMap(layer => [layer.id, ...(layer.children || [])]));
   if (action !== 'update' || Object.keys(patch).some(key => key !== 'locked')) {
@@ -141,7 +142,7 @@ export function editLayers(project: ProjectState, action: LayerAction, ids: stri
       throw new Error('Unlock the layers before editing.');
     }
   }
-  let result = structuredClone(project);
+  let result = { ...project, layers: [...project.layers] };
   if (action === 'update') {
     selected.filter(layer => !layer.parentId || !expanded.has(layer.parentId)).forEach(layer => { result = updateProjectLayer(result, layer.id, patch); });
   } else if (action === 'delete') {
@@ -153,7 +154,7 @@ export function editLayers(project: ProjectState, action: LayerAction, ids: stri
     const idMap = new Map([...expanded].map(id => [id, generateId()]));
     const baseZ = Math.max(0, ...result.layers.map(layer => layer.zIndex));
     const clones = result.layers.filter(layer => expanded.has(layer.id)).map((layer, index) => ({
-      ...layer, id: idMap.get(layer.id)!, name: layer.name + ' (copy)', x: layer.x + 20, y: layer.y + 20, zIndex: baseZ + index + 1,
+      ...clonePlainData(layer), id: idMap.get(layer.id)!, name: layer.name + ' (copy)', x: layer.x + 20, y: layer.y + 20, zIndex: baseZ + index + 1,
       parentId: layer.parentId ? idMap.get(layer.parentId) : undefined,
       ...(layer.children ? { children: layer.children.map(id => idMap.get(id)!) } : {})
     }));

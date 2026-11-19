@@ -49,6 +49,17 @@ describe('project archive', () => {
     } finally { vi.unstubAllGlobals(); }
   });
 
+  it('encodes shared images once even when referenced concurrently', async () => {
+    const project = readLegacyCfj(legacy);
+    const nativeDigest = vi.fn(async (_algorithm: string, value: Uint8Array) => Uint8Array.from(hashes.sha256(value)).buffer);
+    vi.stubGlobal('crypto', { subtle: { digest: nativeDigest } });
+    try {
+      const bytes = await encodeProjectArchive(project);
+      expect(nativeDigest).toHaveBeenCalledTimes(1);
+      expect(await decodeProjectArchive(bytes)).toEqual(project);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it('uses native SHA-256 and falls back when it fails', async () => {
     const project = readLegacyCfj(legacy);
     const nativeDigest = vi.fn(async (_algorithm: string, value: Uint8Array) => Uint8Array.from(hashes.sha256(value)).buffer);

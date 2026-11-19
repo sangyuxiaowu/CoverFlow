@@ -43,6 +43,8 @@ describe('project format upgrades', () => {
     expect(document).not.toHaveProperty('activePageId');
     expect(readProject(document).activePageId).toBe(project.pages![0].id);
     expect(syncProjectPages(project).pages![0]).toBe(project.pages![0]);
+    expect(syncProjectPages({ ...project, selectedLayerId: 'selection' }).pages).toBe(project.pages);
+    expect(syncProjectPages({ ...project, layers: [...project.layers] }).pages).not.toBe(project.pages);
   });
 
   it('initializes a newly created 9.0 editor project before persistence', () => {

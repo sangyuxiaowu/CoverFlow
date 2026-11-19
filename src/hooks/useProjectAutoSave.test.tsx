@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useProjectAutoSave } from './useProjectAutoSave.ts';
 import type { ProjectState } from '../types.ts';
+import { selectProjectPage } from '../utils/projectPages.ts';
 
 type Options = Parameters<typeof useProjectAutoSave>[0];
 const initial: ProjectState = { id: 'project', title: 'Initial', layers: [], selectedLayerId: null, updatedAt: 1, pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } }, activePageId: 'page', pages: [{ id: 'page', name: '', layers: [], pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } }] };
@@ -65,7 +66,30 @@ it.each(['indexeddb', 'localfile'] as const)('coalesces %s writes for five secon
   await act(async () => vi.advanceTimersByTime(1));
   expect(save).toHaveBeenCalledTimes(2);
   expect(save.mock.calls[1][0].title).toBe('Latest');
-  expect(stringify).toHaveBeenCalledOnce();
+  expect(stringify).not.toHaveBeenCalled();
+});
+
+it('ignores selection changes but saves distinct content with the same timestamp', async () => {
+  const harness = await mount();
+  const save = vi.mocked(harness.options.storageAdapter.saveProject);
+  await harness.render({ project: { ...initial, selectedLayerId: 'selected' } });
+  expect(save).not.toHaveBeenCalled();
+  const changed = { ...initial, layers: [{ id: 'image', type: 'image', content: 'data:image/png;base64,AAAA' }] } as ProjectState;
+  await harness.render({ project: changed });
+  expect(save).toHaveBeenCalledTimes(1);
+  await harness.render({ project: { ...changed, layers: [...changed.layers] } });
+  await act(async () => vi.advanceTimersByTime(5000));
+  expect(save).toHaveBeenCalledTimes(2);
+});
+
+it('does not save when navigating between unchanged pages', async () => {
+  const first = { ...initial.pages![0], layers: initial.layers, pageInfo: initial.pageInfo };
+  const second = { ...first, id: 'second', layers: [] };
+  const project = { ...initial, pages: [first, second] };
+  const harness = await mount({ project });
+  await harness.render({ project: selectProjectPage(project, second.id) });
+  await act(async () => vi.advanceTimersByTime(5000));
+  expect(harness.options.storageAdapter.saveProject).not.toHaveBeenCalled();
 });
 
 it('manual and unload saves bypass the delay without saving an unchanged snapshot again', async () => {

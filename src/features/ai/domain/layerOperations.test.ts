@@ -7,6 +7,25 @@ import { clampFloatingRect } from 'sang-ai-kit/floating-geometry';
 const layer = (id: string, x: number): Layer => ({ id, name: id, type: 'text', content: id, x, y: 20, width: 100, height: 50, rotation: 0, zIndex: x, visible: true, locked: false, opacity: 1 });
 const project = (): ProjectState => ({ id: 'project', title: 'Cover', layers: [layer('a', 0), layer('b', 200), layer('c', 500)], pageInfo: { ...({ width: 800, height: 600 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } }, selectedLayerId: 'a', updatedAt: 0 });
 
+test('layer actions preserve other pages and never mutate the original project', () => {
+  const original = project();
+  const page = { id: 'other', name: 'Other', layers: [layer('other-image', 0)], pageInfo: original.pageInfo };
+  page.layers[0] = { ...page.layers[0], type: 'image', content: 'data:image/png;base64,AAAA' };
+  original.pages = [{ id: 'active', name: 'Active', layers: original.layers, pageInfo: original.pageInfo }, page];
+  original.activePageId = 'active';
+  const snapshot = structuredClone(original);
+  for (const [action, ids, patch, mode] of [
+    ['update', ['a'], { x: 10 }, undefined], ['delete', ['a'], {}, undefined],
+    ['duplicate', ['a'], {}, undefined], ['group', ['a', 'b'], {}, undefined],
+    ['front', ['a'], {}, undefined], ['forward', ['a'], {}, undefined],
+    ['align', ['a'], {}, 'center'], ['distribute', ['a', 'b', 'c'], {}, 'horizontal']
+  ] as const) {
+    const next = editLayers(original, action, [...ids], patch, mode);
+    assert.strictEqual(next.pages![1], page);
+    assert.deepEqual(original, snapshot);
+  }
+});
+
 test('background removal status survives ordinary edits and resets for a replacement image', () => {
   const original = project();
   original.layers[0] = { ...original.layers[0], type: 'image', backgroundRemoved: true };
@@ -43,6 +62,16 @@ test('group duplication remaps parent and child IDs', () => {
     assert.equal(cloned.layers.find(item => item.id === id)!.parentId, group.id);
   });
   assert.equal(cloned.layers.length, 7);
+});
+
+test('duplicate layers do not share mutable nested properties', () => {
+  const original = project();
+  original.layers[0].textShadow = { enabled: true, color: '#000', blur: 1, offsetX: 2, offsetY: 3 };
+  const result = editLayers(original, 'duplicate', ['a']);
+  const copy = result.layers.find(item => item.id === result.selectedLayerId)!;
+  copy.textShadow!.blur = 99;
+  assert.equal(original.layers[0].textShadow!.blur, 1);
+  assert.equal(result.layers[0].textShadow!.blur, 1);
 });
 
 test('deleting children removes empty groups and stale selection', () => {

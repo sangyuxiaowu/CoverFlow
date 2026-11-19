@@ -6,6 +6,7 @@ import { useProjectHistory } from './useProjectHistory.ts';
 import type { ProjectState } from '../types.ts';
 import { syncProjectPages } from '../storage/projectCompatibility.ts';
 import { insertProjectPage, selectProjectPage } from '../utils/projectPages.ts';
+import { editLayers } from '../features/ai/domain/layerOperations.ts';
 
 it('keeps image payloads out of structured clones across 40 generated images while isolating mutable fields', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -159,6 +160,42 @@ it('does not record navigation or selection as edits and preserves the active pa
     expect(state!.project!.pages![1]).toBeDefined();
   } finally {
     await act(async () => root.unmount());
+    vi.unstubAllGlobals();
+  }
+});
+
+it('retains unchanged pages through repeated AI edits and restores history', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const image = { id: 'image', name: 'Image', type: 'image' as const, content: `data:image/png;base64,${'A'.repeat(400_000)}`,
+    x: 0, y: 0, width: 100, height: 100, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 };
+  const withSecondPage = insertProjectPage(syncProjectPages({ id: 'ai-images', title: 'Images', layers: [image], selectedLayerId: null, updatedAt: 1,
+    pageInfo: { width: 100, height: 100, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } }), 'Second');
+  const initial = selectProjectPage(withSecondPage, withSecondPage.pages![0].id);
+  let state: ReturnType<typeof useProjectHistory> & { project: ProjectState | null };
+  function Harness() {
+    const [project, setProject] = useState<ProjectState | null>(initial);
+    state = { ...useProjectHistory(project, setProject), project };
+    return null;
+  }
+  const root = createRoot(document.createElement('div'));
+  const clone = vi.spyOn(globalThis, 'structuredClone');
+  try {
+    await act(async () => root.render(<Harness />));
+    await act(async () => state!.initProjectHistory(initial));
+    const unchangedPage = state!.project!.pages![1];
+    for (let index = 1; index <= 30; index++) {
+      await act(async () => state!.aiHistory.commit(syncProjectPages(editLayers(state!.project!, 'update', ['image'], { x: index }))));
+      expect(state!.project!.pages![1]).toBe(unchangedPage);
+    }
+    expect(clone).not.toHaveBeenCalled();
+    await act(async () => state!.handleUndo());
+    expect(state!.project!.layers[0].x).toBe(29);
+    expect(state!.project!.layers[0].content).toBe(image.content);
+    await act(async () => state!.handleRedo());
+    expect(state!.project!.layers[0].x).toBe(30);
+  } finally {
+    await act(async () => root.unmount());
+    clone.mockRestore();
     vi.unstubAllGlobals();
   }
 });

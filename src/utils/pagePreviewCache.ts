@@ -16,7 +16,7 @@ export function serializePagePreview(page: ProjectPage): string {
   const layers = page.layers.filter(layer => layer.visible && layer.type !== 'group').sort((left, right) => left.zIndex - right.zIndex)
     .map(layer => Object.fromEntries(Object.entries(layer).filter(([key]) => !metadata.has(key))));
   return JSON.stringify(canonical({ schema: 2, maxEdge: PAGE_PREVIEW_EDGE, quality: 0.65,
-    canvas: { width: page.canvasConfig.width, height: page.canvasConfig.height }, background: page.background, layers }));
+    canvas: { width: page.pageInfo.width, height: page.pageInfo.height }, background: page.pageInfo.background, layers }));
 }
 
 export async function pagePreviewKey(page: ProjectPage): Promise<string> {

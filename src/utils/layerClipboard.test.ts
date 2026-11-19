@@ -5,7 +5,7 @@ import { syncProjectPages } from '../storage/projectCompatibility.ts';
 import { LayerClipboard } from './layerClipboard.ts';
 
 const layer = (id: string, changes: Partial<Layer> = {}): Layer => ({ id, name: id, type: 'text', content: 'content', x: 1, y: 2, width: 30, height: 40, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, ...changes });
-const project = (id: string, layers: Layer[]): ProjectState => syncProjectPages({ id, title: id, layers, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 }, canvasConfig: { width: 100, height: 100, ratio: '1:1' }, selectedLayerId: null, updatedAt: 0 });
+const project = (id: string, layers: Layer[]): ProjectState => syncProjectPages({ id, title: id, layers, pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } }, selectedLayerId: null, updatedAt: 0 });
 
 test('clipboard resolves live group contents, deduplicates and remaps hierarchy in stacking order', async () => {
   const clipboard = new LayerClipboard();

@@ -9,9 +9,7 @@ const original: Layer = { id: 'source', type: 'image', name: 'Photo', content: '
   x: 20, y: 30, width: 200, height: 300, rotation: 25, zIndex: 1, visible: true, locked: false, opacity: 0.7 };
 const output = new Blob(['output'], { type: 'image/png' });
 function setup() {
-  let project: ProjectState = syncProjectPages({ id: 'project', title: 'Test', updatedAt: 0, selectedLayerId: null, layers: [{ ...original }],
-    canvasConfig: { width: 1200, height: 630, ratio: '40:21' },
-    background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 1 } });
+  let project: ProjectState = syncProjectPages({ id: 'project', title: 'Test', updatedAt: 0, selectedLayerId: null, layers: [{ ...original }], pageInfo: { ...({ width: 1200, height: 630 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 1 } } });
   const commit = vi.fn(async (next: ProjectState) => { project = next; });
   const bridge: WorkspaceBridge = { getProject: () => project, getSelection: () => ['source'], manageProjects: async () => {}, commit };
   const tools = createImageToolExtensions(bridge);

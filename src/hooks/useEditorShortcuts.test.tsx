@@ -119,8 +119,10 @@ it('dispatches clipboard formats and removes both listeners on unmount', async (
   expect(harness.options.addTextLayerWithContent).toHaveBeenCalledWith('text');
   expect(harness.options.addSvgLayerWithContent).toHaveBeenCalledWith('<svg></svg>');
   expect(harness.options.applyProjectFromJson).toHaveBeenCalledWith({ layers: [] });
-  paste(JSON.stringify({ id: 'import', title: 'Imported', version: '9.0.0', updatedAt: 1, pages: [{ id: 'first', name: '', layers: [], background: { type: 'color', value: '#123456' }, canvasConfig: { width: 900, height: 383, ratio: '2.35:1' } }] }));
-  expect(harness.options.applyProjectFromJson).toHaveBeenLastCalledWith(expect.objectContaining({ activePageId: 'first', background: { type: 'color', value: '#123456' }, layers: [] }));
+  paste(JSON.stringify({ id: 'import', title: 'Imported', version: '9.0.0', updatedAt: 1, pages: [{ id: 'first', name: '', layers: [], pageInfo: { ...({ width: 900, height: 383 }), background: { type: 'color', value: '#123456' } } }] }));
+  expect(harness.options.applyProjectFromJson).toHaveBeenLastCalledWith(expect.objectContaining({ activePageId: 'first', pageInfo: { width: 900, height: 383, background: { type: 'color', value: '#123456' } }, layers: [] }));
+  paste(JSON.stringify({ canvasConfig: { width: 640, height: 480, ratio: '4:3' }, background: { type: 'color', value: '#abcdef' } }));
+  expect(harness.options.applyProjectFromJson).toHaveBeenLastCalledWith({ pageInfo: { width: 640, height: 480, background: { type: 'color', value: '#abcdef' } } });
   await act(async () => harness.root.unmount());
   roots.delete(harness.root);
   key('Delete');

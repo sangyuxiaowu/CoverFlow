@@ -12,6 +12,7 @@
     "build:cloud": "vite build --mode cloud",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "convert:cfj": "bun run scripts/convert-cfj.ts",
     "prebuild:tauri": "node scripts/sync-tauri-version.cjs && node node_modules/@tauri-apps/cli/tauri.js icon --output src-tauri/icons doc/app.svg",
     "build:tauri": "tauri build",
     "release": "node scripts/release.cjs",
@@ -19,6 +20,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@noble/hashes": "^2.4.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tauri-apps/api": "2.12.4",
     "@tauri-apps/plugin-dialog": "2.6.0",

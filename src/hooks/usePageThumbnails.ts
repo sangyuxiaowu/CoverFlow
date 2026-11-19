@@ -10,8 +10,7 @@ const persisted = new PagePreviewCache();
 
 interface CachedThumbnail {
   layers: ProjectPage['layers'];
-  background: ProjectPage['background'];
-  canvasConfig: ProjectPage['canvasConfig'];
+  pageInfo: ProjectPage['pageInfo'];
   url: string;
 }
 
@@ -56,7 +55,7 @@ export function usePageThumbnails(project: ProjectState | null) {
         completed.add(position);
         const page = pages[position];
         const previous = cache.current.get(page.id);
-        if (previous?.layers === page.layers && previous.background === page.background && previous.canvasConfig === page.canvasConfig) continue;
+        if (previous?.layers === page.layers && previous.pageInfo === page.pageInfo) continue;
         let url = '';
         try {
           await waitForPreviewIdle(controller.signal);
@@ -94,7 +93,7 @@ export function usePageThumbnails(project: ProjectState | null) {
           console.warn('[CoverFlow thumbnail]', page.id, error);
         }
         if (previous?.url) URL.revokeObjectURL(previous.url);
-        cache.current.set(page.id, { layers: page.layers, background: page.background, canvasConfig: page.canvasConfig, url });
+        cache.current.set(page.id, { layers: page.layers, pageInfo: page.pageInfo, url });
         publish();
       }
     }, 350);

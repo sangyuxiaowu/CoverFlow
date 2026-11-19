@@ -78,9 +78,7 @@ it('reports download errors and permits retry without retaining a failed stylesh
 
 it.each(['changed', 'aborted'])('does not commit an AI layer after font loading when the project is %s', async reason => {
   const { executeTool } = await import('../tools/execute.ts');
-  const original: ProjectState = { id: 'p1', title: 'Test', layers: [], selectedLayerId: null, updatedAt: 0,
-    canvasConfig: { width: 800, height: 600, ratio: '4:3' },
-    background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } };
+  const original: ProjectState = { id: 'p1', title: 'Test', layers: [], selectedLayerId: null, updatedAt: 0, pageInfo: { ...({ width: 800, height: 600 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } } };
   let current = original;
   const commit = vi.fn();
   const bridge: WorkspaceBridge = { getProject: () => current, getSelection: () => [], commit, manageProjects: async () => {} };

@@ -270,13 +270,8 @@ test('background removal registers the host schema and reports missing attachmen
   const originalFetch = globalThis.fetch;
   const requests: Record<string, any>[] = [];
   const events: ToolEvent[] = [];
-  const project: ProjectState = {
-    id: 'removal-project', title: 'Test', updatedAt: 0, selectedLayerId: 'image',
-    layers: [{ id: 'image', name: 'Photo', type: 'image', content: 'data:image/png;base64,AA==',
-      x: 0, y: 0, width: 100, height: 100, rotation: 0, opacity: 1, zIndex: 1, visible: true, locked: false }],
-    canvasConfig: { width: 800, height: 600, ratio: '4:3' },
-    background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 1 }
-  };
+  const project: ProjectState = { id: 'removal-project', title: 'Test', updatedAt: 0, selectedLayerId: 'image', layers: [{ id: 'image', name: 'Photo', type: 'image', content: 'data:image/png;base64,AA==',
+      x: 0, y: 0, width: 100, height: 100, rotation: 0, opacity: 1, zIndex: 1, visible: true, locked: false }], pageInfo: { ...({ width: 800, height: 600 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 1 } } };
   let commits = 0;
   globalThis.fetch = async (_url, options) => {
     requests.push(JSON.parse(options!.body as string));
@@ -474,7 +469,7 @@ test('selected image layers are sent as WebP input only to vision models', async
   };
   try {
     const imageLayer = { id: 'image-1', name: 'Photo', type: 'image' as const, content: 'data:image/png;base64,iVBORw0KGgo=', x: 10, y: 20, width: 300, height: 200, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 };
-    const project: ProjectState = syncProjectPages({ id: 'p1', title: 'Test', updatedAt: 0, selectedLayerId: imageLayer.id, layers: [imageLayer], canvasConfig: { width: 800, height: 600, ratio: '4:3' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } });
+    const project: ProjectState = syncProjectPages({ id: 'p1', title: 'Test', updatedAt: 0, selectedLayerId: imageLayer.id, layers: [imageLayer], pageInfo: { ...({ width: 800, height: 600 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
     const image = new Blob(['webp-bytes'], { type: 'image/webp' });
     let previewRequests = 0;
     const saved: string[] = [];
@@ -957,9 +952,7 @@ test.each([
   ['manage_projects', '{']
 ])('navigation failures skip all remaining calls only in their batch: %s %s', async (name, args) => {
   const originalFetch = globalThis.fetch;
-  let project = syncProjectPages({ id: 'project', title: 'Test', layers: [], selectedLayerId: null, updatedAt: 0,
-    canvasConfig: { width: 800, height: 600, ratio: '4:3' },
-    background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } });
+  let project = syncProjectPages({ id: 'project', title: 'Test', layers: [], selectedLayerId: null, updatedAt: 0, pageInfo: { ...({ width: 800, height: 600 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } } });
   const pageId = project.activePageId;
   const events: ToolEvent[] = [];
   let history: ResponseItem[] = [];
@@ -967,7 +960,7 @@ test.each([
   let previews = 0;
   const widths: number[] = [];
   const currentBridge: WorkspaceBridge = { ...bridge, getProject: () => project,
-    commit: async next => { project = syncProjectPages(next); widths.push(project.canvasConfig.width); },
+    commit: async next => { project = syncProjectPages(next); widths.push(project.pageInfo.width); },
     manageProjects: async () => { throw new Error('Project navigation failed.'); },
     getCanvasPreview: async () => { previews++; return new Blob(['preview'], { type: 'image/webp' }); }
   };

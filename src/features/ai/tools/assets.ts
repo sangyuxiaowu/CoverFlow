@@ -98,13 +98,13 @@ export async function executeAssetTool(name: 'search_assets' | 'place_asset', in
   }
   const scale = requestedWidth !== undefined ? requestedWidth / sourceWidth
     : requestedHeight !== undefined ? requestedHeight / sourceHeight
-      : Math.min(1, 300 / sourceWidth, 300 / sourceHeight, project.canvasConfig.width / sourceWidth, project.canvasConfig.height / sourceHeight);
+      : Math.min(1, 300 / sourceWidth, 300 / sourceHeight, project.pageInfo.width / sourceWidth, project.pageInfo.height / sourceHeight);
   const width = Math.max(1, sourceWidth * scale);
   const height = Math.max(1, sourceHeight * scale);
   const layer: Layer = {
     id: generateId(), name: entry.name, type: entry.type, content,
-    x: x ?? (project.canvasConfig.width - width) / 2,
-    y: y ?? (project.canvasConfig.height - height) / 2,
+    x: x ?? (project.pageInfo.width - width) / 2,
+    y: y ?? (project.pageInfo.height - height) / 2,
     width, height, rotation: 0, opacity: 1, visible: true, locked: false, ratioLocked: true,
     zIndex: Math.max(0, ...project.layers.map(item => item.zIndex)) + 1,
     ...(entry.type === 'image' ? { imageSource: assetId, imageDescription: entry.name } : {})

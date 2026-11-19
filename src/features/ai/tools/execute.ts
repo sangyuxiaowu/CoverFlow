@@ -34,9 +34,9 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
   }
   const project = bridge.getProject();
   if (name === 'get_context') return project ? {
-    projectId: project.id, title: project.title, canvas: project.canvasConfig,
+    projectId: project.id, title: project.title,
     ...pageContext(project),
-    background: { ...project.background, value: project.background.value.startsWith('data:') ? '[embedded image]' : project.background.value },
+    pageInfo: { ...project.pageInfo, background: { ...project.pageInfo.background, value: project.pageInfo.background.value.startsWith('data:') ? '[embedded image]' : project.pageInfo.background.value } },
     selectedLayerIds: bridge.getSelection(),
     layers: project.layers.map(({ id, name, type, x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked, parentId, children }) => ({
       id, name, type, parentId, layerInfo: { x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked }, ...(type === 'group' && children ? { group: { children } } : {})

@@ -7,6 +7,7 @@ import type { ProjectBrowserProps } from './ProjectBrowser.tsx';
 import type { ProjectState } from '../types.ts';
 import { translations } from '../translations.ts';
 import { getStoredProjectViewLayout, getStoredTimeGroupingMode } from '../storage/storage.ts';
+import { formatCanvasRatio } from '../utils/helpers.ts';
 
 type ItemProps = {
   project: ProjectState;
@@ -31,11 +32,7 @@ vi.mock('../components/pwa/PWAInstallButton.tsx', () => ({ PWAInstallButton: () 
 const roots = new Set<Root>();
 const t = translations.en;
 const today = new Date(2026, 9, 18, 12).getTime();
-const makeProject = (id: string, title: string, updatedAt: number): ProjectState => ({
-  id, title, updatedAt, layers: [], selectedLayerId: null,
-  background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 },
-  canvasConfig: { width: 100, height: 100, ratio: '1:1' }
-});
+const makeProject = (id: string, title: string, updatedAt: number): ProjectState => ({ id, title, updatedAt, layers: [], selectedLayerId: null, pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
 const older = makeProject('old', 'Older cover', today - 90 * 86400000);
 const recent = makeProject('recent', 'Recent cover', today);
 const local = { project: makeProject('local', 'Local cover', today - 86400000), source: 'local' as const, localPath: 'cover.cfj' };
@@ -143,7 +140,7 @@ it('uses consistent readable page-count badges in actual cards and rows, hiding 
   for (const Item of [ProjectCard, ProjectListItem]) {
     for (const count of [1, 6, 99]) {
       const project = makeProject('badge', 'Cover', today);
-      project.pages = Array.from({ length: count }, (_, index) => ({ id: `page-${index}`, name: '', layers: [], background: project.background, canvasConfig: project.canvasConfig }));
+      project.pages = Array.from({ length: count }, (_, index) => ({ id: `page-${index}`, name: '', layers: [], pageInfo: { ...(project.pageInfo), background: project.pageInfo.background } }));
       for (const lang of ['zh', 'en'] as const) {
         await act(async () => root.render(<Item project={project} lang={lang} onClick={() => {}} onDelete={() => {}} onDownloadJson={() => {}} onDownloadImage={() => {}} onDuplicate={() => {}} />));
         const badge = container.querySelector('[role="img"]');
@@ -154,7 +151,7 @@ it('uses consistent readable page-count badges in actual cards and rows, hiding 
           expect(badge?.getAttribute('title')).toBe(badge?.getAttribute('aria-label'));
           expect(badge?.textContent).toBe(`${count}P`);
           expect(badge?.querySelector('svg')).toBeNull();
-          expect(badge?.nextElementSibling?.textContent?.trim()).toBe(project.canvasConfig.ratio);
+          expect(badge?.nextElementSibling?.textContent?.trim()).toBe(formatCanvasRatio(project.pageInfo.width, project.pageInfo.height));
           expect(badge?.className).toBe(badge?.nextElementSibling?.className);
         }
       }

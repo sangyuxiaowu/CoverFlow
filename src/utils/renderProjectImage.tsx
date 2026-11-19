@@ -40,7 +40,7 @@ async function renderImage(project: ProjectState, options: RenderImageOptions): 
   };
   await wait(ensureProjectFonts(project));
   await yieldForInput();
-  const { width, height } = project.canvasConfig;
+  const { width, height } = project.pageInfo;
   const host = document.createElement('div');
   Object.assign(host.style, { position: 'fixed', left: '-100000px', top: '0', width: `${width}px`, height: `${height}px`, pointerEvents: 'none' });
   host.setAttribute('aria-hidden', 'true');

@@ -337,12 +337,12 @@ const buildDecorationLayerSvg = (layer: Layer): string => {
 };
 
 export const buildProjectSvg = (project: ProjectState): string => {
-  const { width, height } = project.canvasConfig;
+  const { width, height } = project.pageInfo;
   const allDefs: string[] = [
     `<clipPath id="cf-canvas-clip"><rect width="${width}" height="${height}" /></clipPath>`
   ];
 
-  const bgResult = buildBackgroundSvg(project.background, width, height);
+  const bgResult = buildBackgroundSvg(project.pageInfo.background, width, height);
   allDefs.push(...bgResult.defs);
 
   const layerElements: string[] = [];

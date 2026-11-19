@@ -29,11 +29,7 @@ function directory(name: string, entries: Record<string, FileSystemHandle> = {})
 }
 
 function setup() {
-  let project: ProjectState | null = {
-    id: 'p1', title: 'Assets', layers: [], selectedLayerId: null, updatedAt: 0,
-    canvasConfig: { width: 1200, height: 600, ratio: '2:1' },
-    background: { type: 'color', value: '#ffffff', overlayType: 'none', overlayColor: '#000000', overlayOpacity: 0, overlayScale: 20 }
-  };
+  let project: ProjectState | null = { id: 'p1', title: 'Assets', layers: [], selectedLayerId: null, updatedAt: 0, pageInfo: { ...({ width: 1200, height: 600 }), background: { type: 'color', value: '#ffffff', overlayType: 'none', overlayColor: '#000000', overlayOpacity: 0, overlayScale: 20 } } };
   const logo = fileHandle('logo.svg', brandSvg);
   const photo = fileHandle('photo.png', new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0]));
   const root = directory('assets', { 'Brand-品牌': directory('Brand-品牌', { 'logo.svg': logo, 'photo.png': photo }) });

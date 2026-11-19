@@ -70,7 +70,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
   const isSvg = settings.format === 'svg' || isHtml;
   const isPng = settings.format === 'png';
   const isPpt = settings.format === 'pptx';
-  const pixelRatio = getExportPixelRatio(project.canvasConfig.width, project.canvasConfig.height, settings);
+  const pixelRatio = getExportPixelRatio(project.pageInfo.width, project.pageInfo.height, settings);
   const pages = project.pages ?? [];
   const selectedIds = range === 'all' ? pages.map(page => page.id) : selectedPageIds.filter(id => pages.some(page => page.id === id));
   const previewPages = range === 'current' ? pages : pages.filter(page => selectedIds.includes(page.id));
@@ -90,11 +90,11 @@ const ExportModal: React.FC<ExportModalProps> = ({
   };
 
   const outputWidth = isSvg
-    ? project.canvasConfig.width
-    : Math.round(project.canvasConfig.width * pixelRatio);
+    ? project.pageInfo.width
+    : Math.round(project.pageInfo.width * pixelRatio);
   const outputHeight = isSvg
-    ? project.canvasConfig.height
-    : Math.round(project.canvasConfig.height * pixelRatio);
+    ? project.pageInfo.height
+    : Math.round(project.pageInfo.height * pixelRatio);
 
   return (
     <div

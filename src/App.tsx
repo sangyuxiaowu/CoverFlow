@@ -43,10 +43,12 @@ import {
 import { translations, Language } from './translations.ts';
 import { getAssetFolder } from './storage/assets.ts';
 import { PRESET_RATIOS } from './constants.ts';
-import { generateId, downloadFile, normalizeSVG, isNewerProjectVersion } from './utils/helpers.ts';
+import { generateId, normalizeSVG, isNewerProjectVersion, formatCanvasRatio } from './utils/helpers.ts';
 import { buildProjectSvg } from './utils/svgExport.ts';
 import { buildHtmlSvg } from './utils/htmlExport.ts';
-import { readProject, syncProjectPages, writeProject } from './storage/projectCompatibility.ts';
+import { readProject, syncProjectPages } from './storage/projectCompatibility.ts';
+import { decodeProjectArchive, encodeProjectArchive } from './storage/projectArchive.ts';
+import { readLegacyCfj } from './storage/legacyCfj.ts';
 import { copyProject, deleteProjectPage, insertProjectPage, moveProjectPage, pageNumber, renameProjectPage, selectProjectPage } from './utils/projectPages.ts';
 import { exportProjectPages, getExportPixelRatio, type PageExportSettings } from './utils/exportPages.ts';
 import { clampDecorationSize } from './utils/decorationStyles.ts';
@@ -61,7 +63,6 @@ import * as htmlToImage from 'html-to-image';
 import packageInfo from '../package.json';
 
 const APP_VERSION = packageInfo.version;
-const GITHUB_REPO_URL = 'https://github.com/sangyuxiaowu/CoverFlow';
 const isCloudMode = import.meta.env.VITE_APP_MODE === 'cloud';
 const CLOUD_PAGE_SIZE = 9;
 
@@ -367,11 +368,11 @@ const App: React.FC = () => {
         bgCropAreaPixels,
         bgCropRotation,
         bgCropFlip,
-        { width: project.canvasConfig.width, height: project.canvasConfig.height }
+        { width: project.pageInfo.width, height: project.pageInfo.height }
       );
       modifyProject(p => p.id !== project.id || p.activePageId !== project.activePageId ? p : ({
         ...p,
-        background: { ...p.background, type: 'image', value: nextValue }
+        pageInfo: { ...p.pageInfo, background: { ...p.pageInfo.background, type: 'image', value: nextValue } }
       }));
       setBgCropModal(null);
     } catch (err) {
@@ -387,9 +388,6 @@ const App: React.FC = () => {
   const createNewProject = (preset: PresetRatio, overrides?: { width?: number; height?: number }) => {
     const width = clampPresetSize(overrides?.width ?? preset.width);
     const height = clampPresetSize(overrides?.height ?? preset.height);
-    const ratioLabel = (width === preset.width && height === preset.height)
-      ? preset.ratio
-      : `${width}x${height}`;
     const textWidth = Math.max(10, width - 40);
     const textHeight = Math.max(10, Math.min(100, height - 40));
     const textX = Math.max(0, (width - textWidth) / 2);
@@ -397,15 +395,17 @@ const App: React.FC = () => {
     const newProject = syncProjectPages({
       id: generateId(), version: APP_VERSION, title: t.untitled, updatedAt: Date.now(),
       layers: [{ id: generateId(), name: t.defaultHeadlineName, type: 'text', content: t.doubleClickToEdit, x: textX, y: textY, width: textWidth, height: textHeight, fontSize: 64, fontFamily: 'Inter, sans-serif', fontWeight: 700, textAlign: 'center', writingMode: 'horizontal', rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, color: '#ffffff', ratioLocked: true }],
-      background: { 
-        type: 'color', 
-        value: '#1e293b', 
-        overlayType: 'none', 
-        overlayColor: '#ffffff', 
-        overlayOpacity: 0.1, 
-        overlayScale: 20 
+      pageInfo: {
+        width, height,
+        background: {
+          type: 'color',
+          value: '#1e293b',
+          overlayType: 'none',
+          overlayColor: '#ffffff',
+          overlayOpacity: 0.1,
+          overlayScale: 20
+        }
       },
-      canvasConfig: { width, height, ratio: ratioLabel },
       selectedLayerId: null
     });
     setProject(newProject);
@@ -425,8 +425,8 @@ const App: React.FC = () => {
 
   const openPageModal = () => {
     if (!project || (project.pages?.length ?? 1) >= 99) return;
-    const config = project.canvasConfig;
-    setSelectedPreset(PRESET_RATIOS.find(preset => preset.width === config.width && preset.height === config.height) ?? { name: 'Current', nameZh: '当前尺寸', ...config });
+    const config = project.pageInfo;
+    setSelectedPreset(PRESET_RATIOS.find(preset => preset.width === config.width && preset.height === config.height) ?? { name: 'Current', nameZh: '当前尺寸', width: config.width, height: config.height, ratio: formatCanvasRatio(config.width, config.height) });
     setCustomPresetSize({ width: config.width, height: config.height });
     setNewPageName('');
     setIsPageModalOpen(true);
@@ -467,7 +467,7 @@ const App: React.FC = () => {
   };
 
   const buildExportOptions = async (targetProject: ProjectState, pixelRatio: number) => {
-    const { width, height } = targetProject.canvasConfig;
+    const { width, height } = targetProject.pageInfo;
     return {
       fontEmbedCSS: await projectFontEmbedCSS(targetProject),
       pixelRatio,
@@ -508,7 +508,7 @@ const App: React.FC = () => {
       return new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
     }
 
-    const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
+    const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.pageInfo.width, targetProject.pageInfo.height, settings));
     const quality = getExportQuality(settings);
 
     if (settings.format === 'png' || settings.format === 'pptx') {
@@ -542,7 +542,7 @@ const App: React.FC = () => {
       return `data:image/svg+xml;base64,${btoa(binary)}`;
     }
 
-    const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
+    const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.pageInfo.width, targetProject.pageInfo.height, settings));
     const quality = getExportQuality(settings);
 
     if (settings.format === 'png' || settings.format === 'pptx') {
@@ -829,13 +829,14 @@ const App: React.FC = () => {
     setSelectedLayerIds(childIds);
   };
 
-  const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportJson = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
+    e.target.value = '';
       try {
-        const imported = readProject(JSON.parse(event.target?.result as string));
+        const imported = file.name.toLowerCase().endsWith('.cfjx')
+          ? await decodeProjectArchive(new Uint8Array(await file.arrayBuffer()))
+          : readLegacyCfj(await file.text());
         if (imported.id && imported.layers) {
           const existingProjectIds = new Set(projects.map(p => p.id));
           if (existingProjectIds.has(imported.id)) {
@@ -851,15 +852,21 @@ const App: React.FC = () => {
       } catch (err) {
         showToast(t.parseFailed, "error");
       }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
   };
 
-  const handleExportJson = (targetProject: ProjectState) => {
-    const json = JSON.stringify({ ...writeProject(targetProject), github: GITHUB_REPO_URL }, null, 2);
-    downloadFile(json, `${targetProject.title}.cfj`, 'application/json');
-    showToast(t.exportSuccess);
+  const handleExportJson = async (targetProject: ProjectState) => {
+    try {
+      const bytes = await encodeProjectArchive(targetProject);
+      const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/zip' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${targetProject.title}.cfjx`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showToast(t.exportSuccess);
+    } catch (error) {
+      showToast(t.exportFailed, 'error');
+    }
   };
 
   const handleDuplicateProject = (targetProject: ProjectState) => {
@@ -879,7 +886,7 @@ const App: React.FC = () => {
     setIsExporting(true);
     try { 
       await ensureProjectFonts(targetProject);
-      const { width, height } = targetProject.canvasConfig;
+      const { width, height } = targetProject.pageInfo;
       const dataUrl = await htmlToImage.toPng(previewNode, {
         fontEmbedCSS: await projectFontEmbedCSS(targetProject),
         pixelRatio: 1,
@@ -961,7 +968,7 @@ const App: React.FC = () => {
         }
         setIsExporting(true);
         await ensureProjectFonts(targetProject);
-        const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
+        const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.pageInfo.width, targetProject.pageInfo.height, settings));
         const rawBlob = await htmlToImage.toBlob(previewNode, options);
         if (!rawBlob) {
           throw new Error('Failed to generate PNG blob');
@@ -981,8 +988,8 @@ const App: React.FC = () => {
     if (!project) return;
     const newId = generateId();
     modifyProject(p => {
-      const width = Math.min(Math.max(200, text.length * 18), p.canvasConfig.width * 0.9);
-      const height = Math.min(120, p.canvasConfig.height * 0.5);
+      const width = Math.min(Math.max(200, text.length * 18), p.pageInfo.width * 0.9);
+      const height = Math.min(120, p.pageInfo.height * 0.5);
       return {
         ...p,
         layers: [...p.layers, {
@@ -990,8 +997,8 @@ const App: React.FC = () => {
           name: t.textLayerName,
           type: 'text',
           content: text,
-          x: p.canvasConfig.width / 2 - width / 2,
-          y: p.canvasConfig.height / 2 - height / 2,
+          x: p.pageInfo.width / 2 - width / 2,
+          y: p.pageInfo.height / 2 - height / 2,
           width,
           height,
           fontSize: 32,
@@ -1128,8 +1135,8 @@ const App: React.FC = () => {
     const normalized = normalizeSVG(svgText);
     const newLayer = createSvgLayer(
       normalized,
-      project.canvasConfig.width,
-      project.canvasConfig.height,
+      project.pageInfo.width,
+      project.pageInfo.height,
       t.svgLayerName
     );
     newLayer.zIndex = project.layers.length + 1;
@@ -1147,7 +1154,7 @@ const App: React.FC = () => {
     if (!project) return;
     const newId = generateId();
     modifyProject(p => {
-      const size = Math.min(320, p.canvasConfig.width * 0.6, p.canvasConfig.height * 0.6);
+      const size = Math.min(320, p.pageInfo.width * 0.6, p.pageInfo.height * 0.6);
       return {
         ...p,
         layers: [...p.layers, {
@@ -1157,8 +1164,8 @@ const App: React.FC = () => {
           content: dataUrl,
           imageSource: 'upload',
           imageDescription: '',
-          x: p.canvasConfig.width / 2 - size / 2,
-          y: p.canvasConfig.height / 2 - size / 2,
+          x: p.pageInfo.width / 2 - size / 2,
+          y: p.pageInfo.height / 2 - size / 2,
           width: size,
           height: size,
           rotation: 0,
@@ -1183,14 +1190,7 @@ const App: React.FC = () => {
         id: generateId()
       }));
 
-      return {
-        ...p,
-        layers: newLayers.length > 0 ? newLayers : p.layers,
-        background: data.background || p.background,
-        canvasConfig: data.canvasConfig || p.canvasConfig,
-        selectedLayerId: null,
-        updatedAt: Date.now()
-      };
+      return { ...p, layers: newLayers.length > 0 ? newLayers : p.layers, pageInfo: data.pageInfo || p.pageInfo, selectedLayerId: null, updatedAt: Date.now() };
     });
     setSelectedLayerIds([]);
     showToast(t.projectJsonApplied);
@@ -1203,8 +1203,8 @@ const App: React.FC = () => {
       name: t.newTextLayerName,
       type: 'text',
       content: t.doubleClickToEdit,
-      x: project.canvasConfig.width / 2 - 150,
-      y: project.canvasConfig.height / 2 - 25,
+      x: project.pageInfo.width / 2 - 150,
+      y: project.pageInfo.height / 2 - 25,
       width: 300,
       height: 50,
       fontSize: 48,
@@ -1239,8 +1239,8 @@ const App: React.FC = () => {
           const img = new Image();
           img.onload = () => {
             if (latestProjectRef.current?.id !== project.id || latestProjectRef.current?.activePageId !== project.activePageId) return;
-            const maxW = project.canvasConfig.width * 0.8;
-            const maxH = project.canvasConfig.height * 0.8;
+            const maxW = project.pageInfo.width * 0.8;
+            const maxH = project.pageInfo.height * 0.8;
             let w = img.width;
             let h = img.height;
             const ratio = w / h;
@@ -1254,8 +1254,8 @@ const App: React.FC = () => {
               content: content,
               imageSource: 'upload',
               imageDescription: file.name,
-              x: (project.canvasConfig.width - w) / 2,
-              y: (project.canvasConfig.height - h) / 2,
+              x: (project.pageInfo.width - w) / 2,
+              y: (project.pageInfo.height - h) / 2,
               width: w,
               height: h,
               rotation: 0,
@@ -1278,8 +1278,8 @@ const App: React.FC = () => {
 
   const handleApplyDecorationTemplate = (template: DecorationTemplate) => {
     if (!project || template.layers.length === 0) return;
-    const offsetX = (project.canvasConfig.width - template.width) / 2;
-    const offsetY = (project.canvasConfig.height - template.height) / 2;
+    const offsetX = (project.pageInfo.width - template.width) / 2;
+    const offsetY = (project.pageInfo.height - template.height) / 2;
     const baseZIndex = Math.max(0, ...project.layers.map((layer) => layer.zIndex));
     const nextLayers = [...template.layers]
       .sort((a, b) => a.zIndex - b.zIndex)
@@ -1428,9 +1428,9 @@ const App: React.FC = () => {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [isExportModalOpen, exportSettings, project?.id, project?.activePageId, project?.layers, project?.background, project?.canvasConfig]);
+  }, [isExportModalOpen, exportSettings, project?.id, project?.activePageId, project?.layers, project?.pageInfo.background, project?.pageInfo]);
 
-  const cropAspect = project ? project.canvasConfig.width / project.canvasConfig.height : 1;
+  const cropAspect = project ? project.pageInfo.width / project.pageInfo.height : 1;
   const aiWorkspace: WorkspaceOptions = {
     project,
     clipboard: layerClipboard,
@@ -1441,7 +1441,7 @@ const App: React.FC = () => {
         const node = document.getElementById('export-target') as HTMLDivElement | null;
         if (!node || !project) throw new Error('No canvas is available to preview.');
         await ensureProjectFonts(project);
-        const { width, height } = project.canvasConfig;
+        const { width, height } = project.pageInfo;
         const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(width, height));
         const canvas = await htmlToImage.toCanvas(node, {
           ...await buildExportOptions(project, 1),
@@ -1611,7 +1611,7 @@ const App: React.FC = () => {
         onClose={() => setIsPageModalOpen(false)} onSizeChange={setCustomPresetSize}
         onSelectPreset={preset => { setSelectedPreset(preset); setCustomPresetSize({ width: preset.width, height: preset.height }); }}
         onCreate={() => {
-          modifyProject(current => insertProjectPage(current, newPageName, { ...customPresetSize, ratio: `${customPresetSize.width}x${customPresetSize.height}` }));
+          modifyProject(current => insertProjectPage(current, newPageName, customPresetSize));
           setSelectedLayerIds([]);
           setIsPageModalOpen(false);
         }}
@@ -1792,12 +1792,12 @@ const App: React.FC = () => {
           pagesPanel={<PagesPanel lang={lang} pages={project.pages ?? []} activePageId={project.activePageId} thumbnails={pageThumbnails}
             onSelect={switchPage}
             onRename={(id, name) => modifyProject(current => renameProjectPage(current, id, name))}
-            onDuplicate={id => { modifyProject(current => insertProjectPage(current, '', current.canvasConfig, id)); setSelectedLayerIds([]); }}
+            onDuplicate={id => { modifyProject(current => insertProjectPage(current, '', current.pageInfo, id)); setSelectedLayerIds([]); }}
             onDelete={id => setConfirmDialog({ message: t.confirmDeletePage, onConfirm: () => { modifyProject(current => deleteProjectPage(current, id)); setSelectedLayerIds([]); } })}
             onMove={(id, targetId) => modifyProject(current => moveProjectPage(current, id, targetId))}
           />}
           selectedLayerIds={selectedLayerIds}
-          background={project.background} 
+          background={project.pageInfo.background}
           onOpenBackgroundCrop={handleOpenBackgroundCrop}
           storageType={isCloudMode ? 'indexeddb' : storageType}
           localFileAdapter={localFileAdapter}
@@ -1807,8 +1807,8 @@ const App: React.FC = () => {
             if (l.type === 'svg' && l.content) {
               const newLayer = createSvgLayer(
                 l.content,
-                project.canvasConfig.width,
-                project.canvasConfig.height,
+                project.pageInfo.width,
+                project.pageInfo.height,
                 l.name || t.defaultLayerName
               );
               newLayer.zIndex = project.layers.length + 1;
@@ -1824,8 +1824,8 @@ const App: React.FC = () => {
             if (l.type === 'decoration' && l.content) {
               const newLayer = createDecorationLayer(
                 l.content,
-                project.canvasConfig.width,
-                project.canvasConfig.height,
+                project.pageInfo.width,
+                project.pageInfo.height,
                 l.name || t.defaultLayerName,
                 { width: l.width, height: l.height }
               );
@@ -1846,8 +1846,8 @@ const App: React.FC = () => {
                 if (latestProjectRef.current?.id !== project.id || latestProjectRef.current?.activePageId !== project.activePageId) return;
                 let width = img.width || 100;
                 let height = img.height || 100;
-                const maxWidth = project.canvasConfig.width * 0.8;
-                const maxHeight = project.canvasConfig.height * 0.8;
+                const maxWidth = project.pageInfo.width * 0.8;
+                const maxHeight = project.pageInfo.height * 0.8;
                 const ratio = width / Math.max(height, 1);
 
                 if (width > maxWidth) {
@@ -1866,8 +1866,8 @@ const App: React.FC = () => {
                   content: l.content,
                   imageSource: l.imageSource || 'import',
                   imageDescription: l.imageDescription || l.name || '',
-                  x: (project.canvasConfig.width - width) / 2,
-                  y: (project.canvasConfig.height - height) / 2,
+                  x: (project.pageInfo.width - width) / 2,
+                  y: (project.pageInfo.height - height) / 2,
                   width,
                   height,
                   rotation: 0,
@@ -1897,8 +1897,8 @@ const App: React.FC = () => {
                 name: l.name || t.defaultLayerName,
                 type: l.type || 'svg',
                 content: l.content || '',
-                x: p.canvasConfig.width / 2 - (l.width || 100) / 2,
-                y: p.canvasConfig.height / 2 - (l.height || 100) / 2,
+                x: p.pageInfo.width / 2 - (l.width || 100) / 2,
+                y: p.pageInfo.height / 2 - (l.height || 100) / 2,
                 width: l.width || 100,
                 height: l.height || 100,
                 rotation: 0,
@@ -1911,7 +1911,7 @@ const App: React.FC = () => {
               }]
             }));
           }}
-          onUpdateBackground={(bg) => modifyProject(p => ({ ...p, background: { ...p.background, ...bg } }))} 
+          onUpdateBackground={(bg) => modifyProject(p => ({ ...p, pageInfo: { ...p.pageInfo, background: { ...p.pageInfo.background, ...bg } } }))}
         />
         <div className="flex-1 flex flex-col min-h-0 relative">
           <Canvas

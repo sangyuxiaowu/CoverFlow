@@ -11,7 +11,7 @@ vi.mock('./LivePreview.tsx', () => ({ default: ({ project }: { project: ProjectS
 
 it('defaults to the current page and uses cached thumbnails for multi-select exports', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  const project = insertProjectPage(syncProjectPages({ id: 'modal', title: 'Test', layers: [], selectedLayerId: null, updatedAt: 1, canvasConfig: { width: 900, height: 383, ratio: '2.35:1' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } }), 'Detail');
+  const project = insertProjectPage(syncProjectPages({ id: 'modal', title: 'Test', layers: [], selectedLayerId: null, updatedAt: 1, pageInfo: { ...({ width: 900, height: 383 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } } }), 'Detail');
   const thumbnails = Object.fromEntries(project.pages!.map(page => [page.id, `blob:${page.id}`]));
   const copy = vi.fn();
   const container = document.createElement('div');
@@ -95,9 +95,9 @@ it('defaults to the current page and uses cached thumbnails for multi-select exp
 
 it('previews only selected pages in project order and shows the current page estimate', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  const first = syncProjectPages({ id: 'selection', title: 'Test', layers: [], selectedLayerId: null, updatedAt: 1, canvasConfig: { width: 900, height: 383, ratio: '2.35:1' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } });
+  const first = syncProjectPages({ id: 'selection', title: 'Test', layers: [], selectedLayerId: null, updatedAt: 1, pageInfo: { ...({ width: 900, height: 383 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } } });
   const middle = insertProjectPage(first, 'Unselected');
-  const last = insertProjectPage(middle, 'Selected', { width: 600, height: 900, ratio: '2:3' });
+  const last = insertProjectPage(middle, 'Selected', { width: 600, height: 900 });
   const selected = [last.activePageId!, first.activePageId!];
   const confirm = vi.fn();
   const container = document.createElement('div');

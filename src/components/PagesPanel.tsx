@@ -36,8 +36,8 @@ export default function PagesPanel({ lang, pages, activePageId, thumbnails, sele
             <span className="flex min-w-0 flex-1 flex-col gap-1 pr-7">
               <span className={`text-[10px] font-mono tabular-nums ${active ? 'text-emerald-400' : 'text-slate-500'}`}>{pageNumber(index)}</span>
               {page.name && <span className="truncate text-xs font-semibold text-slate-200" title={page.name}>{page.name}</span>}
-              <span className="text-[10px] font-mono text-slate-500">{page.canvasConfig.width} x {page.canvasConfig.height}</span>
-              <span className="text-[10px] font-mono text-slate-600">{formatCanvasRatio(page.canvasConfig.width, page.canvasConfig.height, page.canvasConfig.ratio)}</span>
+              <span className="text-[10px] font-mono text-slate-500">{page.pageInfo.width} x {page.pageInfo.height}</span>
+              <span className="text-[10px] font-mono text-slate-600">{formatCanvasRatio(page.pageInfo.width, page.pageInfo.height)}</span>
             </span>
             <span aria-hidden="true" className={`pointer-events-none absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full border-2 transition-colors ${active ? 'border-white bg-emerald-500 shadow-sm shadow-emerald-950/40' : 'border-slate-600 bg-slate-950 group-hover:border-slate-400'}`}><Check className={`h-3.5 w-3.5 text-white ${active ? 'opacity-100' : 'opacity-0'}`} strokeWidth={2.5} /></span>
           </label>;
@@ -55,7 +55,7 @@ export default function PagesPanel({ lang, pages, activePageId, thumbnails, sele
                 <span className="text-[10px] font-mono text-slate-500 shrink-0">{pageNumber(index)}</span>
                 {onRename ? <input key={`${page.id}-${page.name}`} defaultValue={page.name} placeholder={pageNumber(index)} aria-label={`${t.pageName} ${pageNumber(index)}`} maxLength={100} onBlur={event => { if (event.target.value.trim() !== page.name) onRename(page.id, event.target.value); }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} className="min-w-0 w-full bg-transparent px-1 text-xs text-slate-200 outline-none focus:bg-slate-800 rounded" /> : <span className="text-xs text-slate-200 truncate">{page.name}</span>}
               </div>
-              <div className="text-[10px] text-slate-500 font-mono truncate">{page.canvasConfig.width} x {page.canvasConfig.height} · {formatCanvasRatio(page.canvasConfig.width, page.canvasConfig.height, page.canvasConfig.ratio)}</div>
+              <div className="text-[10px] text-slate-500 font-mono truncate">{page.pageInfo.width} x {page.pageInfo.height} · {formatCanvasRatio(page.pageInfo.width, page.pageInfo.height)}</div>
               {onDuplicate && <div className="flex items-center justify-end gap-1 pt-1">
                 {onMove && <>
                   <button type="button" title={t.movePageUp} aria-label={`${t.movePageUp} ${pageNumber(index)}`} disabled={index === 0} onClick={() => onMove(page.id, pages[index - 1].id)} className="p-1 text-slate-500 hover:text-white disabled:opacity-20"><ArrowUp className="w-3.5 h-3.5" /></button>

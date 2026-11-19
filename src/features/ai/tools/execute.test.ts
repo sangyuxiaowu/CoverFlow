@@ -115,7 +115,7 @@ test('dedicated organization and layout tools preserve existing layer behavior',
 });
 
 function setup(layers: ProjectState['layers'] = [], selectedLayerIds: string[] = []) {
-  let current: ProjectState = syncProjectPages({ id: 'p1', title: 'Test', updatedAt: 0, selectedLayerId: null, layers, canvasConfig: { width: 800, height: 600, ratio: '4:3' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } });
+  let current: ProjectState = syncProjectPages({ id: 'p1', title: 'Test', updatedAt: 0, selectedLayerId: null, layers, pageInfo: { ...({ width: 800, height: 600 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
   const bridge: WorkspaceBridge = { getProject: () => current, getSelection: () => selectedLayerIds, commit: async project => { current = project; }, manageProjects: async args => args };
   const signal = new AbortController().signal;
   return { bridge, signal };
@@ -158,6 +158,10 @@ test('context exposes only common layer properties and preserves group relations
   const { bridge, signal } = setup(layers, ['group']);
   const context = await executeTool('get_context', {}, bridge, signal) as { layers: Record<string, unknown>[]; selectedLayerIds: string[] };
   assert.deepEqual(context.selectedLayerIds, ['group']);
+  assert.deepEqual((context as unknown as { pages: { canvas: string }[] }).pages.map(page => page.canvas), ['800x600']);
+  assert.deepEqual((context as unknown as { pageInfo: { width: number; height: number } }).pageInfo.width, 800);
+  assert.equal('canvas' in context, false);
+  assert.equal('background' in context, false);
   assert.deepEqual(JSON.parse(JSON.stringify(context.layers)), [
     { id: 'group', name: 'Group', type: 'group', layerInfo: info(), group: { children: ['text', 'decoration'] } },
     { id: 'text', name: 'Title', type: 'text', parentId: 'group', layerInfo: info() },
@@ -405,7 +409,7 @@ test('tools follow the current project and page without target parameters and re
   assert.deepEqual(await executeTool('read_layers', {}, bridge, signal), []);
   await executePageUpdate( { width: 1000 }, bridge, signal);
   await executeTool('manage_pages', { action: 'switch', pageId: pages.pageId }, bridge, signal);
-  assert.equal(bridge.getProject()!.canvasConfig.width, 800);
+  assert.equal(bridge.getProject()!.pageInfo.width, 800);
   assert.equal(bridge.getProject()!.layers[0].content, 'Second page');
   await bridge.commit({ ...bridge.getProject()!, id: 'p2' });
   const updated = await executePageUpdate( { width: 1200 }, bridge, signal) as { projectId: string; pageId: string };
@@ -419,14 +423,14 @@ test('manage_pages creates after a target and updates a non-active page without 
   const created = await executeTool('manage_pages', { action: 'create', pageId: initial.pageId, name: 'Second' }, bridge, signal) as { pageId: string; pages: { id: string }[] };
   await executeTool('manage_pages', { action: 'update', pageId: initial.pageId, name: 'Updated', pageInfo: { width: 1200, background: { type: 'color', value: '#123456' } } }, bridge, signal);
   assert.equal(bridge.getProject()!.activePageId, created.pageId);
-  assert.equal(bridge.getProject()!.canvasConfig.width, 800);
+  assert.equal(bridge.getProject()!.pageInfo.width, 800);
   await executeTool('manage_pages', { action: 'switch', pageId: initial.pageId }, bridge, signal);
-  assert.equal(bridge.getProject()!.canvasConfig.width, 1200);
-  assert.equal(bridge.getProject()!.background.value, '#123456');
+  assert.equal(bridge.getProject()!.pageInfo.width, 1200);
+  assert.equal(bridge.getProject()!.pageInfo.background.value, '#123456');
   assert.equal(bridge.getProject()!.pages!.find(page => page.id === initial.pageId)!.name, 'Updated');
   const inserted = await executeTool('manage_pages', { action: 'create', pageId: created.pageId, name: 'Third' }, bridge, signal) as { pageId: string; pages: { id: string }[] };
   assert.deepEqual(inserted.pages.map(page => page.id), [initial.pageId, created.pageId, inserted.pageId]);
-  assert.equal(bridge.getProject()!.canvasConfig.width, 1200);
+  assert.equal(bridge.getProject()!.pageInfo.width, 1200);
 });
 
 test('manage_pages validates target and pageInfo without partial changes', async () => {
@@ -452,10 +456,10 @@ test('manage_pages validates target and pageInfo without partial changes', async
   ]) await assert.rejects(executeTool('manage_pages', args, bridge, signal));
   assert.deepEqual(bridge.getProject(), before);
   await executeTool('manage_pages', { action: 'update', pageId, name: 'Source' }, bridge, signal);
-  assert.equal(bridge.getProject()!.canvasConfig.ratio, '4:3');
+  assert.equal(bridge.getProject()!.pageInfo.width, 800);
   const created = await executeTool('manage_pages', { action: 'create', pageId, name: '  ' }, bridge, signal) as { pageId: string; pages: { id: string; name: string }[] };
   assert.equal(created.pages.find(page => page.id === created.pageId)!.name, 'Source');
-  assert.equal(bridge.getProject()!.canvasConfig.ratio, '4:3');
+  assert.equal(bridge.getProject()!.pageInfo.width, 800);
   await executeTool('manage_pages', { action: 'update', pageId: created.pageId, name: '  ' }, bridge, signal);
   assert.equal(bridge.getProject()!.pages!.find(page => page.id === created.pageId)!.name, '');
 });
@@ -468,10 +472,10 @@ test('manage_pages creates, duplicates and moves pages in batches', async () => 
     count: 3,
     name: 'Batch',
     pageInfo: { width: 800, height: 450 }
-  }, bridge, signal) as { pageId: string; pages: { id: string; name: string; active: boolean; canvas: { width: number; height: number } }[] };
+  }, bridge, signal) as { pageId: string; pages: { id: string; name: string; active: boolean; canvas: string }[] };
   assert.equal(created.pages.length, 4);
   assert.equal(created.pages.filter(page => page.name === 'Batch').length, 3);
-  assert.equal(created.pages.filter(page => page.canvas.width === 800 && page.canvas.height === 450).length, 3);
+  assert.equal(created.pages.filter(page => page.canvas === '800x450').length, 3);
   assert.equal(created.pageId, created.pages.find(page => page.active)?.id);
 
   const sourceId = created.pages.find(page => page.name === 'Batch')!.id;
@@ -493,8 +497,8 @@ test('manage_pages creates, duplicates and moves pages in batches', async () => 
   for (const copy of copies) {
     assert.equal(copy.layers[0].content, 'Batch source');
     assert.notEqual(copy.layers[0].id, sourceLayerId);
-    assert.equal(copy.canvasConfig.width, 800);
-    assert.equal(copy.canvasConfig.height, 450);
+    assert.equal(copy.pageInfo.width, 800);
+    assert.equal(copy.pageInfo.height, 450);
   }
   assert.notEqual(copies[0].layers[0].id, copies[1].layers[0].id);
 
@@ -515,26 +519,26 @@ test('unsafe image sources are rejected', () => {
 test('canvas, background and page name edits are validated and committed', async () => {
   const { bridge, signal } = setup();
   await executeTool('manage_pages', { action: 'update', pageId: bridge.getProject()!.activePageId, name: '封面页', pageInfo: { width: 1200, background: { type: 'gradient', value: 'linear-gradient(90deg,#000,#fff)', overlay: { type: 'dots', color: '#fff', opacity: 0.3, scale: 24 } } } }, bridge, signal);
-  assert.equal(bridge.getProject()!.canvasConfig.width, 1200);
+  assert.equal(bridge.getProject()!.pageInfo.width, 1200);
   assert.equal(bridge.getProject()!.pages![0].name, '封面页');
-  assert.equal(bridge.getProject()!.background.type, 'gradient');
-  assert.equal(bridge.getProject()!.background.overlayType, 'dots');
-  assert.equal(bridge.getProject()!.background.overlayScale, 24);
+  assert.equal(bridge.getProject()!.pageInfo.background.type, 'gradient');
+  assert.equal(bridge.getProject()!.pageInfo.background.overlayType, 'dots');
+  assert.equal(bridge.getProject()!.pageInfo.background.overlayScale, 24);
   await assert.rejects(executePageUpdate( { background: { overlay: { scale: 19 } } }, bridge, signal), /Invalid/);
-  assert.equal(bridge.getProject()!.background.overlayScale, 24);
+  assert.equal(bridge.getProject()!.pageInfo.background.overlayScale, 24);
   await executePageUpdate( { background: { overlay: { scale: 20 } } }, bridge, signal);
-  assert.equal(bridge.getProject()!.background.overlayScale, 20);
+  assert.equal(bridge.getProject()!.pageInfo.background.overlayScale, 20);
   await assert.rejects(executePageUpdate( { width: -1 }, bridge, signal), /Invalid/);
 });
 
 test('custom CSS backgrounds and HTML decorations use the shared validation', async () => {
   const { bridge, signal } = setup();
   await executePageUpdate( { background: { type: 'css', value: 'background: linear-gradient(45deg, red, blue);' } }, bridge, signal);
-  assert.equal(bridge.getProject()!.background.type, 'css');
+  assert.equal(bridge.getProject()!.pageInfo.background.type, 'css');
   await assert.rejects(executePageUpdate( { background: { overlay: { type: 'dots' } } }, bridge, signal), /Overlay textures are not supported/);
   await assert.rejects(executePageUpdate( { background: { type: 'css', value: 'background: red;', overlay: { scale: 24 } } }, bridge, signal), /Overlay textures are not supported/);
   await assert.rejects(executePageUpdate( { background: { overlayType: 'dots' } }, bridge, signal), /Unsupported background field/);
-  assert.equal(bridge.getProject()!.background.overlayType, 'none');
+  assert.equal(bridge.getProject()!.pageInfo.background.overlayType, 'none');
   await assert.rejects(executePageUpdate( { background: { value: 'position:fixed;' } }, bridge, signal));
   const source = '<style>:root{--accent:#38bdf8}.badge{color:var(--accent)}</style><div class="badge">Hello</div>';
   await executeSingleLayerTool( { type: 'decoration', properties: { decoration: { content: source } } }, bridge, signal);
@@ -794,4 +798,14 @@ test('layerInfo groups common properties for create, update and reads', async ()
   assert.throws(() => layerPatch({ x: 50 }), /properties\.layerInfo\.x/);
   assert.throws(() => layerPatch({ layerInfo: { zIndex: 2 } }), /Unsupported properties\.layerInfo\.zIndex/);
   await assert.rejects(executeTool('update_layers', { layerIds: [layerId], properties: { x: 100 } }, bridge, signal), /properties\.layerInfo\.x/);
+});
+
+test('context hides embedded backgrounds and returns page dimensions', async () => {
+  const { bridge, signal } = setup();
+  const project = bridge.getProject()!;
+  project.pageInfo = { ...project.pageInfo, background: { ...project.pageInfo.background, type: 'image', value: 'data:image/png;base64,AQIDBA==' } };
+  const context = await executeTool('get_context', {}, bridge, signal) as { pageInfo: { width: number; height: number; background: { value: string } }; pages: { canvas: string }[] };
+  assert.equal(context.pageInfo.background.value, '[embedded image]');
+  assert.deepEqual(context.pages.map(page => page.canvas), ['800x600']);
+  assert.doesNotMatch(JSON.stringify(context), /base64/);
 });

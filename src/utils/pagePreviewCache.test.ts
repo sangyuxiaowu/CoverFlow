@@ -6,20 +6,16 @@ import { waitForPreviewIdle, waitForPreviewTask } from './previewIdle.ts';
 
 afterEach(() => vi.unstubAllGlobals());
 
-const page: ProjectPage = {
-  id: 'page', name: '', canvasConfig: { width: 900, height: 383, ratio: '2.35:1' },
-  background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 },
-  layers: [{ id: 'text', name: 'Title', type: 'text', content: 'First\nSecond', x: 0, y: 0, width: 500, height: 200, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, lineHeight: 1.5 }]
-};
+const page: ProjectPage = { id: 'page', name: '', pageInfo: { ...({ width: 900, height: 383 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } }, layers: [{ id: 'text', name: 'Title', type: 'text', content: 'First\nSecond', x: 0, y: 0, width: 500, height: 200, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, lineHeight: 1.5 }] };
 
 it('keys visual content independently of identities, names and object property order', () => {
-  const renamed = { ...structuredClone(page), id: 'copied', name: 'Renamed', canvasConfig: { ratio: 'custom', height: 383, width: 900 } };
+  const renamed = { ...structuredClone(page), id: 'copied', name: 'Renamed', pageInfo: { height: 383, width: 900, background: page.pageInfo.background } };
   renamed.layers[0].id = 'copy-text';
   renamed.layers[0].name = 'Another title';
   expect(serializePagePreview(renamed)).toBe(serializePagePreview(page));
   for (const changed of [
-    { ...page, canvasConfig: { ...page.canvasConfig, width: 800 } },
-    { ...page, background: { ...page.background, value: '#000' } },
+    { ...page, pageInfo: { ...page.pageInfo, width: 800 } },
+    { ...page, pageInfo: { ...page.pageInfo, background: { ...page.pageInfo.background, value: '#000' } } },
     { ...page, layers: [{ ...page.layers[0], content: 'Changed' }] },
     { ...page, layers: [{ ...page.layers[0], lineHeight: 2 }] }
   ]) expect(serializePagePreview(changed)).not.toBe(serializePagePreview(page));
@@ -44,8 +40,8 @@ it('keeps content fingerprints stable across copies and changes them with visual
   copied.layers[0].name = 'Renamed layer';
   expect(await pagePreviewKey(copied)).toBe(key);
   for (const changed of [
-    { ...page, canvasConfig: { ...page.canvasConfig, width: 800 } },
-    { ...page, background: { ...page.background, value: '#000' } },
+    { ...page, pageInfo: { ...page.pageInfo, width: 800 } },
+    { ...page, pageInfo: { ...page.pageInfo, background: { ...page.pageInfo.background, value: '#000' } } },
     { ...page, layers: [{ ...page.layers[0], content: 'Changed' }] },
     { ...page, layers: [{ ...page.layers[0], content: '\u4e2d\u6587\ud83d\ude00' }] }
   ]) expect(await pagePreviewKey(changed)).not.toBe(key);

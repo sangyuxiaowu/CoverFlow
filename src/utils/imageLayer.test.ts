@@ -95,21 +95,14 @@ describe('imageLayer utilities', () => {
   });
 
   it('exports SVG with image filters, non-destructive crop clipPath, and flip transforms', () => {
-    const project: ProjectState = {
-      id: 'p1',
-      title: 'Test',
-      updatedAt: 1,
-      selectedLayerId: null,
-      canvasConfig: { width: 800, height: 600, ratio: '4:3' },
-      background: {
+    const project: ProjectState = { id: 'p1', title: 'Test', updatedAt: 1, selectedLayerId: null, pageInfo: { ...({ width: 800, height: 600 }), background: {
         type: 'color',
         value: '#000000',
         overlayType: 'none',
         overlayColor: '#ffffff',
         overlayOpacity: 0.1,
         overlayScale: 20,
-      },
-      layers: [
+      } }, layers: [
         {
           id: 'img1',
           name: 'Photo',
@@ -130,8 +123,7 @@ describe('imageLayer utilities', () => {
           imageFilters: { brightness: 120, contrast: 110, grayscale: 50, blur: 2 },
           imageCrop: { x: 25, y: 0, width: 50, height: 100 },
         },
-      ],
-    };
+      ] };
 
     const svg = buildProjectSvg(project);
     expect(svg).toContain('clipPath id="cf-crop-img1"');

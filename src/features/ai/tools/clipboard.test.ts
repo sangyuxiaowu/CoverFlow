@@ -7,7 +7,7 @@ import { executeTool } from './execute.ts';
 import { TOOL_DEFINITIONS } from './definitions.ts';
 
 test('clipboard tool shares references and commits a paste to an inactive page', async () => {
-  let project: ProjectState = syncProjectPages({ id: 'p', title: 'Project', layers: [{ id: 'a', name: 'Title', type: 'text', content: 'hello', x: 0, y: 0, width: 10, height: 10, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }], background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 }, canvasConfig: { width: 100, height: 100, ratio: '1:1' }, selectedLayerId: null, updatedAt: 0 });
+  let project: ProjectState = syncProjectPages({ id: 'p', title: 'Project', layers: [{ id: 'a', name: 'Title', type: 'text', content: 'hello', x: 0, y: 0, width: 10, height: 10, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }], pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } }, selectedLayerId: null, updatedAt: 0 });
   const pageId = project.activePageId!;
   project = { ...project, pages: [...project.pages!, { ...project.pages![0], id: 'other', layers: [] }] };
   const clipboard = new LayerClipboard();
@@ -35,7 +35,7 @@ test('clipboard schema makes source and target context optional', () => {
 });
 
 test('clipboard defaults omitted project and page IDs to the current context', async () => {
-  let project: ProjectState | null = syncProjectPages({ id: 'p', title: 'Project', layers: [{ id: 'a', name: 'Title', type: 'text', content: 'hello', x: 0, y: 0, width: 10, height: 10, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }], background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 }, canvasConfig: { width: 100, height: 100, ratio: '1:1' }, selectedLayerId: null, updatedAt: 0 });
+  let project: ProjectState | null = syncProjectPages({ id: 'p', title: 'Project', layers: [{ id: 'a', name: 'Title', type: 'text', content: 'hello', x: 0, y: 0, width: 10, height: 10, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }], pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } }, selectedLayerId: null, updatedAt: 0 });
   const pageId = project.activePageId!;
   const source = project;
   const clipboard = new LayerClipboard();

@@ -90,13 +90,13 @@ async function applyImages(bridge: WorkspaceBridge, projectId: string, pageId: s
       project = { ...next, selectedLayerId: layerId };
       layerIds.push(layerId);
     } else {
-      const scale = Math.min(1, project.canvasConfig.width / image.width, project.canvasConfig.height / image.height);
+      const scale = Math.min(1, project.pageInfo.width / image.width, project.pageInfo.height / image.height);
       const width = Math.max(1, Math.round(image.width * scale)), height = Math.max(1, Math.round(image.height * scale));
       const layer: Layer = {
         id, type: 'image', name: 'Image', content: image.content, width, height,
         imageSource: removal ? 'upload' : result.model, imageDescription: result.prompt ?? '',
         backgroundRemoved: removal,
-        x: Math.round((project.canvasConfig.width - width) / 2), y: Math.round((project.canvasConfig.height - height) / 2),
+        x: Math.round((project.pageInfo.width - width) / 2), y: Math.round((project.pageInfo.height - height) / 2),
         visible: true, locked: false, rotation: 0, opacity: 1, ratioLocked: true,
         zIndex: Math.max(0, ...project.layers.map(item => item.zIndex)) + 1
       };

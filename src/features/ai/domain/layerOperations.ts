@@ -189,7 +189,7 @@ export function editLayers(project: ProjectState, action: LayerAction, ids: stri
   } else if (action === 'align') {
     if (!['left', 'center', 'right', 'top', 'middle', 'bottom'].includes(mode || '')) throw new Error('Invalid alignment.');
     selected.filter(layer => !layer.parentId || !expanded.has(layer.parentId)).forEach(layer => {
-      const { width, height } = result.canvasConfig;
+      const { width, height } = result.pageInfo;
       const transform = mode === 'left' ? { x: 0 } : mode === 'center' ? { x: (width - layer.width) / 2 } : mode === 'right' ? { x: width - layer.width } : mode === 'top' ? { y: 0 } : mode === 'middle' ? { y: (height - layer.height) / 2 } : { y: height - layer.height };
       result = updateProjectLayer(result, layer.id, transform);
     });

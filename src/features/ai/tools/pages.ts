@@ -10,7 +10,7 @@ export function pageContext(project: ProjectState) {
   return {
     pageId: synced.activePageId,
     pageCount: synced.pages!.length,
-    pages: synced.pages!.map((page, index) => ({ id: page.id, number: pageNumber(index), name: page.name, canvas: page.canvasConfig, layerCount: page.layers.length, active: page.id === synced.activePageId }))
+    pages: synced.pages!.map((page, index) => ({ id: page.id, number: pageNumber(index), name: page.name, canvas: `${page.pageInfo.width}x${page.pageInfo.height}`, layerCount: page.layers.length, active: page.id === synced.activePageId }))
   };
 }
 
@@ -36,10 +36,10 @@ export async function executePageTool(input: unknown, bridge: WorkspaceBridge, s
     if (args.name !== undefined && (typeof args.name !== 'string' || args.name.length > 100)) throw new Error('Page name must contain at most 100 characters.');
     const source = action === 'create' ? project.pages!.find(page => page.id === project.activePageId)! : target;
     const name = args.name === undefined || (action === 'create' && !(args.name as string).trim()) ? source.name : (args.name as string).trim();
-    const width = pageInfo.width === undefined ? source.canvasConfig.width : number(pageInfo.width, 'width', 10, 10000);
-    const height = pageInfo.height === undefined ? source.canvasConfig.height : number(pageInfo.height, 'height', 10, 10000);
+    const width = pageInfo.width === undefined ? source.pageInfo.width : number(pageInfo.width, 'width', 10, 10000);
+    const height = pageInfo.height === undefined ? source.pageInfo.height : number(pageInfo.height, 'height', 10, 10000);
     const backgroundUpdates = pageInfo.background === undefined ? {} : backgroundPatch(pageInfo.background);
-    const background = { ...source.background, ...backgroundUpdates };
+    const background = { ...source.pageInfo.background, ...backgroundUpdates };
     if (background.type === 'css' && ['overlayType', 'overlayColor', 'overlayOpacity', 'overlayScale'].some(field => field in backgroundUpdates)) throw new Error('Overlay textures are not supported with CSS backgrounds.');
     if (background.type === 'image') safeImage(background.value);
     if (background.type === 'css') {
@@ -47,14 +47,14 @@ export async function executePageTool(input: unknown, bridge: WorkspaceBridge, s
       if (result.issues.length) throw new Error(result.issues.join('; '));
     }
     if (background.type !== 'image' && /url\s*\(/i.test(background.value)) throw new Error('Use an image background for image URLs.');
-    const canvasConfig = { width, height, ratio: pageInfo.width === undefined && pageInfo.height === undefined ? source.canvasConfig.ratio : `${width}x${height}` };
+    const nextPageInfo = { width, height, background };
     if (action === 'create') {
       const count = args.count === undefined ? 1 : number(args.count, 'count', 1, 99);
       if (!Number.isInteger(count)) throw new Error('Invalid count');
-      next = insertProjectPages(project, name, canvasConfig, background, count, pageId);
+      next = insertProjectPages(project, name, nextPageInfo, background, count, pageId);
     } else {
-      const pages = project.pages!.map(page => page.id === pageId ? { ...page, name, canvasConfig, background } : page);
-      next = { ...project, pages, updatedAt: Date.now(), ...(pageId === project.activePageId ? { canvasConfig, background } : {}) };
+      const pages = project.pages!.map(page => page.id === pageId ? { ...page, name, pageInfo: nextPageInfo } : page);
+      next = { ...project, pages, updatedAt: Date.now(), ...(pageId === project.activePageId ? { pageInfo: nextPageInfo } : {}) };
     }
   } else {
     if (action === 'switch') next = selectProjectPage(project, pageId);

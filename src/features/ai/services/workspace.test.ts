@@ -99,3 +99,15 @@ test('reads another stored or local project without changing the active project'
   await assert.rejects(bridge.getProjectById!('missing'), /Project not found/);
   assert.equal(bridge.getProject()!.id, active.id);
 });
+
+test('project search does not return embedded background data', async () => {
+  const { bridge, stored, signal } = setup();
+  await bridge.manageProjects({ action: 'create', title: 'Image' }, signal);
+  const project = bridge.getProject()!;
+  const pageInfo = { ...project.pageInfo, background: { ...project.pageInfo.background, type: 'image' as const, value: 'data:image/png;base64,AQIDBA==' } };
+  stored.clear();
+  stored.set('other', { ...project, id: 'other', pageInfo, pages: project.pages!.map(page => ({ ...page, pageInfo })) });
+  const result = await bridge.manageProjects({ action: 'list' }, signal) as { items: { canvas: unknown }[] };
+  assert.deepEqual(result.items[0].canvas, { width: 1200, height: 630 });
+  assert.doesNotMatch(JSON.stringify(result), /base64/);
+});

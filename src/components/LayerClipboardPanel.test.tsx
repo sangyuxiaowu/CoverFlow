@@ -9,7 +9,7 @@ import LayerClipboardPanel from './LayerClipboardPanel.tsx';
 
 it('shows live metadata and allows pasting, removing and clearing shared entries', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  let project: ProjectState = syncProjectPages({ id: 'p', title: 'Source', layers: [{ id: 'a', name: 'Title', type: 'text', content: 'hello', x: 0, y: 0, width: 10, height: 10, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }], background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 }, canvasConfig: { width: 100, height: 100, ratio: '1:1' }, selectedLayerId: null, updatedAt: 0 });
+  let project: ProjectState = syncProjectPages({ id: 'p', title: 'Source', layers: [{ id: 'a', name: 'Title', type: 'text', content: 'hello', x: 0, y: 0, width: 10, height: 10, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }], pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } }, selectedLayerId: null, updatedAt: 0 });
   const clipboard = new LayerClipboard();
   const entry = { projectId: 'p', pageId: project.activePageId!, layerId: 'a' };
   await clipboard.copy([entry], async () => project);

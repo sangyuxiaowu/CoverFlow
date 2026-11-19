@@ -14,8 +14,8 @@ const LivePreview: React.FC<{
   const containerRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const scale = Math.max(0, Math.min(
-    (viewport.width - 40) / project.canvasConfig.width,
-    (viewport.height - 40) / project.canvasConfig.height
+    (viewport.width - 40) / project.pageInfo.width,
+    (viewport.height - 40) / project.pageInfo.height
   ));
   const isReady = viewport.width > 40 && viewport.height > 40;
   const [fontError, setFontError] = useState('');
@@ -52,7 +52,7 @@ const LivePreview: React.FC<{
             className="preview-skeleton"
             style={{
               width: '70%',
-              aspectRatio: `${project.canvasConfig.width} / ${project.canvasConfig.height}`
+              aspectRatio: `${project.pageInfo.width} / ${project.pageInfo.height}`
             }}
           />
         </div>
@@ -60,10 +60,10 @@ const LivePreview: React.FC<{
       <div
         ref={previewRef}
         style={{
-          width: project.canvasConfig.width,
-          height: project.canvasConfig.height,
+          width: project.pageInfo.width,
+          height: project.pageInfo.height,
           transform: `scale(${scale})`,
-          ...buildBackgroundStyles(project.background),
+          ...buildBackgroundStyles(project.pageInfo.background),
           boxShadow: '0 15px 45px rgba(0,0,0,0.6)',
           flexShrink: 0,
           position: 'relative',

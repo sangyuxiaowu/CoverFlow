@@ -88,12 +88,6 @@ export interface DecorationTemplate {
   updatedAt?: number;
 }
 
-export interface CanvasConfig {
-  width: number;
-  height: number;
-  ratio: string;
-}
-
 export interface BackgroundConfig {
   type: 'color' | 'gradient' | 'image' | 'css';
   value: string; // 颜色值、CSS 渐变或 URL
@@ -103,17 +97,23 @@ export interface BackgroundConfig {
   overlayScale: number;
 }
 
+export interface PageInfo {
+  width: number;
+  height: number;
+  background: BackgroundConfig;
+}
+
 export interface ProjectPage {
   id: string;
   name: string;
   layers: Layer[];
-  background: BackgroundConfig;
-  canvasConfig: CanvasConfig;
+  pageInfo: PageInfo;
 }
 
 export interface ProjectDocument {
   id: string;
   version: string;
+  schemaVersion: number;
   title: string;
   pages: ProjectPage[];
   updatedAt: number;
@@ -126,8 +126,7 @@ export interface ProjectState {
   pages?: ProjectPage[];
   activePageId?: string;
   layers: Layer[];
-  background: BackgroundConfig;
-  canvasConfig: CanvasConfig;
+  pageInfo: PageInfo;
   selectedLayerId: string | null;
   updatedAt: number;
 }

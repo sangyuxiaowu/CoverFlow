@@ -1,6 +1,8 @@
 import { test, expect, vi } from 'vitest';
 import { LocalFileAdapter } from './LocalFileAdapter.ts';
 import type { ProjectState } from '../types.ts';
+import { syncProjectPages } from './projectCompatibility.ts';
+import { encodeProjectArchive } from './projectArchive.ts';
 
 function setup() {
   const write = vi.fn().mockResolvedValue(undefined);
@@ -16,7 +18,7 @@ function setup() {
   const adapter = new LocalFileAdapter();
   vi.spyOn(adapter, 'ensureReady').mockResolvedValue(true);
   Object.assign(adapter, { rootHandle: { getDirectoryHandle: async () => directory } });
-  const project = { id: 'recovery-test' } as ProjectState;
+  const project: ProjectState = syncProjectPages({ id: 'recovery-test', title: 'Recovery', updatedAt: 1, selectedLayerId: null, layers: [], pageInfo: { width: 100, height: 100, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } } });
   return { adapter, project, write, close, abort, removeEntry };
 }
 
@@ -47,6 +49,7 @@ test('a failed write does not poison later saves or deletes', async () => {
   await expect(adapter.saveProject(project)).resolves.toBeUndefined();
   await expect(adapter.deleteProject(project.id)).resolves.toBeUndefined();
   expect(write).toHaveBeenCalledTimes(2);
+  expect(removeEntry).toHaveBeenCalledWith('recovery-test.cfjx');
   expect(removeEntry).toHaveBeenCalledWith('recovery-test.cfj');
 });
 
@@ -63,4 +66,21 @@ test('save and delete reject when the storage folder is not ready', async () => 
   vi.mocked(adapter.ensureReady).mockResolvedValue(false);
   await expect(adapter.saveProject(project)).rejects.toThrow();
   await expect(adapter.deleteProject(project.id)).rejects.toThrow();
+});
+
+test('lists old and new files once per project and falls back when an archive is invalid', async () => {
+  const { adapter, project } = setup();
+  const archive = await encodeProjectArchive({ ...project, title: 'New' });
+  const legacy = new TextEncoder().encode(JSON.stringify({ id: project.id, title: 'Old', version: '9.2.7', pages: [{ id: 'legacy-page', name: '', layers: [], canvasConfig: { width: 100, height: 100, ratio: '1:1' }, background: project.pageInfo.background }] }));
+  const entry = (name: string, bytes: Uint8Array, lastModified: number) => ({
+    kind: 'file', name,
+    getFile: async () => ({ lastModified, text: async () => new TextDecoder().decode(bytes), arrayBuffer: async () => Uint8Array.from(bytes).buffer })
+  });
+  const files = [entry('old.cfj', legacy, 2), entry('new.cfjx', archive, 1)];
+  const data = { values: async function* () { yield* files; } };
+  Object.assign(adapter, { rootHandle: { getDirectoryHandle: async () => data } });
+  expect((await adapter.listProjects()).items.map(item => item.title)).toEqual(['New']);
+  expect((await adapter.listProjects({ query: 'New' })).total).toBe(1);
+  files[1] = entry('new.cfjx', new Uint8Array([0, 1, 2]), 1);
+  expect((await adapter.listProjects()).items.map(item => item.title)).toEqual(['Old']);
 });

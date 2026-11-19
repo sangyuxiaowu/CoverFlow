@@ -31,7 +31,7 @@ it.each([false, true])('reuses IndexedDB previews across edits and reopening wit
   const revoke = vi.fn();
   const create = vi.fn().mockReturnValueOnce('blob:first').mockReturnValueOnce('blob:second');
   vi.stubGlobal('URL', { createObjectURL: create, revokeObjectURL: revoke });
-  const first = syncProjectPages({ id: 'test', title: 'Test', updatedAt: 1, selectedLayerId: null, layers: [], canvasConfig: { width: 900, height: 383, ratio: '2.35:1' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } });
+  const first = syncProjectPages({ id: 'test', title: 'Test', updatedAt: 1, selectedLayerId: null, layers: [], pageInfo: { ...({ width: 900, height: 383 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } } });
   const project = insertProjectPage(first, '');
   let urls: Record<string, string> = {};
   function Harness({ value }: { value: ProjectState | null }) { urls = usePageThumbnails(value); return null; }

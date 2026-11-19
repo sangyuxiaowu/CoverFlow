@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ProjectState } from '../types.ts';
-import { readProject, writeProject } from '../storage/projectCompatibility.ts';
+import { decodeProjectArchive, encodeProjectArchive } from '../storage/projectArchive.ts';
+import { readLegacyCfj } from '../storage/legacyCfj.ts';
+
+const readLocalProject = async (path: string) => {
+  const { readFile, readTextFile } = await import('@tauri-apps/plugin-fs');
+  return path.toLowerCase().endsWith('.cfjx') ? decodeProjectArchive(await readFile(path)) : readLegacyCfj(await readTextFile(path));
+};
 
 const LOCAL_RECENT_KEY = 'coverflow_recent_local_files_v1';
 
@@ -75,9 +81,7 @@ export const useLocalProjects = ({
   const openLocalProjectFromPath = useCallback(async (path: string) => {
     if (!isTauri) return;
     try {
-      const { readTextFile } = await import('@tauri-apps/plugin-fs');
-      const text = await readTextFile(path);
-      const parsed = readProject(JSON.parse(text));
+      const parsed = await readLocalProject(path);
       onOpenProject(parsed);
       setActiveLocalFilePath(path);
       updateLocalRecentMeta(path, parsed);
@@ -97,7 +101,7 @@ export const useLocalProjects = ({
     const { open } = await import('@tauri-apps/plugin-dialog');
     const selection = await open({
       multiple: false,
-      filters: [{ name: 'CoverFlow Project', extensions: ['cfj'] }]
+      filters: [{ name: 'CoverFlow Project', extensions: ['cfjx', 'cfj'] }]
     });
     if (typeof selection === 'string') {
       await openLocalProjectFromPath(selection);
@@ -105,17 +109,27 @@ export const useLocalProjects = ({
   }, [isTauri, openLocalProjectFromPath]);
 
   const saveLocalProjectToFile = useCallback(async (path: string, projectData: ProjectState) => {
-    const { writeTextFile } = await import('@tauri-apps/plugin-fs');
+    const { writeFile } = await import('@tauri-apps/plugin-fs');
     const nextProject = { ...projectData, updatedAt: Date.now() };
-    await writeTextFile(path, JSON.stringify(writeProject(nextProject), null, 2));
+    let targetPath = path;
+    if (!path.toLowerCase().endsWith('.cfjx')) {
+      const { save } = await import('@tauri-apps/plugin-dialog');
+      const selected = await save({ defaultPath: path.replace(/\.cfj$/i, '.cfjx'), filters: [{ name: 'CoverFlow Project', extensions: ['cfjx'] }] });
+      if (!selected) throw new Error('Project conversion was cancelled.');
+      if (!selected.toLowerCase().endsWith('.cfjx')) throw new Error('Expected a CFJX project file.');
+      targetPath = selected;
+    }
+    await writeFile(targetPath, await encodeProjectArchive(nextProject));
+    setActiveLocalFilePath(current => current === path ? targetPath : current);
     onUpdateProject(nextProject);
-    updateLocalRecentMeta(path, nextProject);
+    if (targetPath !== path) removeLocalRecentByPath(path);
+    updateLocalRecentMeta(targetPath, nextProject);
     setLocalRecentItems(prev => {
-      const next = prev.filter(item => item.localPath !== path);
-      return [{ project: nextProject, source: 'local', localPath: path }, ...next];
+      const next = prev.filter(item => item.localPath !== targetPath && item.localPath !== path);
+      return [{ project: nextProject, source: 'local', localPath: targetPath }, ...next];
     });
     return nextProject;
-  }, [onUpdateProject, updateLocalRecentMeta]);
+  }, [onUpdateProject, removeLocalRecentByPath, updateLocalRecentMeta]);
 
   const clearActiveLocalFilePath = useCallback(() => {
     setActiveLocalFilePath(null);
@@ -130,13 +144,11 @@ export const useLocalProjects = ({
         if (active) setLocalRecentItems([]);
         return;
       }
-      const { readTextFile } = await import('@tauri-apps/plugin-fs');
       const nextItems: RecentProjectItem[] = [];
       const nextMeta: LocalRecentMeta[] = [];
       for (const item of meta) {
         try {
-          const text = await readTextFile(item.path);
-          const parsed = readProject(JSON.parse(text));
+          const parsed = await readLocalProject(item.path);
           nextItems.push({ project: parsed, source: 'local', localPath: item.path });
           nextMeta.push({
             path: item.path,

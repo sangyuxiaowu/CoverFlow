@@ -403,7 +403,7 @@ function mockCanvas(output = new Blob(['webp'], { type: 'image/webp' })) {
 
 function toolContext() {
   const { config, model } = setup('agnes');
-  let project = { id: 'project', title: 'Test', layers: [], canvasConfig: { width: 1200, height: 630 }, background: { type: 'color', value: '#fff' } } as unknown as ProjectState;
+  let project = { id: 'project', title: 'Test', layers: [], pageInfo: { ...({ width: 1200, height: 630 }), background: { type: 'color', value: '#fff' } } } as unknown as ProjectState;
   project = syncProjectPages(project);
   const images = new Map<string, Blob>();
   const refs: ChatImageRef[] = [];

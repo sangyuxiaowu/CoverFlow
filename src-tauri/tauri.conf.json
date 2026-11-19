@@ -33,7 +33,8 @@
     "fileAssociations": [
       {
         "ext": [
-          "cfj"
+          "cfj",
+          "cfjx"
         ],
         "name": "CoverFlow Project",
         "description": "CoverFlow project file",

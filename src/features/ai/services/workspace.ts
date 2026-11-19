@@ -123,13 +123,16 @@ export function createWorkspaceBridge(
         await ready();
         const result = await options.storage.listProjects({ query, page, pageSize });
         options.onSearch(query);
-        const summary = (project: ProjectState, source: string) => ({ id: project.id, title: project.title, updatedAt: project.updatedAt, canvas: project.pages?.[0]?.canvasConfig ?? project.canvasConfig, pageCount: project.pages?.length ?? 1, layerCount: project.pages?.[0]?.layers.length ?? project.layers.length, source });
+        const summary = (project: ProjectState, source: string) => {
+          const pageInfo = project.pages?.[0]?.pageInfo ?? project.pageInfo;
+          return { id: project.id, title: project.title, updatedAt: project.updatedAt, canvas: { width: pageInfo.width, height: pageInfo.height }, pageCount: project.pages?.length ?? 1, layerCount: project.pages?.[0]?.layers.length ?? project.layers.length, source };
+        };
         return { items: result.items.map(project => summary(current?.id === project.id ? current : project, 'storage')), total: result.total, page, pageSize, localItems: options.localProjects.filter(item => item.project.title.toLowerCase().includes(query.toLowerCase())).map(item => summary(item.project, 'local')) };
       }
       if (args.action === 'create') {
         const width = args.width ?? 1200;
         const height = args.height ?? 630;
-        const project: ProjectState = { id: generateId(), title: args.title ?? 'Untitled', layers: [], background: { type: 'color', value: '#18181b', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0.1, overlayScale: 20 }, canvasConfig: { width, height, ratio: `${width}x${height}` }, selectedLayerId: null, updatedAt: Date.now() };
+        const project: ProjectState = { id: generateId(), title: args.title ?? 'Untitled', layers: [], pageInfo: { ...({ width, height }), background: { type: 'color', value: '#18181b', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0.1, overlayScale: 20 } }, selectedLayerId: null, updatedAt: Date.now() };
         const created = syncProjectPages(project);
         await save(created);
         signal.throwIfAborted();

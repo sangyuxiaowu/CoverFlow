@@ -8,7 +8,7 @@ import { syncProjectPages } from '../storage/projectCompatibility.ts';
 import { insertProjectPage, pageProject } from '../utils/projectPages.ts';
 
 vi.mock('./LivePreview.tsx', () => ({ default: ({ project }: { project: ProjectState }) => (
-  <div data-preview-page={project.activePageId} data-width={project.canvasConfig.width} data-height={project.canvasConfig.height} />
+  <div data-preview-page={project.activePageId} data-width={project.pageInfo.width} data-height={project.pageInfo.height} />
 ) }));
 
 let host: HTMLDivElement;
@@ -48,11 +48,9 @@ afterEach(async () => {
 });
 
 const makeProject = () => {
-  const first = syncProjectPages({ id: 'presentation', title: 'Demo', layers: [], selectedLayerId: null, updatedAt: 1,
-    canvasConfig: { width: 900, height: 383, ratio: '2.35:1' },
-    background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } });
-  const second = insertProjectPage(first, 'Portrait', { width: 400, height: 800, ratio: '1:2' });
-  return insertProjectPage(second, 'Last', { width: 600, height: 600, ratio: '1:1' });
+  const first = syncProjectPages({ id: 'presentation', title: 'Demo', layers: [], selectedLayerId: null, updatedAt: 1, pageInfo: { ...({ width: 900, height: 383 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } } });
+  const second = insertProjectPage(first, 'Portrait', { width: 400, height: 800 });
+  return insertProjectPage(second, 'Last', { width: 600, height: 600 });
 };
 const button = (label: string) => document.querySelector<HTMLButtonElement>(`[role="dialog"] button[aria-label="${label}"]`)!;
 const counter = () => document.querySelector('[role="dialog"] [aria-live="polite"]')!.textContent;
@@ -94,8 +92,8 @@ it('keeps high-resolution fullscreen pages live and never starts bitmap caching'
   const worker = vi.fn();
   vi.stubGlobal('Worker', worker);
   const original = makeProject();
-  const canvasConfig = { width: 7680, height: 4320, ratio: '16:9' };
-  const project = { ...original, canvasConfig, pages: [{ ...original.pages![2], canvasConfig }] };
+  const pageInfo = { ...original.pageInfo, width: 7680, height: 4320 };
+  const project = { ...original, pageInfo, pages: [{ ...original.pages![2], pageInfo }] };
   await act(async () => root.render(<ProjectPreview lang="zh" project={project} onClose={() => {}} />));
   expect(document.querySelector('[data-preview-page]')?.getAttribute('data-width')).toBe('7680');
   expect(document.querySelector('[data-preview-page]')?.getAttribute('data-height')).toBe('4320');

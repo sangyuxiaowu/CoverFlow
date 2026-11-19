@@ -1,7 +1,8 @@
 import { ProjectState } from '../types.ts';
 import { ListProjectsOptions, StorageAdapter, StorageAdapterType } from './StorageAdapter.ts';
-import { readProject, writeProject } from './projectCompatibility.ts';
-import { readFileText, writeFileContent } from './fileAccess.ts';
+import { decodeProjectArchive, encodeProjectArchive } from './projectArchive.ts';
+import { readLegacyCfj } from './legacyCfj.ts';
+import { readFileBlob, readFileText, writeFileContent } from './fileAccess.ts';
 
 const FS_DB_NAME = 'coverflow_fs_handles_v1';
 const FS_STORE_NAME = 'handles';
@@ -10,7 +11,7 @@ const DATA_DIR = 'data';
 const FONT_DIR = 'font';
 const LIB_DIR = 'lib';
 const DECORATION_DIR = 'decoration';
-const PROJECT_FILE_EXT = 'cfj';
+const PROJECT_FILE_EXT = 'cfjx';
 
 const openFsHandleDb = () => new Promise<IDBDatabase>((resolve, reject) => {
   const request = indexedDB.open(FS_DB_NAME, 1);
@@ -92,7 +93,7 @@ export class LocalFileAdapter implements StorageAdapter {
     for await (const entry of dataHandle.values()) {
       if (entry.kind !== 'file') continue;
       const fileHandle = entry as FileSystemFileHandle;
-      if (!fileHandle.name.toLowerCase().endsWith(`.${PROJECT_FILE_EXT}`)) continue;
+      if (!/\.(cfj|cfjx)$/i.test(fileHandle.name)) continue;
       try {
         const file = await fileHandle.getFile();
         entries.push({ handle: fileHandle, lastModified: file.lastModified });
@@ -101,63 +102,23 @@ export class LocalFileAdapter implements StorageAdapter {
       }
     }
 
-    const sorted = entries.sort((a, b) => b.lastModified - a.lastModified);
+    const sorted = entries.sort((a, b) => Number(b.handle.name.toLowerCase().endsWith('.cfjx')) - Number(a.handle.name.toLowerCase().endsWith('.cfjx')) || b.lastModified - a.lastModified);
     const query = options?.query?.trim().toLowerCase() || '';
-
-    if (!options && !query) {
-      const projects: ProjectState[] = [];
-      for (const item of sorted) {
-        try {
-          const text = await readFileText(item.handle);
-          projects.push(readProject(JSON.parse(text)));
-        } catch (err) {
-          // Skip invalid entries
-        }
-      }
-      return { items: projects, total: projects.length };
-    }
-
-    if (query) {
-      const filtered: Array<{ project: ProjectState; lastModified: number }> = [];
-      for (const item of sorted) {
-        try {
-          const text = await readFileText(item.handle);
-          const parsed = readProject(JSON.parse(text));
-          if (!parsed?.title) continue;
-          if (parsed.title.toLowerCase().includes(query)) {
-            filtered.push({ project: parsed, lastModified: item.lastModified });
-          }
-        } catch (err) {
-          // Skip invalid entries
-        }
-      }
-      const page = options?.page ?? 1;
-      const pageSize = options?.pageSize ?? 20;
-      const start = (page - 1) * pageSize;
-      const end = start + pageSize;
-      return {
-        items: filtered.slice(start, end).map(item => item.project),
-        total: filtered.length
-      };
-    }
-
-    const page = options?.page ?? 1;
-    const pageSize = options?.pageSize ?? 20;
-    const start = (page - 1) * pageSize;
-    const end = start + pageSize;
-    const pageEntries = sorted.slice(start, end);
-    const pageProjects: ProjectState[] = [];
-
-    for (const item of pageEntries) {
+    const projects = new Map<string, { project: ProjectState; lastModified: number }>();
+    for (const item of sorted) {
       try {
-        const text = await readFileText(item.handle);
-        pageProjects.push(readProject(JSON.parse(text)));
+        const project = item.handle.name.toLowerCase().endsWith('.cfjx')
+          ? await decodeProjectArchive(new Uint8Array(await (await readFileBlob(item.handle, 'application/zip')).arrayBuffer()))
+          : readLegacyCfj(await readFileText(item.handle));
+        if (!projects.has(project.id)) projects.set(project.id, { project, lastModified: item.lastModified });
       } catch (err) {
         // Skip invalid entries
       }
     }
-
-    return { items: pageProjects, total: sorted.length };
+    const filtered = [...projects.values()].filter(item => !query || item.project.title.toLowerCase().includes(query)).sort((left, right) => right.lastModified - left.lastModified);
+    if (!options) return { items: filtered.map(item => item.project), total: filtered.length };
+    const start = ((options.page ?? 1) - 1) * (options.pageSize ?? 20);
+    return { items: filtered.slice(start, start + (options.pageSize ?? 20)).map(item => item.project), total: filtered.length };
   };
 
   saveProject = async (project: ProjectState) => {
@@ -167,7 +128,8 @@ export class LocalFileAdapter implements StorageAdapter {
     const operation = this.writeQueue.then(async () => {
       const dataHandle = await this.rootHandle!.getDirectoryHandle(DATA_DIR, { create: true });
       const fileHandle = await dataHandle.getFileHandle(`${project.id}.${PROJECT_FILE_EXT}`, { create: true });
-      await writeFileContent(fileHandle, JSON.stringify(writeProject(project), null, 2));
+      const bytes = await encodeProjectArchive(project);
+      await writeFileContent(fileHandle, new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/zip' }));
     });
 
     this.writeQueue = operation.catch(() => {});
@@ -180,10 +142,12 @@ export class LocalFileAdapter implements StorageAdapter {
 
     const operation = this.writeQueue.then(async () => {
       const dataHandle = await this.rootHandle!.getDirectoryHandle(DATA_DIR, { create: true });
-      try {
-        await dataHandle.removeEntry(`${projectId}.${PROJECT_FILE_EXT}`);
-      } catch (err) {
-        if (!(err instanceof DOMException && err.name === 'NotFoundError')) throw err;
+      for (const extension of [PROJECT_FILE_EXT, 'cfj']) {
+        try {
+          await dataHandle.removeEntry(`${projectId}.${extension}`);
+        } catch (err) {
+          if (!(err instanceof DOMException && err.name === 'NotFoundError')) throw err;
+        }
       }
     });
 

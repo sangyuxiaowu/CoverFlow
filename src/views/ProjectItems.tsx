@@ -3,6 +3,7 @@ import { Clock, Copy, FileJson, ImageIcon as ImageIconLucide, Trash2 } from 'luc
 import LivePreview from '../components/LivePreview.tsx';
 import type { ProjectState } from '../types.ts';
 import { translations, type Language } from '../translations.ts';
+import { formatCanvasRatio } from '../utils/helpers.ts';
 
 const cardBadgeClassName = 'text-[9px] px-2 py-1 bg-slate-800 text-slate-400 font-black rounded-lg border border-slate-700 uppercase tracking-tight';
 const listBadgeClassName = 'text-[9px] px-1.5 py-0.5 bg-slate-800 text-slate-400 font-black rounded-md border border-slate-700 uppercase tracking-tight flex-shrink-0';
@@ -104,7 +105,7 @@ export const ProjectCard = React.memo(({
           <PageCountBadge count={project.pages?.length ?? 1} lang={lang} className={cardBadgeClassName} />
           {/* 比例标签 */}
            <span className={cardBadgeClassName}>
-              {project.canvasConfig.ratio}
+              {formatCanvasRatio(project.pageInfo.width, project.pageInfo.height)}
            </span>
         </div>
 
@@ -217,7 +218,7 @@ export const ProjectListItem = React.memo(({
             )}
             <PageCountBadge count={project.pages?.length ?? 1} lang={lang} className={listBadgeClassName} />
             <span className={listBadgeClassName}>
-              {project.canvasConfig.ratio}
+              {formatCanvasRatio(project.pageInfo.width, project.pageInfo.height)}
             </span>
           </div>
 
@@ -232,7 +233,7 @@ export const ProjectListItem = React.memo(({
             </span>
             <span className="text-slate-700">•</span>
             <span className="text-slate-500">
-              {project.canvasConfig.width} × {project.canvasConfig.height} px
+              {project.pageInfo.width} × {project.pageInfo.height} px
             </span>
           </div>
         </div>

@@ -60,9 +60,7 @@ function waitForAbort() {
 }
 
 async function mountEditor(store = memoryStore(), saveProject = async (_project: ProjectState) => {}) {
-  const initial = syncProjectPages({ id: 'editor', title: 'Before AI', layers: [], selectedLayerId: null, updatedAt: 1,
-    background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 },
-    canvasConfig: { width: 100, height: 100, ratio: '1:1' } });
+  const initial = syncProjectPages({ id: 'editor', title: 'Before AI', layers: [], selectedLayerId: null, updatedAt: 1, pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
   let state: { assistant: ReturnType<typeof useAiAssistant>; history: ReturnType<typeof useProjectHistory>; project: ProjectState | null };
   function Harness() {
     const [project, setProject] = useState<ProjectState | null>(initial);

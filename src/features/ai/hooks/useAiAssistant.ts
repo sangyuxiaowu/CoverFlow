@@ -639,11 +639,11 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
       if (sourceWidth * sourceHeight > 67108864) {
         throw new Error('图片尺寸超出 6400 万像素限制。');
       }
-      const scale = Math.min(1, project.canvasConfig.width / sourceWidth, project.canvasConfig.height / sourceHeight);
+      const scale = Math.min(1, project.pageInfo.width / sourceWidth, project.pageInfo.height / sourceHeight);
       width = Math.max(1, Math.round(sourceWidth * scale));
       height = Math.max(1, Math.round(sourceHeight * scale));
     } else {
-      const fallbackSize = Math.max(1, Math.round(Math.min(320, project.canvasConfig.width * 0.6, project.canvasConfig.height * 0.6)));
+      const fallbackSize = Math.max(1, Math.round(Math.min(320, project.pageInfo.width * 0.6, project.pageInfo.height * 0.6)));
       width = fallbackSize;
       height = fallbackSize;
     }
@@ -666,8 +666,8 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
       height,
       imageSource,
       imageDescription,
-      x: Math.round((latestProject.canvasConfig.width - width) / 2),
-      y: Math.round((latestProject.canvasConfig.height - height) / 2),
+      x: Math.round((latestProject.pageInfo.width - width) / 2),
+      y: Math.round((latestProject.pageInfo.height - height) / 2),
       visible: true,
       locked: false,
       rotation: 0,

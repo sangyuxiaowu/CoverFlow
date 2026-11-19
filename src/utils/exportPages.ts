@@ -56,7 +56,7 @@ export async function exportProjectPages(project: ProjectState, pageIds: string[
     for (const [index, page] of pages.entries()) {
       const svg = await buildHtmlSvg(pageProject(synced, page));
       onProgress?.(index + 1, pages.length);
-      slides.push({ svg, name: page.name || pageNumber(synced.pages!.indexOf(page)), width: page.canvasConfig.width, height: page.canvasConfig.height });
+      slides.push({ svg, name: page.name || pageNumber(synced.pages!.indexOf(page)), width: page.pageInfo.width, height: page.pageInfo.height });
     }
     return { blob: new Blob([buildHtmlExport(project.title, slides, language)], { type: 'text/html;charset=utf-8' }), filename: `${title}.html` };
   }
@@ -65,9 +65,9 @@ export async function exportProjectPages(project: ProjectState, pageIds: string[
   const { default: JSZip } = await import('jszip');
   const zip = new JSZip();
   const pptx = settings.format === 'pptx' ? new (await import('pptxgenjs')).default() : null;
-  const slideScale = 13.333333 / Math.max(project.canvasConfig.width, project.canvasConfig.height);
-  const slideWidth = project.canvasConfig.width * slideScale;
-  const slideHeight = project.canvasConfig.height * slideScale;
+  const slideScale = 13.333333 / Math.max(project.pageInfo.width, project.pageInfo.height);
+  const slideWidth = project.pageInfo.width * slideScale;
+  const slideHeight = project.pageInfo.height * slideScale;
   if (pptx) {
     pptx.defineLayout({ name: 'COVERFLOW', width: slideWidth, height: slideHeight });
     pptx.layout = 'COVERFLOW';
@@ -78,9 +78,9 @@ export async function exportProjectPages(project: ProjectState, pageIds: string[
   let single: Blob | undefined;
   for (const [index, page] of pages.entries()) {
     const target = pageProject(synced, page);
-    const pixelRatio = getExportPixelRatio(page.canvasConfig.width, page.canvasConfig.height, settings);
+    const pixelRatio = getExportPixelRatio(page.pageInfo.width, page.pageInfo.height, settings);
     const svgMarkup = settings.format === 'pptx' ? buildProjectSvg(target) : null;
-    const pptSvg = svgMarkup ? preparePptSvg(svgMarkup, page.canvasConfig.width, page.canvasConfig.height, pixelRatio) : null;
+    const pptSvg = svgMarkup ? preparePptSvg(svgMarkup, page.pageInfo.width, page.pageInfo.height, pixelRatio) : null;
     const blob = settings.format === 'svg'
       ? new Blob([buildProjectSvg(target)], { type: 'image/svg+xml;charset=utf-8' })
       : pptSvg
@@ -89,7 +89,7 @@ export async function exportProjectPages(project: ProjectState, pageIds: string[
     if (pptx) {
       const slide = pptx.addSlide();
       slide.background = { color: 'FFFFFF' };
-      slide.addImage({ data: await toDataUrl(blob), ...containImage(page.canvasConfig.width, page.canvasConfig.height, slideWidth, slideHeight), altText: page.name || pageNumber(synced.pages!.indexOf(page)) });
+      slide.addImage({ data: await toDataUrl(blob), ...containImage(page.pageInfo.width, page.pageInfo.height, slideWidth, slideHeight), altText: page.name || pageNumber(synced.pages!.indexOf(page)) });
     } else if (pages.length === 1) single = blob;
     else zip.file(`${pageNumber(synced.pages!.indexOf(page))}${page.name ? `-${safeExportName(page.name)}` : ''}.${extension}`, await blob.arrayBuffer());
     onProgress?.(index + 1, pages.length);

@@ -7,11 +7,7 @@ const image: Layer = {
   id: 'image', name: 'Photo', type: 'image', content: 'original', x: 10, y: 20, width: 200, height: 100,
   rotation: 15, zIndex: 1, visible: true, locked: false, opacity: .8, imageSource: 'upload', imageDescription: 'original prompt'
 };
-const makeProject = (): ProjectState => ({
-  id: 'project', title: 'Test', layers: [structuredClone(image)], selectedLayerId: image.id, updatedAt: 0,
-  canvasConfig: { width: 800, height: 600, ratio: '4:3' },
-  background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 1 }
-});
+const makeProject = (): ProjectState => ({ id: 'project', title: 'Test', layers: [structuredClone(image)], selectedLayerId: image.id, updatedAt: 0, pageInfo: { ...({ width: 800, height: 600 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 1 } } });
 const result: RemovalResult = { layerId: image.id, originalContent: 'original', content: 'cutout', keepOriginal: true };
 
 describe('atomic background-removal layer results', () => {

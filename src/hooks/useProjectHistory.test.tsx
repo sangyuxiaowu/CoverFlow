@@ -10,9 +10,7 @@ import { insertProjectPage, selectProjectPage } from '../utils/projectPages.ts';
 it('keeps image payloads out of structured clones across 40 generated images while isolating mutable fields', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const clone = vi.spyOn(globalThis, 'structuredClone');
-  const initial = syncProjectPages({ id: 'images', title: 'Images', layers: [], selectedLayerId: null, updatedAt: 1,
-    background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 },
-    canvasConfig: { width: 100, height: 100, ratio: '1:1' } });
+  const initial = syncProjectPages({ id: 'images', title: 'Images', layers: [], selectedLayerId: null, updatedAt: 1, pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
   const firstLayer = { id: 'image-0', name: 'Image', type: 'image' as const,
     content: `data:image/png;base64,${'A'.repeat(400_000)}`, x: 0, y: 0, width: 100, height: 100,
     rotation: 0, zIndex: 0, visible: true, locked: false, opacity: 1,
@@ -50,9 +48,7 @@ it('keeps image payloads out of structured clones across 40 generated images whi
 
 it('pins one immediate AI checkpoint beyond 100 steps without grouping normal undo and invalidates manual edits', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  const initial = syncProjectPages({ id: 'ai', title: 'Before AI', layers: [], selectedLayerId: null, updatedAt: 1,
-    background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 },
-    canvasConfig: { width: 100, height: 100, ratio: '1:1' } });
+  const initial = syncProjectPages({ id: 'ai', title: 'Before AI', layers: [], selectedLayerId: null, updatedAt: 1, pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
   let state: ReturnType<typeof useProjectHistory> & { project: ProjectState | null };
   function Harness() {
     const [project, setProject] = useState<ProjectState | null>(initial);
@@ -94,11 +90,7 @@ it('pins one immediate AI checkpoint beyond 100 steps without grouping normal un
 
 it('isolates snapshots, groups continuous edits, truncates redo and caps all commits at 50', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  const initial: ProjectState = {
-    id: 'project', title: 'Initial', layers: [], selectedLayerId: null, updatedAt: 1,
-    background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 },
-    canvasConfig: { width: 100, height: 100, ratio: '1:1' }
-  };
+  const initial: ProjectState = { id: 'project', title: 'Initial', layers: [], selectedLayerId: null, updatedAt: 1, pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } };
   let state: ReturnType<typeof useProjectHistory> & { project: ProjectState | null, setProject: Dispatch<SetStateAction<ProjectState | null>> };
   function Harness() {
     const [project, setProject] = useState<ProjectState | null>(null);
@@ -145,7 +137,7 @@ it('isolates snapshots, groups continuous edits, truncates redo and caps all com
 
 it('does not record navigation or selection as edits and preserves the active page on undo', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  const initial = insertProjectPage(syncProjectPages({ id: 'pages', title: 'Initial', layers: [], selectedLayerId: null, updatedAt: 1, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 }, canvasConfig: { width: 100, height: 100, ratio: '1:1' } }), 'Second');
+  const initial = insertProjectPage(syncProjectPages({ id: 'pages', title: 'Initial', layers: [], selectedLayerId: null, updatedAt: 1, pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } }), 'Second');
   let state: ReturnType<typeof useProjectHistory> & { project: ProjectState | null };
   function Harness() {
     const [project, setProject] = useState<ProjectState | null>(initial);

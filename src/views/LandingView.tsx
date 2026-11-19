@@ -60,7 +60,7 @@ export default function LandingView({ lang, aiBusy, isAiOpen, isTauri, openPrese
             <label className="flex items-center gap-2 px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:border-blue-500 cursor-pointer transition-all">
               <Upload className="w-4 h-4 text-blue-500" />
               <span className="text-xs font-bold">{t.import}</span>
-              <input type="file" accept=".cfj" onChange={handleImportJson} className="hidden" />
+              <input type="file" accept=".cfjx,.cfj" onChange={handleImportJson} className="hidden" />
             </label>
             <PWAInstallButton lang={lang} />
             <button

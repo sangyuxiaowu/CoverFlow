@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { Layer, ProjectState } from '../types.ts';
 import { readProject } from '../storage/projectCompatibility.ts';
+import { migrateLegacyProjectPatch } from '../storage/legacyCfj.ts';
 
 type EditorShortcutOptions = {
   view: 'landing' | 'editor';
@@ -80,9 +81,9 @@ export function useEditorShortcuts({ view, project, aiBusy, selectedLayerIds, ha
       if (trimmed.startsWith('{')) {
         try {
           const parsed = JSON.parse(trimmed);
-          if (parsed && (parsed.pages || parsed.layers || parsed.background || parsed.canvasConfig)) {
+          if (parsed && (parsed.pages || parsed.layers || parsed.background || parsed.canvasConfig || parsed.pageInfo)) {
             e.preventDefault();
-            applyProjectFromJson(parsed.pages ? readProject(parsed) : parsed as ProjectState);
+            applyProjectFromJson(parsed.pages ? readProject(parsed) : migrateLegacyProjectPatch(parsed, project.pageInfo) as Partial<ProjectState>);
             return;
           }
         } catch (err) {}

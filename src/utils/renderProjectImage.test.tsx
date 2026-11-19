@@ -11,9 +11,7 @@ vi.mock('./previewIdle.ts', async importOriginal => ({ ...await importOriginal<t
   waitForPreviewIdle: vi.fn(async (signal: AbortSignal) => signal.throwIfAborted()) }));
 
 it('waits for an uncancellable screenshot before releasing the background queue and clears canvases', async () => {
-  const project: ProjectState = { id: 'images', title: 'Images', layers: [], selectedLayerId: null, updatedAt: 1,
-    canvasConfig: { width: 1024, height: 1024, ratio: '1:1' },
-    background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } };
+  const project: ProjectState = { id: 'images', title: 'Images', layers: [], selectedLayerId: null, updatedAt: 1, pageInfo: { ...({ width: 1024, height: 1024 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } };
   const firstCanvas = document.createElement('canvas');
   const secondCanvas = document.createElement('canvas');
   secondCanvas.toBlob = callback => callback(new Blob(['preview']));

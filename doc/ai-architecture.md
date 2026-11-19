@@ -71,13 +71,13 @@ chat/
     <session-id>/         独立 PNG/JPEG/WebP 图片文件
 ```
 
-- 浏览器文件模式使用用户已授权的项目存储根目录；Tauri 文件模式使用当前 .cfj 旁的 chat 文件夹。
+- 浏览器文件模式使用用户已授权的项目存储根目录；Tauri 文件模式使用当前 .cfjx 或兼容期内 .cfj 旁的 chat 文件夹。
 - 会话有独立 ID，支持新建、选择、重命名和确认删除。每轮开始与结束立即保存，流式显示记录节流保存；刷新后恢复当前会话，并标记未完成工具为中断。
 - 完整 Responses 输入历史（responseItems）、逐请求用量（requests）与显示条目一起按会话保存；新会话不会继承其他会话的消息。只使用当前配置与会话结构，不维护开发阶段的旧格式兼容或自动迁移。
 - 助手消息的 `activity` 按 Responses 原生历史顺序保存 `reasoning`、`tool` 和 `text` 项，流式思考增量使用 Responses 条目 ID 归并。
 - 配置、窗口状态和会话写入各自文件。目录模式使用 FileSystemWritableFileStream.close 提交，Tauri 先写临时文件再重命名。文件路径严格限制会话 ID，不允许路径穿越。
 - 切换模式或项目文件目录时重新加载对应存储，禁止把旧请求结果和窗口状态写入新位置。文件权限失败如实展示，不回退到 IndexedDB。
-- Tauri 的 prepare_chat_storage 只为已有文件访问权限的 .cfj 授权其旁的 chat 目录，拒绝链接目录；创建、列目录、删除和重命名命令遵循最小权限。
+- Tauri 的 prepare_chat_storage 只为已有文件访问权限的 .cfjx 或兼容期内 .cfj 授权其旁的 chat 目录，拒绝链接目录；创建、列目录、删除和重命名命令遵循最小权限。
 
 ## 即时聊天重做
 

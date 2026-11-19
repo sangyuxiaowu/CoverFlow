@@ -5,7 +5,7 @@ import { editLayers, updateProjectLayer } from './layerOperations.ts';
 import { clampFloatingRect } from 'sang-ai-kit/floating-geometry';
 
 const layer = (id: string, x: number): Layer => ({ id, name: id, type: 'text', content: id, x, y: 20, width: 100, height: 50, rotation: 0, zIndex: x, visible: true, locked: false, opacity: 1 });
-const project = (): ProjectState => ({ id: 'project', title: 'Cover', layers: [layer('a', 0), layer('b', 200), layer('c', 500)], background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 }, canvasConfig: { width: 800, height: 600, ratio: '4:3' }, selectedLayerId: 'a', updatedAt: 0 });
+const project = (): ProjectState => ({ id: 'project', title: 'Cover', layers: [layer('a', 0), layer('b', 200), layer('c', 500)], pageInfo: { ...({ width: 800, height: 600 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } }, selectedLayerId: 'a', updatedAt: 0 });
 
 test('background removal status survives ordinary edits and resets for a replacement image', () => {
   const original = project();

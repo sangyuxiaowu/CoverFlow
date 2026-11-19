@@ -1122,10 +1122,18 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
 
       {/* 图层列表区域 */}
       <div className="flex-1 flex flex-col min-h-0 bg-slate-900/50">
-        <div className="flex items-center justify-between px-6 py-3.5 border-b border-slate-800/50 bg-slate-900 flex-shrink-0">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800/50 bg-slate-900 flex-shrink-0">
           <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t.layers}</h3>
-          <button type="button" disabled={!selectedLayerIds.length} onClick={() => onCopyToClipboard(selectedLayerIds)} title={lang === 'en' ? 'Add selected layers to clipboard' : '将选中图层加入剪贴板'} aria-label={lang === 'en' ? 'Add selected layers to clipboard' : '将选中图层加入剪贴板'} className="p-1.5 rounded hover:bg-slate-800 text-slate-400 disabled:opacity-30 disabled:pointer-events-none">
-            <ClipboardPlus className="w-4 h-4" />
+          <button
+            type="button"
+            disabled={!selectedLayerIds.length}
+            onClick={() => onCopyToClipboard(selectedLayerIds)}
+            title={lang === 'en' ? 'Add selected layers to clipboard' : '将选中图层加入剪贴板'}
+            aria-label={lang === 'en' ? 'Add selected layers to clipboard' : '将选中图层加入剪贴板'}
+            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium text-slate-300 hover:text-white hover:bg-slate-800 border border-transparent hover:border-slate-700 transition-colors disabled:opacity-30 disabled:pointer-events-none whitespace-nowrap shrink-0"
+          >
+            <ClipboardPlus className="w-3.5 h-3.5 text-blue-400" />
+            <span>{lang === 'en' ? 'Stage' : '加入剪贴板'}</span>
           </button>
         </div>
         

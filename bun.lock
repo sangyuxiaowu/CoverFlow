@@ -25,7 +25,7 @@
         "react-colorful": "^5.8.1",
         "react-dom": "^19.2.4",
         "react-easy-crop": "^5.5.6",
-        "sang-ai-kit": "file:../SangAIKit",
+        "sang-ai-kit": "^0.2.2",
         "tailwindcss": "^4.1.18",
       },
       "devDependencies": {
@@ -461,8 +461,6 @@
 
     "@types/babel__traverse": ["@types/babel__traverse@7.28.0", "https://registry.npmmirror.com/@types/babel__traverse/-/babel__traverse-7.28.0.tgz", { "dependencies": { "@babel/types": "^7.28.2" } }, "sha512-8PvcXf70gTDZBgt9ptxJ8elBeBjcLOAcOtoO/mPJjtji1+CdGbHgm77om1GrsPxsiE+uXIpNSK64UYaIwQXd4Q=="],
 
-    "@types/bun": ["@types/bun@1.4.4", "https://registry.npmmirror.com/@types/bun/-/bun-1.4.4.tgz", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
-
     "@types/chai": ["@types/chai@5.2.3", "https://registry.npmmirror.com/@types/chai/-/chai-5.2.3.tgz", { "dependencies": { "@types/deep-eql": "*", "assertion-error": "^2.0.1" } }, "sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA=="],
 
     "@types/css-tree": ["@types/css-tree@3.2.0", "https://registry.npmmirror.com/@types/css-tree/-/css-tree-3.2.0.tgz", {}, "sha512-J5KXmk6BFIepOT7280FdFyNs4c5fh0Uee0otjKEvzchrRs38Ii9qminqc4ds0L19X8Zd/rT+brR9jkBthygjWw=="],
@@ -528,8 +526,6 @@
     "browserslist": ["browserslist@4.29.3", "https://registry.npmmirror.com/browserslist/-/browserslist-4.29.3.tgz", { "dependencies": { "baseline-browser-mapping": "^2.11.26", "caniuse-lite": "^1.0.30001813", "electron-to-chromium": "^1.5.439", "node-releases": "^2.0.57", "update-browserslist-db": "^1.3.3" }, "bin": { "browserslist": "cli.js" } }, "sha512-1R4kiYKXGViqEN0CnoDrXc1StD9niAwu+j2dukWzrD4bJgsD4lDmEp0CRbc6E/vYJIfTHwPmwyaKtVSudICdPA=="],
 
     "buffer-from": ["buffer-from@1.1.2", "https://registry.npmmirror.com/buffer-from/-/buffer-from-1.1.2.tgz", {}, "sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ=="],
-
-    "bun-types": ["bun-types@1.4.4", "https://registry.npmmirror.com/bun-types/-/bun-types-1.4.4.tgz", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-yjrJh5oGX7mMPKGd19YXyIjmEuj4G4zNC30bs7PM9Az7NQ3ndF3j6hbeRdvJTRQEhJ/FYQwW0a2moweEi2hMxQ=="],
 
     "call-bind": ["call-bind@1.0.9", "https://registry.npmmirror.com/call-bind/-/call-bind-1.0.9.tgz", { "dependencies": { "call-bind-apply-helpers": "^1.0.2", "es-define-property": "^1.0.1", "get-intrinsic": "^1.3.0", "set-function-length": "^1.2.2" } }, "sha512-a/hy+pNsFUTR+Iz8TCJvXudKVLAnz/DyeSUo10I5yvFDQJBFU2s9uqQpoSrJlroHUKoKqzg+epxyP9lqFdzfBQ=="],
 
@@ -919,7 +915,7 @@
 
     "safe-regex-test": ["safe-regex-test@1.1.0", "https://registry.npmmirror.com/safe-regex-test/-/safe-regex-test-1.1.0.tgz", { "dependencies": { "call-bound": "^1.0.2", "es-errors": "^1.3.0", "is-regex": "^1.2.1" } }, "sha512-x/+Cz4YrimQxQccJf5mKEbIa1NzeCRNI5Ecl/ekmlYaampdNLPalVyIcCZNNH3MvmqBugV5TMYZXv0ljslUlaw=="],
 
-    "sang-ai-kit": ["sang-ai-kit@file:../SangAIKit", { "dependencies": { "lucide-react": "^0.564.0" }, "devDependencies": { "@tailwindcss/vite": "^4.1.18", "@types/bun": "latest", "@types/react": "^19.0.0", "@types/react-dom": "^19.0.0", "@vitejs/plugin-react": "^5.1.4", "dompurify": "^3.4.0", "fake-indexeddb": "^6.2.5", "jsdom": "^30.1.3", "marked": "^18.0.0", "openai": "^7.34.0", "postcss": "^8.5.6", "react": "^19.2.4", "react-dom": "^19.2.4", "tailwindcss": "^4.1.18", "typescript": "~5.9.3", "vite": "^7.3.1", "vitest": "^5.0.4" }, "peerDependencies": { "openai": "^7.34.0", "react": "^19.0.0", "react-dom": "^19.0.0" } }],
+    "sang-ai-kit": ["sang-ai-kit@0.2.2", "https://registry.npmmirror.com/sang-ai-kit/-/sang-ai-kit-0.2.2.tgz", { "dependencies": { "lucide-react": "^0.564.0" }, "peerDependencies": { "openai": "^7.34.0", "react": "^19.0.0", "react-dom": "^19.0.0" } }, "sha512-iQxOJUn5+Vsbc8kXUlpvyInwDc/a2ZRUW8qFF4+BQS3M0NEuM4f7hTnRY1RG9hjlwcFokcNF8cXPrxDaKFwn/g=="],
 
     "saxes": ["saxes@6.0.0", "https://registry.npmmirror.com/saxes/-/saxes-6.0.0.tgz", { "dependencies": { "xmlchars": "^2.2.0" } }, "sha512-xAg7SOnEhrm5zI3puOOKyy1OMcMlIJZYNJY7xLBwSze0UjhPLnWfj2GF2EpT0jmzaJKIWKHLsaSSajf35bcYnA=="],
 

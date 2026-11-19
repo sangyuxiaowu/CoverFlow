@@ -1,76 +1,31 @@
 import type { ProjectState } from '../../types.ts';
+import type { LayerClipboard } from '../../utils/layerClipboard.ts';
 import type { ResponseInputItem } from 'openai/resources/responses/responses';
-import type { ImageModelConfig, ImagePromptConfig } from './image-generation/types.ts';
-import type { LocalFontSelection } from './services/fonts.ts';
-export type { ImageAdapterId, ImageModelConfig, ImagePromptConfig, ImageQuality } from './image-generation/types.ts';
+import type { ImagePromptConfig } from 'sang-ai-kit/image-types';
+import type { LocalFontSelection } from 'sang-ai-kit/fonts';
+import type { AiFeatures } from 'sang-ai-kit/features';
+import type {
+  AiConfig as SharedAiConfig, AiEndpointConfig as SharedAiEndpointConfig, AiModelConfig as SharedAiModelConfig,
+  AiSkillConfig, AssistantSession, ChatEntry as SharedChatEntry, ReasoningEffort, RequestUsage
+} from 'sang-ai-kit';
+export type { ImageAdapterId, ImageModelConfig, ImagePromptConfig, ImageQuality } from 'sang-ai-kit/image-types';
+export type {
+  AiSkillConfig, AssistantActivityEvent, ImageUpload as ChatImageUpload, ReasoningEffort, RequestUsage,
+  SessionImage as ChatImageRef, TokenUsage, ToolEvent
+} from 'sang-ai-kit';
 
 export type ResponseItem = ResponseInputItem;
 
-export interface TokenUsage {
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  cachedTokens?: number;
-  reasoningTokens?: number;
-}
-
-export interface RequestUsage {
-  id: string;
-  entryId?: string;
-  endpoint: string;
-  model: string;
-  createdAt: number;
-  completedAt?: number;
-  durationMs?: number;
-  status: 'completed' | 'incomplete' | 'failed' | 'aborted';
-  inputEstimate?: number;
-  responseId?: string;
-  usage?: TokenUsage;
-}
-
-export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-
-export interface AiModelConfig {
-  id: string;
-  label: string;
-  modelId: string;
-  maxTokens: number;
-  contextWindow: number;
-  thinkingAvailable: boolean;
-  supportsVision: boolean;
-  supportedReasoningEfforts: ReasoningEffort[];
-  thinkingEnabled: boolean;
-  reasoningEffort: ReasoningEffort;
-  defaultThinkingEnabled?: boolean;
-  defaultReasoningEffort?: ReasoningEffort;
+export interface AiModelConfig extends SharedAiModelConfig {
   temperature?: number;
 }
 
-export interface AiEndpointConfig {
-  id: string;
-  name: string;
-  endpoint: string;
-  apiKey: string;
+export interface AiEndpointConfig extends SharedAiEndpointConfig {
   models: AiModelConfig[];
 }
 
-export interface AiSkillConfig {
-  name: string;
-  description: string;
-  content: string;
-}
-
-export interface AiConfig {
+export interface AiConfig extends SharedAiConfig {
   endpoints: AiEndpointConfig[];
-  imageModels?: ImageModelConfig[];
-  activeSelection: { endpointId: string; modelId: string };
-  systemPrompt: string;
-  imageToolPrompt?: string;
-  skills?: AiSkillConfig[];
-  localFonts?: LocalFontSelection[];
-  quickSnippets?: string[];
-  maxToolRounds?: number;
-  maxImageFailures?: number;
 }
 
 export interface AiRequestConfig {
@@ -78,6 +33,7 @@ export interface AiRequestConfig {
   imageToolModels?: ImagePromptConfig[];
   skills?: AiSkillConfig[];
   localFonts?: LocalFontSelection[];
+  features?: Partial<AiFeatures>;
   endpoint: string;
   model: string;
   apiKey: string;
@@ -99,7 +55,9 @@ export interface ToolDefinition {
 }
 
 export interface WorkspaceBridge {
+  clipboard?: LayerClipboard;
   getProject: () => ProjectState | null;
+  getProjectById?: (projectId: string) => Promise<ProjectState>;
   getCanvasPreview?: () => Promise<Blob>;
   getLayerPreview?: (layerId: string) => Promise<Blob>;
   getAssetFolder?: () => Promise<FileSystemDirectoryHandle | null>;
@@ -109,53 +67,13 @@ export interface WorkspaceBridge {
   confirm?: (message: string, signal: AbortSignal) => Promise<boolean>;
 }
 
-export interface ToolEvent {
-  id: string;
-  name: string;
-  arguments: string;
-  status: 'running' | 'success' | 'error';
-  startedAt?: number;
-  durationMs?: number;
-  result?: string;
-  image?: ChatImageRef;
-}
-
-export type AssistantActivityEvent =
-  | { id: string; type: 'text'; text: string }
-  | { id: string; type: 'tool'; toolId: string };
-
-export interface ChatImageRef {
-  id: string;
-  name: string;
-  type: 'image/png' | 'image/jpeg' | 'image/webp';
-  size: number;
-}
-
-export interface ChatImageUpload {
-  image: ChatImageRef;
-  blob: Blob;
-}
-
-export interface ChatEntry {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  activity?: AssistantActivityEvent[];
-  continuable?: boolean;
-  reasoning?: string;
-  tools?: ToolEvent[];
+export interface ChatEntry extends SharedChatEntry {
   error?: boolean;
-  usage?: TokenUsage;
-  durationMs?: number;
-  images?: ChatImageRef[];
 }
 
-export interface ChatSession {
-  id: string;
-  title: string;
+export interface ChatSession extends AssistantSession {
   projectId?: string;
   createdAt: number;
-  updatedAt: number;
   entries: ChatEntry[];
   responseItems: ResponseItem[];
   requests: RequestUsage[];

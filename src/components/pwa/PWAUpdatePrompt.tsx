@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { RefreshCw, Sparkles, X } from 'lucide-react';
-import { isTauri } from '@tauri-apps/api/core';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { translations, Language } from '../../translations.ts';
+import { isTauriRuntime } from '../../utils/tauriRuntime.ts';
 
 const UPDATE_CHECK_INTERVAL_MS = 15 * 60 * 1000;
 
@@ -17,7 +17,6 @@ export const PWAUpdatePrompt = ({ lang, onShowToast }: PWAUpdatePromptProps) => 
   const [isUpdating, setIsUpdating] = useState(false);
   const registrationRef = useRef<ServiceWorkerRegistration | undefined>(undefined);
   const cleanupRef = useRef<(() => void) | null>(null);
-  const isTauriRuntime = import.meta.env.VITE_APP_MODE === 'tauri' || isTauri();
 
   const {
     offlineReady: [offlineReady, setOfflineReady],
@@ -113,7 +112,7 @@ export const PWAUpdatePrompt = ({ lang, onShowToast }: PWAUpdatePromptProps) => 
     }
   }, [offlineReady, setOfflineReady, onShowToast, t.pwa.offlineReadyNotice]);
 
-  if (import.meta.env.DEV || isTauriRuntime || !needRefresh) {
+  if (import.meta.env.DEV || isTauriRuntime() || !needRefresh) {
     return null;
   }
 

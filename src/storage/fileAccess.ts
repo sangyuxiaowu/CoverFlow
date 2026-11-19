@@ -17,12 +17,17 @@ export const readFileText = (handle: FileSystemFileHandle) => withFreshFileSnaps
   return await file.text();
 });
 
+export const readFileBytes = (handle: FileSystemFileHandle) => withFreshFileSnapshot(async () => {
+  const file = await handle.getFile();
+  return new Uint8Array(await file.arrayBuffer());
+});
+
 export const readFileBlob = (handle: FileSystemFileHandle, type: string) => withFreshFileSnapshot(async () => {
   const file = await handle.getFile();
   return new Blob([await file.arrayBuffer()], { type });
 });
 
-export const writeFileContent = (handle: FileSystemFileHandle, content: string | Blob) => withFreshFileSnapshot(async () => {
+export const writeFileContentOnce = async (handle: FileSystemFileHandle, content: string | Blob) => {
   const writable = await handle.createWritable();
   try {
     await writable.write(content);
@@ -31,4 +36,6 @@ export const writeFileContent = (handle: FileSystemFileHandle, content: string |
     await writable.abort().catch(() => {});
     throw error;
   }
-});
+};
+
+export const writeFileContent = (handle: FileSystemFileHandle, content: string | Blob) => withFreshFileSnapshot(() => writeFileContentOnce(handle, content));

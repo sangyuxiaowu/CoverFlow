@@ -1,9 +1,14 @@
-import { normalizeLocalFonts } from './fonts.ts';
-import type { AiConfig, AiEndpointConfig, AiModelConfig, AiRequestConfig, ReasoningEffort } from '../types.ts';
-import { generateId } from '../../../utils/helpers.ts';
+import { normalizeLocalFonts } from 'sang-ai-kit/fonts';
+import { createEndpoint } from 'sang-ai-kit';
+import { ALL_REASONING_EFFORTS, selectModel as selectSharedModel, updateActiveModel as updateSharedModel } from 'sang-ai-kit/model-config';
+import { reasoningRequestParams } from 'sang-ai-kit/responses';
+import type { AiConfig, AiModelConfig, AiRequestConfig, ReasoningEffort } from '../types.ts';
 import { loadStoredConfig, saveStoredConfig } from './configStore.ts';
-import { availableImageModels, createImageModel, IMAGE_MODEL_PRESETS, imageModelToolId, imageTimeoutSeconds, validateImageModel } from '../image-generation/index.ts';
+import { availableImageModels, createImageModel, IMAGE_MODEL_PRESETS, imageModelToolId, imageTimeoutSeconds, validateImageModel } from 'sang-ai-kit/image-generation';
 import { normalizeSkills, skillsPrompt } from './skills.ts';
+import { normalizeAiFeatures } from 'sang-ai-kit/features';
+import type { AiFeatures } from 'sang-ai-kit/features';
+import { AI_FEATURES } from '../featureConfig.ts';
 
 export const DEFAULT_IMAGE_TOOL_PROMPT = `## 生图
 你可以按需使用生图工具生成需要的图像。
@@ -15,6 +20,19 @@ export const DEFAULT_IMAGE_TOOL_PROMPT = `## 生图
 - 文生图提示词建议描述为：[主体] + [场景 / 环境] + [风格] + [光照] + [构图] + [质量要求]
 - 参考生图提示词建议描述为：[改变要求] + [新风格 / 场景] + [需要添加或移除的元素] + [需要保留的元素]
 `;
+
+const LEGACY_IMAGE_FLOW = `- generate_image、remove_background 只返回图片 ID，不会修改画布；需要上画布时继续调用 place_image。
+- 使用已有图层作为参考或抠图前，read_layers 设置 includeImages:true，使用返回的原图 imageId，不用预览图。保留 sourceRevision，应用结果时传回。
+`;
+const LEGACY_IMAGE_PROMPTS = [
+  ...[
+    '- place_image 必须传当前 projectId 和图片 imageId，放置到当前页；应用到原图层时传 layerId、sourceRevision，默认保留并隐藏原图。抠图结果设置 backgroundRemoved:true。\n',
+    '- place_image 必须传目标 projectId、pageId；应用到原图层时传 layerId、sourceRevision，默认保留并隐藏原图。抠图结果设置 backgroundRemoved:true。\n'
+  ].map(line => DEFAULT_IMAGE_TOOL_PROMPT.replace('- 作背景时置底并锁定', LEGACY_IMAGE_FLOW + line + '- 作背景时置底并锁定'))
+];
+function imageToolPrompt(value: unknown): string {
+  return typeof value !== 'string' || LEGACY_IMAGE_PROMPTS.includes(value) ? DEFAULT_IMAGE_TOOL_PROMPT : value;
+}
 
 export const SYSTEM_PROMPT = `你是 CoverFlow 封面和 PPT 设计助手。请直接操作画布完成设计，不要只输出修改方案。
 
@@ -38,7 +56,7 @@ export const SYSTEM_PROMPT = `你是 CoverFlow 封面和 PPT 设计助手。请�
 - 始终使用与用户当前消息相同的语言回复
 `;
 
-export const ALL_REASONING_EFFORTS: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+export { ALL_REASONING_EFFORTS };
 export const REASONING_EFFORTS: ReasoningEffort[] = ALL_REASONING_EFFORTS;
 export const DEFAULT_MAX_TOOL_ROUNDS = 24;
 export const DEFAULT_MAX_IMAGE_FAILURES = 3;
@@ -54,37 +72,7 @@ export const DEFAULT_QUICK_SNIPPETS = [
   '添加精美装饰点缀并提升视觉层次感'
 ];
 
-export function createModel(modelId = 'gpt-4o-mini'): AiModelConfig {
-  const deepseek = /^deepseek-/i.test(modelId);
-  const local = /^(qwen|llama|gemma|gpt-oss)/i.test(modelId);
-  const supportsVision = /^(gpt-4o|gpt-4\.1|gpt-4\.5|gpt-5|o[1-4](?:-|$))/i.test(modelId);
-  const thinkingAvailable = deepseek || /^(qwen3|gpt-oss|o[134](?:-|$)|gpt-5)/i.test(modelId);
-  const supportedReasoningEfforts: ReasoningEffort[] = deepseek
-    ? ['none', 'low', 'high', 'max']
-    : ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
-  const defaultEffort: ReasoningEffort = deepseek ? 'high' : 'medium';
-  return {
-    id: generateId(),
-    label: modelId,
-    modelId,
-    maxTokens: deepseek ? 16384 : 4096,
-    contextWindow: deepseek ? 1000000 : local ? 32768 : 128000,
-    thinkingAvailable,
-    supportsVision,
-    supportedReasoningEfforts,
-    thinkingEnabled: thinkingAvailable,
-    reasoningEffort: thinkingAvailable ? defaultEffort : 'none',
-    defaultThinkingEnabled: thinkingAvailable,
-    defaultReasoningEffort: defaultEffort
-  };
-}
-
-export function createEndpoint(provider: 'openai' | 'deepseek' | 'local' | 'custom' = 'custom'): AiEndpointConfig {
-  const preset = provider === 'deepseek' ? { name: 'DeepSeek', endpoint: 'https://api.deepseek.com', models: [createModel('deepseek-flash'), createModel('deepseek-v4-pro')] }
-    : provider === 'local' ? { name: 'Ollama', endpoint: 'http://localhost:11434/v1', models: [createModel('qwen3')] }
-    : { name: provider === 'custom' ? 'Custom' : 'OpenAI', endpoint: 'https://api.openai.com/v1', models: [createModel('gpt-4o-mini'), createModel('gpt-4o')] };
-  return { id: generateId(), apiKey: '', ...preset };
-}
+export { createEndpoint };
 
 export function defaultConfig(): AiConfig {
   const endpoint = createEndpoint('openai');
@@ -138,7 +126,7 @@ export function normalizeConfig(value: unknown, preserveKeys = true): AiConfig {
     localFonts: normalizeLocalFonts(input.localFonts),
     maxToolRounds: input.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS,
     maxImageFailures: input.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES,
-    imageToolPrompt: typeof input.imageToolPrompt === 'string' ? input.imageToolPrompt : DEFAULT_IMAGE_TOOL_PROMPT,
+    imageToolPrompt: imageToolPrompt(input.imageToolPrompt),
     quickSnippets: Array.isArray(input.quickSnippets) && input.quickSnippets.length
       ? input.quickSnippets
       : [...DEFAULT_QUICK_SNIPPETS]
@@ -148,24 +136,26 @@ export function normalizeConfig(value: unknown, preserveKeys = true): AiConfig {
   return config;
 }
 
-export function toRequestConfig(config: AiConfig): AiRequestConfig {
+export function toRequestConfig(config: AiConfig, featureSettings: Partial<AiFeatures> = AI_FEATURES): AiRequestConfig {
   const { endpoint, model } = resolveSelection(config);
-  const imageModels = availableImageModels(config);
+  const features = normalizeAiFeatures(featureSettings);
+  const imageModels = features.imageGeneration ? availableImageModels(config) : [];
   const imageToolsEnabled = imageModels.length > 0;
-  const imageToolPrompt = config.imageToolPrompt ?? DEFAULT_IMAGE_TOOL_PROMPT;
-  const skills = normalizeSkills(config.skills);
+  const imagePrompt = imageToolPrompt(config.imageToolPrompt);
+  const skills = features.skills ? normalizeSkills(config.skills) : [];
   const skillPrompt = skillsPrompt(skills);
-  const basePrompt = imageToolsEnabled && imageToolPrompt.trim() && !config.systemPrompt.includes(imageToolPrompt)
-    ? `${config.systemPrompt}\n\n${imageToolPrompt}`
+  const basePrompt = imageToolsEnabled && imagePrompt.trim() && !config.systemPrompt.includes(imagePrompt)
+    ? `${config.systemPrompt}\n\n${imagePrompt}`
     : config.systemPrompt;
   const systemPrompt = skillPrompt && !basePrompt.includes(skillPrompt) ? `${basePrompt}\n\n${skillPrompt}` : basePrompt;
   return {
     imageToolsEnabled,
     skills,
-    localFonts: normalizeLocalFonts(config.localFonts),
+    localFonts: features.fontManagement ? normalizeLocalFonts(config.localFonts) : [],
+    features,
     maxToolRounds: config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS,
     maxImageFailures: config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES,
-    imageToolModels: imageModels.map(model => ({ id: imageModelToolId(model), label: model.label, adapter: model.adapter, modelId: model.modelId, version: model.version, releasedAt: model.releasedAt, timeoutSeconds: imageTimeoutSeconds(model), description: model.description, size: model.size, ratio: model.ratio, quality: model.quality, n: model.n })),
+    imageToolModels: imageModels.map(model => ({ id: imageModelToolId(model), label: model.label, adapter: model.adapter, modelId: model.modelId, version: model.version, releasedAt: model.releasedAt, timeoutSeconds: imageTimeoutSeconds(model), description: model.description, size: model.size, ratio: model.ratio, quality: model.quality, n: model.n, maxReferenceImages: model.maxReferenceImages })),
     endpoint: endpoint.endpoint,
     apiKey: endpoint.apiKey,
     model: model.modelId,
@@ -181,82 +171,14 @@ export function toRequestConfig(config: AiConfig): AiRequestConfig {
 }
 
 export function selectModel(config: AiConfig, endpointId: string, modelId: string): AiConfig {
-  const ep = config.endpoints.find(endpoint => endpoint.id === endpointId);
-  const targetModel = ep?.models.find(model => model.id === modelId);
-  if (!ep || !targetModel) throw new Error('Model not found.');
-
-  // 切换该模型时自动处理为该模型设置的默认开启思考与思考强度
-  const shouldThink = Boolean(targetModel.thinkingAvailable && (targetModel.defaultThinkingEnabled ?? targetModel.thinkingEnabled));
-  const defaultEffort = targetModel.defaultReasoningEffort ?? (targetModel.reasoningEffort !== 'none' ? targetModel.reasoningEffort : 'medium');
-  const nextReasoningEffort: ReasoningEffort = shouldThink ? defaultEffort : 'none';
-
-  return {
-    ...config,
-    activeSelection: { endpointId, modelId },
-    endpoints: config.endpoints.map(endpoint =>
-      endpoint.id !== endpointId
-        ? endpoint
-        : {
-            ...endpoint,
-            models: endpoint.models.map(model =>
-              model.id !== modelId
-                ? model
-                : {
-                    ...model,
-                    thinkingEnabled: shouldThink,
-                    reasoningEffort: nextReasoningEffort
-                  }
-            )
-          }
-    )
-  };
+  return selectSharedModel(config, endpointId, modelId, { restoreThinkingDefaults: true });
 }
 
 export function updateActiveModel(
   config: AiConfig,
   patch: Partial<Pick<AiModelConfig, 'thinkingEnabled' | 'reasoningEffort'>>
 ): AiConfig {
-  return {
-    ...config,
-    endpoints: config.endpoints.map(endpoint =>
-      endpoint.id !== config.activeSelection.endpointId
-        ? endpoint
-        : {
-            ...endpoint,
-            models: endpoint.models.map(model => {
-              if (model.id !== config.activeSelection.modelId) return model;
-
-              let nextEnabled = patch.thinkingEnabled !== undefined ? patch.thinkingEnabled : model.thinkingEnabled;
-              let nextEffort = patch.reasoningEffort !== undefined ? patch.reasoningEffort : model.reasoningEffort;
-
-              // 如果思考强度设为 none，则思考模式关闭
-              if (patch.reasoningEffort === 'none') {
-                nextEnabled = false;
-                nextEffort = 'none';
-              } else if (patch.thinkingEnabled === false) {
-                nextEnabled = false;
-                if (patch.reasoningEffort) {
-                  nextEffort = patch.reasoningEffort;
-                }
-              } else if (patch.thinkingEnabled === true && (nextEffort === 'none' || !nextEffort)) {
-                // 点击开启思考模式，恢复为该模型的默认强度或 medium
-                nextEnabled = true;
-                nextEffort = model.defaultReasoningEffort && model.defaultReasoningEffort !== 'none' ? model.defaultReasoningEffort : 'medium';
-              } else if (patch.reasoningEffort) {
-                // 选择非 none 强度，自动开启思考
-                nextEnabled = true;
-              }
-
-              return {
-                ...model,
-                ...patch,
-                thinkingEnabled: nextEnabled,
-                reasoningEffort: nextEffort
-              };
-            })
-          }
-    )
-  };
+  return updateSharedModel(config, patch, { synchronizeThinking: true });
 }
 
 export async function loadConfig(): Promise<AiConfig> {
@@ -270,9 +192,10 @@ export async function loadConfig(): Promise<AiConfig> {
 }
 
 export function validateRequestConfig(config: AiRequestConfig): void {
+  normalizeAiFeatures(config.features);
   normalizeSkills(config.skills);
-  if (!Number.isSafeInteger(config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS) || (config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS) < 1) throw new Error('Tool round limit must be a positive safe integer.');
-  if (!Number.isSafeInteger(config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES) || (config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES) < 1) throw new Error('Image failure limit must be a positive safe integer.');
+  if (!Number.isSafeInteger(config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS) || (config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS) < 0) throw new Error('Tool round limit must be a non-negative safe integer.');
+  if (!Number.isSafeInteger(config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES) || (config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES) < 0) throw new Error('Image failure limit must be a non-negative safe integer.');
   const url = new URL(config.endpoint);
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) throw new Error('Use HTTPS, or HTTP on localhost.');
   if (url.username || url.password || url.search || url.hash) throw new Error('Endpoint cannot contain credentials, query parameters or fragments.');
@@ -319,12 +242,6 @@ export async function saveConfig(config: AiConfig): Promise<void> {
 }
 
 export function reasoningPayload(config: AiRequestConfig): Record<string, unknown> {
-  if (!config.thinkingAvailable) {
-    return {};
-  }
-  return {
-    reasoning: {
-      effort: !config.thinkingEnabled || config.reasoningEffort === 'none' ? 'none' : (config.reasoningEffort || 'medium')
-    }
-  };
+  if (!config.thinkingAvailable) return {};
+  return reasoningRequestParams(config.model, !config.thinkingEnabled || config.reasoningEffort === 'none' ? 'none' : (config.reasoningEffort || 'medium'));
 }

@@ -6,13 +6,7 @@ import { useProjectAutoSave } from './useProjectAutoSave.ts';
 import type { ProjectState } from '../types.ts';
 
 type Options = Parameters<typeof useProjectAutoSave>[0];
-const initial: ProjectState = {
-  id: 'project', title: 'Initial', layers: [], selectedLayerId: null, updatedAt: 1,
-  background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 },
-  canvasConfig: { width: 100, height: 100, ratio: '1:1' },
-  activePageId: 'page',
-  pages: [{ id: 'page', name: '', layers: [], background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 }, canvasConfig: { width: 100, height: 100, ratio: '1:1' } }]
-};
+const initial: ProjectState = { id: 'project', title: 'Initial', layers: [], selectedLayerId: null, updatedAt: 1, pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } }, activePageId: 'page', pages: [{ id: 'page', name: '', layers: [], pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } }] };
 const roots = new Set<Root>();
 
 async function mount(overrides: Partial<Options> = {}) {

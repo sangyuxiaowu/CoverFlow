@@ -4,22 +4,24 @@ import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
 import { executePageTool } from './pages.ts';
 
 it('manages pages, retains each page content and confirms deletion', async () => {
-  let project = syncProjectPages({ id: 'project', title: 'Test', layers: [], selectedLayerId: null, updatedAt: 1, canvasConfig: { width: 900, height: 383, ratio: '2.35:1' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } });
+  let project = syncProjectPages({ id: 'project', title: 'Test', layers: [], selectedLayerId: null, updatedAt: 1, pageInfo: { ...({ width: 900, height: 383 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } } });
   const confirm = vi.fn(async () => true);
   const bridge: WorkspaceBridge = { getProject: () => project, getSelection: () => [], commit: async next => { project = syncProjectPages(next); }, manageProjects: async () => {}, confirm };
   const signal = new AbortController().signal;
-  const run = (action: string, rest = {}) => executePageTool({ projectId: 'project', action, ...rest }, bridge, signal);
+  const run = (action: string, rest = {}) => executePageTool({ action, ...rest }, bridge, signal);
   const firstId = project.activePageId!;
-  await run('create', { name: 'Detail', width: 500 });
-  expect(project.canvasConfig).toEqual({ width: 500, height: 383, ratio: '500x383' });
+  await run('create', { pageId: firstId, name: 'Detail', pageInfo: { width: 500 } });
+  expect(project.pageInfo).toMatchObject({ width: 500, height: 383, background: { type: 'color', value: '#fff' } });
   const secondId = project.activePageId!;
   const context = await run('list');
   expect(context.pages.map(page => page.number)).toEqual(['P01', 'P02']);
+  expect(context.pages.map(page => page.canvas)).toEqual(['900x383', '500x383']);
   await run('switch', { pageId: firstId });
-  expect(project.canvasConfig.width).toBe(900);
+  expect(project.pageInfo.width).toBe(900);
   await run('duplicate', { pageId: secondId });
   expect(project.pages).toHaveLength(3);
-  expect(project.canvasConfig.width).toBe(500);
+  expect(project.pageInfo.width).toBe(500);
+  expect(project.pages!.map(page => page.id)).toEqual([firstId, project.activePageId, secondId]);
   await run('delete', { pageId: secondId });
   expect(confirm).toHaveBeenCalledOnce();
   expect(project.pages).toHaveLength(2);
@@ -28,5 +30,6 @@ it('manages pages, retains each page content and confirms deletion', async () =>
   expect(project.pages).toHaveLength(2);
   await expect(run('switch', { pageId: 'missing' })).rejects.toThrow('not found');
   await expect(run('list', { width: 100 })).rejects.toThrow('Unsupported');
-  await expect(executePageTool({ projectId: 'wrong', action: 'list' }, bridge, signal)).rejects.toThrow('changed');
+  await expect(executePageTool({ projectId: 'wrong', action: 'list' }, bridge, signal)).rejects.toThrow('Unsupported');
+  await expect(executePageTool({ action: 'list' }, { ...bridge, getProject: () => null }, signal)).rejects.toThrow('No project open');
 });

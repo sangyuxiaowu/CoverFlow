@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Sidebar from './components/Sidebar.tsx';
 import Canvas from './components/Canvas.tsx';
 import LayersPanel from './components/LayersPanel.tsx';
+import LayerClipboardPanel from './components/LayerClipboardPanel.tsx';
 import Toast from './components/Toast.tsx';
 import ConfirmModal from './components/ConfirmModal.tsx';
 import BackgroundCropModal from './components/BackgroundCropModal.tsx';
@@ -12,17 +13,22 @@ import ProjectPresetModal from './components/ProjectPresetModal.tsx';
 import ExportModal from './components/ExportModal.tsx';
 import ProjectPreview from './components/ProjectPreview.tsx';
 import PagesPanel from './components/PagesPanel.tsx';
-import { usePageThumbnails } from './hooks/usePageThumbnails.ts';
+import { useProjectPreviews } from './hooks/useProjectPreviews.ts';
 import AiAssistant from './features/ai/components/AiAssistant.tsx';
-import type { WorkspaceOptions } from './features/ai/services/workspace.ts';
+import { createWorkspaceBridge, type WorkspaceOptions } from './features/ai/services/workspace.ts';
+import { executeClipboardTool } from './features/ai/tools/clipboard.ts';
+import { LayerClipboard } from './utils/layerClipboard.ts';
 import { updateProjectLayer } from './features/ai/domain/layerOperations.ts';
 import { ensureProjectFonts, projectFontEmbedCSS } from './features/ai/services/fontLoading.ts';
-import { applyRemovalResult } from './features/background-removal/layerResult.ts';
-import type { RemovalResult } from './features/background-removal/types.ts';
+import { applyRemovalResult } from './utils/backgroundRemovalResult.ts';
+import type { RemovalResult } from './utils/backgroundRemovalResult.ts';
 import { PWAUpdatePrompt } from './components/pwa/PWAUpdatePrompt.tsx';
 import { OfflineIndicator } from './components/pwa/OfflineIndicator.tsx';
 // Tauri 环境下的本地文件适配器
-import { useLocalProjects, type RecentProjectItem } from './hooks/useLocalProjects.ts';
+import { readLocalProject, useLocalProjects } from './hooks/useLocalProjects.ts';
+import type { BrowserProjectItem } from './views/ProjectBrowser.tsx';
+import type { ProjectSummary, StorageAdapter } from './storage/StorageAdapter.ts';
+import { pagePreviewFingerprint } from './storage/projectPreviews.ts';
 import { useProjectHistory } from './hooks/useProjectHistory.ts';
 import { useProjectAutoSave } from './hooks/useProjectAutoSave.ts';
 import { useEditorShortcuts } from './hooks/useEditorShortcuts.ts';
@@ -40,25 +46,27 @@ import {
 import { translations, Language } from './translations.ts';
 import { getAssetFolder } from './storage/assets.ts';
 import { PRESET_RATIOS } from './constants.ts';
-import { generateId, downloadFile, normalizeSVG, isNewerProjectVersion } from './utils/helpers.ts';
+import { generateId, normalizeSVG, isNewerProjectVersion, formatCanvasRatio } from './utils/helpers.ts';
 import { buildProjectSvg } from './utils/svgExport.ts';
 import { buildHtmlSvg } from './utils/htmlExport.ts';
-import { readProject, syncProjectPages, writeProject } from './storage/projectCompatibility.ts';
-import { copyProject, deleteProjectPage, insertProjectPage, moveProjectPage, pageNumber, renameProjectPage, selectProjectPage } from './utils/projectPages.ts';
+import { syncProjectPages } from './storage/projectCompatibility.ts';
+import { decodeProjectArchive, encodeProjectArchive } from './storage/projectArchive.ts';
+import { readLegacyCfj } from './storage/legacyCfj.ts';
+import { copyProject, deleteProjectPage, insertProjectPage, moveProjectPage, pageNumber, pageProject, renameProjectPage, selectProjectPage } from './utils/projectPages.ts';
+import { renderProjectImage } from './utils/renderProjectImage.tsx';
 import { exportProjectPages, getExportPixelRatio, type PageExportSettings } from './utils/exportPages.ts';
 import { clampDecorationSize } from './utils/decorationStyles.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
 import { computeCroppedLayerGeometry } from './utils/imageLayer.ts';
-import { encodeWebp, MAX_IMAGE_EDGE } from './features/ai/services/imageAttachments.ts';
+import { encodeWebp, MAX_IMAGE_EDGE } from 'sang-ai-kit/image-attachments';
 import { type Area } from 'react-easy-crop';
 import {
-  Download, ArrowLeft, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, X, Save, Bot, Presentation
+  Download, ArrowLeft, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, X, Save, Bot, Presentation, LoaderCircle
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import packageInfo from '../package.json';
 
 const APP_VERSION = packageInfo.version;
-const GITHUB_REPO_URL = 'https://github.com/sangyuxiaowu/CoverFlow';
 const isCloudMode = import.meta.env.VITE_APP_MODE === 'cloud';
 const CLOUD_PAGE_SIZE = 9;
 
@@ -67,15 +75,17 @@ type ExportCompression = 'lossless' | 'balanced' | 'small';
 
 const App: React.FC = () => {
   const [lang, setLang] = useState<Language>(() => getStoredLanguage('zh'));
+  const [layerClipboard] = useState(() => new LayerClipboard());
+  const clipboardWorkspaceRef = useRef<WorkspaceOptions | null>(null);
   const t = translations[lang];
-  const [projects, setProjects] = useState<ProjectState[]>([]);
+  const [projects, setProjects] = useState<(ProjectState | ProjectSummary)[]>([]);
   const indexedDbAdapter = useMemo(() => createIndexedDBAdapter(), []);
   const localFileAdapter = useMemo(() => createLocalFileAdapter(), []);
   const cloudAdapter = useMemo(() => createCloudAdapter(), []);
   const [storageType, setStorageType] = useState<StorageAdapterType>(() => (
     getStoredStorageType('indexeddb')
   ));
-  const storageAdapter = useMemo(() => {
+  const storageAdapter = useMemo<StorageAdapter>(() => {
     if (isCloudMode) return cloudAdapter;
     return storageType === 'localfile' ? localFileAdapter : indexedDbAdapter;
   }, [storageType, localFileAdapter, indexedDbAdapter, cloudAdapter]);
@@ -103,10 +113,11 @@ const App: React.FC = () => {
   const [cloudPage, setCloudPage] = useState(1);
   const [cloudHasMore, setCloudHasMore] = useState(true);
   const [cloudLoading, setCloudLoading] = useState(false);
+  const [openingProject, setOpeningProject] = useState(false);
+  const openingProjectRef = useRef(false);
   const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
   const [isPageModalOpen, setIsPageModalOpen] = useState(false);
   const [newPageName, setNewPageName] = useState('');
-  const pageThumbnails = usePageThumbnails(view === 'editor' ? project : null);
   const [selectedPreset, setSelectedPreset] = useState<PresetRatio>(() => PRESET_RATIOS[0]);
   const [customPresetSize, setCustomPresetSize] = useState(() => ({
     width: PRESET_RATIOS[0].width,
@@ -201,6 +212,11 @@ const App: React.FC = () => {
     onUpdateProject: handleLocalProjectUpdate
   });
 
+  const pageThumbnails = useProjectPreviews(view === 'editor' ? project : null, (snapshot, pageId, preview) => {
+    const adapter = (activeLocalFilePath && isTauri) || !storageAdapter.saveProjectPreview ? indexedDbAdapter : storageAdapter;
+    void adapter.saveProjectPreview?.(snapshot, pageId, preview).catch(error => console.warn('[CoverFlow preview save]', error));
+  });
+
   const handlePickStorageFolder = useCallback(async () => {
     if (!localFileAdapter.isAvailable()) {
       showToast(t.storageFolderUnsupported, 'error');
@@ -263,6 +279,7 @@ const App: React.FC = () => {
   }, [storageAdapter, reportStorageError, t.storageLoadFailed]);
 
   useEffect(() => {
+    if (view !== 'landing') return;
     let active = true;
     storageReadyRef.current = false;
 
@@ -277,15 +294,18 @@ const App: React.FC = () => {
           setProjects([]);
           return;
         }
+        storageReadyRef.current = true;
 
         if (isCloudMode) {
           // Cloud 模式的数据加载由单独的分页/搜索逻辑处理
           return;
         }
 
-        const list = await storageAdapter.listProjects();
+        const items = storageAdapter.listProjectSummaries
+          ? await storageAdapter.listProjectSummaries()
+          : (await storageAdapter.listProjects()).items;
         if (!active) return;
-        setProjects(list.items);
+        setProjects(items);
         if (storageType === 'localfile') {
           setStorageFolderName(localFileAdapter.getFolderName());
         }
@@ -300,7 +320,7 @@ const App: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [storageAdapter, storageType, localFileAdapter, t.storageLoadFailed, isCloudMode, reportStorageError]);
+  }, [storageAdapter, storageType, localFileAdapter, t.storageLoadFailed, isCloudMode, reportStorageError, view]);
 
   const { performAutoSave, persistProject, latestProjectRef, cancelPendingSave } = useProjectAutoSave({
     project, view, storageAdapter, storageReadyRef, isCloudMode, isTauri, activeLocalFilePath,
@@ -362,11 +382,11 @@ const App: React.FC = () => {
         bgCropAreaPixels,
         bgCropRotation,
         bgCropFlip,
-        { width: project.canvasConfig.width, height: project.canvasConfig.height }
+        { width: project.pageInfo.width, height: project.pageInfo.height }
       );
       modifyProject(p => p.id !== project.id || p.activePageId !== project.activePageId ? p : ({
         ...p,
-        background: { ...p.background, type: 'image', value: nextValue }
+        pageInfo: { ...p.pageInfo, background: { ...p.pageInfo.background, type: 'image', value: nextValue } }
       }));
       setBgCropModal(null);
     } catch (err) {
@@ -382,9 +402,6 @@ const App: React.FC = () => {
   const createNewProject = (preset: PresetRatio, overrides?: { width?: number; height?: number }) => {
     const width = clampPresetSize(overrides?.width ?? preset.width);
     const height = clampPresetSize(overrides?.height ?? preset.height);
-    const ratioLabel = (width === preset.width && height === preset.height)
-      ? preset.ratio
-      : `${width}x${height}`;
     const textWidth = Math.max(10, width - 40);
     const textHeight = Math.max(10, Math.min(100, height - 40));
     const textX = Math.max(0, (width - textWidth) / 2);
@@ -392,15 +409,17 @@ const App: React.FC = () => {
     const newProject = syncProjectPages({
       id: generateId(), version: APP_VERSION, title: t.untitled, updatedAt: Date.now(),
       layers: [{ id: generateId(), name: t.defaultHeadlineName, type: 'text', content: t.doubleClickToEdit, x: textX, y: textY, width: textWidth, height: textHeight, fontSize: 64, fontFamily: 'Inter, sans-serif', fontWeight: 700, textAlign: 'center', writingMode: 'horizontal', rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, color: '#ffffff', ratioLocked: true }],
-      background: { 
-        type: 'color', 
-        value: '#1e293b', 
-        overlayType: 'none', 
-        overlayColor: '#ffffff', 
-        overlayOpacity: 0.1, 
-        overlayScale: 20 
+      pageInfo: {
+        width, height,
+        background: {
+          type: 'color',
+          value: '#1e293b',
+          overlayType: 'none',
+          overlayColor: '#ffffff',
+          overlayOpacity: 0.1,
+          overlayScale: 20
+        }
       },
-      canvasConfig: { width, height, ratio: ratioLabel },
       selectedLayerId: null
     });
     setProject(newProject);
@@ -420,8 +439,8 @@ const App: React.FC = () => {
 
   const openPageModal = () => {
     if (!project || (project.pages?.length ?? 1) >= 99) return;
-    const config = project.canvasConfig;
-    setSelectedPreset(PRESET_RATIOS.find(preset => preset.width === config.width && preset.height === config.height) ?? { name: 'Current', nameZh: '当前尺寸', ...config });
+    const config = project.pageInfo;
+    setSelectedPreset(PRESET_RATIOS.find(preset => preset.width === config.width && preset.height === config.height) ?? { name: 'Current', nameZh: '当前尺寸', width: config.width, height: config.height, ratio: formatCanvasRatio(config.width, config.height) });
     setCustomPresetSize({ width: config.width, height: config.height });
     setNewPageName('');
     setIsPageModalOpen(true);
@@ -462,7 +481,7 @@ const App: React.FC = () => {
   };
 
   const buildExportOptions = async (targetProject: ProjectState, pixelRatio: number) => {
-    const { width, height } = targetProject.canvasConfig;
+    const { width, height } = targetProject.pageInfo;
     return {
       fontEmbedCSS: await projectFontEmbedCSS(targetProject),
       pixelRatio,
@@ -503,7 +522,7 @@ const App: React.FC = () => {
       return new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
     }
 
-    const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
+    const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.pageInfo.width, targetProject.pageInfo.height, settings));
     const quality = getExportQuality(settings);
 
     if (settings.format === 'png' || settings.format === 'pptx') {
@@ -537,7 +556,7 @@ const App: React.FC = () => {
       return `data:image/svg+xml;base64,${btoa(binary)}`;
     }
 
-    const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
+    const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.pageInfo.width, targetProject.pageInfo.height, settings));
     const quality = getExportQuality(settings);
 
     if (settings.format === 'png' || settings.format === 'pptx') {
@@ -824,13 +843,14 @@ const App: React.FC = () => {
     setSelectedLayerIds(childIds);
   };
 
-  const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportJson = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
+    e.target.value = '';
       try {
-        const imported = readProject(JSON.parse(event.target?.result as string));
+        const imported = file.name.toLowerCase().endsWith('.cfjx')
+          ? await decodeProjectArchive(new Uint8Array(await file.arrayBuffer()))
+          : readLegacyCfj(await file.text());
         if (imported.id && imported.layers) {
           const existingProjectIds = new Set(projects.map(p => p.id));
           if (existingProjectIds.has(imported.id)) {
@@ -846,15 +866,21 @@ const App: React.FC = () => {
       } catch (err) {
         showToast(t.parseFailed, "error");
       }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
   };
 
-  const handleExportJson = (targetProject: ProjectState) => {
-    const json = JSON.stringify({ ...writeProject(targetProject), github: GITHUB_REPO_URL }, null, 2);
-    downloadFile(json, `${targetProject.title}.cfj`, 'application/json');
-    showToast(t.exportSuccess);
+  const handleExportJson = async (targetProject: ProjectState) => {
+    try {
+      const bytes = await encodeProjectArchive(targetProject);
+      const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/zip' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${targetProject.title}.cfjx`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showToast(t.exportSuccess);
+    } catch (error) {
+      showToast(t.exportFailed, 'error');
+    }
   };
 
   const handleDuplicateProject = (targetProject: ProjectState) => {
@@ -866,31 +892,12 @@ const App: React.FC = () => {
   };
 
   // 基于预览节点导出 PNG
-  const handleExportImage = async (previewNode: HTMLDivElement | null, targetProject: ProjectState) => {
-    if (!previewNode) {
-      showToast(t.exportPreviewMissing, "error");
-      return;
-    }
+  const handleExportImage = async (targetProject: ProjectState) => {
     setIsExporting(true);
     try { 
-      await ensureProjectFonts(targetProject);
-      const { width, height } = targetProject.canvasConfig;
-      const dataUrl = await htmlToImage.toPng(previewNode, {
-        fontEmbedCSS: await projectFontEmbedCSS(targetProject),
-        pixelRatio: 1,
-        width,
-        height,
-        style: {
-          transform: 'scale(1)',
-          transformOrigin: 'top left',
-          width: `${width}px`,
-          height: `${height}px`
-        }
-      }); 
-      const link = document.createElement('a'); 
-      link.download = `${targetProject.title}.png`; 
-      link.href = dataUrl; 
-      link.click(); 
+      const firstPage = targetProject.pages?.[0];
+      const blob = await renderProjectImage(firstPage ? pageProject(targetProject, firstPage) : targetProject, { format: 'png' });
+      downloadBlob(blob, `${targetProject.title}.png`);
       showToast(t.exportSuccess);
     } catch (e) { 
       showToast(t.exportFailed, "error"); 
@@ -956,7 +963,7 @@ const App: React.FC = () => {
         }
         setIsExporting(true);
         await ensureProjectFonts(targetProject);
-        const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.canvasConfig.width, targetProject.canvasConfig.height, settings));
+        const options = await buildExportOptions(targetProject, getExportPixelRatio(targetProject.pageInfo.width, targetProject.pageInfo.height, settings));
         const rawBlob = await htmlToImage.toBlob(previewNode, options);
         if (!rawBlob) {
           throw new Error('Failed to generate PNG blob');
@@ -976,8 +983,8 @@ const App: React.FC = () => {
     if (!project) return;
     const newId = generateId();
     modifyProject(p => {
-      const width = Math.min(Math.max(200, text.length * 18), p.canvasConfig.width * 0.9);
-      const height = Math.min(120, p.canvasConfig.height * 0.5);
+      const width = Math.min(Math.max(200, text.length * 18), p.pageInfo.width * 0.9);
+      const height = Math.min(120, p.pageInfo.height * 0.5);
       return {
         ...p,
         layers: [...p.layers, {
@@ -985,8 +992,8 @@ const App: React.FC = () => {
           name: t.textLayerName,
           type: 'text',
           content: text,
-          x: p.canvasConfig.width / 2 - width / 2,
-          y: p.canvasConfig.height / 2 - height / 2,
+          x: p.pageInfo.width / 2 - width / 2,
+          y: p.pageInfo.height / 2 - height / 2,
           width,
           height,
           fontSize: 32,
@@ -1123,8 +1130,8 @@ const App: React.FC = () => {
     const normalized = normalizeSVG(svgText);
     const newLayer = createSvgLayer(
       normalized,
-      project.canvasConfig.width,
-      project.canvasConfig.height,
+      project.pageInfo.width,
+      project.pageInfo.height,
       t.svgLayerName
     );
     newLayer.zIndex = project.layers.length + 1;
@@ -1142,7 +1149,7 @@ const App: React.FC = () => {
     if (!project) return;
     const newId = generateId();
     modifyProject(p => {
-      const size = Math.min(320, p.canvasConfig.width * 0.6, p.canvasConfig.height * 0.6);
+      const size = Math.min(320, p.pageInfo.width * 0.6, p.pageInfo.height * 0.6);
       return {
         ...p,
         layers: [...p.layers, {
@@ -1152,8 +1159,8 @@ const App: React.FC = () => {
           content: dataUrl,
           imageSource: 'upload',
           imageDescription: '',
-          x: p.canvasConfig.width / 2 - size / 2,
-          y: p.canvasConfig.height / 2 - size / 2,
+          x: p.pageInfo.width / 2 - size / 2,
+          y: p.pageInfo.height / 2 - size / 2,
           width: size,
           height: size,
           rotation: 0,
@@ -1178,14 +1185,7 @@ const App: React.FC = () => {
         id: generateId()
       }));
 
-      return {
-        ...p,
-        layers: newLayers.length > 0 ? newLayers : p.layers,
-        background: data.background || p.background,
-        canvasConfig: data.canvasConfig || p.canvasConfig,
-        selectedLayerId: null,
-        updatedAt: Date.now()
-      };
+      return { ...p, layers: newLayers.length > 0 ? newLayers : p.layers, pageInfo: data.pageInfo || p.pageInfo, selectedLayerId: null, updatedAt: Date.now() };
     });
     setSelectedLayerIds([]);
     showToast(t.projectJsonApplied);
@@ -1198,8 +1198,8 @@ const App: React.FC = () => {
       name: t.newTextLayerName,
       type: 'text',
       content: t.doubleClickToEdit,
-      x: project.canvasConfig.width / 2 - 150,
-      y: project.canvasConfig.height / 2 - 25,
+      x: project.pageInfo.width / 2 - 150,
+      y: project.pageInfo.height / 2 - 25,
       width: 300,
       height: 50,
       fontSize: 48,
@@ -1234,8 +1234,8 @@ const App: React.FC = () => {
           const img = new Image();
           img.onload = () => {
             if (latestProjectRef.current?.id !== project.id || latestProjectRef.current?.activePageId !== project.activePageId) return;
-            const maxW = project.canvasConfig.width * 0.8;
-            const maxH = project.canvasConfig.height * 0.8;
+            const maxW = project.pageInfo.width * 0.8;
+            const maxH = project.pageInfo.height * 0.8;
             let w = img.width;
             let h = img.height;
             const ratio = w / h;
@@ -1249,8 +1249,8 @@ const App: React.FC = () => {
               content: content,
               imageSource: 'upload',
               imageDescription: file.name,
-              x: (project.canvasConfig.width - w) / 2,
-              y: (project.canvasConfig.height - h) / 2,
+              x: (project.pageInfo.width - w) / 2,
+              y: (project.pageInfo.height - h) / 2,
               width: w,
               height: h,
               rotation: 0,
@@ -1273,8 +1273,8 @@ const App: React.FC = () => {
 
   const handleApplyDecorationTemplate = (template: DecorationTemplate) => {
     if (!project || template.layers.length === 0) return;
-    const offsetX = (project.canvasConfig.width - template.width) / 2;
-    const offsetY = (project.canvasConfig.height - template.height) / 2;
+    const offsetX = (project.pageInfo.width - template.width) / 2;
+    const offsetY = (project.pageInfo.height - template.height) / 2;
     const baseZIndex = Math.max(0, ...project.layers.map((layer) => layer.zIndex));
     const nextLayers = [...template.layers]
       .sort((a, b) => a.zIndex - b.zIndex)
@@ -1423,11 +1423,12 @@ const App: React.FC = () => {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [isExportModalOpen, exportSettings, project?.id, project?.activePageId, project?.layers, project?.background, project?.canvasConfig]);
+  }, [isExportModalOpen, exportSettings, project?.id, project?.activePageId, project?.layers, project?.pageInfo.background, project?.pageInfo]);
 
-  const cropAspect = project ? project.canvasConfig.width / project.canvasConfig.height : 1;
+  const cropAspect = project ? project.pageInfo.width / project.pageInfo.height : 1;
   const aiWorkspace: WorkspaceOptions = {
     project,
+    clipboard: layerClipboard,
     aiHistory: view === 'editor' ? aiHistory : undefined,
     getAssetFolder: () => getAssetFolder(storageType, localFileAdapter),
     getCanvasPreview: async () => {
@@ -1435,7 +1436,7 @@ const App: React.FC = () => {
         const node = document.getElementById('export-target') as HTMLDivElement | null;
         if (!node || !project) throw new Error('No canvas is available to preview.');
         await ensureProjectFonts(project);
-        const { width, height } = project.canvasConfig;
+        const { width, height } = project.pageInfo;
         const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(width, height));
         const canvas = await htmlToImage.toCanvas(node, {
           ...await buildExportOptions(project, 1),
@@ -1498,7 +1499,24 @@ const App: React.FC = () => {
       }
     },
     onSearch: setProjectSearchTerm,
-    saveLocal: saveLocalProjectToFile
+    saveLocal: saveLocalProjectToFile,
+    readLocal: readLocalProject
+  };
+  clipboardWorkspaceRef.current = {
+    ...aiWorkspace,
+    onCommit: next => {
+      latestProjectRef.current = next;
+      modifyProject(() => next);
+      setSelectedLayerIds(next.selectedLayerId ? [next.selectedLayerId] : []);
+    }
+  };
+  const clipboardBridge = useMemo(() => createWorkspaceBridge(() => clipboardWorkspaceRef.current!, async () => false), []);
+  const copyToClipboard = (ids: string[]) => {
+    if (!project?.activePageId) return;
+    const layers = ids.map(layerId => ({ projectId: project.id, pageId: project.activePageId!, layerId }));
+    void executeClipboardTool({ action: 'copy', layers }, clipboardBridge, new AbortController().signal).then(() => {
+      showToast(lang === 'en' ? 'Added to layer clipboard' : '已加入图层剪贴板');
+    }).catch(error => showToast(error instanceof Error ? error.message : String(error), 'error'));
   };
   const cropSize = (() => {
     const maxWidth = 720;
@@ -1512,20 +1530,41 @@ const App: React.FC = () => {
     return { width: Math.round(width), height: Math.round(height) };
   })();
 
-  const handleOpenRecentProject = (item: RecentProjectItem) => {
-        if (item.source === 'local' && item.localPath) {
-          openLocalProjectFromPath(item.localPath);
-          return;
-        }
-        warnIfNewerProject(item.project);
-        const opened = item.project.pages?.[0] ? selectProjectPage(item.project, item.project.pages[0].id) : syncProjectPages(item.project);
-        setProject(opened);
-        setView('editor');
-        initProjectHistory(opened);
-        clearActiveLocalFilePath();
+  const resolveRecentProject = async (item: BrowserProjectItem): Promise<ProjectState> => {
+    if (item.source === 'local' && item.localPath) return readLocalProject(item.localPath);
+    if (!('kind' in item.project)) return item.project;
+    const loaded = await storageAdapter.getProject?.(item.project.id);
+    if (!loaded) throw new Error('Project not found.');
+    return loaded;
   };
 
-  const handleDeleteRecentProject = (item: RecentProjectItem) => {
+  const withRecentProject = (item: BrowserProjectItem, action: (project: ProjectState) => void | Promise<void>) => {
+    void resolveRecentProject(item).then(action).catch(error => reportStorageError(error, 'read-project', t.storageLoadFailed, item.project.id));
+  };
+
+  const handleOpenRecentProject = (item: BrowserProjectItem) => {
+    if (openingProjectRef.current) return;
+    openingProjectRef.current = true;
+    setOpeningProject(true);
+    window.setTimeout(() => {
+      const operation = item.source === 'local' && item.localPath
+        ? openLocalProjectFromPath(item.localPath)
+        : resolveRecentProject(item).then(fullProject => {
+          warnIfNewerProject(fullProject);
+          const opened = fullProject.pages?.[0] ? selectProjectPage(fullProject, fullProject.pages[0].id) : syncProjectPages(fullProject);
+          setProject(opened);
+          setView('editor');
+          initProjectHistory(opened);
+          clearActiveLocalFilePath();
+        });
+      void operation.catch(error => reportStorageError(error, 'read-project', t.storageLoadFailed, item.project.id)).finally(() => {
+        openingProjectRef.current = false;
+        setOpeningProject(false);
+      });
+    }, 0);
+  };
+
+  const handleDeleteRecentProject = (item: BrowserProjectItem) => {
         if (item.source === 'local' && item.localPath) {
           setConfirmDialog({
             message: t.confirmRemoveLocalProject,
@@ -1547,12 +1586,20 @@ const App: React.FC = () => {
         projects={projects} localRecentItems={localRecentItems} projectSearchTerm={projectSearchTerm}
         setProjectSearchTerm={setProjectSearchTerm} cloudLoading={cloudLoading}
         handleProjectsScroll={handleProjectsScroll} handleOpenRecentProject={handleOpenRecentProject}
-        handleDeleteRecentProject={handleDeleteRecentProject} handleDuplicateProject={handleDuplicateProject}
-        handleExportJson={handleExportJson} handleExportImage={handleExportImage}
+        handleDeleteRecentProject={handleDeleteRecentProject} handleDuplicateProject={item => withRecentProject(item, handleDuplicateProject)}
+        handleExportJson={item => withRecentProject(item, handleExportJson)} handleExportImage={item => withRecentProject(item, handleExportImage)}
+        getProjectPreview={item => {
+          if (item.source === 'storage' && storageAdapter.getProjectPreview) return storageAdapter.getProjectPreview(item.project.id);
+          const first = 'kind' in item.project ? undefined : item.project.pages?.[0];
+          const pageId = 'kind' in item.project ? item.project.firstPageId : first?.id;
+          const fingerprint = 'kind' in item.project ? item.project.fingerprint : first && pagePreviewFingerprint(first);
+          return pageId && fingerprint ? indexedDbAdapter.getPagePreview(item.project.id, pageId, fingerprint) : Promise.resolve(undefined);
+        }}
         openPresetModal={openPresetModal} openLocalProjectDialog={openLocalProjectDialog} handleImportJson={handleImportJson}
         onToggleAi={() => setIsAiOpen(prev => !prev)} onOpenStorageSettings={() => setIsStorageSettingsOpen(true)}
         onLanguageChange={setLang}
       >
+        {openingProject && <div role="status" aria-live="polite" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 text-sm text-white"><div className="flex items-center gap-2 rounded-md bg-slate-900 px-4 py-3 shadow-xl"><LoaderCircle className="h-4 w-4 animate-spin" />{t.loading}</div></div>}
         {toast && <Toast message={toast.msg} type={toast.type} />}
         {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
         {!isCloudMode && renderStorageSettingsModal()}
@@ -1585,7 +1632,7 @@ const App: React.FC = () => {
         onClose={() => setIsPageModalOpen(false)} onSizeChange={setCustomPresetSize}
         onSelectPreset={preset => { setSelectedPreset(preset); setCustomPresetSize({ width: preset.width, height: preset.height }); }}
         onCreate={() => {
-          modifyProject(current => insertProjectPage(current, newPageName, { ...customPresetSize, ratio: `${customPresetSize.width}x${customPresetSize.height}` }));
+          modifyProject(current => insertProjectPage(current, newPageName, customPresetSize));
           setSelectedLayerIds([]);
           setIsPageModalOpen(false);
         }}
@@ -1693,6 +1740,7 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <LayerClipboardPanel clipboard={layerClipboard} bridge={clipboardBridge} project={project} lang={lang} />
           
           <div className="flex items-center gap-1 mr-4 bg-slate-800 p-1 rounded-lg">
             <button 
@@ -1765,12 +1813,12 @@ const App: React.FC = () => {
           pagesPanel={<PagesPanel lang={lang} pages={project.pages ?? []} activePageId={project.activePageId} thumbnails={pageThumbnails}
             onSelect={switchPage}
             onRename={(id, name) => modifyProject(current => renameProjectPage(current, id, name))}
-            onDuplicate={id => { modifyProject(current => insertProjectPage(current, '', current.canvasConfig, id)); setSelectedLayerIds([]); }}
+            onDuplicate={id => { modifyProject(current => insertProjectPage(current, '', current.pageInfo, id)); setSelectedLayerIds([]); }}
             onDelete={id => setConfirmDialog({ message: t.confirmDeletePage, onConfirm: () => { modifyProject(current => deleteProjectPage(current, id)); setSelectedLayerIds([]); } })}
             onMove={(id, targetId) => modifyProject(current => moveProjectPage(current, id, targetId))}
           />}
           selectedLayerIds={selectedLayerIds}
-          background={project.background} 
+          background={project.pageInfo.background}
           onOpenBackgroundCrop={handleOpenBackgroundCrop}
           storageType={isCloudMode ? 'indexeddb' : storageType}
           localFileAdapter={localFileAdapter}
@@ -1780,8 +1828,8 @@ const App: React.FC = () => {
             if (l.type === 'svg' && l.content) {
               const newLayer = createSvgLayer(
                 l.content,
-                project.canvasConfig.width,
-                project.canvasConfig.height,
+                project.pageInfo.width,
+                project.pageInfo.height,
                 l.name || t.defaultLayerName
               );
               newLayer.zIndex = project.layers.length + 1;
@@ -1797,8 +1845,8 @@ const App: React.FC = () => {
             if (l.type === 'decoration' && l.content) {
               const newLayer = createDecorationLayer(
                 l.content,
-                project.canvasConfig.width,
-                project.canvasConfig.height,
+                project.pageInfo.width,
+                project.pageInfo.height,
                 l.name || t.defaultLayerName,
                 { width: l.width, height: l.height }
               );
@@ -1819,8 +1867,8 @@ const App: React.FC = () => {
                 if (latestProjectRef.current?.id !== project.id || latestProjectRef.current?.activePageId !== project.activePageId) return;
                 let width = img.width || 100;
                 let height = img.height || 100;
-                const maxWidth = project.canvasConfig.width * 0.8;
-                const maxHeight = project.canvasConfig.height * 0.8;
+                const maxWidth = project.pageInfo.width * 0.8;
+                const maxHeight = project.pageInfo.height * 0.8;
                 const ratio = width / Math.max(height, 1);
 
                 if (width > maxWidth) {
@@ -1839,8 +1887,8 @@ const App: React.FC = () => {
                   content: l.content,
                   imageSource: l.imageSource || 'import',
                   imageDescription: l.imageDescription || l.name || '',
-                  x: (project.canvasConfig.width - width) / 2,
-                  y: (project.canvasConfig.height - height) / 2,
+                  x: (project.pageInfo.width - width) / 2,
+                  y: (project.pageInfo.height - height) / 2,
                   width,
                   height,
                   rotation: 0,
@@ -1870,8 +1918,8 @@ const App: React.FC = () => {
                 name: l.name || t.defaultLayerName,
                 type: l.type || 'svg',
                 content: l.content || '',
-                x: p.canvasConfig.width / 2 - (l.width || 100) / 2,
-                y: p.canvasConfig.height / 2 - (l.height || 100) / 2,
+                x: p.pageInfo.width / 2 - (l.width || 100) / 2,
+                y: p.pageInfo.height / 2 - (l.height || 100) / 2,
                 width: l.width || 100,
                 height: l.height || 100,
                 rotation: 0,
@@ -1884,7 +1932,7 @@ const App: React.FC = () => {
               }]
             }));
           }}
-          onUpdateBackground={(bg) => modifyProject(p => ({ ...p, background: { ...p.background, ...bg } }))} 
+          onUpdateBackground={(bg) => modifyProject(p => ({ ...p, pageInfo: { ...p.pageInfo, background: { ...p.pageInfo.background, ...bg } } }))}
         />
         <div className="flex-1 flex flex-col min-h-0 relative">
           <Canvas
@@ -1928,6 +1976,7 @@ const App: React.FC = () => {
           onSelectLayer={handleSelectLayer}
           onReorderLayers={(newLayers) => modifyProject(p => ({ ...p, layers: newLayers.map((l, i) => ({ ...l, zIndex: i + 1 })) }))}
           onCloneLayers={handleCloneLayers}
+          onCopyToClipboard={copyToClipboard}
           onDeleteLayers={(ids) => setConfirmDialog({ message: t.confirmDelete, onConfirm: () => handleDeleteLayers(ids) })}
           onMoveLayersTop={(ids) => handleMoveLayers(ids, true)}
           onMoveLayersBottom={(ids) => handleMoveLayers(ids, false)}

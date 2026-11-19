@@ -1,4 +1,4 @@
-import { imageModelToolId } from '../image-generation/models.ts';
+import { imageModelToolId } from 'sang-ai-kit/image-models';
 import type { ImageModelConfig, ToolEvent } from '../types.ts';
 
 export function imageModelForTool(tool: ToolEvent, models: ImageModelConfig[] | undefined): ImageModelConfig | undefined {

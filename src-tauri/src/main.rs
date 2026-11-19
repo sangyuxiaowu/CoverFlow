@@ -14,7 +14,7 @@ fn prepare_chat_storage(app: tauri::AppHandle, project_path: String) -> Result<S
     return Err("The project file has not been authorized.".into());
   }
   let project = project.canonicalize().map_err(|error| error.to_string())?;
-  if project.extension().and_then(|value| value.to_str()).map(|value| value.eq_ignore_ascii_case("cfj")) != Some(true) {
+  if project.extension().and_then(|value| value.to_str()).map(|value| value.eq_ignore_ascii_case("cfj") || value.eq_ignore_ascii_case("cfjx")) != Some(true) {
     return Err("Expected a CoverFlow project file.".into());
   }
   let parent = project.parent().ok_or("The project has no parent directory.")?;
@@ -39,7 +39,7 @@ fn main() {
     .manage(pending_open.clone())
     .setup(|app| {
       let args: Vec<String> = std::env::args().collect();
-      if let Some(path) = args.iter().find(|arg| arg.to_lowercase().ends_with(".cfj")) {
+      if let Some(path) = args.iter().find(|arg| arg.to_lowercase().ends_with(".cfj") || arg.to_lowercase().ends_with(".cfjx")) {
         let pending_open = app.state::<PendingOpen>().0.clone();
         if let Ok(mut pending) = pending_open.lock() {
           pending.push(path.clone());

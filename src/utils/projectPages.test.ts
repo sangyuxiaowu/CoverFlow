@@ -3,18 +3,14 @@ import type { ProjectState } from '../types.ts';
 import { syncProjectPages } from '../storage/projectCompatibility.ts';
 import { copyProject, deleteProjectPage, insertProjectPage, moveProjectPage, pageNumber, renameProjectPage, selectProjectPage } from './projectPages.ts';
 
-const initial = (): ProjectState => syncProjectPages({
-  id: 'project', title: 'Article', layers: [], selectedLayerId: null, updatedAt: 1,
-  background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 },
-  canvasConfig: { width: 1200, height: 630, ratio: '40:21' }
-});
+const initial = (): ProjectState => syncProjectPages({ id: 'project', title: 'Article', layers: [], selectedLayerId: null, updatedAt: 1, pageInfo: { ...({ width: 1200, height: 630 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } } });
 
 describe('project pages', () => {
   it('inserts after the current page and defaults to its dimensions', () => {
     const first = initial();
     const second = insertProjectPage(first, 'Detail');
     expect(second.pages).toHaveLength(2);
-    expect(second.pages![1].canvasConfig).toEqual(first.canvasConfig);
+    expect(second.pages![1].pageInfo).toEqual(first.pageInfo);
     expect(second.activePageId).toBe(second.pages![1].id);
     expect(insertProjectPage(selectProjectPage(second, first.activePageId!), '').pages!.map(page => page.name)).toEqual(['', '', 'Detail']);
     expect(pageNumber(0)).toBe('P01');
@@ -38,7 +34,7 @@ describe('project pages', () => {
       { ...properties, id: 'group', name: 'Group', type: 'group', content: '', children: ['text'] },
       { ...properties, id: 'text', name: 'Text', type: 'text', content: 'Hello', parentId: 'group' }
     ] });
-    const duplicate = insertProjectPage(project, '', project.canvasConfig, project.activePageId);
+    const duplicate = insertProjectPage(project, '', project.pageInfo, project.activePageId);
     expect(duplicate.layers[0].id).not.toBe('group');
     expect(duplicate.layers[0].children).toEqual([duplicate.layers[1].id]);
     expect(duplicate.layers[1].parentId).toBe(duplicate.layers[0].id);
@@ -60,7 +56,7 @@ describe('project pages', () => {
     const clone = vi.spyOn(globalThis, 'structuredClone');
     try {
       for (let index = 1; index < 41; index++) {
-        project = insertProjectPage(project, `Page ${index}`, project.canvasConfig, project.activePageId);
+        project = insertProjectPage(project, `Page ${index}`, project.pageInfo, project.activePageId);
         project = syncProjectPages({ ...project, layers: project.layers.map(layer => ({ ...layer, content: `${source.content}${index}` })) });
       }
       expect(clone).not.toHaveBeenCalled();
@@ -79,6 +75,6 @@ describe('project pages', () => {
     for (let index = 1; index < 99; index++) project = insertProjectPage(project, '');
     expect(project.pages).toHaveLength(99);
     expect(() => insertProjectPage(project, '')).toThrow('99');
-    expect(() => insertProjectPage(project, '', project.canvasConfig, project.activePageId)).toThrow('99');
+    expect(() => insertProjectPage(project, '', project.pageInfo, project.activePageId)).toThrow('99');
   });
 });

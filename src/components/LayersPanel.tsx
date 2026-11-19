@@ -18,15 +18,16 @@ import ColorPicker from './ColorPicker.tsx';
 import DecorationContent from './DecorationContent.tsx';
 import DecorationCodeEditor from './DecorationCodeEditor.tsx';
 import ImageLayerCropModal from './ImageLayerCropModal.tsx';
-import RemoveBackgroundButton from '../features/background-removal/RemoveBackgroundButton.tsx';
-import type { RemovalResult } from '../features/background-removal/types.ts';
-import { fontListItems, GOOGLE_FONTS, readInstalledFonts, type LocalFontSelection } from '../features/ai/services/fonts.ts';
+import RemoveBackgroundButton from './RemoveBackgroundButton.tsx';
+import { AI_FEATURES } from '../features/ai/featureConfig.ts';
+import type { RemovalResult } from '../utils/backgroundRemovalResult.ts';
+import { fontListItems, GOOGLE_FONTS, readInstalledFonts, type LocalFontSelection } from 'sang-ai-kit/fonts';
 import { 
   Eye, EyeOff, Lock, Unlock, Trash2, Hash, RotateCw, Maximize2, 
   Type as TextIcon, Image as ImageIcon, GripVertical, Link as LinkIcon, Link2Off, MoveHorizontal, MoveVertical,
   Palette, Sliders, AlignLeft, AlignCenter, AlignRight, Type, Search, ChevronDown, Check, Folder,
   Copy, Trash, ArrowUpToLine, ArrowDownToLine, Layers, Ungroup, PanelRightClose, PanelRightOpen,
-  FlipHorizontal2, FlipVertical2, Crop as CropIcon, RotateCcw
+  FlipHorizontal2, FlipVertical2, Crop as CropIcon, RotateCcw, ClipboardPlus
 } from 'lucide-react';
 
 interface LayersPanelProps {
@@ -43,6 +44,7 @@ interface LayersPanelProps {
   ) => void;
   onReorderLayers: (newLayers: Layer[]) => void;
   onCloneLayers: (ids: string[]) => void;
+  onCopyToClipboard: (ids: string[]) => void;
   onDeleteLayers: (ids: string[]) => void;
   onMoveLayersTop: (ids: string[]) => void;
   onMoveLayersBottom: (ids: string[]) => void;
@@ -101,6 +103,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   onSelectLayer,
   onReorderLayers,
   onCloneLayers,
+  onCopyToClipboard,
   onDeleteLayers,
   onMoveLayersTop,
   onMoveLayersBottom,
@@ -777,7 +780,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                     </div>
 
                     <div className="space-y-2 pt-2 border-t border-slate-800/60">
-                      <RemoveBackgroundButton key={`${project.id}:${project.activePageId}:${selectedLayer.id}`} layer={selectedLayer} english={lang === 'en'} onApply={onRemoveBackground} />
+                      {AI_FEATURES.backgroundRemoval && <RemoveBackgroundButton key={`${project.id}:${project.activePageId}:${selectedLayer.id}`} layer={selectedLayer} english={lang === 'en'} onApply={onRemoveBackground} />}
                       <div className="space-y-1">
                         <label htmlFor={`image-source-${selectedLayer.id}`} className="block text-[9px] text-slate-500 font-bold">{t.imageSource}</label>
                         <input id={`image-source-${selectedLayer.id}`} type="text" maxLength={200} value={selectedLayer.imageSource || ''} onChange={event => onUpdateLayer(selectedLayer.id, { imageSource: event.target.value })} onBlur={onCommit} className="w-full min-w-0 bg-slate-800/50 rounded-md px-2 py-1 text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none" />
@@ -1121,6 +1124,9 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
       <div className="flex-1 flex flex-col min-h-0 bg-slate-900/50">
         <div className="flex items-center justify-between px-6 py-3.5 border-b border-slate-800/50 bg-slate-900 flex-shrink-0">
           <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t.layers}</h3>
+          <button type="button" disabled={!selectedLayerIds.length} onClick={() => onCopyToClipboard(selectedLayerIds)} title={lang === 'en' ? 'Add selected layers to clipboard' : '将选中图层加入剪贴板'} aria-label={lang === 'en' ? 'Add selected layers to clipboard' : '将选中图层加入剪贴板'} className="p-1.5 rounded hover:bg-slate-800 text-slate-400 disabled:opacity-30 disabled:pointer-events-none">
+            <ClipboardPlus className="w-4 h-4" />
+          </button>
         </div>
         
         <div className="flex-1 overflow-y-auto p-3 space-y-1 scrollbar-hide">
@@ -1353,6 +1359,10 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
           >
             <Copy className="w-3.5 h-3.5" />
             {t.cloneLayer}
+          </button>
+          <button className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors flex items-center gap-2" onClick={() => { onCopyToClipboard(menuSelection); setContextMenu(null); }}>
+            <ClipboardPlus className="w-3.5 h-3.5" />
+            {lang === 'en' ? 'Add to clipboard' : '加入剪贴板'}
           </button>
           <button
             className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors flex items-center gap-2"

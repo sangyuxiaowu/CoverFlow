@@ -5,18 +5,22 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import AiAssistant from './AiAssistant.tsx';
 import { useAiAssistant } from '../hooks/useAiAssistant.ts';
 import { defaultConfig, resolveSelection } from '../services/config.ts';
-import { createImageUpload } from '../services/imageAttachments.ts';
+import { createImageUpload } from 'sang-ai-kit/image-attachments';
 import type { WorkspaceOptions } from '../services/workspace.ts';
 import type { StorageAdapter } from '../../../storage/StorageAdapter.ts';
+import { AI_FEATURES } from '../featureConfig.ts';
 
 vi.mock('../hooks/useAiAssistant.ts', () => ({ useAiAssistant: vi.fn() }));
 vi.mock('../hooks/useChatStore.ts', () => ({ useChatStore: () => ({ id: 'test' }) }));
-vi.mock('../hooks/useFloatingPanel.ts', () => ({ useFloatingPanel: () => ({ minimized: false, setMinimized: vi.fn() }) }));
-vi.mock('../hooks/useChatScroll.ts', () => ({ useChatScroll: () => ({ resetScroll: vi.fn() }) }));
+vi.mock('sang-ai-kit/floating', () => ({ useFloatingPanel: () => ({ minimized: false, setMinimized: vi.fn() }) }));
+vi.mock('sang-ai-kit/chat-scroll', () => ({ useChatScroll: () => ({ resetScroll: vi.fn() }) }));
 vi.mock('./TokenUsageBar.tsx', () => ({ default: () => null }));
-vi.mock('./ModelControls.tsx', () => ({ default: () => null }));
-vi.mock('./ChatScrollbar.tsx', () => ({ default: () => null }));
-vi.mock('../services/imageAttachments.ts', () => ({ createImageUpload: vi.fn() }));
+vi.mock('sang-ai-kit/model-controls', () => ({ default: () => null }));
+vi.mock('sang-ai-kit/chat-scrollbar', () => ({ default: () => null }));
+vi.mock('sang-ai-kit/image-attachments', async importOriginal => ({
+  ...await importOriginal<typeof import('sang-ai-kit/image-attachments')>(),
+  createImageUpload: vi.fn()
+}));
 
 let root: Root;
 let host: HTMLDivElement;
@@ -65,6 +69,18 @@ async function pasteImage() {
   return event;
 }
 
+it('hides quick snippets when the feature is disabled and restores them when enabled', async () => {
+  const features = AI_FEATURES as { quickSnippets: boolean };
+  try {
+    features.quickSnippets = false;
+    await render(false);
+    expect(host.querySelectorAll('.cf-ai-quick-btn')).toHaveLength(0);
+    features.quickSnippets = true;
+    await render(false);
+    expect(host.querySelectorAll('.cf-ai-quick-btn').length).toBeGreaterThan(0);
+  } finally { features.quickSnippets = true; }
+});
+
 it.each([false, true])('hides uploads and ignores pasted images for text-only models even with image generation enabled=%s', async enabled => {
   assistant.config.imageModels = [{ enabled } as NonNullable<typeof assistant.config.imageModels>[number]];
   await render(false);
@@ -81,6 +97,15 @@ async function enterPrompt(value: string) {
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
+
+it('allows a keyless endpoint to send text and image attachments', async () => {
+  resolveSelection(assistant.config).endpoint.apiKey = '';
+  await render(true);
+  await pasteImage();
+  await enterPrompt('Inspect this page');
+  await act(async () => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  expect(assistant.send).toHaveBeenCalledWith('Inspect this page', [expect.objectContaining({ image: expect.objectContaining({ id: 'upload' }) })]);
+});
 
 it('holds pending images while sending text and restores them when switching back to vision', async () => {
   await render(true);
@@ -133,4 +158,25 @@ it('shows chat redo only for the last reply with a valid immediate checkpoint', 
   assistant.canRegenerate = false;
   await render(true);
   expect(host.querySelector('[aria-label="Regenerate (Redo)"]')).toBeNull();
+});
+
+it('renders tool duration through the shared assistant and stops timing on completion', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(100000);
+  try {
+    assistant.entries = [{
+      id: 'reply', role: 'assistant', content: '',
+      tools: [{ id: 'tool', name: 'generate_image', arguments: '{}', status: 'running', startedAt: Date.now() }]
+    }];
+    await render(true);
+    expect(host.querySelector('.cf-ai-tool-duration')?.textContent).toBe('0s');
+    await act(async () => { vi.advanceTimersByTime(68000); });
+    expect(host.querySelector('.cf-ai-tool-duration')?.textContent).toBe('1m 08s');
+    assistant.entries[0].tools![0] = { id: 'tool', name: 'generate_image', arguments: '{}', status: 'success', durationMs: 68500 };
+    await render(true);
+    await act(async () => { vi.advanceTimersByTime(120000); });
+    expect(host.querySelector('.cf-ai-tool-duration')?.textContent).toBe('1m 08s');
+  } finally {
+    vi.useRealTimers();
+  }
 });

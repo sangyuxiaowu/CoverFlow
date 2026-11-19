@@ -1,16 +1,22 @@
 import OpenAI from 'openai';
-import type { Response, ResponseFunctionCallOutputItemList, ResponseStreamEvent } from 'openai/resources/responses/responses';
-import type { AiConfig, AiRequestConfig, ChatImageRef, RequestUsage, ResponseItem, TokenUsage, ToolEvent, WorkspaceBridge } from '../types.ts';
+import { openAiAuthOptions, readResponse } from 'sang-ai-kit/responses';
+import { normalizeUsage, prepareResponseInput } from 'sang-ai-kit/conversation-utils';
+import { runToolLoop } from 'sang-ai-kit/tool-loop';
+import type { Response, ResponseFunctionCallOutputItemList } from 'openai/resources/responses/responses';
+import type { AiConfig, AiRequestConfig, ChatImageRef, RequestUsage, ResponseItem, ToolEvent, WorkspaceBridge } from '../types.ts';
 import { generateId } from '../../../utils/helpers.ts';
-import { imageToolDefinitions, IMAGE_TOOL_DEFINITIONS, skillToolDefinitions, TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
-import { executeImageTool } from '../tools/imageTools.ts';
+import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import { coverFlowImageDefinition, createImageToolExtensions } from '../tools/imageTools.ts';
+import { createBuiltInTools } from 'sang-ai-kit/built-in-tools';
 import { executeTool } from '../tools/execute.ts';
 import { record } from '../tools/validation.ts';
-import { DEFAULT_MAX_IMAGE_FAILURES, DEFAULT_MAX_TOOL_ROUNDS, normalizeEndpoint, reasoningPayload, validateRequestConfig } from './config.ts';
-import { estimateInput } from './usage.ts';
-import { blobToDataUrl } from './imageAttachments.ts';
-import { normalizeSkills, readSkill } from './skills.ts';
-import { normalizeLocalFonts } from './fonts.ts';
+import { DEFAULT_MAX_TOOL_ROUNDS, normalizeEndpoint, reasoningPayload, validateRequestConfig } from './config.ts';
+import { estimateToolInput } from './usage.ts';
+import { normalizeSkills } from './skills.ts';
+import { normalizeAiFeatures } from 'sang-ai-kit/features';
+
+export { readResponse } from 'sang-ai-kit/responses';
+export { normalizeUsage, sanitizeResponseItems } from 'sang-ai-kit/conversation-utils';
 
 interface ConversationOptions {
   config: AiRequestConfig;
@@ -18,7 +24,7 @@ interface ConversationOptions {
   bridge: WorkspaceBridge;
   signal: AbortSignal;
   onText: (text: string) => void;
-  onReasoning?: (text: string) => void;
+  onReasoning?: (text: string, itemId?: string) => void;
   onTool: (event: ToolEvent) => void;
   onUsage?: (request: RequestUsage) => void;
   onHistory?: (input: ResponseItem[]) => void;
@@ -51,28 +57,6 @@ export function conversationAbortDetails(signal: AbortSignal) {
   };
 }
 
-export function normalizeUsage(usage: Response['usage'] | null): TokenUsage | undefined {
-  if (!usage || ![usage.input_tokens, usage.output_tokens, usage.total_tokens].every(value => Number.isInteger(value) && value >= 0)) return undefined;
-  const cached = usage.input_tokens_details?.cached_tokens;
-  const reasoning = usage.output_tokens_details?.reasoning_tokens;
-  return {
-    inputTokens: usage.input_tokens, outputTokens: usage.output_tokens, totalTokens: usage.total_tokens,
-    ...(Number.isInteger(cached) && cached >= 0 ? { cachedTokens: cached } : {}),
-    ...(Number.isInteger(reasoning) && reasoning >= 0 ? { reasoningTokens: reasoning } : {})
-  };
-}
-
-export async function readResponse(events: AsyncIterable<ResponseStreamEvent>, onText: (text: string) => void, signal: AbortSignal, onReasoning?: (text: string) => void): Promise<Response> {
-  for await (const event of events) {
-    signal.throwIfAborted();
-    if (event.type === 'response.output_text.delta') onText(event.delta);
-    if (event.type === 'response.reasoning_text.delta' || event.type === 'response.reasoning_summary_text.delta') onReasoning?.(event.delta);
-    if (event.type === 'error') throw new Error(event.message || 'AI stream returned an error.');
-    if (event.type === 'response.completed' || event.type === 'response.incomplete' || event.type === 'response.failed') return event.response;
-  }
-  throw new Error('AI stream disconnected before completion.');
-}
-
 function responseText(response: Response): string {
   const texts: string[] = [];
   for (const item of response.output) {
@@ -84,62 +68,45 @@ function responseText(response: Response): string {
   return texts.join('');
 }
 
-export function sanitizeResponseItems(items: ResponseItem[]): ResponseItem[] {
-  const result: ResponseItem[] = [];
-  const pendingCalls = new Set<string>();
-
-  for (const item of items) {
-    if ('type' in item && item.type === 'function_call' && item.call_id) {
-      pendingCalls.add(item.call_id);
-      result.push(item);
-    } else if ('type' in item && item.type === 'function_call_output' && item.call_id) {
-      pendingCalls.delete(item.call_id);
-      result.push(item);
-    } else {
-      result.push(item);
-    }
-  }
-
-  if (pendingCalls.size > 0) {
-    return result.filter(item => !('type' in item && item.type === 'function_call' && item.call_id && pendingCalls.has(item.call_id)));
-  }
-  return result;
-}
-
-async function prepareRequestInput(items: ResponseItem[], supportsVision: boolean, loadImage?: (imageId: string) => Promise<Blob | null>): Promise<ResponseItem[]> {
-  const result = structuredClone(items) as unknown as Record<string, unknown>[];
-  const hydrateParts = async (parts: unknown[]) => Promise.all(parts.map(async part => {
-    if (!part || typeof part !== 'object') return part;
-    const image = part as { type?: string; image_url?: string | null };
-    if (image.type !== 'input_image') return part;
-    if (!supportsVision) return { type: 'input_text', text: '[Image not provided: the current model does not support image input.]' };
-    if (!loadImage || !image.image_url?.startsWith('attachment://')) return part;
-    const blob = await loadImage(image.image_url.slice('attachment://'.length));
-    if (!blob) throw new Error('A referenced chat image is missing.');
-    return { ...image, image_url: await blobToDataUrl(blob) };
-  }));
-  for (const item of result) {
-    if (Array.isArray(item.content)) item.content = await hydrateParts(item.content);
-    if (item.type === 'function_call_output' && Array.isArray(item.output)) item.output = await hydrateParts(item.output);
-  }
-  return result as unknown as ResponseItem[];
-}
-
 export async function runConversation(options: ConversationOptions): Promise<string> {
   const { config, bridge, signal, onText, onTool } = options;
   validateRequestConfig(config);
   const baseURL = normalizeEndpoint(config.endpoint);
-  const client = new OpenAI({ baseURL, apiKey: config.apiKey || 'local', dangerouslyAllowBrowser: true, maxRetries: 0 });
+  const client = new OpenAI({ baseURL, ...openAiAuthOptions(config.apiKey), dangerouslyAllowBrowser: true, maxRetries: 0 });
   const input = structuredClone(options.input);
-  const skills = normalizeSkills(config.skills);
-  const localFonts = normalizeLocalFonts(config.localFonts);
-  const tools = [...TOOL_DEFINITIONS, ...skillToolDefinitions(skills), ...(config.supportsVision ? VISION_TOOL_DEFINITIONS : []), ...(config.imageToolsEnabled && options.getImageConfig && options.loadImage && options.saveImage ? imageToolDefinitions(config.imageToolModels) : [])];
+  const features = normalizeAiFeatures(config.features);
+  const skills = features.skills ? normalizeSkills(config.skills) : [];
+  const toolImages: ChatImageRef[] = [];
+  const onImage = (image: ChatImageRef) => { toolImages.push(image); options.onImage?.(image); };
+  const imageExtensions = createImageToolExtensions(bridge, options.loadImage);
+  const builtIn = createBuiltInTools({
+    config: { ...(options.getImageConfig?.() ?? { endpoints: [], activeSelection: { endpointId: '', modelId: '' } }),
+      systemPrompt: config.systemPrompt, imageToolPrompt: '', skills, localFonts: config.localFonts, maxImageFailures: config.maxImageFailures },
+    features: { ...features, imageGeneration: features.imageGeneration && Boolean(config.imageToolsEnabled) },
+    loadImage: options.loadImage, saveImage: options.saveImage, onImage, imageExtensions
+  });
+  builtIn.tools = builtIn.tools.map(tool => {
+    if (tool.name !== 'generate_image') return tool;
+    const definition = coverFlowImageDefinition(tool);
+    return { ...definition, execute: (args, signal) => {
+      if (args.referenceImageId !== undefined || args.referenceImageIds !== undefined) throw new Error('Use references for all reference images.');
+      return tool.execute(args, signal);
+    } };
+  });
+  const tools = [
+    ...TOOL_DEFINITIONS,
+    ...(config.supportsVision ? VISION_TOOL_DEFINITIONS : []),
+    ...builtIn.tools.map(({ execute, ...definition }) => ({ type: 'function' as const, function: definition }))
+  ];
   let previewCount = 0;
-  let imageFailures = 0;
-  const maxImageFailures = config.maxImageFailures ?? DEFAULT_MAX_IMAGE_FAILURES;
+  let failedNavigation: { name: string; callId: string } | undefined;
   const maxToolRounds = config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
-  for (let round = 0; round < maxToolRounds; round++) {
-    signal.throwIfAborted();
+  return runToolLoop<ResponseItem, Extract<Response['output'][number], { type: 'function_call' }>>({
+    input, signal, maxRounds: maxToolRounds, onText, onHistory: options.onHistory, onLimit: options.onLimit,
+    cancelledMessage: '操作已取消。',
+    limitMessage: '已达到本轮工具调用上限。已完成的修改已保留，请检查画布后继续。',
+    assistantMessage: content => ({ role: 'assistant', content }),
+    request: async input => {
     const requestController = new AbortController();
     const abortRequest = () => requestController.abort(signal.reason);
     signal.addEventListener('abort', abortRequest, { once: true });
@@ -148,10 +115,10 @@ export async function runConversation(options: ConversationOptions): Promise<str
     let reported = false;
     let streamedText = '';
     const startTime = Date.now();
-    const request = { id: generateId(), endpoint: baseURL, model: config.model, createdAt: startTime, inputEstimate: estimateInput(input, config.systemPrompt, config.supportsVision, tools.some(tool => tool.function.name === 'generate_image'), config.imageToolModels, skills) };
+    const request = { id: generateId(), endpoint: baseURL, model: config.model, createdAt: startTime, inputEstimate: estimateToolInput(input, builtIn.instructions, tools) };
     try {
       const stream = await client.responses.create({
-        model: config.model, instructions: config.systemPrompt, input: await prepareRequestInput(input, Boolean(config.supportsVision), options.loadImage),
+        model: config.model, instructions: builtIn.instructions, input: await prepareResponseInput(input, Boolean(config.supportsVision), options.loadImage),
         tools: tools.map(tool => ({ type: 'function' as const, ...tool.function, strict: false })),
         stream: true, store: false, max_output_tokens: config.maxTokens,
         ...reasoningPayload(config),
@@ -176,16 +143,12 @@ export async function runConversation(options: ConversationOptions): Promise<str
         options.onUsage?.({ ...request, completedAt, durationMs, status: signal.aborted ? 'aborted' : 'failed' });
       }
     }
-    const content = responseText(response);
-    if (content && !streamedText) onText(content);
     const calls = response.output.filter(item => item.type === 'function_call');
-    if (!content && !calls.length) throw new Error('Empty model response.');
-    if (calls.length > 30 || calls.some(call => !call.call_id || !call.name)) throw new Error('Invalid or too many tool calls.');
     const output = response.output.filter(item => item.type === 'message' || item.type === 'reasoning' || item.type === 'function_call');
-    if (output.length !== response.output.length) throw new Error('Unsupported model output item.');
-    input.push(...output);
-    let cancelled = false;
-    for (const call of calls) {
+    failedNavigation = undefined;
+    return { content: responseText(response), streamedText, calls, output, unsupportedOutput: output.length !== response.output.length };
+    },
+    execute: async (call, cancelled) => {
       const startedAt = Date.now();
       const started = performance.now();
       onTool({ id: call.call_id, name: call.name, arguments: call.arguments, status: 'running', startedAt });
@@ -193,25 +156,21 @@ export async function runConversation(options: ConversationOptions): Promise<str
       let output: string | ResponseFunctionCallOutputItemList;
       let imageRef: ChatImageRef | undefined;
       let status: 'success' | 'error' = 'success';
+      let navigation = call.name === 'create_project' || call.name === 'manage_projects' || call.name === 'manage_pages';
+      toolImages.length = 0;
       try {
         signal.throwIfAborted();
         if (cancelled) throw new Error('User cancelled. Do not retry this operation without new approval.');
+        if (failedNavigation) throw new Error(`Skipped: ${failedNavigation.name} (${failedNavigation.callId}) failed earlier in this tool batch. No operation was performed. Read the current context before continuing.`);
         if (!tools.some(tool => tool.function.name === call.name)) throw new Error('Unknown tool.');
         const args = record(JSON.parse(call.arguments));
-        const isImageTool = IMAGE_TOOL_DEFINITIONS.some(tool => tool.function.name === call.name);
-        if (call.name === 'generate_image' && imageFailures >= maxImageFailures) throw new Error('Image generation failure limit reached in this turn.');
-        const generated = isImageTool ? await executeImageTool(call.name, args, {
-          getConfig: options.getImageConfig!,
-          defaultModelConfigId: config.imageToolModels?.length === 1 ? config.imageToolModels[0].id : undefined,
-          loadImage: options.loadImage!, saveImage: options.saveImage!, onImage: image => options.onImage?.(image), bridge
-        }, signal) : undefined;
-        const value = generated ? generated.value : call.name === 'skill' ? readSkill(skills, args) : await executeTool(call.name, args, bridge, signal, Boolean(config.supportsVision), localFonts);
-        if (call.name === 'remove_background' && value && typeof value === 'object' && 'success' in value && value.success === false) status = 'error';
-        if (generated) {
-          imageRef = generated.image;
-          result = JSON.stringify(value);
-          output = result;
-        } else if (call.name === 'get_canvas_preview' && value instanceof Blob) {
+        navigation = call.name === 'create_project'
+          || (call.name === 'manage_pages' && args.action !== 'list' && args.action !== 'update')
+          || (call.name === 'manage_projects' && args.action !== 'rename' && args.action !== 'duplicate' && args.action !== 'save');
+        const sharedTool = builtIn.tools.find(tool => tool.name === call.name);
+        const value = sharedTool ? await sharedTool.execute(args, signal)
+          : await executeTool(call.name, args, bridge, signal, Boolean(config.supportsVision));
+        if (call.name === 'get_canvas_preview' && value instanceof Blob) {
           if (!options.saveImage) throw new Error('Image storage is unavailable.');
           imageRef = await options.saveImage(value, `canvas-preview-${++previewCount}.webp`);
           options.onImage?.(imageRef);
@@ -235,29 +194,17 @@ export async function runConversation(options: ConversationOptions): Promise<str
           output = result;
         }
       } catch (error) {
-        if (call.name === 'generate_image' && !signal.aborted && imageFailures < maxImageFailures) imageFailures++;
         status = 'error';
+        if (navigation && !failedNavigation) failedNavigation = { name: call.name, callId: call.call_id };
         result = JSON.stringify(signal.aborted ? {
           error: 'Operation interrupted.', ...conversationAbortDetails(signal),
           retryPolicy: 'Do not automatically retry in this turn. A new explicit user request may retry.'
         } : { error: error instanceof Error ? error.message : 'Tool failed.' });
         output = result;
       }
-      input.push({ type: 'function_call_output', call_id: call.call_id, output });
+      imageRef ??= toolImages[0];
       onTool({ id: call.call_id, name: call.name, arguments: call.arguments, status, startedAt, durationMs: Math.max(0, performance.now() - started), result, ...(imageRef ? { image: imageRef } : {}) });
-      if (status === 'error' && result.includes('User cancelled')) cancelled = true;
+      return { output: { type: 'function_call_output', call_id: call.call_id, output }, cancelled: status === 'error' && result.includes('User cancelled') };
     }
-    if (cancelled) {
-      input.push({ role: 'assistant', content: '操作已取消。' });
-    }
-    options.onHistory?.(structuredClone(input));
-    signal.throwIfAborted();
-    if (cancelled) return '操作已取消。';
-    if (!calls.length) return content;
-  }
-  const limit = { role: 'assistant' as const, content: '已达到本轮工具调用上限。已完成的修改已保留，请检查画布后继续。' };
-  options.onLimit?.();
-  input.push(limit);
-  options.onHistory?.(structuredClone(input));
-  return limit.content;
+  });
 }

@@ -8,11 +8,7 @@ import type { ProjectState } from '../types.ts';
 let host: HTMLDivElement;
 let root: Root;
 
-const project = (pageId: string, width = 1600, height = 800): ProjectState => ({
-  id: 'canvas-project', activePageId: pageId, title: 'Canvas', layers: [], selectedLayerId: null,
-  updatedAt: 1, canvasConfig: { width, height, ratio: `${width}:${height}` },
-  background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 }
-});
+const project = (pageId: string, width = 1600, height = 800): ProjectState => ({ id: 'canvas-project', activePageId: pageId, title: 'Canvas', layers: [], selectedLayerId: null, updatedAt: 1, pageInfo: { ...({ width, height }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } } });
 
 const renderCanvas = async (current: ProjectState, onCommit: () => void = () => {}) => {
   await act(async () => root.render(<Canvas lang="zh" project={current} onSelectLayer={() => {}} updateLayer={() => {}} onCommit={onCommit} />));

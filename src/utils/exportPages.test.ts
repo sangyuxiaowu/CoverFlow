@@ -11,7 +11,7 @@ vi.mock('../features/ai/services/fontLoading.ts', () => ({ projectFontEmbedCSS: 
 
 vi.mock('./renderProjectImage.tsx', () => ({ renderProjectImage: vi.fn(async () => new Blob([Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aA1cAAAAASUVORK5CYII='), character => character.charCodeAt(0))], { type: 'image/png' })) }));
 
-const project = () => insertProjectPage(syncProjectPages({ id: 'export', title: 'Article', updatedAt: 1, selectedLayerId: null, layers: [], canvasConfig: { width: 900, height: 383, ratio: '2.35:1' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } }), 'Detail', { width: 500, height: 500, ratio: '1:1' });
+const project = () => insertProjectPage(syncProjectPages({ id: 'export', title: 'Article', updatedAt: 1, selectedLayerId: null, layers: [], pageInfo: { ...({ width: 900, height: 383 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } } }), 'Detail', { width: 500, height: 500 });
 
 it('uses page order rather than checkbox order when creating the archive', async () => {
   const target = project();
@@ -110,7 +110,7 @@ it('exports selected SVG pages in one standalone HTML with playback and print pa
 
 it('embeds remote images and font CSS into SVG and fails on unavailable images', async () => {
   const target = project();
-  target.background = { ...target.background, type: 'image', value: 'https://example.com/image.png' };
+  target.pageInfo.background = { ...target.pageInfo.background, type: 'image', value: 'https://example.com/image.png' };
   const fetchImage = vi.fn(async () => new Response('image-data', { headers: { 'content-type': 'image/png' } }));
   vi.stubGlobal('fetch', fetchImage);
   vi.mocked(projectFontEmbedCSS).mockResolvedValueOnce('@font-face{font-family:Test;src:url(data:font/woff2;base64,AAAA)}');

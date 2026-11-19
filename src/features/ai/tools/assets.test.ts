@@ -29,11 +29,7 @@ function directory(name: string, entries: Record<string, FileSystemHandle> = {})
 }
 
 function setup() {
-  let project: ProjectState | null = {
-    id: 'p1', title: 'Assets', layers: [], selectedLayerId: null, updatedAt: 0,
-    canvasConfig: { width: 1200, height: 600, ratio: '2:1' },
-    background: { type: 'color', value: '#ffffff', overlayType: 'none', overlayColor: '#000000', overlayOpacity: 0, overlayScale: 20 }
-  };
+  let project: ProjectState | null = { id: 'p1', title: 'Assets', layers: [], selectedLayerId: null, updatedAt: 0, pageInfo: { ...({ width: 1200, height: 600 }), background: { type: 'color', value: '#ffffff', overlayType: 'none', overlayColor: '#000000', overlayOpacity: 0, overlayScale: 20 } } };
   const logo = fileHandle('logo.svg', brandSvg);
   const photo = fileHandle('photo.png', new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0]));
   const root = directory('assets', { 'Brand-品牌': directory('Brand-品牌', { 'logo.svg': logo, 'photo.png': photo }) });
@@ -71,14 +67,14 @@ describe('asset tools', () => {
     const { bridge, run } = setup();
     bridge.getAssetFolder = async () => { throw new Error('Authorize folder in UI'); };
     expect(await run('search_assets', {})).toMatchObject({ items: [], total: 0, folder: { status: 'unavailable', message: 'Authorize folder in UI' } });
-    await expect(run('place_asset', { projectId: 'p1', assetId: 'folder:Brand-品牌/logo.svg' })).rejects.toThrow('Authorize');
+    await expect(run('place_asset', { assetId: 'folder:Brand-品牌/logo.svg' })).rejects.toThrow('Authorize');
     bridge.getAssetFolder = vi.fn(async () => null);
     expect(await run('search_assets', {})).toMatchObject({ items: [], total: 0, folder: { status: 'not_configured' } });
   });
 
   it('places an exact SVG snapshot centered, preserving original color and aspect ratio', async () => {
     const { run, bridge, commit } = setup();
-    const result = await run('place_asset', { projectId: 'p1', assetId: 'folder:Brand-品牌/logo.svg' });
+    const result = await run('place_asset', { assetId: 'folder:Brand-品牌/logo.svg' });
     expect(result).toMatchObject({ success: true, projectId: 'p1', width: 300, height: 75, x: 450, y: 262.5 });
     const layer = bridge.getProject()!.layers[0];
     expect(layer).toMatchObject({ name: 'logo', type: 'svg', ratioLocked: true, zIndex: 1, visible: true, locked: false });
@@ -97,23 +93,23 @@ describe('asset tools', () => {
       setProject({ ...bridge.getProject()!, activePageId: 'second-page' });
       return new NodeFile([brandSvg], 'logo.svg') as unknown as File;
     });
-    await expect(run('place_asset', { projectId: 'p1', assetId: 'folder:Brand-品牌/logo.svg' })).rejects.toThrow('page changed');
+    await expect(run('place_asset', { assetId: 'folder:Brand-品牌/logo.svg' })).rejects.toThrow('page changed');
     expect(commit).not.toHaveBeenCalled();
   });
 
   it('scales from a single dimension and supports explicit position without flattening the resource', async () => {
     const { run, bridge } = setup();
-    await run('place_asset', { projectId: 'p1', assetId: 'folder:Brand-品牌/logo.svg', height: 50, x: 12, y: 24 });
+    await run('place_asset', { assetId: 'folder:Brand-品牌/logo.svg', height: 50, x: 12, y: 24 });
     expect(bridge.getProject()!.layers[0]).toMatchObject({ width: 200, height: 50, x: 12, y: 24 });
-    await run('place_asset', { projectId: 'p1', assetId: 'folder:Brand-品牌/logo.svg', width: 400, height: 100 });
+    await run('place_asset', { assetId: 'folder:Brand-品牌/logo.svg', width: 400, height: 100 });
     expect(bridge.getProject()!.layers[1]).toMatchObject({ width: 400, height: 100, zIndex: 2 });
-    await expect(run('place_asset', { projectId: 'p1', assetId: 'folder:Brand-品牌/logo.svg', width: 200, height: 200 })).rejects.toThrow('aspect ratio');
+    await expect(run('place_asset', { assetId: 'folder:Brand-品牌/logo.svg', width: 200, height: 200 })).rejects.toThrow('aspect ratio');
     expect(bridge.getProject()!.layers).toHaveLength(2);
   });
 
   it('rejects builtin references before accessing any folder', async () => {
     const { run, bridge, commit } = setup();
-    await expect(run('place_asset', { projectId: 'p1', assetId: 'builtin:Basic Shapes/Circle' })).rejects.toThrow('Invalid assetId');
+    await expect(run('place_asset', { assetId: 'builtin:Basic Shapes/Circle' })).rejects.toThrow('Invalid assetId');
     expect(bridge.getAssetFolder).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
   });
@@ -122,7 +118,7 @@ describe('asset tools', () => {
     const { run, bridge, photo } = setup();
     const close = vi.fn();
     vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 800, height: 400, close })));
-    await run('place_asset', { projectId: 'p1', assetId: 'folder:Brand-品牌/photo.png', width: 400 });
+    await run('place_asset', { assetId: 'folder:Brand-品牌/photo.png', width: 400 });
     const layer = bridge.getProject()!.layers[0];
     expect(layer).toMatchObject({ type: 'image', width: 400, height: 200, imageSource: 'folder:Brand-品牌/photo.png', imageDescription: 'photo' });
     const original = await (await photo.getFile()).arrayBuffer();
@@ -137,7 +133,7 @@ describe('asset tools', () => {
       await expect(run('search_assets', args)).rejects.toThrow();
     }
     for (const args of [{}, { projectId: 'p2' }, { width: 0 }, { x: NaN }, { height: Infinity }, { zIndex: 0 }]) {
-      await expect(run('place_asset', { projectId: 'p1', assetId: 'folder:Brand-品牌/logo.svg', ...args, ...(Object.keys(args).length ? {} : { assetId: '' }) })).rejects.toThrow();
+      await expect(run('place_asset', { assetId: 'folder:Brand-品牌/logo.svg', ...args, ...(Object.keys(args).length ? {} : { assetId: '' }) })).rejects.toThrow();
     }
     expect(bridge.getAssetFolder).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
@@ -145,7 +141,7 @@ describe('asset tools', () => {
 
   it('does not commit missing, unsafe, malformed or oversized files', async () => {
     const { run, logo, photo, commit } = setup();
-    const args = { projectId: 'p1', assetId: 'folder:Brand-品牌/logo.svg' };
+    const args = { assetId: 'folder:Brand-品牌/logo.svg' };
     await expect(run('place_asset', { ...args, assetId: 'folder:Brand-品牌/missing.svg' })).rejects.toThrow('not found');
     for (const content of ['', '<svg><broken></svg>', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', '<svg xmlns="http://www.w3.org/2000/svg"><image href="https://example.com/a.png"/></svg>']) {
       vi.mocked(logo.getFile).mockResolvedValue(new NodeFile([content], 'logo.svg') as unknown as File);
@@ -161,7 +157,7 @@ describe('asset tools', () => {
   it('rejects cancellation and project switches after async reads without losing concurrent edits', async () => {
     const { run, logo, bridge, setProject, commit, controller } = setup();
     const original = bridge.getProject()!;
-    const args = { projectId: 'p1', assetId: 'folder:Brand-品牌/logo.svg' };
+    const args = { assetId: 'folder:Brand-品牌/logo.svg' };
     vi.mocked(logo.getFile).mockImplementation(async () => {
       setProject({ ...original, id: 'other' });
       return new NodeFile([brandSvg], 'logo.svg') as unknown as File;

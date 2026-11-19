@@ -15,7 +15,10 @@ import { generateEncryptionKey } from './encryptionKeys.ts';
 import { createFileChatStore, type ChatFileAccess } from './chatStore.ts';
 import { estimateInput, sessionUsage, sumUsage } from './usage.ts';
 import { parseMarkdown } from './markdown.ts';
-import { skillToolDefinitions, TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
+import { IMAGE_TOOL_SCHEMAS } from '../tools/imageTools.ts';
+import { builtInToolDefinitions } from 'sang-ai-kit/built-in-tools';
+import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
 import { exampleSkill } from './skills.ts';
 
 
@@ -77,7 +80,7 @@ test('skills default empty, persist as plain text and inject only an index witho
   delete profiles.skills;
   assert.deepEqual(normalizeConfig(profiles).skills, []);
   assert.equal(toRequestConfig(profiles).systemPrompt, profiles.systemPrompt);
-  assert.deepEqual(skillToolDefinitions(), []);
+  assert.ok(!builtInToolDefinitions().some(tool => tool.name === 'skill'));
   profiles.skills = [exampleSkill()];
   profiles.systemPrompt = 'Keep my custom system instructions.';
   await saveConfig(profiles);
@@ -115,8 +118,8 @@ test('skill loads full content on demand through Responses without requiring an 
     await runConversation({ config: requestConfig, input: [], bridge, signal: new AbortController().signal,
       onText: () => {}, onTool: event => events.push(event), onUsage: usage => usages.push(usage) });
     assert.equal(requests.length, 2);
-    const definition = skillToolDefinitions([skill])[0];
-    assert.deepEqual(requests[0].tools.find((tool: { name: string }) => tool.name === 'skill'), { type: 'function', ...definition.function, strict: false });
+    const definition = builtInToolDefinitions({ skills: [skill] }).find(tool => tool.name === 'skill')!;
+    assert.deepEqual(requests[0].tools.find((tool: { name: string }) => tool.name === 'skill'), { type: 'function', ...definition, strict: false });
     assert.ok(requests[0].instructions.includes(skill.description));
     assert.ok(!JSON.stringify(requests[0]).includes(skill.content));
     assert.ok(!JSON.stringify(requests[0].tools).includes(skill.description));
@@ -124,11 +127,11 @@ test('skill loads full content on demand through Responses without requiring an 
     const output = requests[1].input.find((item: { type: string }) => item.type === 'function_call_output');
     assert.deepEqual(JSON.parse(output.output), skill);
     assert.equal(events.at(-1)!.status, 'success');
-    assert.equal(usages[0].inputEstimate, estimateInput([], requestConfig.systemPrompt, requestConfig.supportsVision, false, undefined, [skill]));
+    assert.equal(usages[0].inputEstimate, estimateInput([], requestConfig.systemPrompt, requestConfig.supportsVision, false, undefined, [skill], undefined, false));
     const largeSkill = { ...skill, content: 'A'.repeat(40000) };
     assert.equal(estimateInput([], requestConfig.systemPrompt, false, false, undefined, [largeSkill]), estimateInput([], requestConfig.systemPrompt, false, false, undefined, [skill]));
     const breakdown = sessionUsage(undefined, { ...requestConfig, skills: [skill] }, [], '');
-    assert.equal(breakdown.breakdown.systemAndTools, usages[0].inputEstimate);
+    assert.equal(breakdown.breakdown.systemAndTools, estimateInput([], requestConfig.systemPrompt, requestConfig.supportsVision, false, undefined, [skill]));
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -154,19 +157,62 @@ test('empty skills omit the tool and unknown skill names produce a factual tool 
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('AI endpoint and model configuration IDs are short', () => {
+test('AI endpoint and model configuration IDs are present', () => {
   const profiles = defaultConfig();
-  assert.match(profiles.endpoints[0].id, /^[0-9a-z]{9}$/);
-  assert.match(profiles.endpoints[0].models[0].id, /^[0-9a-z]{9}$/);
+  assert.ok(profiles.endpoints[0].id);
+  assert.ok(profiles.endpoints[0].models[0].id);
   const endpoint = createEndpoint('deepseek');
-  assert.match(endpoint.id, /^[0-9a-z]{9}$/);
-  assert.ok(endpoint.models.every(model => /^[0-9a-z]{9}$/.test(model.id)));
+  assert.ok(endpoint.id);
+  assert.ok(endpoint.models.every(model => model.id));
 });
 
 const responsePayload = (output: unknown[], overrides = {}) => ({ id: 'resp-test', object: 'response', status: 'completed', output, usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120, input_tokens_details: { cached_tokens: 50 }, output_tokens_details: { reasoning_tokens: 10 } }, ...overrides });
 const textOutput = { type: 'message', id: 'msg-test', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] };
 async function* eventsFrom(events: unknown[]) { for (const event of events) yield event as ResponseStreamEvent; }
 const streamResponse = (payload: ReturnType<typeof responsePayload>) => new Response(`event: response.${payload.status}\ndata: ${JSON.stringify({ type: `response.${payload.status}`, response: payload })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+
+test('host feature configuration removes disabled tools without changing saved settings', async () => {
+  const profiles = configuredConfig();
+  profiles.skills = [{ name: 'review', description: 'Review text', content: 'Be concise.' }];
+  profiles.localFonts = [{ family: 'Demo', fullName: 'Demo', styles: ['Regular'] }];
+  profiles.quickSnippets = ['Keep this prompt'];
+  profiles.imageModels![0].endpointId = profiles.endpoints[0].id;
+  profiles.imageModels![0].enabled = true;
+  const features = { imageGeneration: false, skills: false, quickSnippets: false, fontManagement: false, onlineFonts: true };
+  await saveConfig(profiles);
+  const restored = await loadConfig();
+  assert.equal(Object.hasOwn(restored, 'features'), false);
+  assert.equal(restored.skills?.[0].name, 'review');
+  assert.equal(restored.localFonts?.[0].family, 'Demo');
+  assert.equal(restored.quickSnippets?.[0], 'Keep this prompt');
+  assert.equal(restored.imageModels?.[0].enabled, true);
+  const request = toRequestConfig(restored, features);
+  assert.equal(request.imageToolsEnabled, false);
+  assert.deepEqual(request.skills, []);
+  assert.deepEqual(request.localFonts, []);
+  const originalFetch = globalThis.fetch;
+  let tools: { name: string }[] = [];
+  globalThis.fetch = async (_url, init) => { tools = JSON.parse(init!.body as string).tools; return streamResponse(responsePayload([textOutput])); };
+  try {
+    await runConversation({ config: request, input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}, getImageConfig: () => restored, loadImage: async () => null, saveImage: async () => { throw new Error('not used'); } });
+    assert.ok(!tools.some(tool => ['generate_image', 'list_image_models', 'skill', 'list_fonts'].includes(tool.name)));
+  } finally { globalThis.fetch = originalFetch; }
+  const reenabled = toRequestConfig(restored, { imageGeneration: true, skills: true, fontManagement: true, onlineFonts: true });
+  assert.equal(reenabled.imageToolsEnabled, true);
+  assert.equal(reenabled.skills?.[0].name, 'review');
+  assert.equal(reenabled.localFonts?.[0].family, 'Demo');
+});
+
+test('image capability does not add tools or prompts without a valid model', () => {
+  const profiles = configuredConfig();
+  profiles.imageToolPrompt = 'Image-only instructions';
+  profiles.imageModels![0].enabled = true;
+  profiles.imageModels![0].endpointId = 'missing';
+  const request = toRequestConfig(profiles, { imageGeneration: true });
+  assert.equal(request.imageToolsEnabled, false);
+  assert.deepEqual(request.imageToolModels, []);
+  assert.ok(!request.systemPrompt.includes('Image-only instructions'));
+});
 
 test('turn limits default, normalize, validate, persist and reach request configuration', async () => {
   const profiles = configuredConfig();
@@ -184,10 +230,19 @@ test('turn limits default, normalize, validate, persist and reach request config
   assert.equal(restored.maxImageFailures, 5);
   assert.equal(toRequestConfig(restored).maxToolRounds, 40);
   assert.equal(toRequestConfig(restored).maxImageFailures, 5);
+  profiles.maxToolRounds = 0;
+  profiles.maxImageFailures = 0;
+  await saveConfig(profiles);
+  const unlimited = await loadConfig();
+  assert.equal(unlimited.maxToolRounds, 0);
+  assert.equal(unlimited.maxImageFailures, 0);
+  assert.equal(toRequestConfig(unlimited).maxToolRounds, 0);
+  assert.equal(toRequestConfig(unlimited).maxImageFailures, 0);
   for (const field of ['maxToolRounds', 'maxImageFailures'] as const) {
-    for (const value of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
-      assert.throws(() => validateRequestConfig({ ...config, [field]: value }), /positive safe integer/);
-      await assert.rejects(saveConfig({ ...profiles, [field]: value }), /positive safe integer/);
+    validateRequestConfig({ ...config, [field]: 0 });
+    for (const value of [-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+      assert.throws(() => validateRequestConfig({ ...config, [field]: value }), /non-negative safe integer/);
+      await assert.rejects(saveConfig({ ...profiles, [field]: value }), /non-negative safe integer/);
     }
   }
 });
@@ -211,41 +266,33 @@ for (const maxToolRounds of [1, 3, 25]) test(`stops after the configured ${maxTo
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('background removal remains statically registered and sends model-not-ready errors back to Responses', async () => {
+test('background removal registers the host schema and reports missing attachments', async () => {
   const originalFetch = globalThis.fetch;
   const requests: Record<string, any>[] = [];
   const events: ToolEvent[] = [];
-  const project: ProjectState = {
-    id: 'removal-project', title: 'Test', updatedAt: 0, selectedLayerId: 'image',
-    layers: [{ id: 'image', name: 'Photo', type: 'image', content: 'data:image/png;base64,AA==',
-      x: 0, y: 0, width: 100, height: 100, rotation: 0, opacity: 1, zIndex: 1, visible: true, locked: false }],
-    canvasConfig: { width: 800, height: 600, ratio: '4:3' },
-    background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 1 }
-  };
+  const project: ProjectState = { id: 'removal-project', title: 'Test', updatedAt: 0, selectedLayerId: 'image', layers: [{ id: 'image', name: 'Photo', type: 'image', content: 'data:image/png;base64,AA==',
+      x: 0, y: 0, width: 100, height: 100, rotation: 0, opacity: 1, zIndex: 1, visible: true, locked: false }], pageInfo: { ...({ width: 800, height: 600 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 1 } } };
   let commits = 0;
   globalThis.fetch = async (_url, options) => {
     requests.push(JSON.parse(options!.body as string));
     return streamResponse(responsePayload(requests.length === 1
       ? [{ type: 'function_call', call_id: 'removal-call', name: 'remove_background',
-        arguments: JSON.stringify({ projectId: project.id, layerId: 'image', modelId: 'birefnet' }) }]
+        arguments: JSON.stringify({ imageId: 'missing-image', modelId: 'birefnet' }) }]
       : [textOutput]));
   };
   try {
     await runConversation({ config: { ...config, supportsVision: false, imageToolsEnabled: false }, input: [],
       bridge: { ...bridge, getProject: () => project, commit: async () => { commits++; } },
-      signal: new AbortController().signal, onText: () => {}, onTool: event => events.push(event) });
+      signal: new AbortController().signal, onText: () => {}, onTool: event => events.push(event),
+      loadImage: async () => null, saveImage: async () => { throw new Error('Not reached'); } });
     assert.equal(requests.length, 2);
-    const definition = TOOL_DEFINITIONS.find(item => item.function.name === 'remove_background')!;
+    const definition = builtInToolDefinitions({ imageStorage: true, imageExtensions: IMAGE_TOOL_SCHEMAS }).find(item => item.name === 'remove_background')!;
     const sent = requests[0].tools.find((item: { name: string }) => item.name === 'remove_background');
-    assert.deepEqual(sent, { type: 'function', ...definition.function, strict: false });
+    assert.deepEqual(sent, { type: 'function', ...definition, strict: false });
     assert.deepEqual(requests[1].tools, requests[0].tools);
     const output = requests[1].input.find((item: { type: string; call_id?: string }) => item.type === 'function_call_output' && item.call_id === 'removal-call');
     assert.equal(output.type, 'function_call_output');
-    assert.deepEqual(JSON.parse(output.output), {
-      success: false, code: 'MODEL_NOT_READY', stage: 'model',
-      error: 'BiRefNet is not ready. Import or download the model in AI Settings > Background Removal; the large model was not downloaded automatically.',
-      projectId: project.id, layerId: 'image', modelId: 'birefnet', runtimeDownloaded: false
-    });
+    assert.deepEqual(JSON.parse(output.output), { error: 'Image not found.' });
     assert.equal(events.at(-1)!.status, 'error');
     assert.equal(commits, 0);
   } finally { globalThis.fetch = originalFetch; }
@@ -274,6 +321,7 @@ for (const outcome of ['success', 'error', 'aborted'] as const) {
           return new Blob(['image'], { type: 'image/webp' });
         } },
         saveImage: async () => ({ id: 'timed-image', name: 'preview.webp', type: 'image/webp', size: 5 }),
+        loadImage: async () => new Blob(['image'], { type: 'image/webp' }),
         onText: () => {}, onTool: event => events.push(event), onHistory: items => { history = items; }
       });
       if (outcome === 'aborted') await assert.rejects(run);
@@ -289,18 +337,33 @@ for (const outcome of ['success', 'error', 'aborted'] as const) {
   });
 }
 
-test('Responses function definitions provide empty parameters for tools without arguments', async () => {
+test('Responses schemas omit current-target project IDs while retaining navigation and object IDs', async () => {
   const originalFetch = globalThis.fetch;
+  const profiles = configuredConfig();
+  profiles.imageModels = profiles.imageModels?.map(model => ({ ...model, enabled: true, endpointId: profiles.endpoints[0].id }));
   let sentTools: Record<string, unknown>[] = [];
   globalThis.fetch = async (_url, options) => {
     sentTools = JSON.parse(options!.body as string).tools;
     return streamResponse(responsePayload([textOutput]));
   };
   try {
-    await runConversation({ config: { ...config, supportsVision: true }, input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {} });
+    await runConversation({ config: { ...toRequestConfig(profiles), supportsVision: true }, input: [], bridge, signal: new AbortController().signal,
+      onText: () => {}, onTool: () => {}, getImageConfig: () => profiles });
     const noArgumentTools = sentTools.filter(tool => ['get_context', 'get_cover_size_recommendations', 'get_selected_layers', 'get_canvas_preview'].includes(String(tool.name)));
     assert.equal(noArgumentTools.length, 4);
     assert.ok(noArgumentTools.every(tool => JSON.stringify(tool.parameters) === JSON.stringify({ type: 'object', properties: {} })));
+    for (const tool of sentTools) {
+      const parameters = tool.parameters as { properties: Record<string, unknown>; required?: string[] };
+      assert.equal(Object.hasOwn(parameters.properties, 'projectId'), tool.name === 'manage_projects' || tool.name === 'clipboard', String(tool.name));
+      assert.equal(parameters.required?.includes('projectId') ?? false, tool.name === 'manage_projects');
+    }
+    for (const [name, field] of [['manage_pages', 'pageId'], ['clipboard', 'pageId'], ['clipboard', 'layers'], ['update_layers', 'layerIds'], ['place_asset', 'assetId'], ['generate_image', 'references'], ['remove_background', 'layerId']]) {
+      const parameters = sentTools.find(tool => tool.name === name)!.parameters as { properties: Record<string, unknown> };
+      assert.ok(Object.hasOwn(parameters.properties, field), `${name}.${field}`);
+    }
+    const imageProperties = (sentTools.find(tool => tool.name === 'generate_image')!.parameters as { properties: Record<string, unknown> }).properties;
+    assert.ok(!Object.hasOwn(imageProperties, 'referenceImageId'));
+    assert.ok(!Object.hasOwn(imageProperties, 'referenceImageIds'));
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -329,13 +392,30 @@ test('custom prompts are not silently extended with visual capability instructio
   try {
     await runConversation({ config: requestConfig, input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}, onUsage: usage => { inputEstimate = usage.inputEstimate ?? 0; } });
     assert.equal(sentInstructions, requestConfig.systemPrompt);
-    assert.deepEqual(sentTools, [...TOOL_DEFINITIONS, ...VISION_TOOL_DEFINITIONS].map(definition => ({ type: 'function', ...definition.function, strict: false })));
+    assert.deepEqual(sentTools, [
+      ...TOOL_DEFINITIONS.map(definition => definition.function),
+      ...VISION_TOOL_DEFINITIONS.map(definition => definition.function),
+      ...builtInToolDefinitions({ imageExtensions: IMAGE_TOOL_SCHEMAS })
+    ].map(definition => ({ type: 'function', ...definition, strict: false })));
     assert.doesNotMatch(JSON.stringify(sentTools), /"\$(?:defs|ref)"/);
-    assert.deepEqual(sentTools.filter(tool => (tool as { name: string }).name.startsWith('add_')).map(tool => (tool as { name: string }).name), ['add_layer']);
+    assert.deepEqual(sentTools.filter(tool => (tool as { name: string }).name.startsWith('add_')).map(tool => (tool as { name: string }).name), ['add_layers']);
     assert.ok(sentTools.filter((tool: { name: string; parameters: unknown }) => ['get_context', 'get_cover_size_recommendations', 'get_selected_layers', 'get_canvas_preview'].includes(tool.name)).every(tool => JSON.stringify(tool.parameters) === JSON.stringify({ type: 'object', properties: {} })));
-    assert.equal(inputEstimate, estimateInput([], requestConfig.systemPrompt, requestConfig.supportsVision));
-    assert.ok(inputEstimate > estimateInput([], original));
+    assert.equal(inputEstimate, estimateInput([], requestConfig.systemPrompt, requestConfig.supportsVision, false, undefined, undefined, undefined, false));
+    assert.ok(inputEstimate > estimateInput([], original, requestConfig.supportsVision, false, undefined, undefined, undefined, false));
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test('migrates only the previous default image workflow prompt, preserving custom prompts', () => {
+  const profiles = configuredConfig();
+  profiles.imageModels = profiles.imageModels?.map(model => ({ ...model, enabled: true, endpointId: profiles.endpoints[0].id }));
+  const previous = DEFAULT_IMAGE_TOOL_PROMPT.replace('- 作背景时置底并锁定', `- generate_image、remove_background 只返回图片 ID，不会修改画布；需要上画布时继续调用 place_image。
+- 使用已有图层作为参考或抠图前，read_layers 设置 includeImages:true，使用返回的原图 imageId，不用预览图。保留 sourceRevision，应用结果时传回。
+- place_image 必须传当前 projectId 和图片 imageId，放置到当前页；应用到原图层时传 layerId、sourceRevision，默认保留并隐藏原图。抠图结果设置 backgroundRemoved:true。
+- 作背景时置底并锁定`);
+  assert.equal(normalizeConfig({ ...profiles, imageToolPrompt: previous }).imageToolPrompt, DEFAULT_IMAGE_TOOL_PROMPT);
+  assert.equal(toRequestConfig({ ...profiles, imageToolPrompt: previous }).systemPrompt, `${profiles.systemPrompt}\n\n${DEFAULT_IMAGE_TOOL_PROMPT}`);
+  assert.equal(normalizeConfig({ ...profiles, imageToolPrompt: `${previous}\n自定义` }).imageToolPrompt, `${previous}\n自定义`);
+  assert.doesNotMatch(DEFAULT_IMAGE_TOOL_PROMPT, /place_image|includeImages|sourceRevision/);
 });
 
 test('Responses text deltas and final output are returned', async () => {
@@ -380,6 +460,7 @@ test('selected image layers are sent as WebP input only to vision models', async
   const requests: Record<string, any>[] = [];
   let round = 0;
   globalThis.fetch = async (_url, options) => {
+    if (String(_url).startsWith('data:')) return originalFetch(_url, options);
     requests.push(JSON.parse(options!.body as string));
     round++;
     return streamResponse(responsePayload(round === 1
@@ -387,8 +468,8 @@ test('selected image layers are sent as WebP input only to vision models', async
       : [textOutput]));
   };
   try {
-    const imageLayer = { id: 'image-1', name: 'Photo', type: 'image' as const, content: 'data:image/png;base64,abc', x: 10, y: 20, width: 300, height: 200, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 };
-    const project: ProjectState = { id: 'p1', title: 'Test', updatedAt: 0, selectedLayerId: imageLayer.id, layers: [imageLayer], canvasConfig: { width: 800, height: 600, ratio: '4:3' }, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } };
+    const imageLayer = { id: 'image-1', name: 'Photo', type: 'image' as const, content: 'data:image/png;base64,iVBORw0KGgo=', x: 10, y: 20, width: 300, height: 200, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 };
+    const project: ProjectState = syncProjectPages({ id: 'p1', title: 'Test', updatedAt: 0, selectedLayerId: imageLayer.id, layers: [imageLayer], pageInfo: { ...({ width: 800, height: 600 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
     const image = new Blob(['webp-bytes'], { type: 'image/webp' });
     let previewRequests = 0;
     const saved: string[] = [];
@@ -396,7 +477,7 @@ test('selected image layers are sent as WebP input only to vision models', async
       config: { ...config, supportsVision: true }, input: [],
       bridge: { ...bridge, getProject: () => project, getSelection: () => [imageLayer.id], getLayerPreview: async () => { previewRequests++; return image; } },
       signal: new AbortController().signal, onText: () => {}, onTool: () => {},
-      saveImage: async (_blob, name) => { saved.push(name); return { id: 'selected-image', name, type: 'image/webp', size: image.size }; },
+      saveImage: async (_blob, name) => { saved.push(name); return { id: `selected-image-${saved.length}`, name, type: 'image/webp', size: image.size }; },
       loadImage: async () => image
     });
     assert.equal(previewRequests, 1);
@@ -421,6 +502,18 @@ test('selected image layers are sent as WebP input only to vision models', async
     const metadata = JSON.parse(requests[1].input.at(-1).output);
     assert.equal(metadata.layers[0].image.content, undefined);
     assert.equal(metadata.layers[0].image.imageInfo.previewStatus, 'not_requested');
+    requests.length = 0;
+    round = 0;
+    saved.length = 0;
+    await runConversation({
+      config, input: [],
+      bridge: { ...bridge, getProject: () => project, getSelection: () => [imageLayer.id] },
+      signal: new AbortController().signal, onText: () => {}, onTool: () => {},
+      saveImage: async (_blob, name) => { saved.push(name); return { id: 'unexpected', name, type: 'image/webp', size: image.size }; },
+      loadImage: async () => image
+    });
+    assert.deepEqual(saved, []);
+    assert.equal(JSON.parse(requests[1].input.at(-1).output).layers[0].imageId, undefined);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -475,7 +568,8 @@ test('canvas preview names and images stay associated with their tool events', a
       saveImage: async (_blob, name) => {
         names.push(name);
         return { id: `image-${names.length}`, name, type: 'image/webp', size: image.size };
-      }
+      },
+      loadImage: async () => image
     });
     assert.deepEqual(names, ['canvas-preview-1.webp', 'canvas-preview-2.webp']);
     assert.deepEqual(completedTools.map(tool => tool.image?.name), names);
@@ -499,6 +593,20 @@ test('uploaded image references are hydrated only for vision requests', async ()
     assert.equal(request!.input[0].content[1].type, 'input_image');
     assert.match(request!.input[0].content[1].image_url, /^data:image\/webp;base64,/);
     assert.equal(request!.tools.some((tool: { name: string }) => tool.name === 'get_canvas_preview'), true);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('rejects unresolved vision attachments instead of sending local references', async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => { requests++; return streamResponse(responsePayload([textOutput])); };
+  try {
+    await assert.rejects(runConversation({
+      config: { ...config, supportsVision: true },
+      input: [{ role: 'user', content: [{ type: 'input_image', image_url: 'attachment://missing', detail: 'auto' }] }],
+      bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}
+    }), /referenced chat image is missing/);
+    assert.equal(requests, 0);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -686,7 +794,7 @@ test('multiple endpoints preserve independent keys and repair deleted selections
   const endpoint = createEndpoint('deepseek');
   endpoint.apiKey = 'second-key';
   profiles.endpoints.push(endpoint);
-  const selected = selectModel(profiles, endpoint.id, endpoint.models[1].id);
+  const selected = selectModel(profiles, endpoint.id, endpoint.models[0].id);
   assert.equal(toRequestConfig(selected).apiKey, 'second-key');
   assert.equal(toRequestConfig(profiles).apiKey, 'secret');
   const repaired = normalizeConfig({ ...selected, endpoints: [profiles.endpoints[0]] });
@@ -698,11 +806,28 @@ test('Responses uses one reasoning format with model-specific levels', () => {
   assert.deepEqual(reasoningPayload(config), {});
   assert.deepEqual(reasoningPayload({ ...config, thinkingAvailable: true, thinkingEnabled: true, reasoningEffort: 'max' }), { reasoning: { effort: 'max' } });
   assert.deepEqual(reasoningPayload({ ...config, thinkingAvailable: true, thinkingEnabled: false }), { reasoning: { effort: 'none' } });
-  const endpoint = createEndpoint('deepseek');
-  assert.equal(endpoint.models.every(model => model.thinkingAvailable), true);
-  assert.deepEqual(endpoint.models[0].supportedReasoningEfforts, ['none', 'low', 'high', 'max']);
   assert.throws(() => validateRequestConfig({ ...config, contextWindow: 1000 }), /Context window/);
   assert.throws(() => validateRequestConfig({ ...config, thinkingAvailable: true, thinkingEnabled: true, supportedReasoningEfforts: ['low'], reasoningEffort: 'max' }), /does not support/);
+});
+
+test('sends Agnes disabled-thinking parameters and omits authorization for a keyless endpoint', async () => {
+  const originalFetch = globalThis.fetch;
+  let body: Record<string, unknown> = {};
+  let authorization: string | null = 'not-called';
+  globalThis.fetch = async (_url, options) => {
+    body = JSON.parse(String(options?.body));
+    authorization = new Headers(options?.headers).get('authorization');
+    return streamResponse(responsePayload([textOutput]));
+  };
+  try {
+    await runConversation({
+      config: { ...config, model: 'agnes-3.0-flash', apiKey: '', thinkingAvailable: true, thinkingEnabled: false },
+      input: [], bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}
+    });
+    assert.deepEqual(body.chat_template_kwargs, { enable_thinking: false });
+    assert.equal(body.reasoning, undefined);
+    assert.equal(authorization, null);
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test('saving without a removed endpoint deletes its encrypted key', async () => {
@@ -813,6 +938,85 @@ test('user rejection pairs all pending tool calls without executing or retrying 
     assert.equal(count, 1);
     assert.equal(content, '操作已取消。');
     assert.equal(history.filter(item => 'type' in item && item.type === 'function_call_output').length, 2);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test.each([
+  ['manage_pages', JSON.stringify({ action: 'switch', pageId: 'missing' })],
+  ['manage_pages', JSON.stringify({ action: 'create', width: 0 })],
+  ['manage_pages', JSON.stringify({ action: 'duplicate', pageId: 'missing' })],
+  ['manage_pages', JSON.stringify({ action: 'delete', pageId: 'missing' })],
+  ['manage_projects', JSON.stringify({ action: 'open', projectId: 'missing' })],
+  ['create_project', '{}'],
+  ['manage_pages', '{'],
+  ['manage_projects', '{']
+])('navigation failures skip all remaining calls only in their batch: %s %s', async (name, args) => {
+  const originalFetch = globalThis.fetch;
+  let project = syncProjectPages({ id: 'project', title: 'Test', layers: [], selectedLayerId: null, updatedAt: 0, pageInfo: { ...({ width: 800, height: 600 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } } });
+  const pageId = project.activePageId;
+  const events: ToolEvent[] = [];
+  let history: ResponseItem[] = [];
+  let round = 0;
+  let previews = 0;
+  const widths: number[] = [];
+  const currentBridge: WorkspaceBridge = { ...bridge, getProject: () => project,
+    commit: async next => { project = syncProjectPages(next); widths.push(project.pageInfo.width); },
+    manageProjects: async () => { throw new Error('Project navigation failed.'); },
+    getCanvasPreview: async () => { previews++; return new Blob(['preview'], { type: 'image/webp' }); }
+  };
+  const call = (call_id: string, name: string, argumentsText = '{}') => ({ type: 'function_call', call_id, name, arguments: argumentsText });
+  globalThis.fetch = async () => streamResponse(responsePayload(++round === 1 ? [
+    call('before', 'manage_pages', JSON.stringify({ action: 'update', pageId, pageInfo: { width: 900 } })),
+    call('navigation', name, args),
+    call('skipped-write', 'add_layers', '{"layers":[{"type":"text","properties":{"text":{"content":"Wrong page"}}}]}'),
+    call('skipped-read', 'get_canvas_preview'),
+    call('skipped-management', 'manage_pages', '{"action":"list"}'),
+    call('skipped-shared', 'list_fonts')
+  ] : round === 2 ? [call('next-batch', 'manage_pages', JSON.stringify({ action: 'update', pageId, pageInfo: { width: 1000 } }))] : [textOutput]));
+  try {
+    await runConversation({ config: { ...config, supportsVision: true }, input: [], bridge: currentBridge,
+      signal: new AbortController().signal, onText: () => {}, onTool: event => events.push(event), onHistory: input => { history = input; } });
+    assert.deepEqual(events.filter(event => event.status !== 'running').map(event => [event.id, event.status]), [
+      ['before', 'success'], ['navigation', 'error'], ['skipped-write', 'error'], ['skipped-read', 'error'],
+      ['skipped-management', 'error'], ['skipped-shared', 'error'], ['next-batch', 'success']
+    ]);
+    for (const event of events.filter(event => event.id.startsWith('skipped-') && event.status === 'error')) {
+      assert.match(JSON.parse(event.result!).error, /Skipped.*navigation.*failed.*batch/);
+    }
+    assert.deepEqual(widths, [900, 1000]);
+    assert.equal(project.activePageId, pageId);
+    assert.deepEqual(project.layers, []);
+    assert.equal(previews, 0);
+    assert.equal(round, 3);
+    const outputs = history.filter(item => 'type' in item && item.type === 'function_call_output');
+    assert.equal(outputs.length, 7);
+    for (const event of events.filter(event => event.status !== 'running')) {
+      const output = outputs.find(item => 'call_id' in item && item.call_id === event.id);
+      assert.ok(output && 'output' in output);
+      assert.equal(output.output, event.result);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test.each([
+  ['manage_pages', { action: 'list' }],
+  ['manage_pages', { action: 'update', pageId: 'missing', pageInfo: { width: 1000 } }],
+  ['manage_projects', { action: 'rename', projectId: 'project', title: 'New title' }],
+  ['manage_projects', { action: 'duplicate', projectId: 'project' }],
+  ['manage_projects', { action: 'save', projectId: 'project' }]
+])('non-navigation failures do not block unrelated calls: %s %j', async (name, args) => {
+  const originalFetch = globalThis.fetch;
+  const events: ToolEvent[] = [];
+  let round = 0;
+  globalThis.fetch = async () => streamResponse(responsePayload(++round === 1 ? [
+    { type: 'function_call', call_id: 'failed', name, arguments: JSON.stringify(args) },
+    { type: 'function_call', call_id: 'fonts', name: 'list_fonts', arguments: '{}' }
+  ] : [textOutput]));
+  try {
+    await runConversation({ config, input: [], bridge: { ...bridge, manageProjects: async () => { throw new Error('Storage unavailable.'); } },
+      signal: new AbortController().signal, onText: () => {}, onTool: event => events.push(event) });
+    assert.deepEqual(events.filter(event => event.status !== 'running').map(event => [event.id, event.status]), [['failed', 'error'], ['fonts', 'success']]);
+    assert.equal(round, 2);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -956,7 +1160,7 @@ test('sanitizeResponseItems removes unpaired function_calls but keeps paired cal
   const user: ResponseItem = { role: 'user', content: '优化设计' };
   const call1: ResponseItem = { type: 'function_call', id: 'fc-1', call_id: 'c1', name: 'read_layers', arguments: '{}' };
   const out1: ResponseItem = { type: 'function_call_output', call_id: 'c1', output: '{"layers":[]}' };
-  const danglingCall: ResponseItem = { type: 'function_call', id: 'fc-2', call_id: 'c2', name: 'update_canvas', arguments: '{}' };
+  const danglingCall: ResponseItem = { type: 'function_call', id: 'fc-2', call_id: 'c2', name: 'manage_pages', arguments: '{}' };
 
   const sanitized = sanitizeResponseItems([user, call1, out1, danglingCall]);
   assert.equal(sanitized.length, 3);

@@ -1,5 +1,16 @@
 import { expect, it } from 'vitest';
-import { generateId, isNewerProjectVersion } from './helpers.ts';
+import { formatCanvasRatio, generateId, isNewerProjectVersion } from './helpers.ts';
+
+it.each([
+  [1200, 630, '40:21'],
+  [900, 383, '2.35:1'],
+  [1800, 766, '2.35:1'],
+  [2350, 1000, '2.35:1'],
+  [10.5, 7, '3:2'],
+  [1000, 426, '500:213'],
+])('formats %s by %s as %s', (width, height, expected) => {
+  expect(formatCanvasRatio(width, height)).toBe(expected);
+});
 
 it('generates fixed-length short IDs', () => {
   for (let index = 0; index < 100; index++) {

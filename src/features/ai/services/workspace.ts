@@ -1,21 +1,23 @@
 import type { ProjectState } from '../../../types.ts';
-import type { StorageAdapter } from '../../../storage/StorageAdapter.ts';
+import type { ProjectSummary, StorageAdapter } from '../../../storage/StorageAdapter.ts';
 import type { WorkspaceBridge } from '../types.ts';
 import { parseManageProjectsRequest } from '../tools/requests.ts';
 import { generateId } from '../../../utils/helpers.ts';
 import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
 import { copyProject } from '../../../utils/projectPages.ts';
 import type { AiProjectHistory } from '../../../hooks/useProjectHistory.ts';
+import type { LayerClipboard } from '../../../utils/layerClipboard.ts';
 
 export interface WorkspaceOptions {
   project: ProjectState | null;
+  clipboard?: LayerClipboard;
   aiHistory?: AiProjectHistory;
   getCanvasPreview?: () => Promise<Blob>;
   getLayerPreview?: (layerId: string) => Promise<Blob>;
   getAssetFolder?: () => Promise<FileSystemDirectoryHandle | null>;
   selectedLayerIds: string[];
   storage: StorageAdapter;
-  localProjects: { project: ProjectState; localPath?: string }[];
+  localProjects: { project: ProjectState | ProjectSummary; localPath?: string }[];
   activeLocalPath: string | null;
   chatStorageKey?: string;
   getChatDirectory?: () => Promise<FileSystemDirectoryHandle>;
@@ -25,6 +27,7 @@ export interface WorkspaceOptions {
   onDelete: (id: string, localPath?: string) => void;
   onSearch: (query: string) => void;
   saveLocal: (path: string, project: ProjectState) => Promise<unknown>;
+  readLocal?: (path: string) => Promise<ProjectState>;
 }
 
 export function createWorkspaceBridge(
@@ -56,8 +59,21 @@ export function createWorkspaceBridge(
     const options = read();
     if (current?.id === id) return { project: current, localPath: options.activeLocalPath || undefined };
     const local = options.localProjects.find(item => item.project.id === id);
-    if (local) return local;
+    if (local) {
+      if (local.localPath && options.readLocal) {
+        const project = await options.readLocal(local.localPath);
+        if (project.id !== id) throw new Error('Local project ID changed: ' + id);
+        return { project, localPath: local.localPath };
+      }
+      if ('kind' in local.project) throw new Error('Local project is unavailable: ' + id);
+      return { project: local.project, localPath: local.localPath };
+    }
     await ready();
+    if (options.storage.getProject) {
+      const project = await options.storage.getProject(id);
+      if (project) return { project, localPath: undefined };
+      throw new Error('Project not found: ' + id);
+    }
     for (let page = 1; ; page++) {
       const result = await options.storage.listProjects({ page, pageSize: 50 });
       const project = result.items.find(item => item.id === id);
@@ -73,7 +89,13 @@ export function createWorkspaceBridge(
   };
   return {
     confirm,
+    get clipboard() { return read().clipboard; },
     getProject: () => { read(); return current || null; },
+    getProjectById: async projectId => {
+      const found = await find(projectId);
+      if (read().project?.id === projectId) return current!;
+      return found.project;
+    },
     getCanvasPreview: async () => {
       const options = read();
       if (!current) throw new Error('No project open.');
@@ -106,13 +128,17 @@ export function createWorkspaceBridge(
         await ready();
         const result = await options.storage.listProjects({ query, page, pageSize });
         options.onSearch(query);
-        const summary = (project: ProjectState, source: string) => ({ id: project.id, title: project.title, updatedAt: project.updatedAt, canvas: project.pages?.[0]?.canvasConfig ?? project.canvasConfig, pageCount: project.pages?.length ?? 1, layerCount: project.pages?.[0]?.layers.length ?? project.layers.length, source });
+        const summary = (project: ProjectState | ProjectSummary, source: string) => {
+          if ('kind' in project) return { id: project.id, title: project.title, updatedAt: project.updatedAt, canvas: { width: project.width, height: project.height }, pageCount: project.pageCount, layerCount: project.layerCount, source };
+          const pageInfo = project.pages?.[0]?.pageInfo ?? project.pageInfo;
+          return { id: project.id, title: project.title, updatedAt: project.updatedAt, canvas: { width: pageInfo.width, height: pageInfo.height }, pageCount: project.pages?.length ?? 1, layerCount: project.pages?.[0]?.layers.length ?? project.layers.length, source };
+        };
         return { items: result.items.map(project => summary(current?.id === project.id ? current : project, 'storage')), total: result.total, page, pageSize, localItems: options.localProjects.filter(item => item.project.title.toLowerCase().includes(query.toLowerCase())).map(item => summary(item.project, 'local')) };
       }
       if (args.action === 'create') {
         const width = args.width ?? 1200;
         const height = args.height ?? 630;
-        const project: ProjectState = { id: generateId(), title: args.title ?? 'Untitled', layers: [], background: { type: 'color', value: '#18181b', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0.1, overlayScale: 20 }, canvasConfig: { width, height, ratio: `${width}x${height}` }, selectedLayerId: null, updatedAt: Date.now() };
+        const project: ProjectState = { id: generateId(), title: args.title ?? 'Untitled', layers: [], pageInfo: { ...({ width, height }), background: { type: 'color', value: '#18181b', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0.1, overlayScale: 20 } }, selectedLayerId: null, updatedAt: Date.now() };
         const created = syncProjectPages(project);
         await save(created);
         signal.throwIfAborted();

@@ -35,17 +35,12 @@ describe('custom backgrounds', () => {
 
 describe('decoration rendering boundaries', () => {
   const shadow = '0 0 54px 12px rgba(255,216,146,0.32), 0 0 160px 64px rgba(255,180,104,0.15)';
-  const project: ProjectState = {
-    id: 'shadow-regression', title: 'Moon', updatedAt: 0, selectedLayerId: null,
-    canvasConfig: { width: 800, height: 600, ratio: '4:3' },
-    background: { type: 'color', value: '#000000', overlayType: 'none', overlayColor: '#ffffff', overlayOpacity: 0, overlayScale: 20 },
-    layers: [{
+  const project: ProjectState = { id: 'shadow-regression', title: 'Moon', updatedAt: 0, selectedLayerId: null, pageInfo: { ...({ width: 800, height: 600 }), background: { type: 'color', value: '#000000', overlayType: 'none', overlayColor: '#ffffff', overlayOpacity: 0, overlayScale: 20 } }, layers: [{
       id: 'moon', name: 'Moon', type: 'decoration',
       content: `background: #fbeec9; border-radius: 50%; box-shadow: ${shadow};`,
       x: 200, y: 100, width: 300, height: 300, rotation: 0, zIndex: 1,
       visible: true, locked: false, opacity: 0.6
-    }]
-  };
+    }] };
   const renderers = [
     { name: 'canvas', render: (state: ProjectState) => createElement(Canvas, { project: state, lang: 'zh', onSelectLayer: () => {}, updateLayer: () => {}, onCommit: () => {} }) },
     { name: 'live preview', render: (state: ProjectState) => createElement(LivePreview, { project: state }) }
@@ -109,7 +104,7 @@ describe('decoration rendering boundaries', () => {
       lang, project: current, selectedLayerIds: ['moon'], onUpdateLayer: update, onRemoveBackground: noop,
       onDeleteLayer: noop, onSelectLayer: noop, onReorderLayers: noop, onCloneLayers: noop,
       onDeleteLayers: noop, onMoveLayersTop: noop, onMoveLayersBottom: noop, onGroupLayers: noop,
-      onUngroupLayer: noop, onCommit: commit
+      onUngroupLayer: noop, onCommit: commit, onCopyToClipboard: noop
     });
     try {
       await act(async () => root.render(renderPanel(state)));
@@ -159,7 +154,7 @@ describe('decoration rendering boundaries', () => {
   });
 
   it('preserves nested background variable fallbacks for the browser to resolve', () => {
-    const svg = buildProjectSvg({ ...project, layers: [], background: { ...project.background, type: 'css', value: '--Moon: #fbeec9; background: radial-gradient(var(--Moon, var(--fallback, #fff)), transparent);' } });
+    const svg = buildProjectSvg({ ...project, layers: [], pageInfo: { ...project.pageInfo, background: { ...project.pageInfo.background, type: 'css', value: '--Moon: #fbeec9; background: radial-gradient(var(--Moon, var(--fallback, #fff)), transparent);' } } });
     const xml = new DOMParser().parseFromString(svg, 'image/svg+xml');
     expect(xml.querySelector('parsererror')).toBeNull();
     expect(xml.querySelector('foreignObject div')?.getAttribute('style')).toContain('var(--Moon,var(--fallback,#fff))');

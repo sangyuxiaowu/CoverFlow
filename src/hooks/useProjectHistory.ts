@@ -16,7 +16,7 @@ const cloneProject = (project: ProjectState): ProjectState => {
     return snapshot;
   });
   const active = pages.find(page => page.id === project.activePageId) ?? pages[0];
-  return { ...project, pages, layers: active.layers, background: active.background, canvasConfig: active.canvasConfig };
+  return { ...project, pages, layers: active.layers, pageInfo: active.pageInfo };
 };
 
 const sameContent = (left: ProjectState | undefined, right: ProjectState) => {

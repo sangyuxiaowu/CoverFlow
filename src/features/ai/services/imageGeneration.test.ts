@@ -1,16 +1,28 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AiConfig, ChatImageRef, WorkspaceBridge } from '../types.ts';
 import type { ProjectState } from '../../../types.ts';
-import { availableImageModels, createImageModel, generateImages, imageCapabilities, IMAGE_MODEL_PRESETS, imageModelToolId, imageRequestUrl, imageTimeoutSeconds, validateImageModel, type ImagePresetId } from '../image-generation/index.ts';
-import { imageToolDefinitions } from '../tools/definitions.ts';
-import { executeImageTool, type ImageToolContext } from '../tools/imageTools.ts';
-import { executeTool } from '../tools/execute.ts';
+import { availableImageModels, createImageModel, generateImages, imageCapabilities, IMAGE_MODEL_PRESETS, imageModelToolId, imageRequestUrl, imageTimeoutSeconds, validateImageModel, type ImagePresetId } from 'sang-ai-kit/image-generation';
+import { createBuiltInTools, imageToolDefinitions as sharedImageDefinitions } from 'sang-ai-kit/built-in-tools';
+import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
 import { ConversationAbortError, runConversation } from './conversation.ts';
 import { DEFAULT_IMAGE_TOOL_PROMPT, defaultConfig, toRequestConfig, validateConfig } from './config.ts';
 import { createFileChatStore } from './chatStore.ts';
-import { imageMimeType } from './imageAttachments.ts';
+import { imageMimeType } from 'sang-ai-kit/image-attachments';
+import { coverFlowImageDefinition, createImageToolExtensions, IMAGE_TOOL_SCHEMAS } from '../tools/imageTools.ts';
 
 const reference = 'data:image/png;base64,iVBORw0KGgo=';
+interface ImageToolContext {
+  bridge: WorkspaceBridge;
+  loadImage: (id: string) => Promise<Blob | null>;
+  saveImage: (blob: Blob, name: string) => Promise<ChatImageRef>;
+  onImage: (image: ChatImageRef) => void;
+}
+const imageToolDefinitions = (models: Parameters<typeof sharedImageDefinitions>[0]) => sharedImageDefinitions(models).map(definition => ({ type: 'function', function: definition }));
+async function executeImageTool(name: string, args: Record<string, unknown>, context: ImageToolContext & { getConfig: () => AiConfig }, signal: AbortSignal) {
+  const tool = createBuiltInTools({ ...context, config: { ...context.getConfig(), systemPrompt: '' } }).tools.find(tool => tool.name === name);
+  if (!tool) throw new Error('Unknown shared tool.');
+  return { value: await tool.execute(args, signal) };
+}
 function setup(adapter: ImagePresetId) {
   const model = { ...createImageModel(adapter), endpointId: 'endpoint', enabled: true };
   const config = { endpoints: [{ id: 'endpoint', endpoint: 'https://example.com/v1', apiKey: 'secret' }], imageModels: [model] } as AiConfig;
@@ -97,7 +109,7 @@ describe('image generation adapters', () => {
     expect(properties.prompt.description).not.toContain('[改变要求]');
     expect(properties).not.toHaveProperty('modelConfigId');
     expect(properties).not.toHaveProperty('ratio');
-    expect(parameters.required).toEqual(['projectId', 'prompt']);
+    expect(parameters.required).toEqual(['prompt']);
     expect(DEFAULT_IMAGE_TOOL_PROMPT).toContain('[主体]');
     expect(DEFAULT_IMAGE_TOOL_PROMPT).toContain('[改变要求]');
   });
@@ -391,12 +403,13 @@ function mockCanvas(output = new Blob(['webp'], { type: 'image/webp' })) {
 
 function toolContext() {
   const { config, model } = setup('agnes');
-  let project = { id: 'project', title: 'Test', layers: [], canvasConfig: { width: 1200, height: 630 }, background: { type: 'color', value: '#fff' } } as unknown as ProjectState;
+  let project = { id: 'project', title: 'Test', layers: [], pageInfo: { ...({ width: 1200, height: 630 }), background: { type: 'color', value: '#fff' } } } as unknown as ProjectState;
+  project = syncProjectPages(project);
   const images = new Map<string, Blob>();
   const refs: ChatImageRef[] = [];
   const commit = vi.fn(async (next: ProjectState) => { project = next; });
   const bridge: WorkspaceBridge = { getProject: () => project, getSelection: () => [], commit, manageProjects: async () => ({}) };
-  const context: ImageToolContext = {
+  const context: ImageToolContext & { getConfig: () => AiConfig } = {
     getConfig: () => config, bridge,
     loadImage: async id => images.get(id) || null,
     saveImage: async (blob, name) => { const ref: ChatImageRef = { id: refs.length ? `generated-image-${refs.length + 1}` : 'generated-image', name, type: imageMimeType(blob.type), size: blob.size }; images.set(ref.id, blob); return ref; },
@@ -406,50 +419,29 @@ function toolContext() {
 }
 
 describe('image tools and persistence', () => {
-  it('saves and places every GPT-Image result and returns all image and layer IDs', async () => {
-    mockCanvas();
-    const { context, model, images, refs, getProject, commit } = toolContext();
-    Object.assign(model, createImageModel('gpt-image-2.5-sunburst'), { endpointId: 'endpoint', enabled: true, n: 2 });
-    const mock = vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }, { b64_json: 'iVBORw0KGgo=' }] }));
-    vi.stubGlobal('fetch', mock);
-    const result = await executeImageTool('generate_image', { projectId: 'project', prompt: 'City', quality: 'max' }, context, new AbortController().signal);
-    expect(mock).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(mock.mock.calls[0][1].body)).toMatchObject({ n: 2, quality: 'max' });
-    expect(images.size).toBe(2);
-    expect(refs).toHaveLength(2);
-    expect(commit).toHaveBeenCalledTimes(2);
-    expect(getProject().layers).toHaveLength(2);
-    expect(result.value).toMatchObject({ projectId: 'project', images: getProject().layers.map((layer, index) => ({ layerId: layer.id, imageId: refs[index].id })) });
-    expect(JSON.stringify(result.value)).not.toContain('base64');
-  });
-  it('keeps every generated image saved if multi-image placement fails', async () => {
-    mockCanvas();
-    const { context, model, images, refs, commit } = toolContext();
-    Object.assign(model, createImageModel('gpt-image-2'), { endpointId: 'endpoint', enabled: true, n: 2 });
-    commit.mockRejectedValueOnce(new Error('Storage unavailable'));
-    const mock = vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }, { b64_json: 'iVBORw0KGgo=' }] }));
-    vi.stubGlobal('fetch', mock);
-    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('was generated and saved, but placement failed');
-    expect(images.size).toBe(2);
-    expect(refs).toHaveLength(2);
-    expect(mock).toHaveBeenCalledTimes(1);
-  });
-  it('downloads a signed Kolors result and persists image bytes instead of the expiring URL', async () => {
-    mockCanvas();
-    const { context, model, images, refs, getProject } = toolContext();
-    Object.assign(model, createImageModel('kolors'), { endpointId: 'endpoint', enabled: true });
-    const url = 'https://cdn.example.com/temporary/result.png?X-Amz-Expires=3600&X-Amz-Signature=example';
-    const original = new Blob([Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10])], { type: 'image/png' });
-    const mock = vi.fn().mockResolvedValueOnce(Response.json({ images: [{ url }] })).mockResolvedValueOnce(new Response(original));
-    vi.stubGlobal('fetch', mock);
-    const generated = await executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal);
-    const stored = images.get('generated-image')!;
-    expect(await stored.arrayBuffer()).toEqual(await original.arrayBuffer());
-    expect(refs[0].type).toBe('image/png');
-    expect(getProject().layers[0].content).toBe('data:image/png;base64,iVBORw0KGgo=');
-    expect(JSON.stringify({ project: getProject(), refs, result: generated.value })).not.toContain('X-Amz-');
-    expect(JSON.stringify(generated.value)).not.toContain(url);
-    expect(mock).toHaveBeenCalledTimes(2);
+  it('propagates the configured reference limit into the exposed schema and runtime', async () => {
+    const { context, model, config, images } = toolContext();
+    model.maxReferenceImages = 2;
+    const profiles = defaultConfig();
+    profiles.imageModels = [model];
+    profiles.endpoints[0].id = 'endpoint';
+    profiles.endpoints[0].endpoint = 'https://example.com/v1';
+    const snapshot = toRequestConfig(profiles);
+    expect(snapshot.imageToolModels![0].maxReferenceImages).toBe(2);
+    const definition = coverFlowImageDefinition(sharedImageDefinitions(snapshot.imageToolModels)[0]);
+    expect(definition.parameters.properties).not.toHaveProperty('referenceImageIds');
+    const hostDefinition = coverFlowImageDefinition(createBuiltInTools({ config, imageExtensions: createImageToolExtensions(context.bridge, context.loadImage) }).tools.find(tool => tool.name === 'generate_image')!);
+    expect((hostDefinition.parameters.properties as Record<string, unknown>).references).toMatchObject({ maxItems: 2 });
+    expect(IMAGE_TOOL_SCHEMAS.generate_image!.properties.references.type).toBe('array');
+    images.set('upload', new Blob(['upload'], { type: 'image/png' }));
+    const tool = createBuiltInTools({ config, imageExtensions: createImageToolExtensions(context.bridge, context.loadImage) }).tools.find(item => item.name === 'generate_image')!;
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    await expect(tool.execute({ prompt: 'City', references: ['attachment://upload', 'attachment://upload', 'attachment://upload'] }, new AbortController().signal)).rejects.toThrow('at most 2');
+    expect(fetch).not.toHaveBeenCalled();
+    model.maxReferenceImages = 0;
+    const disabled = coverFlowImageDefinition(createBuiltInTools({ config, imageExtensions: createImageToolExtensions(context.bridge, context.loadImage) }).tools.find(item => item.name === 'generate_image')!);
+    expect(disabled.parameters.properties).not.toHaveProperty('references');
   });
   it('reports an expired download without submitting another generation request', async () => {
     const { model, config } = setup('kolors');
@@ -458,122 +450,10 @@ describe('image tools and persistence', () => {
     await expect(generateImages(config, { modelConfigId: model.id, prompt: 'City' }, new AbortController().signal)).rejects.toThrow('Generated image download failed (HTTP 403)');
     expect(mock).toHaveBeenCalledTimes(2);
   });
-  it('does not expose the removed session image list tool', async () => {
-    const { context } = toolContext();
-    expect(JSON.stringify(imageToolDefinitions([]))).not.toContain('list_session_images');
-    await expect(executeImageTool('list_session_images', {}, context, new AbortController().signal)).rejects.toThrow('Unsupported');
-  });
-  it('lists model-specific descriptions without repeating common prompt advice', async () => {
-    const { context, model, config } = toolContext();
-    model.description = 'first model requirements';
-    const single = await executeImageTool('list_image_models', {}, context, new AbortController().signal);
-    expect(JSON.stringify(single.value)).toContain(model.description);
-    const second = { ...createImageModel('kolors'), enabled: true, endpointId: 'endpoint', description: 'second model requirements' };
-    config.imageModels!.push(second);
-    const multiple = await executeImageTool('list_image_models', {}, context, new AbortController().signal);
-    expect(JSON.stringify(multiple.value)).toContain(model.description);
-    expect(JSON.stringify(multiple.value)).toContain(second.description);
-    for (const value of [single.value, multiple.value]) {
-      expect(JSON.stringify(value)).not.toContain('textPromptDescription');
-      expect(JSON.stringify(value)).not.toContain('referencePromptDescription');
-      expect(JSON.stringify(value)).not.toContain('[主体]');
-      expect(JSON.stringify(value)).not.toContain('[改变要求]');
-    }
-    expect(JSON.stringify(imageToolDefinitions([model, second]))).not.toContain(model.description);
-  });
-  it('requires explicit model selection and keeps legacy long configuration IDs behind short aliases', async () => {
-    mockCanvas();
-    const { context, model, config, getProject } = toolContext();
-    model.id = 'legacy-config-id-123456789';
-    const other = { ...createImageModel('kolors'), enabled: true, endpointId: 'endpoint' };
-    config.imageModels!.push(other);
-    const mock = vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] }));
-    vi.stubGlobal('fetch', mock);
-    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('ambiguous');
-    expect(mock).not.toHaveBeenCalled();
-    const result = await executeImageTool('generate_image', { projectId: 'project', modelConfigId: imageModelToolId(model), prompt: 'City' }, context, new AbortController().signal);
-    expect(imageModelToolId(model)).toBe('legacycon');
-    expect(JSON.parse(mock.mock.calls[0][1].body).model).toBe('agnes-image-2.5-flash');
-    expect(result.value).toMatchObject({ layerId: getProject().layers[0].id });
-    expect(model.id).toBe('legacy-config-id-123456789');
-  });
   it('rejects colliding short model IDs before saving configuration', () => {
     const profiles = defaultConfig();
     profiles.imageModels = [{ ...createImageModel('agnes'), id: 'abcdefghi-original' }, { ...createImageModel('kolors'), id: 'abcdefghi-other' }];
     expect(() => validateConfig(profiles)).toThrow('short ID');
-  });
-  it('checks the project before any paid request and does not switch a previously bound model', async () => {
-    const { context, model } = toolContext();
-    const mock = vi.fn();
-    vi.stubGlobal('fetch', mock);
-    await expect(executeImageTool('generate_image', { projectId: 'missing', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('changed');
-    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, { ...context, defaultModelConfigId: 'removed' }, new AbortController().signal)).rejects.toThrow('disabled');
-    expect(mock).not.toHaveBeenCalled();
-    expect(model.enabled).toBe(true);
-  });
-  it('retains a generated image if the active project changes before placement', async () => {
-    mockCanvas();
-    const { context, images, refs, commit, getProject } = toolContext();
-    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => {
-      context.bridge.getProject = () => ({ ...getProject(), id: 'another-project' });
-      return Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] });
-    }));
-    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('generated and saved, but placement failed');
-    expect(images.has('generated-image')).toBe(true);
-    expect(refs).toHaveLength(1);
-    expect(commit).not.toHaveBeenCalled();
-    expect(getProject().layers).toHaveLength(0);
-  });
-  it('retains a generated image without placing it on a newly selected page', async () => {
-    mockCanvas();
-    const { context, images, refs, commit, getProject } = toolContext();
-    getProject().activePageId = 'original-page';
-    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => {
-      getProject().activePageId = 'different-page';
-      return Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] });
-    }));
-    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('active page changed');
-    expect(images.has('generated-image')).toBe(true);
-    expect(refs).toHaveLength(1);
-    expect(commit).not.toHaveBeenCalled();
-  });
-  it('retains a generated image and reports placement errors instead of suggesting regeneration', async () => {
-    mockCanvas();
-    const { context, images, commit } = toolContext();
-    commit.mockRejectedValueOnce(new Error('Storage unavailable'));
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] })));
-    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('was generated and saved, but placement failed');
-    expect(images.has('generated-image')).toBe(true);
-    expect(commit).toHaveBeenCalledTimes(1);
-  });
-  it('lists descriptions and capabilities without leaking endpoint credentials', async () => {
-    const { context, model } = toolContext();
-    const result = await executeImageTool('list_image_models', {}, context, new AbortController().signal);
-    expect(result.value).toMatchObject({ models: [{ id: model.id, description: model.description }] });
-    expect(JSON.stringify(result)).not.toContain('secret');
-    expect(JSON.stringify(result)).not.toContain('https://example.com');
-  });
-  it('preserves original PNG bytes and MIME without re-encoding or putting pixels into tool output', async () => {
-    const canvases = mockCanvas();
-    const { model, context, images, refs, getProject } = toolContext();
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] })));
-    const generated = await executeImageTool('generate_image', { projectId: 'project', prompt: 'A city' }, context, new AbortController().signal);
-    expect(canvases).toHaveLength(0);
-    expect(generated.value).toMatchObject({ imageId: 'generated-image' });
-    expect(JSON.stringify(generated.value)).not.toContain('base64');
-    expect(refs).toHaveLength(1);
-    expect(refs[0]).toMatchObject({ type: 'image/png', size: 8 });
-    expect(refs[0].name).toMatch(/\.png$/);
-    expect(new Uint8Array(await images.get('generated-image')!.arrayBuffer())).toEqual(Uint8Array.from(atob('iVBORw0KGgo='), character => character.charCodeAt(0)));
-    expect(images.size).toBe(1);
-    const layer = getProject().layers[0];
-    expect(layer).toMatchObject({ type: 'image', x: 180, y: 0, width: 840, height: 630, content: 'data:image/png;base64,iVBORw0KGgo=', imageSource: model.modelId, imageDescription: 'A city' });
-    const selected = await executeTool('get_selected_layers', {}, { ...context.bridge, getSelection: () => [layer.id] }, new AbortController().signal) as { layers: { image: { imageSource: string; imageDescription: string } }[]; images: unknown[] };
-    expect(selected.layers[0].image).toMatchObject({ imageSource: model.modelId, imageDescription: 'A city' });
-    expect(selected.images).toEqual([]);
-    expect(layer.id).toMatch(/^[a-z0-9]{1,9}$/);
-    expect(generated.value).toMatchObject({ projectId: 'project', layerId: layer.id });
-    expect(getProject().layers).toHaveLength(1);
   });
   for (const [type, encoded, extension] of [
     ['image/jpeg', '/9j/2Q==', 'jpg'],
@@ -582,74 +462,12 @@ describe('image tools and persistence', () => {
     const canvases = mockCanvas();
     const { context, images, refs, getProject } = toolContext();
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: encoded }] })));
-    await executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal);
+    await executeImageTool('generate_image', { prompt: 'City' }, context, new AbortController().signal);
     expect(canvases).toHaveLength(0);
     expect(refs[0].type).toBe(type);
     expect(refs[0].name).toMatch(new RegExp(`\\.${extension}$`));
     expect(new Uint8Array(await images.get('generated-image')!.arrayBuffer())).toEqual(Uint8Array.from(atob(encoded), character => character.charCodeAt(0)));
-    expect(getProject().layers[0].content).toBe(`data:${type};base64,${encoded}`);
-  });
-  it('places large generated images and uses existing layer tools to make them locked backgrounds', async () => {
-    mockCanvas();
-    const { context, getProject } = toolContext();
-    const encoded = btoa(String.fromCharCode(137, 80, 78, 71, 13, 10, 26, 10) + '\0'.repeat(250000));
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: encoded }] })));
-    await executeImageTool('generate_image', { projectId: 'project', prompt: 'City' }, context, new AbortController().signal);
-    expect(getProject().layers[0].content.length).toBeGreaterThan(200000);
-    const layerId = getProject().layers[0].id;
-    await executeTool('reorder_layers', { projectId: 'project', position: 'back', layerIds: [layerId] }, context.bridge, new AbortController().signal);
-    await executeTool('update_layers', { projectId: 'project', layerIds: [layerId], properties: { layerInfo: { locked: true } } }, context.bridge, new AbortController().signal);
-    expect(getProject().layers[0].locked).toBe(true);
-    expect(getProject().background.type).toBe('color');
-  });
-  it('reads a single saved image as a reference and rejects ambiguous or stale inputs', async () => {
-    mockCanvas();
-    const { model, context, images, commit } = toolContext();
-    images.set('reference', new Blob(['image'], { type: 'image/webp' }));
-    const mock = vi.fn().mockResolvedValue(Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] }));
-    vi.stubGlobal('fetch', mock);
-    await executeImageTool('generate_image', { projectId: 'project', modelConfigId: model.id, prompt: 'Keep composition', referenceImageId: 'reference' }, context, new AbortController().signal);
-    expect(JSON.parse(mock.mock.calls[0][1].body).extra_body.image).toEqual(['data:image/webp;base64,aW1hZ2U=']);
-    commit.mockClear();
-    await expect(executeImageTool('generate_image', { projectId: 'project', modelConfigId: model.id, prompt: 'Edit', referenceImageId: 'reference', referenceLayerId: 'layer' }, context, new AbortController().signal)).rejects.toThrow('one reference');
-    await expect(executeImageTool('generate_image', { projectId: 'old', prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('changed');
-    await expect(executeImageTool('generate_image', { projectId: 'project', prompt: 'City', referenceImageId: 'missing' }, context, new AbortController().signal)).rejects.toThrow('not found');
-    expect(commit).not.toHaveBeenCalled();
-  });
-  it('uses the selected image layer as a reference without requiring a vision model or session image list', async () => {
-    mockCanvas();
-    const { context, model, getProject } = toolContext();
-    const original = {
-      id: 'selected-image', type: 'image' as const, name: 'My photo', content: 'data:image/png;base64,iVBORw0KGgo=',
-      imageSource: 'upload', imageDescription: 'Street photo', x: 0, y: 0, width: 400, height: 300,
-      rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1
-    };
-    getProject().layers.push(original);
-    context.bridge.getSelection = () => [original.id];
-    const preview = vi.fn();
-    context.bridge.getLayerPreview = preview;
-    const selected = await executeTool('get_selected_layers', {}, context.bridge, new AbortController().signal) as { layers: { id: string; image: { imageSource: string; imageDescription: string } }[] };
-    expect(selected.layers[0]).toMatchObject({ id: original.id, image: { imageSource: 'upload', imageDescription: 'Street photo' } });
-    expect(preview).not.toHaveBeenCalled();
-    const mock = vi.fn().mockImplementation(async (url: string) => url.startsWith('data:')
-      ? new Response(new Blob(['original'], { type: 'image/png' }))
-      : Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] }));
-    vi.stubGlobal('fetch', mock);
-    await executeImageTool('generate_image', { projectId: 'project', referenceLayerId: selected.layers[0].id, prompt: 'Turn the street into a night scene' }, context, new AbortController().signal);
-    expect(JSON.parse(mock.mock.calls[1][1].body).extra_body.image).toEqual(['data:image/webp;base64,d2VicA==']);
-    expect(getProject().layers[1]).toMatchObject({ imageSource: model.modelId, imageDescription: 'Turn the street into a night scene' });
-    expect(getProject().layers[0]).toEqual(original);
-  });
-  it('rechecks model enablement immediately before execution', async () => {
-    const { context, model } = toolContext();
-    await executeImageTool('list_image_models', {}, context, new AbortController().signal);
-    model.enabled = false;
-    await expect(executeImageTool('generate_image', { projectId: 'project', modelConfigId: model.id, prompt: 'City' }, context, new AbortController().signal)).rejects.toThrow('disabled');
-  });
-  it('rejects unknown fields, multiple reference arrays and the removed placement tool', async () => {
-    const { context, model } = toolContext();
-    await expect(executeImageTool('generate_image', { modelConfigId: model.id, prompt: 'City', images: ['a', 'b'] }, context, new AbortController().signal)).rejects.toThrow('parameter');
-    await expect(executeImageTool('apply_image', { projectId: 'project', imageId: 'image', target: 'background', width: 100 }, context, new AbortController().signal)).rejects.toThrow('Unsupported');
+    expect(getProject().layers).toHaveLength(0);
   });
   it('persists full-size generated image bytes in the existing file chat store', async () => {
     const binary = new Map<string, Blob>();
@@ -685,6 +503,16 @@ describe('image tools and persistence', () => {
     expect(binary.has('chat/images/current/png.png')).toBe(false);
     expect(binary.has('chat/images/current/png.jpg')).toBe(true);
   });
+  it('reads the hinted format first and falls back when the hint is stale', async () => {
+    const readBinary = vi.fn(async (path: string) => path.endsWith('.webp') ? new Blob(['image'], { type: 'image/webp' }) : null);
+    const store = createFileChatStore({ read: async () => null, write: async () => {}, readBinary,
+      writeBinary: async () => {}, remove: async () => {}, removeDirectory: async () => {}, list: async () => [] }, 'files');
+    expect((await store.loadImage('session', 'image', 'image/webp'))?.type).toBe('image/webp');
+    expect(readBinary.mock.calls.map(([path]) => path)).toEqual(['chat/images/session/image.webp']);
+    readBinary.mockClear();
+    expect((await store.loadImage('session', 'image', 'image/jpeg'))?.type).toBe('image/webp');
+    expect(readBinary.mock.calls.map(([path]) => path)).toEqual(['chat/images/session/image.jpg', 'chat/images/session/image.png', 'chat/images/session/image.webp']);
+  });
   it.each([undefined, 1, 2, 5])('forwards dynamic image tools and enforces failure budget %s', async maxImageFailures => {
     const { model, context, config } = toolContext();
     const profiles = defaultConfig();
@@ -700,7 +528,7 @@ describe('image tools and persistence', () => {
       requests.push(JSON.parse(options.body as string));
       round++;
       const output = round <= (maxImageFailures ?? 3) + 1
-        ? [{ type: 'function_call', call_id: `call-${round}`, name: 'generate_image', arguments: JSON.stringify({ projectId: 'project', prompt: 'City' }) }]
+        ? [{ type: 'function_call', call_id: `call-${round}`, name: 'generate_image', arguments: JSON.stringify({ prompt: 'City' }) }]
         : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Generation failed', annotations: [] }] }];
       return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
     }));
@@ -719,6 +547,24 @@ describe('image tools and persistence', () => {
     expect(outputs.at(-1)).toEqual({ error: 'Image generation failure limit reached in this turn.' });
     for (const output of outputs.slice(0, -1)) expect(output).toEqual({ error: 'Image generation failed (HTTP 503).' });
   });
+  it('does not impose a failure budget when the limit is zero', async () => {
+    const { model, context, config } = toolContext();
+    const profiles = defaultConfig();
+    profiles.imageModels = [model];
+    profiles.endpoints[0].id = 'endpoint';
+    profiles.endpoints[0].endpoint = 'https://example.com/v1';
+    let imageRequests = 0;
+    let round = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith('/images/generations')) { imageRequests++; return new Response('', { status: 503 }); }
+      const output = ++round <= 4
+        ? [{ type: 'function_call', call_id: `zero-${round}`, name: 'generate_image', arguments: JSON.stringify({ prompt: 'City' }) }]
+        : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] }];
+      return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+    }));
+    await runConversation({ config: { ...toRequestConfig(profiles), maxImageFailures: 0, maxToolRounds: 0 }, input: [], bridge: context.bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}, getImageConfig: () => config, loadImage: context.loadImage, saveImage: context.saveImage });
+    expect(imageRequests).toBe(4);
+  });
   it('accumulates failures across successful generations and enforces the budget within one response batch', async () => {
     mockCanvas();
     const { context, model, config, getProject } = toolContext();
@@ -735,7 +581,7 @@ describe('image tools and persistence', () => {
         return imageRequests === 2 ? Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] }) : new Response('', { status: 503 });
       }
       const output = ++rounds === 1
-        ? Array.from({ length: 5 }, (_, index) => ({ type: 'function_call', call_id: `batch-${index}`, name: 'generate_image', arguments: JSON.stringify({ projectId: 'project', prompt: 'City' }) }))
+        ? Array.from({ length: 5 }, (_, index) => ({ type: 'function_call', call_id: `batch-${index}`, name: 'generate_image', arguments: JSON.stringify({ prompt: 'City' }) }))
         : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] }];
       return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
     }));
@@ -772,7 +618,7 @@ describe('image tools and persistence', () => {
         return turn === 1 ? new Response('', { status: 503 }) : Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] });
       }
       const output = modelRequests++ % 2 === 0
-        ? [{ type: 'function_call', call_id: `call-${turn}`, name: 'generate_image', arguments: JSON.stringify({ projectId: 'project', prompt: 'City' }) }]
+        ? [{ type: 'function_call', call_id: `call-${turn}`, name: 'generate_image', arguments: JSON.stringify({ prompt: 'City' }) }]
         : [{ type: 'message', id: `message-${turn}`, role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] }];
       return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
     }));
@@ -794,9 +640,9 @@ describe('image tools and persistence', () => {
     expect(signal.aborted).toBe(false);
     expect(getProject().layers).toHaveLength(1);
   });
-  it('returns the automatically created layer ID to the model in the next Responses round', async () => {
+  it('archives the generated image and places it on the canvas in one tool call', async () => {
     mockCanvas();
-    const { context, model, config, getProject } = toolContext();
+    const { context, model, config, getProject, images, refs } = toolContext();
     context.bridge.getSelection = () => getProject().selectedLayerId ? [getProject().selectedLayerId!] : [];
     const profiles = defaultConfig();
     profiles.imageModels = [model];
@@ -807,10 +653,8 @@ describe('image tools and persistence', () => {
       if (String(url).endsWith('/images/generations')) return Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] });
       requests.push(JSON.parse(options.body as string));
       const output = requests.length === 1
-        ? [{ type: 'function_call', call_id: 'generate', name: 'generate_image', arguments: JSON.stringify({ projectId: 'project', prompt: 'City' }) }]
-        : requests.length === 2
-          ? [{ type: 'function_call', call_id: 'selected-image', name: 'get_selected_layers', arguments: '{}' }]
-          : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Placed', annotations: [] }] }];
+        ? [{ type: 'function_call', call_id: 'generate', name: 'generate_image', arguments: JSON.stringify({ prompt: 'City' }) }]
+        : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Placed', annotations: [] }] }];
       return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
     }));
     await runConversation({ config: { ...toRequestConfig(profiles), supportsVision: false }, input: [], bridge: context.bridge, signal: new AbortController().signal, onText: () => {}, onTool: () => {}, getImageConfig: () => config, loadImage: context.loadImage, saveImage: context.saveImage, onImage: context.onImage });
@@ -818,7 +662,117 @@ describe('image tools and persistence', () => {
     expect(result.layerId).toBe(getProject().layers[0].id);
     expect(result.layerId.length).toBeLessThanOrEqual(9);
     expect(getProject().layers).toHaveLength(1);
-    expect(JSON.parse(requests[2].input.at(-1)!.output!)).toMatchObject({ projectId: 'project', layers: [{ id: result.layerId, image: { imageSource: model.modelId, imageDescription: 'City' } }] });
+    expect(getProject().layers[0]).toMatchObject({ imageSource: model.modelId, imageDescription: 'City' });
+    expect(images.size).toBe(1);
+    expect(refs).toHaveLength(1);
+    expect(refs[0].name).toMatch(/^generated-/);
+    expect(result.images).toMatchObject([{ id: refs[0].id }]);
+    expect(result).not.toHaveProperty('imageId');
     expect(JSON.stringify(requests.map(request => request.input))).not.toContain('base64');
+  });
+  it('forwards mixed layer and attachment references in order without saving intermediate images', async () => {
+    mockCanvas();
+    const { context, model, config, getProject, images, refs } = toolContext();
+    model.maxReferenceImages = 2;
+    images.set('upload', new Blob(['upload'], { type: 'image/png' }));
+    getProject().layers.push({ id: 'source', type: 'image', name: 'Source', content: reference,
+      x: 0, y: 0, width: 100, height: 100, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 });
+    const profiles = defaultConfig();
+    profiles.imageModels = [model];
+    profiles.endpoints[0].id = 'endpoint';
+    profiles.endpoints[0].endpoint = 'https://example.com/v1';
+    const originalFetch = globalThis.fetch;
+    let generationBody: { extra_body: { image: string[] } } | undefined;
+    let round = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, options: RequestInit) => {
+      if (String(url).startsWith('data:')) return originalFetch(url, options);
+      if (String(url).endsWith('/images/generations')) {
+        generationBody = JSON.parse(options.body as string);
+        return Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] });
+      }
+      const output = ++round === 1
+        ? [{ type: 'function_call', call_id: 'generate', name: 'generate_image', arguments: JSON.stringify({ prompt: 'City', references: ['source', 'attachment://upload'] }) }]
+        : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] }];
+      return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+    }));
+    await runConversation({ config: { ...toRequestConfig(profiles), supportsVision: false }, input: [], bridge: context.bridge, signal: new AbortController().signal,
+      onText: () => {}, onTool: () => {}, getImageConfig: () => config, loadImage: context.loadImage, saveImage: context.saveImage, onImage: context.onImage });
+    expect(generationBody?.extra_body.image).toEqual([reference, 'data:image/png;base64,dXBsb2Fk']);
+    expect(getProject().layers).toHaveLength(2);
+    expect(images.size).toBe(2);
+    expect(refs).toHaveLength(1);
+    expect(refs[0].name).toMatch(/^generated-/);
+  });
+  it('saves a recovery image after failed canvas commit and prevents automatic regeneration', async () => {
+    mockCanvas();
+    const { context, model, config, commit, refs } = toolContext();
+    const profiles = defaultConfig();
+    profiles.imageModels = [model];
+    profiles.endpoints[0].id = 'endpoint';
+    profiles.endpoints[0].endpoint = 'https://example.com/v1';
+    commit.mockRejectedValueOnce(new Error('Disk full'));
+    let round = 0, imageRequests = 0;
+    const results: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith('/images/generations')) {
+        imageRequests++;
+        return Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] });
+      }
+      const output = ++round <= 2
+        ? [{ type: 'function_call', call_id: `generate-${round}`, name: 'generate_image', arguments: JSON.stringify({ prompt: 'City' }) }]
+        : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Failed', annotations: [] }] }];
+      return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+    }));
+    await runConversation({ config: { ...toRequestConfig(profiles), supportsVision: false }, input: [], bridge: context.bridge, signal: new AbortController().signal,
+      onText: () => {}, onTool: event => { if (event.status === 'error') results.push(event.result!); },
+      getImageConfig: () => config, loadImage: context.loadImage, saveImage: context.saveImage, onImage: context.onImage });
+    expect(imageRequests).toBe(1);
+    expect(commit).toHaveBeenCalledOnce();
+    expect(refs).toHaveLength(1);
+    expect(results[0]).toContain('may already be applied');
+    expect(results[0]).toContain(`Recovery image IDs: ${refs[0].id}`);
+    expect(results[1]).toContain('Do not retry');
+  });
+  it.each(['layer', 'attachment'] as const)('removes background from %s directly onto the canvas without intermediate session images', async source => {
+    mockCanvas();
+    const { context, config, getProject, images, refs } = toolContext();
+    const originalFetch = globalThis.fetch;
+    const sourceBlob = new Blob([Uint8Array.from(atob('iVBORw0KGgo='), c => c.charCodeAt(0))], { type: 'image/png' });
+    if (source === 'layer') getProject().layers.push({ id: 'source', type: 'image', name: 'Source', content: reference,
+      x: 0, y: 0, width: 100, height: 100, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 });
+    else images.set('attachment', sourceBlob);
+    let workerImage: Blob | undefined;
+    class TestWorker {
+      onmessage?: (event: { data: { blob: Blob } }) => void;
+      terminate() {}
+      postMessage(message: { image: Blob }) {
+        workerImage = message.image;
+        queueMicrotask(() => this.onmessage?.({ data: { blob: sourceBlob } }));
+      }
+    }
+    vi.stubGlobal('Worker', TestWorker);
+    let round = 0;
+    let result: { layerId: string; backgroundRemoved: boolean } | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, options: RequestInit) => {
+      if (String(url).startsWith('data:')) return originalFetch(url, options);
+      const request = JSON.parse(options.body as string);
+      if (++round === 2) result = JSON.parse(request.input.at(-1).output);
+      const output = round === 1
+        ? [{ type: 'function_call', call_id: 'remove', name: 'remove_background', arguments: JSON.stringify({
+          modelId: 'color', colorOptions: { tolerance: 0, feather: 0, contiguous: false },
+          ...(source === 'layer' ? { layerId: 'source' } : { imageId: 'attachment' })
+        }) }]
+        : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] }];
+      return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+    }));
+    await runConversation({ config: { ...toRequestConfig(defaultConfig()), endpoint: 'https://example.com/v1', supportsVision: false }, input: [], bridge: context.bridge,
+      signal: new AbortController().signal, onText: () => {}, onTool: () => {}, getImageConfig: () => config,
+      loadImage: context.loadImage, saveImage: context.saveImage, onImage: context.onImage });
+    expect(await workerImage!.arrayBuffer()).toEqual(await sourceBlob.arrayBuffer());
+    expect(result?.backgroundRemoved).toBe(true);
+    expect(getProject().layers.find(layer => layer.id === result?.layerId)?.backgroundRemoved).toBe(true);
+    if (source === 'layer') expect(getProject().layers.find(layer => layer.id === 'source')?.visible).toBe(false);
+    expect(images.size).toBe(source === 'attachment' ? 1 : 0);
+    expect(refs).toHaveLength(0);
   });
 });

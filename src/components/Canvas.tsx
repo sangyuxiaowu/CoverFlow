@@ -54,12 +54,12 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
     const padding = getComputedStyle(content);
     const availableWidth = container.offsetWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight);
     const availableHeight = container.offsetHeight - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom);
-    if (availableWidth <= 0 || availableHeight <= 0 || project.canvasConfig.width <= 0 || project.canvasConfig.height <= 0) return false;
-    setZoom(Math.max(0.05, Math.min(5, availableWidth / project.canvasConfig.width, availableHeight / project.canvasConfig.height)));
+    if (availableWidth <= 0 || availableHeight <= 0 || project.pageInfo.width <= 0 || project.pageInfo.height <= 0) return false;
+    setZoom(Math.max(0.05, Math.min(5, availableWidth / project.pageInfo.width, availableHeight / project.pageInfo.height)));
     container.scrollLeft = 0;
     container.scrollTop = 0;
     return true;
-  }, [project.canvasConfig.width, project.canvasConfig.height]);
+  }, [project.pageInfo.width, project.pageInfo.height]);
 
   useLayoutEffect(() => {
     if (fittedPageKeyRef.current === pageKey) return;
@@ -168,8 +168,8 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
       const halfH = movingLayer.height / 2;
 
       // 吸附目标：画布边缘与中心
-      const targetsX = [0, project.canvasConfig.width / 2, project.canvasConfig.width];
-      const targetsY = [0, project.canvasConfig.height / 2, project.canvasConfig.height];
+      const targetsX = [0, project.pageInfo.width / 2, project.pageInfo.width];
+      const targetsY = [0, project.pageInfo.height / 2, project.pageInfo.height];
 
       // 吸附目标：其他图层
       project.layers.forEach(l => {
@@ -270,7 +270,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
 
       updateLayer(interaction.layerId, { x: newCenterX - newW / 2, y: newCenterY - newH / 2, width: newW, height: newH }, false);
     }
-  }, [interaction, zoom, project.layers, project.canvasConfig, updateLayer]);
+  }, [interaction, zoom, project.layers, project.pageInfo, updateLayer]);
 
   const handleGlobalMouseUp = useCallback(() => {
     if (interaction) {
@@ -312,8 +312,8 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
         >
           <div 
             style={{
-              width: project.canvasConfig.width * zoom,
-              height: project.canvasConfig.height * zoom,
+              width: project.pageInfo.width * zoom,
+              height: project.pageInfo.height * zoom,
               overflow: 'clip',
               overflowClipMargin: '100px',
               flexShrink: 0
@@ -324,11 +324,11 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
               id="export-target"
               className="absolute top-0 left-0 bg-white shadow-[0_0_100px_rgba(0,0,0,0.5)] overflow-hidden"
               style={{
-                width: project.canvasConfig.width,
-                height: project.canvasConfig.height,
+                width: project.pageInfo.width,
+                height: project.pageInfo.height,
                 transform: `scale(${zoom})`,
                 transformOrigin: 'top left',
-                ...buildBackgroundStyles(project.background),
+                ...buildBackgroundStyles(project.pageInfo.background),
                 backfaceVisibility: 'hidden'
               }}
             >

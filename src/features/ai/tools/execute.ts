@@ -2,27 +2,21 @@ import type { Layer } from '../../../types.ts';
 import type { WorkspaceBridge } from '../types.ts';
 import { PRESET_RATIOS } from '../../../constants.ts';
 import { editLayers } from '../domain/layerOperations.ts';
-import { backgroundPatch, choice, ids, layerDetails, layerPatch, number, record, safeImage, text, validateContent, validateLayerGroups } from './validation.ts';
-import { sanitizeBackgroundCss } from '../../../utils/customContent.ts';
+import { choice, ids, layerDetails, layerPatch, record, text, validateContent, validateLayerGroups } from './validation.ts';
 import { hasActiveImageCrop, hasActiveImageFilters, normalizeImageCrop, normalizeImageFilters } from '../../../utils/imageLayer.ts';
 import { ADD_LAYER_TYPES, LAYER_TOOL_ACTIONS, parseLayerToolRequest, parseManageProjectsRequest } from './requests.ts';
-import { executeBackgroundRemovalTool } from './backgroundRemoval.ts';
 import { generateId } from '../../../utils/helpers.ts';
 import { executeAssetTool } from './assets.ts';
-import { listFonts, type LocalFontSelection } from '../services/fonts.ts';
 import { ensureProjectFonts } from '../services/fontLoading.ts';
 import { executePageTool, pageContext } from './pages.ts';
+import { executeClipboardTool } from './clipboard.ts';
 
-export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false, localFonts: LocalFontSelection[] = []): Promise<unknown> {
+export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false): Promise<unknown> {
   signal.throwIfAborted();
+  if (name === 'clipboard') return executeClipboardTool(input, bridge, signal);
   if (name === 'manage_pages') return executePageTool(input, bridge, signal);
   if (name === 'search_assets' || name === 'place_asset') return executeAssetTool(name, input, bridge, signal);
-  if (name === 'remove_background') return executeBackgroundRemovalTool(input, bridge, signal);
   const args = record(input);
-  if (name === 'list_fonts') {
-    if (Object.keys(args).length) throw new Error('list_fonts does not accept parameters.');
-    return listFonts(localFonts);
-  }
   if (name === 'get_cover_size_recommendations') return {
     note: '以下为常见用途的设计建议，不是平台强制规格。用户明确指定的尺寸优先；调整已有画布尺寸前应确认需求，图层不会自动缩放。',
     presets: PRESET_RATIOS
@@ -40,9 +34,9 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
   }
   const project = bridge.getProject();
   if (name === 'get_context') return project ? {
-    projectId: project.id, title: project.title, canvas: project.canvasConfig,
+    projectId: project.id, title: project.title,
     ...pageContext(project),
-    background: { ...project.background, value: project.background.value.startsWith('data:') ? '[embedded image]' : project.background.value },
+    pageInfo: { ...project.pageInfo, background: { ...project.pageInfo.background, value: project.pageInfo.background.value.startsWith('data:') ? '[embedded image]' : project.pageInfo.background.value } },
     selectedLayerIds: bridge.getSelection(),
     layers: project.layers.map(({ id, name, type, x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked, parentId, children }) => ({
       id, name, type, parentId, layerInfo: { x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked }, ...(type === 'group' && children ? { group: { children } } : {})
@@ -82,36 +76,47 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     }
     return { kind: 'selected_layers', projectId: project.id, pageId: project.activePageId, layers, images };
   }
-  if (text(args.projectId, 'projectId') !== project.id) throw new Error('The active project changed. Read get_context again.');
+  if (Object.hasOwn(args, 'projectId')) throw new Error(`${name}: unsupported field projectId. This tool operates on the current page.`);
   if (name === 'read_layers') {
     const selected = args.layerIds === undefined ? null : ids(args.layerIds);
     const query = args.query === undefined ? '' : text(args.query, 'query').toLowerCase();
     return project.layers.filter(layer => (!selected || selected.includes(layer.id)) && (!query || (layer.name + ' ' + layer.content).toLowerCase().includes(query))).map(layer => layerDetails({ ...layer, content: layer.content.startsWith('data:') ? '[embedded image]' : layer.content }));
   }
   let next = project;
-  if (name === 'add_layer') {
+  let createdLayerIds: string[] | undefined;
+  if (name === 'add_layers') {
     for (const field of Object.keys(args)) {
-      if (!['projectId', 'type', 'properties'].includes(field)) throw new Error(`${name}: unsupported field ${field}.`);
+      if (field !== 'layers') throw new Error(`${name}: unsupported field ${field}.`);
     }
-    const type = choice(args.type, 'type', ADD_LAYER_TYPES);
-    if (Object.hasOwn(record(args.properties), 'zIndex')) throw new Error(`${name}: unsupported field zIndex. Use reorder_layers after creation.`);
-    const patch = layerPatch(args.properties);
-    validateLayerGroups(args.properties, type);
-    const content = validateContent(type, text(patch.content, `properties.${type}.content`));
-    const layer: Layer = { id: generateId(), name: type, type, content, x: 40, y: 40, width: 300, height: 100, rotation: 0, zIndex: Math.max(0, ...project.layers.map(item => item.zIndex)) + 1, visible: true, locked: false, opacity: 1, ...(type === 'text' ? { fontSize: 48, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: '#ffffff', textAlign: 'left' } : {}), ...patch };
-    if (type === 'image') {
-      layer.imageSource ??= 'unknown';
-      layer.imageDescription ??= '';
-      if (patch.imageFilters !== undefined) {
-        const normalizedFilters = normalizeImageFilters(patch.imageFilters);
-        layer.imageFilters = hasActiveImageFilters(normalizedFilters) ? normalizedFilters : undefined;
+    if (!Array.isArray(args.layers) || !args.layers.length || args.layers.length > 500) throw new Error('layers must contain 1-500 layers.');
+    const topZIndex = Math.max(0, ...project.layers.map(item => item.zIndex));
+    const layers = args.layers.map((input, index) => {
+      const item = record(input);
+      for (const field of Object.keys(item)) {
+        if (!['type', 'properties'].includes(field)) throw new Error(`${name}: unsupported field ${field}.`);
       }
-      if (patch.imageCrop !== undefined) {
-        const normalizedCrop = normalizeImageCrop(patch.imageCrop);
-        layer.imageCrop = hasActiveImageCrop(normalizedCrop) ? normalizedCrop : undefined;
+      const type = choice(item.type, 'type', ADD_LAYER_TYPES);
+      if (Object.hasOwn(record(item.properties), 'zIndex')) throw new Error(`${name}: unsupported field zIndex. Use reorder_layers after creation.`);
+      const patch = layerPatch(item.properties);
+      validateLayerGroups(item.properties, type);
+      const content = validateContent(type, text(patch.content, `properties.${type}.content`));
+      const layer: Layer = { id: generateId(), name: type, type, content, x: 40, y: 40, width: 300, height: 100, rotation: 0, zIndex: topZIndex + index + 1, visible: true, locked: false, opacity: 1, ...(type === 'text' ? { fontSize: 48, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: '#ffffff', textAlign: 'left' } : {}), ...patch };
+      if (type === 'image') {
+        layer.imageSource ??= 'unknown';
+        layer.imageDescription ??= '';
+        if (patch.imageFilters !== undefined) {
+          const normalizedFilters = normalizeImageFilters(patch.imageFilters);
+          layer.imageFilters = hasActiveImageFilters(normalizedFilters) ? normalizedFilters : undefined;
+        }
+        if (patch.imageCrop !== undefined) {
+          const normalizedCrop = normalizeImageCrop(patch.imageCrop);
+          layer.imageCrop = hasActiveImageCrop(normalizedCrop) ? normalizedCrop : undefined;
+        }
       }
-    }
-    next = { ...project, layers: [...project.layers, layer], selectedLayerId: layer.id };
+      return layer;
+    });
+    createdLayerIds = layers.map(layer => layer.id);
+    next = { ...project, layers: [...project.layers, ...layers], selectedLayerId: layers[layers.length - 1].id };
   } else if (Object.hasOwn(LAYER_TOOL_ACTIONS, name)) {
     const request = parseLayerToolRequest(name as keyof typeof LAYER_TOOL_ACTIONS, args);
     const { action, layerIds: selected } = request;
@@ -130,25 +135,10 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
       });
     }
     next = editLayers(project, action, selected, patch, request.action === 'align' || request.action === 'distribute' ? request.mode : undefined);
-  } else if (name === 'update_canvas') {
-    const width = args.width === undefined ? project.canvasConfig.width : number(args.width, 'width', 10, 10000);
-    const height = args.height === undefined ? project.canvasConfig.height : number(args.height, 'height', 10, 10000);
-    const backgroundUpdates = args.background === undefined ? {} : backgroundPatch(args.background);
-    const background = { ...project.background, ...backgroundUpdates };
-    if (background.type === 'css' && ['overlayType', 'overlayColor', 'overlayOpacity', 'overlayScale'].some(field => field in backgroundUpdates)) {
-      throw new Error('Overlay textures are not supported with CSS backgrounds.');
-    }
-    if (background.type === 'image') safeImage(background.value);
-    if (background.type === 'css') {
-      const result = sanitizeBackgroundCss(background.value);
-      if (result.issues.length) throw new Error(result.issues.join('; '));
-    }
-    if (background.type !== 'image' && /url\s*\(/i.test(background.value)) throw new Error('Use an image background for image URLs.');
-    next = { ...project, canvasConfig: { width, height, ratio: `${width}x${height}` }, background };
   } else throw new Error('Unknown tool: ' + name);
   await ensureProjectFonts(next);
   signal.throwIfAborted();
   if (bridge.getProject() !== project) throw new Error('The active project changed while loading fonts. Read get_context again.');
   await bridge.commit({ ...next, updatedAt: Date.now() });
-  return { success: true, projectId: next.id, pageId: next.activePageId, selectedLayerId: next.selectedLayerId, layerIds: next.layers.map(layer => layer.id) };
+  return { success: true, projectId: next.id, pageId: next.activePageId, selectedLayerId: next.selectedLayerId, layerIds: next.layers.map(layer => layer.id), ...(createdLayerIds ? { createdLayerIds } : {}) };
 }

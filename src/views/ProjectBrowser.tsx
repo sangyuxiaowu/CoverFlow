@@ -3,30 +3,33 @@ import { Clock, Layers, LayoutGrid, List, Search, X } from 'lucide-react';
 import { ProjectCard, ProjectListItem } from './ProjectItems.tsx';
 import type { RecentProjectItem } from '../hooks/useLocalProjects.ts';
 import type { ProjectState } from '../types.ts';
+import { summarizeProject, type ProjectSummary } from '../storage/StorageAdapter.ts';
 import { translations, type Language } from '../translations.ts';
-import { pageProject } from '../utils/projectPages.ts';
 import { getStoredTimeGroupingMode, setStoredTimeGroupingMode, getStoredProjectViewLayout,
   setStoredProjectViewLayout, type TimeGroupingMode, type ProjectViewLayout } from '../storage/storage.ts';
 
+export type BrowserProjectItem = { project: ProjectState | ProjectSummary; source: 'storage' | 'local'; localPath?: string };
+
 export type ProjectBrowserProps = {
   lang: Language;
-  projects: ProjectState[];
+  projects: (ProjectState | ProjectSummary)[];
   localRecentItems: RecentProjectItem[];
   projectSearchTerm: string;
   setProjectSearchTerm: (term: string) => void;
   isCloudMode: boolean;
   cloudLoading: boolean;
   handleProjectsScroll: React.UIEventHandler<HTMLDivElement>;
-  handleOpenRecentProject: (item: RecentProjectItem) => void;
-  handleDeleteRecentProject: (item: RecentProjectItem) => void;
-  handleDuplicateProject: (project: ProjectState) => void;
-  handleExportJson: (project: ProjectState) => void;
-  handleExportImage: (node: HTMLDivElement | null, project: ProjectState) => void;
+  handleOpenRecentProject: (item: BrowserProjectItem) => void;
+  handleDeleteRecentProject: (item: BrowserProjectItem) => void;
+  handleDuplicateProject: (item: BrowserProjectItem) => void;
+  handleExportJson: (item: BrowserProjectItem) => void;
+  handleExportImage: (item: BrowserProjectItem) => void;
+  getProjectPreview?: (item: BrowserProjectItem) => Promise<Blob | undefined>;
 };
 
 export default function ProjectBrowser({ lang, projects, localRecentItems, projectSearchTerm, setProjectSearchTerm,
   isCloudMode, cloudLoading, handleProjectsScroll, handleOpenRecentProject, handleDeleteRecentProject,
-  handleDuplicateProject, handleExportJson, handleExportImage }: ProjectBrowserProps) {
+  handleDuplicateProject, handleExportJson, handleExportImage, getProjectPreview }: ProjectBrowserProps) {
   const t = translations[lang];
   const [timeGroupingMode, setTimeGroupingMode] = useState<TimeGroupingMode>(() => (
     getStoredTimeGroupingMode('grouped')
@@ -47,7 +50,7 @@ export default function ProjectBrowser({ lang, projects, localRecentItems, proje
 
   const allFilteredProjects = useMemo(() => {
     const search = projectSearchTerm.toLowerCase();
-    const storageItems: RecentProjectItem[] = (isCloudMode
+    const storageItems: BrowserProjectItem[] = (isCloudMode
       ? projects
       : projects.filter(p => p.title.toLowerCase().includes(search)))
       .map(project => ({ project, source: 'storage' }));
@@ -65,7 +68,7 @@ export default function ProjectBrowser({ lang, projects, localRecentItems, proje
     const startOfLastWeek = startOfThisWeek - (7 * 86400000);
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()).getTime();
 
-    const groups: { label: string, key: string, items: RecentProjectItem[] }[] = [
+    const groups: { label: string, key: string, items: BrowserProjectItem[] }[] = [
       { label: t.dateGroups.today, key: 'today', items: [] },
       { label: t.dateGroups.yesterday, key: 'yesterday', items: [] },
       { label: t.dateGroups.thisWeek, key: 'thisWeek', items: [] },
@@ -87,20 +90,21 @@ export default function ProjectBrowser({ lang, projects, localRecentItems, proje
     return groups.filter(g => g.items.length > 0);
   }, [allFilteredProjects, t.dateGroups]);
 
-  const renderProjectItem = (item: RecentProjectItem) => {
+  const renderProjectItem = (item: BrowserProjectItem) => {
     const Component = viewLayoutMode === 'list' ? ProjectListItem : ProjectCard;
-    const previewProject = item.project.pages?.[0] ? pageProject(item.project, item.project.pages[0]) : item.project;
+    const summary = 'kind' in item.project ? item.project : summarizeProject(item.project);
     return <Component
       key={`${item.source}-${item.localPath || item.project.id}`}
-      project={previewProject}
+      project={summary}
+      loadPreview={getProjectPreview ? () => getProjectPreview(item) : undefined}
       lang={lang}
       sourceLabel={item.source === 'local' ? t.localProjectTag : undefined}
       showFullDate={timeGroupingMode === 'ungrouped'}
       onClick={() => handleOpenRecentProject(item)}
       onDelete={event => { event.stopPropagation(); handleDeleteRecentProject(item); }}
-      onDuplicate={event => { event.stopPropagation(); handleDuplicateProject(item.project); }}
-      onDownloadJson={event => { event.stopPropagation(); handleExportJson(item.project); }}
-      onDownloadImage={(node, event) => { event.stopPropagation(); handleExportImage(node, previewProject); }}
+      onDuplicate={event => { event.stopPropagation(); handleDuplicateProject(item); }}
+      onDownloadJson={event => { event.stopPropagation(); handleExportJson(item); }}
+      onDownloadImage={event => { event.stopPropagation(); handleExportImage(item); }}
     />;
   };
 

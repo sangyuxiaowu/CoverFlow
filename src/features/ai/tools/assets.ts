@@ -2,7 +2,7 @@ import type { Layer } from '../../../types.ts';
 import { type AssetEntry, findAsset, folderAssets } from '../../../storage/assets.ts';
 import { generateId, normalizeSVG } from '../../../utils/helpers.ts';
 import type { WorkspaceBridge } from '../types.ts';
-import { blobToDataUrl } from '../services/imageAttachments.ts';
+import { blobToDataUrl } from 'sang-ai-kit/image-attachments';
 import { choice, number, record, text, validateContent } from './validation.ts';
 
 function fields(args: Record<string, unknown>, allowed: string[]) {
@@ -18,9 +18,9 @@ function pageNumber(value: unknown, field: string, fallback: number, maximum: nu
   return result;
 }
 
-function activeProject(bridge: WorkspaceBridge, projectId: string, pageId?: string) {
+function activeProject(bridge: WorkspaceBridge, projectId?: string, pageId?: string) {
   const project = bridge.getProject();
-  if (!project || project.id !== projectId) throw new Error('The active project changed or is not open. Read get_context again.');
+  if (!project || (projectId !== undefined && project.id !== projectId)) throw new Error('The active project changed or is not open. Read get_context again.');
   if (pageId !== undefined && project.activePageId !== pageId) throw new Error('The active page changed. Read get_context again.');
   return project;
 }
@@ -52,14 +52,13 @@ export async function executeAssetTool(name: 'search_assets' | 'place_asset', in
     return { items, total: matches.length, page, pageSize, hasMore: page * pageSize < matches.length, folder };
   }
 
-  fields(args, ['projectId', 'assetId', 'x', 'y', 'width', 'height']);
-  const projectId = text(args.projectId, 'projectId');
+  fields(args, ['assetId', 'x', 'y', 'width', 'height']);
   const assetId = text(args.assetId, 'assetId');
   const x = args.x === undefined ? undefined : number(args.x, 'x');
   const y = args.y === undefined ? undefined : number(args.y, 'y');
   const requestedWidth = args.width === undefined ? undefined : number(args.width, 'width', 1, 100000);
   const requestedHeight = args.height === undefined ? undefined : number(args.height, 'height', 1, 100000);
-  const pageId = activeProject(bridge, projectId).activePageId;
+  const { id: projectId, activePageId: pageId } = activeProject(bridge);
   if (!assetId.startsWith('folder:')) throw new Error('Invalid assetId. Use an ID from search_assets.');
   const directory = await bridge.getAssetFolder?.();
   signal.throwIfAborted();
@@ -99,13 +98,13 @@ export async function executeAssetTool(name: 'search_assets' | 'place_asset', in
   }
   const scale = requestedWidth !== undefined ? requestedWidth / sourceWidth
     : requestedHeight !== undefined ? requestedHeight / sourceHeight
-      : Math.min(1, 300 / sourceWidth, 300 / sourceHeight, project.canvasConfig.width / sourceWidth, project.canvasConfig.height / sourceHeight);
+      : Math.min(1, 300 / sourceWidth, 300 / sourceHeight, project.pageInfo.width / sourceWidth, project.pageInfo.height / sourceHeight);
   const width = Math.max(1, sourceWidth * scale);
   const height = Math.max(1, sourceHeight * scale);
   const layer: Layer = {
     id: generateId(), name: entry.name, type: entry.type, content,
-    x: x ?? (project.canvasConfig.width - width) / 2,
-    y: y ?? (project.canvasConfig.height - height) / 2,
+    x: x ?? (project.pageInfo.width - width) / 2,
+    y: y ?? (project.pageInfo.height - height) / 2,
     width, height, rotation: 0, opacity: 1, visible: true, locked: false, ratioLocked: true,
     zIndex: Math.max(0, ...project.layers.map(item => item.zIndex)) + 1,
     ...(entry.type === 'image' ? { imageSource: assetId, imageDescription: entry.name } : {})

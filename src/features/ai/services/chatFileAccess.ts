@@ -1,5 +1,5 @@
 import type { ChatFileAccess } from './chatStore.ts';
-import { imageMimeTypeFromPath } from './imageAttachments.ts';
+import { imageMimeTypeFromPath } from 'sang-ai-kit/image-attachments';
 import { readFileBlob, readFileText, writeFileContent } from '../../../storage/fileAccess.ts';
 
 type DirectoryEntries = FileSystemDirectoryHandle & { entries: () => AsyncIterableIterator<[string, FileSystemHandle]> };

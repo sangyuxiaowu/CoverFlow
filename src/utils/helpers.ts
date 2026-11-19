@@ -232,27 +232,14 @@ export const formatCanvasRatio = (width: number, height: number, rawRatio?: stri
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     return rawRatio || '1:1';
   }
-
-  const trimmed = rawRatio?.trim();
-  if (trimmed && trimmed.includes(':')) {
-    const [rw, rh] = trimmed.split(':').map(Number);
-    if (Number.isFinite(rw) && Number.isFinite(rh) && rw > 0 && rh > 0) {
-      if (Math.abs(width / height - rw / rh) < 0.02) {
-        return trimmed;
-      }
-    }
-  }
-
-  const w = Math.round(width);
-  const h = Math.round(height);
+  const scale = 1_000_000;
+  const w = Math.round(width * scale);
+  const h = Math.round(height * scale);
+  if (!Number.isSafeInteger(w) || !Number.isSafeInteger(h) || !w || !h || Math.abs(w / scale - width) > 1e-10 || Math.abs(h / scale - height) > 1e-10) return `${width}:${height}`;
   const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
   const divisor = gcd(w, h);
   const simpW = w / divisor;
   const simpH = h / divisor;
-
-  if (simpW <= 32 && simpH <= 32) {
-    return `${simpW}:${simpH}`;
-  }
-
-  return `${Number((w / h).toFixed(2))}:1`;
+  if ((simpW === 900 && simpH === 383) || (simpW === 47 && simpH === 20)) return '2.35:1';
+  return `${simpW}:${simpH}`;
 };

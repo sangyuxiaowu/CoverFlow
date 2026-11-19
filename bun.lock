@@ -5,6 +5,7 @@
     "": {
       "name": "coverflow---pro-svg-article-cover-designer",
       "dependencies": {
+        "@noble/hashes": "^2.4.0",
         "@tailwindcss/vite": "^4.1.18",
         "@tauri-apps/api": "2.12.4",
         "@tauri-apps/plugin-dialog": "2.6.0",
@@ -24,6 +25,7 @@
         "react-colorful": "^5.8.1",
         "react-dom": "^19.2.4",
         "react-easy-crop": "^5.5.6",
+        "sang-ai-kit": "^0.2.2",
         "tailwindcss": "^4.1.18",
       },
       "devDependencies": {
@@ -322,6 +324,8 @@
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "https://registry.npmmirror.com/@jridgewell/trace-mapping/-/trace-mapping-0.3.31.tgz", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
     "@napi-rs/lzma-linux-x64-gnu": ["@napi-rs/lzma-linux-x64-gnu@1.5.1", "https://registry.npmmirror.com/@napi-rs/lzma-linux-x64-gnu/-/lzma-linux-x64-gnu-1.5.1.tgz", { "os": "linux", "cpu": "x64" }, "sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ=="],
+
+    "@noble/hashes": ["@noble/hashes@2.4.0", "https://registry.npmmirror.com/@noble/hashes/-/hashes-2.4.0.tgz", {}, "sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA=="],
 
     "@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.0-rc.3", "https://registry.npmmirror.com/@rolldown/pluginutils/-/pluginutils-1.0.0-rc.3.tgz", {}, "sha512-eybk3TjzzzV97Dlj5c+XrBFW57eTNhzod66y9HrBlzJ6NsCrWCp/2kaPS3K9wJmurBC0Tdw4yPjXKZqlznim3Q=="],
 
@@ -910,6 +914,8 @@
     "safe-push-apply": ["safe-push-apply@1.0.0", "https://registry.npmmirror.com/safe-push-apply/-/safe-push-apply-1.0.0.tgz", { "dependencies": { "es-errors": "^1.3.0", "isarray": "^2.0.5" } }, "sha512-iKE9w/Z7xCzUMIZqdBsp6pEQvwuEebH4vdpjcDWnyzaI6yl6O9FHvVpmGelvEHNsoY6wGblkxR6Zty/h00WiSA=="],
 
     "safe-regex-test": ["safe-regex-test@1.1.0", "https://registry.npmmirror.com/safe-regex-test/-/safe-regex-test-1.1.0.tgz", { "dependencies": { "call-bound": "^1.0.2", "es-errors": "^1.3.0", "is-regex": "^1.2.1" } }, "sha512-x/+Cz4YrimQxQccJf5mKEbIa1NzeCRNI5Ecl/ekmlYaampdNLPalVyIcCZNNH3MvmqBugV5TMYZXv0ljslUlaw=="],
+
+    "sang-ai-kit": ["sang-ai-kit@0.2.2", "https://registry.npmmirror.com/sang-ai-kit/-/sang-ai-kit-0.2.2.tgz", { "dependencies": { "lucide-react": "^0.564.0" }, "peerDependencies": { "openai": "^7.34.0", "react": "^19.0.0", "react-dom": "^19.0.0" } }, "sha512-iQxOJUn5+Vsbc8kXUlpvyInwDc/a2ZRUW8qFF4+BQS3M0NEuM4f7hTnRY1RG9hjlwcFokcNF8cXPrxDaKFwn/g=="],
 
     "saxes": ["saxes@6.0.0", "https://registry.npmmirror.com/saxes/-/saxes-6.0.0.tgz", { "dependencies": { "xmlchars": "^2.2.0" } }, "sha512-xAg7SOnEhrm5zI3puOOKyy1OMcMlIJZYNJY7xLBwSze0UjhPLnWfj2GF2EpT0jmzaJKIWKHLsaSSajf35bcYnA=="],
 

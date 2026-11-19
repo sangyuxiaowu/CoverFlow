@@ -1,6 +1,6 @@
 import type { AiConfig, ChatSession, ChatUiState } from '../types.ts';
 import { defaultConfig, loadConfig, normalizeConfig, validateConfig } from './config.ts';
-import { IMAGE_FORMATS, imageMimeType } from './imageAttachments.ts';
+import { IMAGE_FORMATS, imageMimeType } from 'sang-ai-kit/image-attachments';
 import { ConfigDecryptionError, decryptEndpointKeys, deleteStoredSession, encryptEndpointKeys, listStoredSessions, loadStoredImage, loadStoredUiState, pruneStoredImages, readEncryptionKey, replaceEncryptionKey, saveStoredConfig, saveStoredImage, saveStoredSession, saveStoredUiState, validateSession, verifyStoredEncryptionKey } from './configStore.ts';
 import { generateEncryptionKey, type EncryptionManager } from './encryptionKeys.ts';
 import { clonePlainData } from '../../../utils/clonePlainData.ts';
@@ -23,7 +23,7 @@ export interface ChatStore {
   listSessions: () => Promise<ChatSession[]>;
   saveSession: (session: ChatSession) => Promise<void>;
   saveImage: (sessionId: string, imageId: string, blob: Blob) => Promise<void>;
-  loadImage: (sessionId: string, imageId: string) => Promise<Blob | null>;
+  loadImage: (sessionId: string, imageId: string, type?: string) => Promise<Blob | null>;
   pruneImages: (sessionId: string, keepIds: string[]) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
   loadUiState: () => Promise<ChatUiState>;
@@ -176,11 +176,13 @@ export function createFileChatStore(files: ChatFileAccess, id: string): ChatStor
         for (const other of Object.values(IMAGE_FORMATS)) if (other !== extension) await files.remove(`${prefix}.${other}`);
       });
     },
-    loadImage: async (sessionId, imageId) => {
+    loadImage: async (sessionId, imageId, preferredType) => {
       await pending;
       if (!/^[a-zA-Z0-9_-]+$/.test(imageId)) throw new Error('Invalid image ID.');
       const prefix = `${imageDirectory(sessionId)}/${imageId}`;
-      for (const [type, extension] of Object.entries(IMAGE_FORMATS)) {
+      const formats = Object.entries(IMAGE_FORMATS);
+      formats.sort(([left], [right]) => Number(right === preferredType) - Number(left === preferredType));
+      for (const [type, extension] of formats) {
         const blob = await files.readBinary(`${prefix}.${extension}`);
         if (blob) return blob.slice(0, blob.size, type);
       }

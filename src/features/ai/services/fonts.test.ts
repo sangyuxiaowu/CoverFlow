@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fontListItems, GOOGLE_FONTS, listFonts, normalizeFontDisplayName, normalizeLocalFonts } from './fonts.ts';
-import { executeTool } from '../tools/execute.ts';
-import type { WorkspaceBridge } from '../types.ts';
+import { fontListItems, GOOGLE_FONTS, listFonts, normalizeFontDisplayName, normalizeLocalFonts } from 'sang-ai-kit/fonts';
 
 describe('managed font catalog', () => {
   it('normalizes display names and prioritizes local fonts by interface language', () => {
@@ -23,17 +21,6 @@ describe('managed font catalog', () => {
     expect(items[GOOGLE_FONTS.length].family).toBe('Demo');
     expect(fontListItems(fonts, '站酷', 'zh', true)).toHaveLength(3);
     expect(fontListItems(fonts, 'noto', 'en', true).map(font => font.fullName)).toEqual(['Noto Sans SC', 'Noto Serif SC']);
-  });
-  it('lists both sources without a project or local font permissions and rejects extra parameters', async () => {
-    const bridge: WorkspaceBridge = { getProject: () => null, getSelection: () => [], commit: async () => {}, manageProjects: async () => {} };
-    const selected = [{ family: 'Demo', fullName: 'Demo', styles: ['Regular'] }];
-    const result = await executeTool('list_fonts', {}, bridge, new AbortController().signal, false, selected);
-    expect(Array.isArray(result)).toBe(true);
-    expect(result).toEqual(listFonts(selected));
-    await expect(executeTool('list_fonts', { path: 'C:/' }, bridge, new AbortController().signal)).rejects.toThrow('does not accept parameters');
-    const controller = new AbortController();
-    controller.abort();
-    await expect(executeTool('list_fonts', {}, bridge, controller.signal)).rejects.toThrow();
   });
   it('returns the curated catalog and only explicitly selected local fonts', () => {
     const selected = [{ family: 'Example Font', fullName: '示例字体', styles: ['Regular', 'Bold'] }];

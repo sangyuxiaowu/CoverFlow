@@ -10,7 +10,7 @@ function setup(approve = true) {
     storage: { type: 'indexeddb', isAvailable: () => true, ensureReady: async () => true, listProjects: async ({ page = 1, pageSize = 20, query = '' } = {}) => { const all = [...stored.values()].filter(project => project.title.includes(query)); return { items: all.slice((page - 1) * pageSize, page * pageSize), total: all.length }; }, saveProject: async project => { stored.set(project.id, structuredClone(project)); }, deleteProject: async id => { stored.delete(id); } },
     onCommit: project => { options = { ...options, project }; }, onOpen: async project => { options = { ...options, project }; }, onUpsert: () => {}, onDelete: id => { if (options.project?.id === id) options = { ...options, project: null }; }, onSearch: () => {}, saveLocal: async () => {}
   };
-  return { bridge: createWorkspaceBridge(() => options, async () => approve), stored, signal: new AbortController().signal, options };
+  return { bridge: createWorkspaceBridge(() => options, async () => approve), stored, signal: new AbortController().signal, options, setReadLocal: (readLocal: WorkspaceOptions['readLocal']) => { options = { ...options, readLocal }; } };
 }
 
 test('project create, search, rename, duplicate, open and save use real storage', async () => {
@@ -82,4 +82,32 @@ test('project action contracts reject invalid fields before storage or UI side e
     assert.deepEqual([...stored.values()], [before]);
   }
   assert.equal(effects, 0);
+});
+
+test('reads another stored or local project without changing the active project', async () => {
+  const { bridge, stored, signal, options, setReadLocal } = setup();
+  await bridge.manageProjects({ action: 'create', title: 'Active' }, signal);
+  const active = bridge.getProject()!;
+  for (let index = 0; index < 51; index++) stored.set(`stored-${index}`, { ...active, id: `stored-${index}` });
+  options.localProjects.push({ project: { ...active, id: 'local' }, localPath: 'local.cfj' });
+  assert.equal((await bridge.getProjectById!('stored-50')).id, 'stored-50');
+  assert.equal((await bridge.getProjectById!('local')).id, 'local');
+  setReadLocal(async () => ({ ...active, id: 'local', title: 'Updated on disk' }));
+  assert.equal((await bridge.getProjectById!('local')).title, 'Updated on disk');
+  setReadLocal(async () => ({ ...active, id: 'replacement' }));
+  await assert.rejects(bridge.getProjectById!('local'), /ID changed/);
+  await assert.rejects(bridge.getProjectById!('missing'), /Project not found/);
+  assert.equal(bridge.getProject()!.id, active.id);
+});
+
+test('project search does not return embedded background data', async () => {
+  const { bridge, stored, signal } = setup();
+  await bridge.manageProjects({ action: 'create', title: 'Image' }, signal);
+  const project = bridge.getProject()!;
+  const pageInfo = { ...project.pageInfo, background: { ...project.pageInfo.background, type: 'image' as const, value: 'data:image/png;base64,AQIDBA==' } };
+  stored.clear();
+  stored.set('other', { ...project, id: 'other', pageInfo, pages: project.pages!.map(page => ({ ...page, pageInfo })) });
+  const result = await bridge.manageProjects({ action: 'list' }, signal) as { items: { canvas: unknown }[] };
+  assert.deepEqual(result.items[0].canvas, { width: 1200, height: 630 });
+  assert.doesNotMatch(JSON.stringify(result), /base64/);
 });

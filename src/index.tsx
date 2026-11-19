@@ -1,8 +1,11 @@
 // 模块：应用挂载入口
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { configureBackgroundRemovalStorage } from 'sang-ai-kit';
 import App from './App.tsx';
 import './index.css';
+
+configureBackgroundRemovalStorage({ databaseName: 'coverflow-background-removal' });
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

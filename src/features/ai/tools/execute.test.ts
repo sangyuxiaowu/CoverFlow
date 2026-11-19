@@ -276,6 +276,8 @@ test('tool schemas describe every parameter and nested field with valid required
   assert.deepEqual(Object.keys(overlayProperties), ['type', 'color', 'opacity', 'scale']);
   assert.ok((pageParameters.action.enum as string[]).includes('update'));
   assert.equal(pageParameters.pageInfo.minProperties, 1);
+  assert.equal(pageParameters.name.maxLength, 100);
+  assert.equal(Object.hasOwn(canvasProperties, 'name'), false);
   assert.equal(imageFields.imageFilters.minProperties, 1);
   assert.equal(imageFields.imageCrop.minProperties, 1);
   assert.ok(Object.hasOwn(textProperties, 'fontSize'));
@@ -395,7 +397,7 @@ test('removed project IDs, missing projects, aborts and invalid fields never com
 
 test('tools follow the current project and page without target parameters and retain result IDs', async () => {
   const { bridge, signal } = setup();
-  const pages = await executeTool('manage_pages', { action: 'create', pageId: bridge.getProject()!.activePageId, pageInfo: { name: 'Second' } }, bridge, signal) as { pageId: string; pages: { id: string }[] };
+  const pages = await executeTool('manage_pages', { action: 'create', pageId: bridge.getProject()!.activePageId, name: 'Second' }, bridge, signal) as { pageId: string; pages: { id: string }[] };
   const result = await executeSingleLayerTool( { type: 'text', properties: { text: { content: 'Second page' } } }, bridge, signal) as { projectId: string; pageId: string };
   assert.equal(result.projectId, 'p1');
   assert.equal(result.pageId, pages.pageId);
@@ -414,15 +416,15 @@ test('tools follow the current project and page without target parameters and re
 test('manage_pages creates after a target and updates a non-active page without switching', async () => {
   const { bridge, signal } = setup();
   const initial = await executeTool('manage_pages', { action: 'list' }, bridge, signal) as { pageId: string };
-  const created = await executeTool('manage_pages', { action: 'create', pageId: initial.pageId, pageInfo: { name: 'Second' } }, bridge, signal) as { pageId: string; pages: { id: string }[] };
-  await executeTool('manage_pages', { action: 'update', pageId: initial.pageId, pageInfo: { name: 'Updated', width: 1200, background: { type: 'color', value: '#123456' } } }, bridge, signal);
+  const created = await executeTool('manage_pages', { action: 'create', pageId: initial.pageId, name: 'Second' }, bridge, signal) as { pageId: string; pages: { id: string }[] };
+  await executeTool('manage_pages', { action: 'update', pageId: initial.pageId, name: 'Updated', pageInfo: { width: 1200, background: { type: 'color', value: '#123456' } } }, bridge, signal);
   assert.equal(bridge.getProject()!.activePageId, created.pageId);
   assert.equal(bridge.getProject()!.canvasConfig.width, 800);
   await executeTool('manage_pages', { action: 'switch', pageId: initial.pageId }, bridge, signal);
   assert.equal(bridge.getProject()!.canvasConfig.width, 1200);
   assert.equal(bridge.getProject()!.background.value, '#123456');
   assert.equal(bridge.getProject()!.pages!.find(page => page.id === initial.pageId)!.name, 'Updated');
-  const inserted = await executeTool('manage_pages', { action: 'create', pageId: created.pageId, pageInfo: { name: 'Third' } }, bridge, signal) as { pageId: string; pages: { id: string }[] };
+  const inserted = await executeTool('manage_pages', { action: 'create', pageId: created.pageId, name: 'Third' }, bridge, signal) as { pageId: string; pages: { id: string }[] };
   assert.deepEqual(inserted.pages.map(page => page.id), [initial.pageId, created.pageId, inserted.pageId]);
   assert.equal(bridge.getProject()!.canvasConfig.width, 1200);
 });
@@ -439,17 +441,22 @@ test('manage_pages validates target and pageInfo without partial changes', async
     { action: 'update', pageId },
     { action: 'update', pageId, pageInfo: {} },
     { action: 'create', pageId, pageInfo: {} },
+    { action: 'update', pageId, name: 'Valid', pageInfo: {} },
+    { action: 'update', pageId, pageInfo: { name: 'Old format' } },
+    { action: 'update', pageId, name: 'x'.repeat(101) },
+    { action: 'update', pageId, name: null },
+    { action: 'switch', pageId, name: 'Invalid' },
     { action: 'update', pageId, pageInfo: { width: 900, background: { type: 'image', value: 'javascript:alert(1)' } } },
     { action: 'update', pageId, pageInfo: { unexpected: true } },
     { action: 'update', pageId, count: 2, pageInfo: { width: 900 } }
   ]) await assert.rejects(executeTool('manage_pages', args, bridge, signal));
   assert.deepEqual(bridge.getProject(), before);
-  await executeTool('manage_pages', { action: 'update', pageId, pageInfo: { name: 'Source' } }, bridge, signal);
+  await executeTool('manage_pages', { action: 'update', pageId, name: 'Source' }, bridge, signal);
   assert.equal(bridge.getProject()!.canvasConfig.ratio, '4:3');
-  const created = await executeTool('manage_pages', { action: 'create', pageId, pageInfo: { name: '  ' } }, bridge, signal) as { pageId: string; pages: { id: string; name: string }[] };
+  const created = await executeTool('manage_pages', { action: 'create', pageId, name: '  ' }, bridge, signal) as { pageId: string; pages: { id: string; name: string }[] };
   assert.equal(created.pages.find(page => page.id === created.pageId)!.name, 'Source');
   assert.equal(bridge.getProject()!.canvasConfig.ratio, '4:3');
-  await executeTool('manage_pages', { action: 'update', pageId: created.pageId, pageInfo: { name: '  ' } }, bridge, signal);
+  await executeTool('manage_pages', { action: 'update', pageId: created.pageId, name: '  ' }, bridge, signal);
   assert.equal(bridge.getProject()!.pages!.find(page => page.id === created.pageId)!.name, '');
 });
 
@@ -459,7 +466,8 @@ test('manage_pages creates, duplicates and moves pages in batches', async () => 
     action: 'create',
     pageId: bridge.getProject()!.activePageId,
     count: 3,
-    pageInfo: { name: 'Batch', width: 800, height: 450 }
+    name: 'Batch',
+    pageInfo: { width: 800, height: 450 }
   }, bridge, signal) as { pageId: string; pages: { id: string; name: string; active: boolean; canvas: { width: number; height: number } }[] };
   assert.equal(created.pages.length, 4);
   assert.equal(created.pages.filter(page => page.name === 'Batch').length, 3);
@@ -506,7 +514,7 @@ test('unsafe image sources are rejected', () => {
 
 test('canvas, background and page name edits are validated and committed', async () => {
   const { bridge, signal } = setup();
-  await executePageUpdate( { name: '封面页', width: 1200, background: { type: 'gradient', value: 'linear-gradient(90deg,#000,#fff)', overlay: { type: 'dots', color: '#fff', opacity: 0.3, scale: 24 } } }, bridge, signal);
+  await executeTool('manage_pages', { action: 'update', pageId: bridge.getProject()!.activePageId, name: '封面页', pageInfo: { width: 1200, background: { type: 'gradient', value: 'linear-gradient(90deg,#000,#fff)', overlay: { type: 'dots', color: '#fff', opacity: 0.3, scale: 24 } } } }, bridge, signal);
   assert.equal(bridge.getProject()!.canvasConfig.width, 1200);
   assert.equal(bridge.getProject()!.pages![0].name, '封面页');
   assert.equal(bridge.getProject()!.background.type, 'gradient');

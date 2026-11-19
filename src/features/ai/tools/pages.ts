@@ -18,7 +18,7 @@ export async function executePageTool(input: unknown, bridge: WorkspaceBridge, s
   signal.throwIfAborted();
   const args = record(input);
   const action = choice(args.action, 'action', ['list', 'create', 'switch', 'duplicate', 'move', 'delete', 'update']);
-  const allowed = action === 'create' ? ['action', 'count', 'pageId', 'pageInfo'] : action === 'update' ? ['action', 'pageId', 'pageInfo'] : action === 'duplicate' ? ['action', 'count', 'pageId'] : action === 'list' ? ['action'] : ['action', 'pageId'];
+  const allowed = action === 'create' ? ['action', 'count', 'pageId', 'name', 'pageInfo'] : action === 'update' ? ['action', 'pageId', 'name', 'pageInfo'] : action === 'duplicate' ? ['action', 'count', 'pageId'] : action === 'list' ? ['action'] : ['action', 'pageId'];
   if (Object.keys(args).some(key => !allowed.includes(key))) throw new Error('Unsupported page parameter.');
   const current = bridge.getProject();
   if (!current) throw new Error('No project open.');
@@ -30,11 +30,12 @@ export async function executePageTool(input: unknown, bridge: WorkspaceBridge, s
   let next: ProjectState;
   if (action === 'create' || action === 'update') {
     const pageInfo = args.pageInfo === undefined ? {} : record(args.pageInfo);
-    if ((action === 'update' || args.pageInfo !== undefined) && !Object.keys(pageInfo).length) throw new Error('pageInfo must contain at least one field.');
-    if (Object.keys(pageInfo).some(field => !['name', 'width', 'height', 'background'].includes(field))) throw new Error('Unsupported pageInfo parameter.');
-    if (pageInfo.name !== undefined && (typeof pageInfo.name !== 'string' || pageInfo.name.length > 100)) throw new Error('Page name must contain at most 100 characters.');
+    if (args.pageInfo !== undefined && !Object.keys(pageInfo).length) throw new Error('pageInfo must contain at least one field.');
+    if (action === 'update' && args.name === undefined && args.pageInfo === undefined) throw new Error('Provide name or pageInfo to update.');
+    if (Object.keys(pageInfo).some(field => !['width', 'height', 'background'].includes(field))) throw new Error('Unsupported pageInfo parameter.');
+    if (args.name !== undefined && (typeof args.name !== 'string' || args.name.length > 100)) throw new Error('Page name must contain at most 100 characters.');
     const source = action === 'create' ? project.pages!.find(page => page.id === project.activePageId)! : target;
-    const name = pageInfo.name === undefined || (action === 'create' && !(pageInfo.name as string).trim()) ? source.name : (pageInfo.name as string).trim();
+    const name = args.name === undefined || (action === 'create' && !(args.name as string).trim()) ? source.name : (args.name as string).trim();
     const width = pageInfo.width === undefined ? source.canvasConfig.width : number(pageInfo.width, 'width', 10, 10000);
     const height = pageInfo.height === undefined ? source.canvasConfig.height : number(pageInfo.height, 'height', 10, 10000);
     const backgroundUpdates = pageInfo.background === undefined ? {} : backgroundPatch(pageInfo.background);

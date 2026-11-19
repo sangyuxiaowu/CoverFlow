@@ -167,8 +167,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     action: enumeration('list 读取页面列表；create 在目标页后新增空白页；switch 切页；duplicate 复制目标页到当前页后；move 移动目标页到当前页后；update 更新目标页属性；delete 删除目标页，至少保留一页。创建和复制成功后会自动切换到第一个新页。', ['list', 'create', 'switch', 'duplicate', 'delete', 'move', 'update']),
     count: { type: 'integer', description: '仅 create/duplicate 可用；批量创建或复制的页面数量，默认 1。', minimum: 1, maximum: 99 },
     pageId: string('目标页，除 list 外均需填写，使用 get_context 或 list 返回的稳定页面 ID，不是顺序编号。'),
-    pageInfo: { ...object('仅 create/update 可用的页面属性；新建时省略字段沿用当前页，更新时省略的字段保持不变。', {
-      name: { ...string('页面名称，最多 100 字符；新建时空白表示沿用当前页，更新时空白表示清除名称。'), maxLength: 100 },
+    name: { ...string('仅 create/update 可用的页面名称，最多 100 字符；新建时省略或空白表示沿用当前页，更新时省略保持不变，空白表示清除名称。'), maxLength: 100 },
+    pageInfo: { ...object('仅 create/update 可用的画布和背景属性；新建时省略字段沿用当前页，更新时省略的字段保持不变。update 至少提供 name 或 pageInfo。', {
       width: numeric('画布宽度（px）。', 10, 10000),
       height: numeric('画布高度（px）。', 10, 10000),
       background: object('背景部分更新。切换 type 时应同时提供对应格式的 value。', {

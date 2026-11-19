@@ -10,7 +10,7 @@ it('manages pages, retains each page content and confirms deletion', async () =>
   const signal = new AbortController().signal;
   const run = (action: string, rest = {}) => executePageTool({ action, ...rest }, bridge, signal);
   const firstId = project.activePageId!;
-  await run('create', { pageId: firstId, pageInfo: { name: 'Detail', width: 500 } });
+  await run('create', { pageId: firstId, name: 'Detail', pageInfo: { width: 500 } });
   expect(project.canvasConfig).toEqual({ width: 500, height: 383, ratio: '500x383' });
   const secondId = project.activePageId!;
   const context = await run('list');

@@ -111,3 +111,15 @@ test('project search does not return embedded background data', async () => {
   assert.deepEqual(result.items[0].canvas, { width: 1200, height: 630 });
   assert.doesNotMatch(JSON.stringify(result), /base64/);
 });
+
+test('active commits use the shared save coordinator and propagate its failures', async () => {
+  const { bridge, options, signal } = setup();
+  const writes: ProjectState[] = [];
+  const error = new Error('Coordinator failed');
+  options.saveActive = async project => { writes.push(project); throw error; };
+  await bridge.manageProjects({ action: 'create', title: 'Active' }, signal);
+  const changed = { ...bridge.getProject()!, title: 'Changed' };
+  await assert.rejects(bridge.commit(changed), error);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].title, 'Changed');
+});

@@ -41,6 +41,9 @@ describe('project format upgrades', () => {
     expect(document.pages[1].pageInfo.background.value).toBe('#123456');
     expect(document).not.toHaveProperty('layers');
     expect(document).not.toHaveProperty('activePageId');
+    expect(writeProject({ ...multi, selectedLayerId: 'selection' })).not.toHaveProperty('selectedLayerId');
+    expect(readProject({ ...legacy, selectedLayerId: 'selection' }).selectedLayerId).toBeNull();
+    expect(readProject({ ...document, selectedLayerId: 'selection' }).selectedLayerId).toBeNull();
     expect(readProject(document).activePageId).toBe(project.pages![0].id);
     expect(syncProjectPages(project).pages![0]).toBe(project.pages![0]);
     expect(syncProjectPages({ ...project, selectedLayerId: 'selection' }).pages).toBe(project.pages);

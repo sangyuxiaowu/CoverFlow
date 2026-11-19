@@ -187,8 +187,8 @@ const App: React.FC = () => {
   }, [showToast, storageAdapter]);
 
 
-  const handleLocalProjectUpdate = useCallback((nextProject: ProjectState) => {
-    setProject(nextProject);
+  const handleLocalProjectUpdate = useCallback((nextProject: ProjectState, source: ProjectState) => {
+    setProject(current => current === source ? nextProject : current);
   }, []);
 
   const {
@@ -323,7 +323,7 @@ const App: React.FC = () => {
     };
   }, [storageAdapter, storageType, localFileAdapter, t.storageLoadFailed, isCloudMode, reportStorageError, view]);
 
-  const { performAutoSave, persistProject, latestProjectRef, cancelPendingSave } = useProjectAutoSave({
+  const { performAutoSave, persistProject, saveActiveProject, latestProjectRef, cancelPendingSave } = useProjectAutoSave({
     project, view, storageAdapter, storageReadyRef, isCloudMode, isTauri, activeLocalFilePath,
     saveLocalProjectToFile, clearActiveLocalFilePath, showToast, reportStorageError,
     savedMessage: t.save || 'Saved', saveFailedMessage: t.storageSaveFailed
@@ -1480,11 +1480,13 @@ const App: React.FC = () => {
       }
       clearActiveLocalFilePath();
       warnIfNewerProject(next);
-      latestProjectRef.current = next;
-      setProject(clonePlainData(next));
-      setSelectedLayerIds(next.selectedLayerId ? [next.selectedLayerId] : []);
+      const opened = { ...clonePlainData(next), selectedLayerId: null };
+      latestProjectRef.current = opened;
+      setProject(opened);
+      setSelectedLayerIds([]);
       setView('editor');
-      initProjectHistory(next);
+      initProjectHistory(opened);
+      return opened;
     },
     onUpsert: next => setProjects(previous => [next, ...previous.filter(item => item.id !== next.id)]),
     onDelete: (id, localPath) => {
@@ -1501,6 +1503,7 @@ const App: React.FC = () => {
     },
     onSearch: setProjectSearchTerm,
     saveLocal: saveLocalProjectToFile,
+    saveActive: saveActiveProject,
     readLocal: readLocalProject
   };
   clipboardWorkspaceRef.current = {
@@ -1552,7 +1555,7 @@ const App: React.FC = () => {
         ? openLocalProjectFromPath(item.localPath)
         : resolveRecentProject(item).then(fullProject => {
           warnIfNewerProject(fullProject);
-          const opened = fullProject.pages?.[0] ? selectProjectPage(fullProject, fullProject.pages[0].id) : syncProjectPages(fullProject);
+          const opened = fullProject.pages?.[0] ? selectProjectPage(fullProject, fullProject.pages[0].id) : syncProjectPages({ ...fullProject, selectedLayerId: null });
           setProject(opened);
           setView('editor');
           initProjectHistory(opened);

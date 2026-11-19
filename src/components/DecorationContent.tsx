@@ -22,4 +22,4 @@ const DecorationContent: React.FC<DecorationContentProps> = ({ content }) => {
   );
 };
 
-export default DecorationContent;
+export default React.memo(DecorationContent);

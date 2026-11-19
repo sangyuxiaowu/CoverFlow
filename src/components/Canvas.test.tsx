@@ -4,6 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import Canvas from './Canvas.tsx';
 import type { ProjectState } from '../types.ts';
+import * as decorationStyles from '../utils/decorationStyles.ts';
+import * as imageLayer from '../utils/imageLayer.ts';
 
 let host: HTMLDivElement;
 let root: Root;
@@ -96,4 +98,31 @@ it('clears dragging and text editing when the active page changes', async () => 
   expect(host.querySelector('textarea')).not.toBeNull();
   await renderCanvas(second, onCommit);
   expect(host.querySelector('textarea')).toBeNull();
+});
+
+it('does not reparse unchanged decorations when selection changes', async () => {
+  const buildStyle = vi.spyOn(decorationStyles, 'buildDecorationLayerStyle');
+  const current: ProjectState = { ...project('decorations'), layers: [
+    { id: 'decoration', name: 'Decoration', type: 'decoration', content: 'background: #fff;', x: 0, y: 0, width: 100, height: 100, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 },
+    { id: 'image', name: 'Image', type: 'image', content: 'data:image/png;base64,AAAA', x: 0, y: 0, width: 100, height: 100, rotation: 0, zIndex: 2, visible: true, locked: false, opacity: 1 }
+  ] };
+  await renderCanvas(current);
+  expect(buildStyle).toHaveBeenCalledOnce();
+  await renderCanvas({ ...current, selectedLayerId: 'image' });
+  expect(buildStyle).toHaveBeenCalledOnce();
+});
+
+it('does not rerender unchanged image contents when selection changes', async () => {
+  const buildFilters = vi.spyOn(imageLayer, 'buildImageFilterCss');
+  const current: ProjectState = { ...project('images'), layers: Array.from({ length: 8 }, (_, index) => ({
+    id: `image-${index}`, name: `Image ${index}`, type: 'image' as const, content: 'data:image/png;base64,AAAA',
+    x: index * 10, y: 0, width: 100, height: 100, rotation: 0, zIndex: index, visible: true, locked: false, opacity: 1
+  })) };
+  await renderCanvas(current);
+  expect(buildFilters).toHaveBeenCalledTimes(8);
+  await renderCanvas({ ...current, selectedLayerId: 'image-0' });
+  await renderCanvas({ ...current, selectedLayerId: 'image-1' });
+  expect(buildFilters).toHaveBeenCalledTimes(8);
+  await renderCanvas({ ...current, layers: current.layers.map(layer => layer.id === 'image-1' ? { ...layer, opacity: 0.5 } : layer) });
+  expect(buildFilters).toHaveBeenCalledTimes(9);
 });

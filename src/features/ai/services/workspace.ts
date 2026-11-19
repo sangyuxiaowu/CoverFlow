@@ -28,6 +28,7 @@ export interface WorkspaceOptions {
   onDelete: (id: string, localPath?: string) => void;
   onSearch: (query: string) => void;
   saveLocal: (path: string, project: ProjectState) => Promise<unknown>;
+  saveActive?: (project: ProjectState, localPath?: string) => Promise<unknown>;
   readLocal?: (path: string) => Promise<ProjectState>;
 }
 
@@ -49,7 +50,8 @@ export function createWorkspaceBridge(
   };
   const save = async (project: ProjectState, localPath?: string) => {
     const options = read();
-    if (localPath) await options.saveLocal(localPath, project);
+    if (options.saveActive && current?.id === project.id) await options.saveActive(project, localPath);
+    else if (localPath) await options.saveLocal(localPath, project);
     else { await ready(); await options.storage.saveProject(project); }
   };
   const flush = async () => {

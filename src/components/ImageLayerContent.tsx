@@ -62,4 +62,4 @@ const ImageLayerContent: React.FC<ImageLayerContentProps> = ({ layer }) => {
   );
 };
 
-export default ImageLayerContent;
+export default React.memo(ImageLayerContent);

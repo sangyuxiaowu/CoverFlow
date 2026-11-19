@@ -167,3 +167,52 @@ it('cancels pending work on backend changes, explicit deletion and unmount', asy
   await act(async () => vi.advanceTimersByTime(5000));
   expect(replacement.saveProject).toHaveBeenCalledTimes(callsAfterUnmount);
 });
+
+it('shares an in-flight save and serializes newer revisions', async () => {
+  const harness = await mount({ isCloudMode: true });
+  let release!: () => void;
+  const firstWrite = new Promise<void>(resolve => { release = resolve; });
+  const save = vi.mocked(harness.options.storageAdapter.saveProject);
+  save.mockImplementationOnce(() => firstWrite);
+  const first = { ...initial, title: 'First' };
+  const second = { ...initial, title: 'Second' };
+  const firstTask = harness.getResult().saveActiveProject(first);
+  const duplicate = harness.getResult().saveActiveProject(first);
+  const secondTask = harness.getResult().saveActiveProject(second);
+  expect(duplicate).toBe(firstTask);
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(save).toHaveBeenCalledTimes(1);
+  expect(save.mock.calls[0][0].title).toBe('First');
+  await act(async () => { release(); await Promise.all([firstTask, duplicate, secondTask]); });
+  expect(save).toHaveBeenCalledTimes(2);
+  expect(save.mock.calls[1][0].title).toBe('Second');
+});
+
+it('propagates shared save failures and permits later writes', async () => {
+  const harness = await mount({ isCloudMode: true });
+  const error = new Error('Disk full');
+  const save = vi.mocked(harness.options.storageAdapter.saveProject);
+  save.mockRejectedValueOnce(error);
+  const changed = { ...initial, title: 'Changed' };
+  const firstTask = harness.getResult().saveActiveProject(changed);
+  const duplicate = harness.getResult().saveActiveProject(changed);
+  await expect(firstTask).rejects.toBe(error);
+  await expect(duplicate).rejects.toBe(error);
+  await expect(harness.getResult().saveActiveProject(changed)).resolves.toBe(changed);
+  expect(save).toHaveBeenCalledTimes(2);
+});
+
+it('saves an unchanged document when the destination adapter changes', async () => {
+  const harness = await mount();
+  const replacement = { ...harness.options.storageAdapter, saveProject: vi.fn(async () => {}) };
+  await harness.render({ storageAdapter: replacement });
+  expect(replacement.saveProject).toHaveBeenCalledOnce();
+  expect(replacement.saveProject).toHaveBeenCalledWith(initial);
+});
+
+it('does not confuse different local file destinations', async () => {
+  const harness = await mount({ isTauri: true, activeLocalFilePath: 'first.cfjx' });
+  await harness.render({ activeLocalFilePath: 'second.cfjx' });
+  await act(async () => harness.getResult().performAutoSave('manual'));
+  expect(harness.options.saveLocalProjectToFile).toHaveBeenCalledExactlyOnceWith('second.cfjx', initial);
+});

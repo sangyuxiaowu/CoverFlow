@@ -129,6 +129,39 @@ export async function readProjectArchiveManifest(bytes: Uint8Array): Promise<Pro
   return (await openProjectArchive(bytes)).project;
 }
 
+export async function replaceProjectArchivePreviews(bytes: Uint8Array, project: ProjectState, previews: Record<string, Uint8Array>): Promise<Uint8Array> {
+  const { zip } = await openProjectArchive(bytes);
+  const manifest = JSON.parse(await zip.file('project.json')!.async('string')) as { previews?: unknown };
+  const pages = writeProject(project).pages;
+  const fingerprints = pages.map(page => {
+    const preview = previews[page.id];
+    return preview && preview.length <= MAX_PREVIEW_SIZE && isWebP(preview) ? pagePreviewFingerprint(page) : null;
+  });
+  manifest.previews = fingerprints;
+  const text = JSON.stringify(manifest);
+  const manifestSize = new TextEncoder().encode(text).length;
+  let expandedSize = manifestSize;
+  for (const entry of Object.values(zip.files)) {
+    if (IMAGE_PATH.test(entry.name)) expandedSize += (entry as JSZip.JSZipObject & { _data: { uncompressedSize: number } })._data.uncompressedSize;
+  }
+  if (manifestSize > MAX_PROJECT_SIZE || expandedSize > MAX_EXPANDED_SIZE) throw new Error('Project manifest exceeds the size limit.');
+  zip.file('project.json', text, { compression: 'DEFLATE' });
+  zip.remove('previews');
+  for (const [index, page] of pages.entries()) {
+    const preview = previews[page.id];
+    if (!fingerprints[index]) continue;
+    if (expandedSize + preview.length > MAX_EXPANDED_SIZE) break;
+    expandedSize += preview.length;
+    zip.file(`previews/${index}.webp`, preview, { compression: 'STORE' });
+  }
+  const result = await zip.generateAsync({ type: 'uint8array' });
+  if (result.length > MAX_ARCHIVE_SIZE) {
+    if (fingerprints.some(Boolean)) return replaceProjectArchivePreviews(bytes, project, {});
+    throw new Error('Project archive exceeds the size limit.');
+  }
+  return result;
+}
+
 export async function decodeProjectArchiveWithPreviews(bytes: Uint8Array): Promise<{ project: ProjectState; previews: Record<string, Uint8Array> }> {
   const { zip, project: parsed, previewFingerprints } = await openProjectArchive(bytes);
   const images = new Map<string, Promise<string>>();

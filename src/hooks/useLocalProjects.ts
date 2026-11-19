@@ -38,7 +38,7 @@ type UseLocalProjectsOptions = {
   parseFailedMessage: string;
   showToast: (msg: string, type?: 'success' | 'error') => void;
   onOpenProject: (project: ProjectState) => void;
-  onUpdateProject: (project: ProjectState) => void;
+  onUpdateProject: (project: ProjectState, source: ProjectState) => void;
 };
 
 const readLocalRecentMeta = () => {
@@ -138,7 +138,7 @@ export const useLocalProjects = ({
     writeQueue.current = operation.catch(() => {});
     await operation;
     setActiveLocalFilePath(current => current === path ? targetPath : current);
-    onUpdateProject(nextProject);
+    onUpdateProject(nextProject, projectData);
     if (targetPath !== path) removeLocalRecentByPath(path);
     updateLocalRecentMeta(targetPath, nextProject);
     setLocalRecentItems(prev => {

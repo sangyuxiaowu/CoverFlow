@@ -1,6 +1,6 @@
 import { ProjectState } from '../types.ts';
 import { ListProjectsOptions, StorageAdapter, StorageAdapterType, type ProjectSummary, summarizeProject } from './StorageAdapter.ts';
-import { decodeProjectArchive, decodeProjectArchiveWithPreviews, encodeProjectArchive, readProjectArchiveManifest } from './projectArchive.ts';
+import { decodeProjectArchive, decodeProjectArchiveWithPreviews, encodeProjectArchive, readProjectArchiveManifest, replaceProjectArchivePreviews } from './projectArchive.ts';
 import { readLegacyCfj } from './legacyCfj.ts';
 import { readFileBlob, readFileBytes, readFileText, writeFileContent, writeFileContentOnce } from './fileAccess.ts';
 import { writeProject } from './projectCompatibility.ts';
@@ -296,9 +296,8 @@ export class LocalFileAdapter implements StorageAdapter {
         const data = await this.rootHandle.getDirectoryHandle(DATA_DIR, { create: true });
         const handle = await data.getFileHandle(name);
         const before = await handle.getFile();
-        const archive = name.toLowerCase().endsWith('.cfjx')
-          ? await decodeProjectArchiveWithPreviews(await readFileBytes(handle))
-          : undefined;
+        const archiveBytes = name.toLowerCase().endsWith('.cfjx') ? await readFileBytes(handle) : undefined;
+        const archive = archiveBytes ? await decodeProjectArchiveWithPreviews(archiveBytes) : undefined;
         const stored = archive?.project ?? readLegacyCfj(await readFileText(handle));
         if (!sameStoredValue(writeProject(stored), writeProject(project))) return;
         let bytes: Uint8Array | undefined;
@@ -306,7 +305,7 @@ export class LocalFileAdapter implements StorageAdapter {
           const previous = archive.previews[pageId];
           return !previous || previous.length !== preview.length || preview.some((value, index) => value !== previous[index]);
         })) {
-          bytes = await encodeProjectArchive(stored, { ...archive.previews, ...cached });
+          bytes = await replaceProjectArchivePreviews(archiveBytes!, stored, { ...archive.previews, ...cached });
         }
         const latest = await handle.getFile();
         if (latest.size !== before.size || latest.lastModified !== before.lastModified) return;

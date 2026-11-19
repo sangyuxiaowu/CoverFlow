@@ -1,13 +1,44 @@
 import { describe, expect, it, vi } from 'vitest';
 import JSZip from 'jszip';
-import { encodeProjectArchive, decodeProjectArchive, decodeProjectArchiveWithPreviews } from './projectArchive.ts';
+import { encodeProjectArchive, decodeProjectArchive, decodeProjectArchiveWithPreviews, replaceProjectArchivePreviews } from './projectArchive.ts';
 import { readLegacyCfj } from './legacyCfj.ts';
 import * as hashes from '@noble/hashes/sha2.js';
+import { pagePreviewFingerprint } from './projectPreviews.ts';
 
 const image = 'data:image/png;base64,AQIDBA==';
 const legacy = JSON.stringify({ id: 'legacy', title: 'Test', version: '9.2.7', updatedAt: 1, pages: [{ id: 'page', name: '', layers: [{ id: 'image', type: 'image', content: image }], background: { type: 'image', value: image, overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 }, canvasConfig: { width: 900, height: 383, ratio: '2.35:1' } }] });
 
 describe('project archive', () => {
+  it('updates archive previews without decoding embedded images again', async () => {
+    const project = readLegacyCfj(legacy);
+    const original = await encodeProjectArchive(project, {});
+    const preview = new Uint8Array([82, 73, 70, 70, 4, 0, 0, 0, 87, 69, 66, 80]);
+    const decodeBase64 = vi.spyOn(globalThis, 'atob');
+    let updated: Uint8Array;
+    try {
+      updated = await replaceProjectArchivePreviews(original, project, { [project.pages![0].id]: preview });
+      expect(decodeBase64).not.toHaveBeenCalled();
+    } finally { decodeBase64.mockRestore(); }
+    const before = await JSZip.loadAsync(original);
+    const after = await JSZip.loadAsync(updated);
+    const imagePath = Object.keys(before.files).find(name => name.startsWith('images/') && !before.files[name].dir)!;
+    expect(await after.file(imagePath)!.async('uint8array')).toEqual(await before.file(imagePath)!.async('uint8array'));
+    expect(await decodeProjectArchiveWithPreviews(updated)).toEqual({ project, previews: { [project.pages![0].id]: preview } });
+  });
+
+  it('streams page fingerprints without changing existing hashes or serializing large strings', () => {
+    const project = readLegacyCfj(legacy);
+    const page = { ...project.pages![0], layers: [{ ...project.layers[0], content: `${'A'.repeat(32767)}🙂\\"\n${'B'.repeat(100000)}`, extra: [,'value', undefined, null] }] };
+    const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
+      ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => [key, canonical(item)])) : value;
+    const expected = Array.from(hashes.sha256(new TextEncoder().encode(JSON.stringify(canonical({ pageInfo: page.pageInfo, layers: page.layers })))), byte => byte.toString(16).padStart(2, '0')).join('');
+    const stringify = vi.spyOn(JSON, 'stringify');
+    try {
+      expect(pagePreviewFingerprint(page)).toBe(expected);
+      expect(stringify.mock.calls.every(([value]) => typeof value !== 'string' || value.length <= 32768)).toBe(true);
+    } finally { stringify.mockRestore(); }
+  });
+
   it('stores optional page previews and ignores invalid preview contents', async () => {
     const project = readLegacyCfj(legacy);
     const preview = new Uint8Array([82, 73, 70, 70, 4, 0, 0, 0, 87, 69, 66, 80]);
@@ -36,6 +67,15 @@ describe('project archive', () => {
     expect(Object.keys(archive.files).filter(name => name.startsWith('images/') && !archive.files[name].dir)).toHaveLength(1);
     expect(await archive.file('project.json')!.async('string')).not.toContain('base64');
     expect(await decodeProjectArchive(bytes)).toEqual(project);
+  });
+
+  it('does not persist selection and opens with no selected layer', async () => {
+    const project = { ...readLegacyCfj(legacy), selectedLayerId: 'image' };
+    const bytes = await encodeProjectArchive(project);
+    const archive = await JSZip.loadAsync(bytes);
+    const manifest = JSON.parse(await archive.file('project.json')!.async('string'));
+    expect(manifest.project).not.toHaveProperty('selectedLayerId');
+    expect((await decodeProjectArchive(bytes)).selectedLayerId).toBeNull();
   });
 
   it('decodes shared images once', async () => {

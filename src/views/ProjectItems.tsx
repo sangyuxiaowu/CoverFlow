@@ -1,12 +1,36 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Clock, Copy, FileJson, ImageIcon as ImageIconLucide, Trash2 } from 'lucide-react';
-import LivePreview from '../components/LivePreview.tsx';
 import type { ProjectState } from '../types.ts';
+import { summarizeProject, type ProjectSummary } from '../storage/StorageAdapter.ts';
 import { translations, type Language } from '../translations.ts';
 import { formatCanvasRatio } from '../utils/helpers.ts';
 
 const cardBadgeClassName = 'text-[9px] px-2 py-1 bg-slate-800 text-slate-400 font-black rounded-lg border border-slate-700 uppercase tracking-tight';
 const listBadgeClassName = 'text-[9px] px-1.5 py-0.5 bg-slate-800 text-slate-400 font-black rounded-md border border-slate-700 uppercase tracking-tight flex-shrink-0';
+
+function useStaticPreview(project: ProjectSummary, visible: boolean, loadPreview?: () => Promise<Blob | undefined>) {
+  const [url, setUrl] = useState('');
+  const [revision, setRevision] = useState(0);
+  const load = useRef(loadPreview);
+  load.current = loadPreview;
+  useEffect(() => {
+    const updated = (event: Event) => { if ((event as CustomEvent<string>).detail === project.id) setRevision(current => current + 1); };
+    window.addEventListener('coverflow-project-preview', updated);
+    return () => window.removeEventListener('coverflow-project-preview', updated);
+  }, [project.id]);
+  useEffect(() => {
+    let active = true;
+    let objectUrl = '';
+    setUrl('');
+    if (visible && load.current) void load.current().then(blob => {
+      if (!active || !blob) return;
+      objectUrl = URL.createObjectURL(blob);
+      setUrl(objectUrl);
+    }).catch(error => console.warn('[CoverFlow project preview]', error));
+    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [project.id, project.updatedAt, visible, revision]);
+  return url;
+}
 
 const PageCountBadge = ({ count, lang, className }: { count: number; lang: Language; className: string }) => {
   if (count <= 1) return null;
@@ -39,31 +63,31 @@ export const ProjectCard = React.memo(({
   onDownloadJson,
   onDownloadImage,
   onDuplicate,
+  loadPreview,
   sourceLabel,
   showFullDate = false
 }: {
-  project: ProjectState;
+  project: ProjectState | ProjectSummary;
   lang: Language;
   onClick: () => void;
   onDelete: (e: React.MouseEvent) => void;
   onDownloadJson: (e: React.MouseEvent) => void;
-  onDownloadImage: (previewNode: HTMLDivElement | null, e: React.MouseEvent) => void;
+  onDownloadImage: (e: React.MouseEvent) => void;
   onDuplicate: (e: React.MouseEvent) => void;
+  loadPreview?: () => Promise<Blob | undefined>;
   sourceLabel?: string;
   showFullDate?: boolean;
 }) => {
   const t = translations[lang];
+  const summary = 'kind' in project ? project : summarizeProject(project);
   const [isVisible, setIsVisible] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
-  const previewNodeRef = useRef<HTMLDivElement>(null);
+  const previewUrl = useStaticPreview(summary, isVisible, loadPreview);
 
   // 记录操作历史，供撤销/重做
   useEffect(() => {
     const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) {
-        setIsVisible(true);
-        observer.disconnect();
-      }
+      setIsVisible(entry.isIntersecting);
     }, { threshold: 0.05 });
 
     if (cardRef.current) observer.observe(cardRef.current);
@@ -77,11 +101,11 @@ export const ProjectCard = React.memo(({
       className="group bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden hover:border-blue-500/50 transition-all cursor-pointer shadow-xl hover:shadow-blue-900/10 flex flex-col h-[260px]"
     >
       <div className="flex-1 bg-[#0c0c0e] relative overflow-hidden flex items-center justify-center">
-        {isVisible ? (
-          <LivePreview project={project} previewRef={previewNodeRef} />
+        {previewUrl ? (
+          <img src={previewUrl} alt="" draggable={false} className="max-w-full max-h-full object-contain" />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-[#0c0c0e]">
-            <div className="w-8 h-8 rounded-full border border-slate-800 border-t-slate-600 animate-spin opacity-20" />
+            <ImageIconLucide className="w-8 h-8 text-slate-700" />
           </div>
         )}
         
@@ -102,10 +126,10 @@ export const ProjectCard = React.memo(({
               {sourceLabel}
             </span>
           )}
-          <PageCountBadge count={project.pages?.length ?? 1} lang={lang} className={cardBadgeClassName} />
+          <PageCountBadge count={summary.pageCount} lang={lang} className={cardBadgeClassName} />
           {/* 比例标签 */}
            <span className={cardBadgeClassName}>
-              {formatCanvasRatio(project.pageInfo.width, project.pageInfo.height)}
+              {formatCanvasRatio(summary.width, summary.height)}
            </span>
         </div>
 
@@ -137,7 +161,7 @@ export const ProjectCard = React.memo(({
               <FileJson className="w-3 h-3" />
             </button>
             <button 
-              onClick={(e) => onDownloadImage(previewNodeRef.current, e)} 
+              onClick={onDownloadImage}
               className="p-2 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
               title={t.export}
             >
@@ -159,30 +183,30 @@ export const ProjectListItem = React.memo(({
   onDownloadJson,
   onDownloadImage,
   onDuplicate,
+  loadPreview,
   sourceLabel,
   showFullDate = false
 }: {
-  project: ProjectState;
+  project: ProjectState | ProjectSummary;
   lang: Language;
   onClick: () => void;
   onDelete: (e: React.MouseEvent) => void;
   onDownloadJson: (e: React.MouseEvent) => void;
-  onDownloadImage: (previewNode: HTMLDivElement | null, e: React.MouseEvent) => void;
+  onDownloadImage: (e: React.MouseEvent) => void;
   onDuplicate: (e: React.MouseEvent) => void;
+  loadPreview?: () => Promise<Blob | undefined>;
   sourceLabel?: string;
   showFullDate?: boolean;
 }) => {
   const t = translations[lang];
+  const summary = 'kind' in project ? project : summarizeProject(project);
   const [isVisible, setIsVisible] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
-  const previewNodeRef = useRef<HTMLDivElement>(null);
+  const previewUrl = useStaticPreview(summary, isVisible, loadPreview);
 
   useEffect(() => {
     const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) {
-        setIsVisible(true);
-        observer.disconnect();
-      }
+      setIsVisible(entry.isIntersecting);
     }, { threshold: 0.05 });
 
     if (rowRef.current) observer.observe(rowRef.current);
@@ -198,10 +222,10 @@ export const ProjectListItem = React.memo(({
       <div className="flex items-center gap-4 min-w-0 flex-1">
         {/* 缩略图预览 */}
         <div className="w-24 h-16 bg-[#0c0c0e] rounded-xl overflow-hidden border border-slate-800/80 flex items-center justify-center flex-shrink-0 relative">
-          {isVisible ? (
-            <LivePreview project={project} previewRef={previewNodeRef} />
+          {previewUrl ? (
+            <img src={previewUrl} alt="" draggable={false} className="max-w-full max-h-full object-contain" />
           ) : (
-            <div className="w-5 h-5 rounded-full border border-slate-800 border-t-slate-600 animate-spin opacity-20" />
+            <ImageIconLucide className="w-5 h-5 text-slate-700" />
           )}
         </div>
 
@@ -216,9 +240,9 @@ export const ProjectListItem = React.memo(({
                 {sourceLabel}
               </span>
             )}
-            <PageCountBadge count={project.pages?.length ?? 1} lang={lang} className={listBadgeClassName} />
+            <PageCountBadge count={summary.pageCount} lang={lang} className={listBadgeClassName} />
             <span className={listBadgeClassName}>
-              {formatCanvasRatio(project.pageInfo.width, project.pageInfo.height)}
+              {formatCanvasRatio(summary.width, summary.height)}
             </span>
           </div>
 
@@ -229,11 +253,11 @@ export const ProjectListItem = React.memo(({
             </span>
             <span className="text-slate-700">•</span>
             <span className="text-slate-500">
-              {project.layers.length} {lang === 'zh' ? '个图层' : 'layers'}
+              {summary.layerCount} {lang === 'zh' ? '个图层' : 'layers'}
             </span>
             <span className="text-slate-700">•</span>
             <span className="text-slate-500">
-              {project.pageInfo.width} × {project.pageInfo.height} px
+              {summary.width} × {summary.height} px
             </span>
           </div>
         </div>
@@ -256,7 +280,7 @@ export const ProjectListItem = React.memo(({
           <FileJson className="w-3.5 h-3.5" />
         </button>
         <button 
-          onClick={(e) => onDownloadImage(previewNodeRef.current, e)} 
+          onClick={onDownloadImage}
           className="p-2 text-slate-500 hover:text-white bg-slate-800/50 hover:bg-blue-600 rounded-xl transition-all shadow-sm active:scale-90"
           title={t.export}
         >

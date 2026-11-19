@@ -1,12 +1,34 @@
 import { describe, expect, it, vi } from 'vitest';
 import JSZip from 'jszip';
-import { encodeProjectArchive, decodeProjectArchive } from './projectArchive.ts';
+import { encodeProjectArchive, decodeProjectArchive, decodeProjectArchiveWithPreviews } from './projectArchive.ts';
 import { readLegacyCfj } from './legacyCfj.ts';
+import * as hashes from '@noble/hashes/sha2.js';
 
 const image = 'data:image/png;base64,AQIDBA==';
 const legacy = JSON.stringify({ id: 'legacy', title: 'Test', version: '9.2.7', updatedAt: 1, pages: [{ id: 'page', name: '', layers: [{ id: 'image', type: 'image', content: image }], background: { type: 'image', value: image, overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 }, canvasConfig: { width: 900, height: 383, ratio: '2.35:1' } }] });
 
 describe('project archive', () => {
+  it('stores optional page previews and ignores invalid preview contents', async () => {
+    const project = readLegacyCfj(legacy);
+    const preview = new Uint8Array([82, 73, 70, 70, 4, 0, 0, 0, 87, 69, 66, 80]);
+    const bytes = await encodeProjectArchive(project, { [project.pages![0].id]: preview });
+    const archive = await JSZip.loadAsync(bytes);
+    expect(await archive.file('previews/0.webp')!.async('uint8array')).toEqual(preview);
+    expect(await decodeProjectArchiveWithPreviews(bytes)).toEqual({ project, previews: { [project.pages![0].id]: preview } });
+    const manifest = JSON.parse(await archive.file('project.json')!.async('string'));
+    manifest.project.pages[0].pageInfo.width = 100;
+    archive.file('project.json', JSON.stringify(manifest));
+    const stale = await decodeProjectArchiveWithPreviews(await archive.generateAsync({ type: 'uint8array' }));
+    expect(stale.project.pageInfo.width).toBe(100);
+    expect(stale.previews).toEqual({});
+    archive.file('previews/0.webp', 'invalid');
+    archive.file('project.json', await (await JSZip.loadAsync(bytes)).file('project.json')!.async('string'));
+    expect(await decodeProjectArchiveWithPreviews(await archive.generateAsync({ type: 'uint8array' }))).toEqual({ project, previews: {} });
+    archive.file('previews/0.webp', new Uint8Array(2 * 1024 * 1024 + 1));
+    expect(await decodeProjectArchiveWithPreviews(await archive.generateAsync({ type: 'uint8array' }))).toEqual({ project, previews: {} });
+    expect((await decodeProjectArchiveWithPreviews(await encodeProjectArchive(project))).previews).toEqual({});
+  });
+
   it('round-trips legacy projects and deduplicates embedded image bytes', async () => {
     const project = readLegacyCfj(legacy);
     const bytes = await encodeProjectArchive(project);
@@ -16,12 +38,72 @@ describe('project archive', () => {
     expect(await decodeProjectArchive(bytes)).toEqual(project);
   });
 
+  it('decodes shared images once', async () => {
+    const project = readLegacyCfj(legacy);
+    const bytes = await encodeProjectArchive(project);
+    const nativeDigest = vi.fn(async (_algorithm: string, value: Uint8Array) => Uint8Array.from(hashes.sha256(value)).buffer);
+    vi.stubGlobal('crypto', { subtle: { digest: nativeDigest } });
+    try {
+      expect(await decodeProjectArchive(bytes)).toEqual(project);
+      expect(nativeDigest).toHaveBeenCalledTimes(1);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('uses native SHA-256 and falls back when it fails', async () => {
+    const project = readLegacyCfj(legacy);
+    const nativeDigest = vi.fn(async (_algorithm: string, value: Uint8Array) => Uint8Array.from(hashes.sha256(value)).buffer);
+    vi.stubGlobal('crypto', { subtle: { digest: nativeDigest } });
+    try {
+      const bytes = await encodeProjectArchive(project);
+      expect(await decodeProjectArchive(bytes)).toEqual(project);
+      expect(nativeDigest).toHaveBeenCalled();
+      nativeDigest.mockRejectedValue(new Error('Unavailable'));
+      expect(await decodeProjectArchive(bytes)).toEqual(project);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('uses native Base64 conversion when available', async () => {
+    const project = readLegacyCfj(legacy);
+    const bytes = await encodeProjectArchive(project);
+    const original = Object.getOwnPropertyDescriptor(Uint8Array.prototype, 'toBase64');
+    const convert = vi.fn(function (this: Uint8Array) { return btoa(String.fromCharCode(...this)); });
+    Object.defineProperty(Uint8Array.prototype, 'toBase64', { value: convert, configurable: true });
+    try {
+      expect(await decodeProjectArchive(bytes)).toEqual(project);
+      expect(convert).toHaveBeenCalledTimes(1);
+    } finally {
+      if (original) Object.defineProperty(Uint8Array.prototype, 'toBase64', original);
+      else Reflect.deleteProperty(Uint8Array.prototype, 'toBase64');
+    }
+  });
+
+  it('decodes images when native Base64 conversion is unavailable', async () => {
+    const project = readLegacyCfj(legacy);
+    const bytes = await encodeProjectArchive(project);
+    const original = Object.getOwnPropertyDescriptor(Uint8Array.prototype, 'toBase64');
+    Object.defineProperty(Uint8Array.prototype, 'toBase64', { value: undefined, configurable: true });
+    try {
+      expect(await decodeProjectArchive(bytes)).toEqual(project);
+    } finally {
+      if (original) Object.defineProperty(Uint8Array.prototype, 'toBase64', original);
+      else Reflect.deleteProperty(Uint8Array.prototype, 'toBase64');
+    }
+  });
+
   it('rejects invalid archives and missing images', async () => {
     const bytes = await encodeProjectArchive(readLegacyCfj(legacy));
     const zip = await JSZip.loadAsync(bytes);
     zip.remove(Object.keys(zip.files).find(name => name.startsWith('images/') && !zip.files[name].dir)!);
     await expect(decodeProjectArchive(await zip.generateAsync({ type: 'uint8array' }))).rejects.toThrow('Missing project image');
     await expect(decodeProjectArchive(new Uint8Array([0, 1, 2]))).rejects.toThrow();
+  });
+
+  it('rejects image bytes that do not match the archive hash', async () => {
+    const bytes = await encodeProjectArchive(readLegacyCfj(legacy));
+    const zip = await JSZip.loadAsync(bytes);
+    const path = Object.keys(zip.files).find(name => name.startsWith('images/') && !zip.files[name].dir)!;
+    zip.file(path, new Uint8Array([4, 3, 2, 1]));
+    await expect(decodeProjectArchive(await zip.generateAsync({ type: 'uint8array' }))).rejects.toThrow('Invalid project image');
   });
 
   it('does not require Web Crypto for embedded images', async () => {

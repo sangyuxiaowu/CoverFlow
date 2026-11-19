@@ -13,7 +13,7 @@ import ProjectPresetModal from './components/ProjectPresetModal.tsx';
 import ExportModal from './components/ExportModal.tsx';
 import ProjectPreview from './components/ProjectPreview.tsx';
 import PagesPanel from './components/PagesPanel.tsx';
-import { usePageThumbnails } from './hooks/usePageThumbnails.ts';
+import { useProjectPreviews } from './hooks/useProjectPreviews.ts';
 import AiAssistant from './features/ai/components/AiAssistant.tsx';
 import { createWorkspaceBridge, type WorkspaceOptions } from './features/ai/services/workspace.ts';
 import { executeClipboardTool } from './features/ai/tools/clipboard.ts';
@@ -25,7 +25,10 @@ import type { RemovalResult } from './utils/backgroundRemovalResult.ts';
 import { PWAUpdatePrompt } from './components/pwa/PWAUpdatePrompt.tsx';
 import { OfflineIndicator } from './components/pwa/OfflineIndicator.tsx';
 // Tauri 环境下的本地文件适配器
-import { useLocalProjects, type RecentProjectItem } from './hooks/useLocalProjects.ts';
+import { readLocalProject, useLocalProjects } from './hooks/useLocalProjects.ts';
+import type { BrowserProjectItem } from './views/ProjectBrowser.tsx';
+import type { ProjectSummary, StorageAdapter } from './storage/StorageAdapter.ts';
+import { pagePreviewFingerprint } from './storage/projectPreviews.ts';
 import { useProjectHistory } from './hooks/useProjectHistory.ts';
 import { useProjectAutoSave } from './hooks/useProjectAutoSave.ts';
 import { useEditorShortcuts } from './hooks/useEditorShortcuts.ts';
@@ -46,10 +49,11 @@ import { PRESET_RATIOS } from './constants.ts';
 import { generateId, normalizeSVG, isNewerProjectVersion, formatCanvasRatio } from './utils/helpers.ts';
 import { buildProjectSvg } from './utils/svgExport.ts';
 import { buildHtmlSvg } from './utils/htmlExport.ts';
-import { readProject, syncProjectPages } from './storage/projectCompatibility.ts';
+import { syncProjectPages } from './storage/projectCompatibility.ts';
 import { decodeProjectArchive, encodeProjectArchive } from './storage/projectArchive.ts';
 import { readLegacyCfj } from './storage/legacyCfj.ts';
-import { copyProject, deleteProjectPage, insertProjectPage, moveProjectPage, pageNumber, renameProjectPage, selectProjectPage } from './utils/projectPages.ts';
+import { copyProject, deleteProjectPage, insertProjectPage, moveProjectPage, pageNumber, pageProject, renameProjectPage, selectProjectPage } from './utils/projectPages.ts';
+import { renderProjectImage } from './utils/renderProjectImage.tsx';
 import { exportProjectPages, getExportPixelRatio, type PageExportSettings } from './utils/exportPages.ts';
 import { clampDecorationSize } from './utils/decorationStyles.ts';
 import { getCroppedImage } from './utils/imageCrop.ts';
@@ -57,7 +61,7 @@ import { computeCroppedLayerGeometry } from './utils/imageLayer.ts';
 import { encodeWebp, MAX_IMAGE_EDGE } from 'sang-ai-kit/image-attachments';
 import { type Area } from 'react-easy-crop';
 import {
-  Download, ArrowLeft, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, X, Save, Bot, Presentation
+  Download, ArrowLeft, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, X, Save, Bot, Presentation, LoaderCircle
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import packageInfo from '../package.json';
@@ -74,14 +78,14 @@ const App: React.FC = () => {
   const [layerClipboard] = useState(() => new LayerClipboard());
   const clipboardWorkspaceRef = useRef<WorkspaceOptions | null>(null);
   const t = translations[lang];
-  const [projects, setProjects] = useState<ProjectState[]>([]);
+  const [projects, setProjects] = useState<(ProjectState | ProjectSummary)[]>([]);
   const indexedDbAdapter = useMemo(() => createIndexedDBAdapter(), []);
   const localFileAdapter = useMemo(() => createLocalFileAdapter(), []);
   const cloudAdapter = useMemo(() => createCloudAdapter(), []);
   const [storageType, setStorageType] = useState<StorageAdapterType>(() => (
     getStoredStorageType('indexeddb')
   ));
-  const storageAdapter = useMemo(() => {
+  const storageAdapter = useMemo<StorageAdapter>(() => {
     if (isCloudMode) return cloudAdapter;
     return storageType === 'localfile' ? localFileAdapter : indexedDbAdapter;
   }, [storageType, localFileAdapter, indexedDbAdapter, cloudAdapter]);
@@ -109,10 +113,11 @@ const App: React.FC = () => {
   const [cloudPage, setCloudPage] = useState(1);
   const [cloudHasMore, setCloudHasMore] = useState(true);
   const [cloudLoading, setCloudLoading] = useState(false);
+  const [openingProject, setOpeningProject] = useState(false);
+  const openingProjectRef = useRef(false);
   const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
   const [isPageModalOpen, setIsPageModalOpen] = useState(false);
   const [newPageName, setNewPageName] = useState('');
-  const pageThumbnails = usePageThumbnails(view === 'editor' ? project : null);
   const [selectedPreset, setSelectedPreset] = useState<PresetRatio>(() => PRESET_RATIOS[0]);
   const [customPresetSize, setCustomPresetSize] = useState(() => ({
     width: PRESET_RATIOS[0].width,
@@ -207,6 +212,11 @@ const App: React.FC = () => {
     onUpdateProject: handleLocalProjectUpdate
   });
 
+  const pageThumbnails = useProjectPreviews(view === 'editor' ? project : null, (snapshot, pageId, preview) => {
+    const adapter = (activeLocalFilePath && isTauri) || !storageAdapter.saveProjectPreview ? indexedDbAdapter : storageAdapter;
+    void adapter.saveProjectPreview?.(snapshot, pageId, preview).catch(error => console.warn('[CoverFlow preview save]', error));
+  });
+
   const handlePickStorageFolder = useCallback(async () => {
     if (!localFileAdapter.isAvailable()) {
       showToast(t.storageFolderUnsupported, 'error');
@@ -269,6 +279,7 @@ const App: React.FC = () => {
   }, [storageAdapter, reportStorageError, t.storageLoadFailed]);
 
   useEffect(() => {
+    if (view !== 'landing') return;
     let active = true;
     storageReadyRef.current = false;
 
@@ -283,15 +294,18 @@ const App: React.FC = () => {
           setProjects([]);
           return;
         }
+        storageReadyRef.current = true;
 
         if (isCloudMode) {
           // Cloud 模式的数据加载由单独的分页/搜索逻辑处理
           return;
         }
 
-        const list = await storageAdapter.listProjects();
+        const items = storageAdapter.listProjectSummaries
+          ? await storageAdapter.listProjectSummaries()
+          : (await storageAdapter.listProjects()).items;
         if (!active) return;
-        setProjects(list.items);
+        setProjects(items);
         if (storageType === 'localfile') {
           setStorageFolderName(localFileAdapter.getFolderName());
         }
@@ -306,7 +320,7 @@ const App: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [storageAdapter, storageType, localFileAdapter, t.storageLoadFailed, isCloudMode, reportStorageError]);
+  }, [storageAdapter, storageType, localFileAdapter, t.storageLoadFailed, isCloudMode, reportStorageError, view]);
 
   const { performAutoSave, persistProject, latestProjectRef, cancelPendingSave } = useProjectAutoSave({
     project, view, storageAdapter, storageReadyRef, isCloudMode, isTauri, activeLocalFilePath,
@@ -878,31 +892,12 @@ const App: React.FC = () => {
   };
 
   // 基于预览节点导出 PNG
-  const handleExportImage = async (previewNode: HTMLDivElement | null, targetProject: ProjectState) => {
-    if (!previewNode) {
-      showToast(t.exportPreviewMissing, "error");
-      return;
-    }
+  const handleExportImage = async (targetProject: ProjectState) => {
     setIsExporting(true);
     try { 
-      await ensureProjectFonts(targetProject);
-      const { width, height } = targetProject.pageInfo;
-      const dataUrl = await htmlToImage.toPng(previewNode, {
-        fontEmbedCSS: await projectFontEmbedCSS(targetProject),
-        pixelRatio: 1,
-        width,
-        height,
-        style: {
-          transform: 'scale(1)',
-          transformOrigin: 'top left',
-          width: `${width}px`,
-          height: `${height}px`
-        }
-      }); 
-      const link = document.createElement('a'); 
-      link.download = `${targetProject.title}.png`; 
-      link.href = dataUrl; 
-      link.click(); 
+      const firstPage = targetProject.pages?.[0];
+      const blob = await renderProjectImage(firstPage ? pageProject(targetProject, firstPage) : targetProject, { format: 'png' });
+      downloadBlob(blob, `${targetProject.title}.png`);
       showToast(t.exportSuccess);
     } catch (e) { 
       showToast(t.exportFailed, "error"); 
@@ -1505,10 +1500,7 @@ const App: React.FC = () => {
     },
     onSearch: setProjectSearchTerm,
     saveLocal: saveLocalProjectToFile,
-    readLocal: async path => {
-      const { readTextFile } = await import('@tauri-apps/plugin-fs');
-      return readProject(JSON.parse(await readTextFile(path)));
-    }
+    readLocal: readLocalProject
   };
   clipboardWorkspaceRef.current = {
     ...aiWorkspace,
@@ -1538,20 +1530,41 @@ const App: React.FC = () => {
     return { width: Math.round(width), height: Math.round(height) };
   })();
 
-  const handleOpenRecentProject = (item: RecentProjectItem) => {
-        if (item.source === 'local' && item.localPath) {
-          openLocalProjectFromPath(item.localPath);
-          return;
-        }
-        warnIfNewerProject(item.project);
-        const opened = item.project.pages?.[0] ? selectProjectPage(item.project, item.project.pages[0].id) : syncProjectPages(item.project);
-        setProject(opened);
-        setView('editor');
-        initProjectHistory(opened);
-        clearActiveLocalFilePath();
+  const resolveRecentProject = async (item: BrowserProjectItem): Promise<ProjectState> => {
+    if (item.source === 'local' && item.localPath) return readLocalProject(item.localPath);
+    if (!('kind' in item.project)) return item.project;
+    const loaded = await storageAdapter.getProject?.(item.project.id);
+    if (!loaded) throw new Error('Project not found.');
+    return loaded;
   };
 
-  const handleDeleteRecentProject = (item: RecentProjectItem) => {
+  const withRecentProject = (item: BrowserProjectItem, action: (project: ProjectState) => void | Promise<void>) => {
+    void resolveRecentProject(item).then(action).catch(error => reportStorageError(error, 'read-project', t.storageLoadFailed, item.project.id));
+  };
+
+  const handleOpenRecentProject = (item: BrowserProjectItem) => {
+    if (openingProjectRef.current) return;
+    openingProjectRef.current = true;
+    setOpeningProject(true);
+    window.setTimeout(() => {
+      const operation = item.source === 'local' && item.localPath
+        ? openLocalProjectFromPath(item.localPath)
+        : resolveRecentProject(item).then(fullProject => {
+          warnIfNewerProject(fullProject);
+          const opened = fullProject.pages?.[0] ? selectProjectPage(fullProject, fullProject.pages[0].id) : syncProjectPages(fullProject);
+          setProject(opened);
+          setView('editor');
+          initProjectHistory(opened);
+          clearActiveLocalFilePath();
+        });
+      void operation.catch(error => reportStorageError(error, 'read-project', t.storageLoadFailed, item.project.id)).finally(() => {
+        openingProjectRef.current = false;
+        setOpeningProject(false);
+      });
+    }, 0);
+  };
+
+  const handleDeleteRecentProject = (item: BrowserProjectItem) => {
         if (item.source === 'local' && item.localPath) {
           setConfirmDialog({
             message: t.confirmRemoveLocalProject,
@@ -1573,12 +1586,20 @@ const App: React.FC = () => {
         projects={projects} localRecentItems={localRecentItems} projectSearchTerm={projectSearchTerm}
         setProjectSearchTerm={setProjectSearchTerm} cloudLoading={cloudLoading}
         handleProjectsScroll={handleProjectsScroll} handleOpenRecentProject={handleOpenRecentProject}
-        handleDeleteRecentProject={handleDeleteRecentProject} handleDuplicateProject={handleDuplicateProject}
-        handleExportJson={handleExportJson} handleExportImage={handleExportImage}
+        handleDeleteRecentProject={handleDeleteRecentProject} handleDuplicateProject={item => withRecentProject(item, handleDuplicateProject)}
+        handleExportJson={item => withRecentProject(item, handleExportJson)} handleExportImage={item => withRecentProject(item, handleExportImage)}
+        getProjectPreview={item => {
+          if (item.source === 'storage' && storageAdapter.getProjectPreview) return storageAdapter.getProjectPreview(item.project.id);
+          const first = 'kind' in item.project ? undefined : item.project.pages?.[0];
+          const pageId = 'kind' in item.project ? item.project.firstPageId : first?.id;
+          const fingerprint = 'kind' in item.project ? item.project.fingerprint : first && pagePreviewFingerprint(first);
+          return pageId && fingerprint ? indexedDbAdapter.getPagePreview(item.project.id, pageId, fingerprint) : Promise.resolve(undefined);
+        }}
         openPresetModal={openPresetModal} openLocalProjectDialog={openLocalProjectDialog} handleImportJson={handleImportJson}
         onToggleAi={() => setIsAiOpen(prev => !prev)} onOpenStorageSettings={() => setIsStorageSettingsOpen(true)}
         onLanguageChange={setLang}
       >
+        {openingProject && <div role="status" aria-live="polite" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 text-sm text-white"><div className="flex items-center gap-2 rounded-md bg-slate-900 px-4 py-3 shadow-xl"><LoaderCircle className="h-4 w-4 animate-spin" />{t.loading}</div></div>}
         {toast && <Toast message={toast.msg} type={toast.type} />}
         {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
         {!isCloudMode && renderStorageSettingsModal()}

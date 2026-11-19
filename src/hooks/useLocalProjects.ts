@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ProjectState } from '../types.ts';
 import { decodeProjectArchive, encodeProjectArchive } from '../storage/projectArchive.ts';
 import { readLegacyCfj } from '../storage/legacyCfj.ts';
+import { summarizeProject, type ProjectSummary } from '../storage/StorageAdapter.ts';
+import { pagePreviewFingerprint } from '../storage/projectPreviews.ts';
 
-const readLocalProject = async (path: string) => {
+export const readLocalProject = async (path: string) => {
   const { readFile, readTextFile } = await import('@tauri-apps/plugin-fs');
   return path.toLowerCase().endsWith('.cfjx') ? decodeProjectArchive(await readFile(path)) : readLegacyCfj(await readTextFile(path));
 };
@@ -11,7 +13,7 @@ const readLocalProject = async (path: string) => {
 const LOCAL_RECENT_KEY = 'coverflow_recent_local_files_v1';
 
 export type RecentProjectItem = {
-  project: ProjectState;
+  project: ProjectState | ProjectSummary;
   source: 'storage' | 'local';
   localPath?: string;
 };
@@ -21,6 +23,14 @@ type LocalRecentMeta = {
   title: string;
   updatedAt: number;
   lastOpenedAt: number;
+  summary?: ProjectSummary;
+  size?: number;
+  modified?: number;
+};
+
+const localSummary = (project: ProjectState): ProjectSummary => {
+  const first = project.pages?.[0];
+  return { ...summarizeProject(project), ...(first ? { firstPageId: first.id, fingerprint: pagePreviewFingerprint(first) } : {}) };
 };
 
 type UseLocalProjectsOptions = {
@@ -57,6 +67,7 @@ export const useLocalProjects = ({
 }: UseLocalProjectsOptions) => {
   const [localRecentItems, setLocalRecentItems] = useState<RecentProjectItem[]>([]);
   const [activeLocalFilePath, setActiveLocalFilePath] = useState<string | null>(null);
+  const writeQueue = useRef<Promise<void>>(Promise.resolve());
   const isTauri = import.meta.env.VITE_APP_MODE === 'tauri';
 
   const removeLocalRecentByPath = useCallback((path: string) => {
@@ -68,12 +79,16 @@ export const useLocalProjects = ({
   const updateLocalRecentMeta = useCallback((path: string, projectData: ProjectState) => {
     const now = Date.now();
     const meta = readLocalRecentMeta();
+    const previous = meta.find(item => item.path === path);
     const nextMeta = meta.filter(item => item.path !== path);
     nextMeta.unshift({
       path,
       title: projectData.title,
       updatedAt: projectData.updatedAt,
-      lastOpenedAt: now
+      lastOpenedAt: now,
+      summary: localSummary(projectData),
+      size: previous?.size,
+      modified: previous?.modified
     });
     writeLocalRecentMeta(nextMeta.slice(0, 50));
   }, []);
@@ -119,7 +134,9 @@ export const useLocalProjects = ({
       if (!selected.toLowerCase().endsWith('.cfjx')) throw new Error('Expected a CFJX project file.');
       targetPath = selected;
     }
-    await writeFile(targetPath, await encodeProjectArchive(nextProject));
+    const operation = writeQueue.current.then(async () => { await writeFile(targetPath, await encodeProjectArchive(nextProject)); });
+    writeQueue.current = operation.catch(() => {});
+    await operation;
     setActiveLocalFilePath(current => current === path ? targetPath : current);
     onUpdateProject(nextProject);
     if (targetPath !== path) removeLocalRecentByPath(path);
@@ -146,15 +163,27 @@ export const useLocalProjects = ({
       }
       const nextItems: RecentProjectItem[] = [];
       const nextMeta: LocalRecentMeta[] = [];
+      const { stat } = await import('@tauri-apps/plugin-fs');
       for (const item of meta) {
         try {
+          const file = await stat(item.path);
+          const modified = file.mtime?.getTime() ?? 0;
+          if (item.summary && item.size === file.size && item.modified === modified) {
+            nextItems.push({ project: item.summary, source: 'local', localPath: item.path });
+            nextMeta.push(item);
+            continue;
+          }
           const parsed = await readLocalProject(item.path);
-          nextItems.push({ project: parsed, source: 'local', localPath: item.path });
+          const summary = localSummary(parsed);
+          nextItems.push({ project: summary, source: 'local', localPath: item.path });
           nextMeta.push({
             path: item.path,
             title: parsed.title,
             updatedAt: parsed.updatedAt,
-            lastOpenedAt: item.lastOpenedAt || Date.now()
+            lastOpenedAt: item.lastOpenedAt || Date.now(),
+            summary,
+            size: file.size,
+            modified
           });
         } catch (err) {
           // skip invalid path

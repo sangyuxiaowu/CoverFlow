@@ -1,5 +1,5 @@
 import type { ProjectState } from '../../../types.ts';
-import type { StorageAdapter } from '../../../storage/StorageAdapter.ts';
+import type { ProjectSummary, StorageAdapter } from '../../../storage/StorageAdapter.ts';
 import type { WorkspaceBridge } from '../types.ts';
 import { parseManageProjectsRequest } from '../tools/requests.ts';
 import { generateId } from '../../../utils/helpers.ts';
@@ -17,7 +17,7 @@ export interface WorkspaceOptions {
   getAssetFolder?: () => Promise<FileSystemDirectoryHandle | null>;
   selectedLayerIds: string[];
   storage: StorageAdapter;
-  localProjects: { project: ProjectState; localPath?: string }[];
+  localProjects: { project: ProjectState | ProjectSummary; localPath?: string }[];
   activeLocalPath: string | null;
   chatStorageKey?: string;
   getChatDirectory?: () => Promise<FileSystemDirectoryHandle>;
@@ -59,7 +59,15 @@ export function createWorkspaceBridge(
     const options = read();
     if (current?.id === id) return { project: current, localPath: options.activeLocalPath || undefined };
     const local = options.localProjects.find(item => item.project.id === id);
-    if (local) return local;
+    if (local) {
+      if (local.localPath && options.readLocal) {
+        const project = await options.readLocal(local.localPath);
+        if (project.id !== id) throw new Error('Local project ID changed: ' + id);
+        return { project, localPath: local.localPath };
+      }
+      if ('kind' in local.project) throw new Error('Local project is unavailable: ' + id);
+      return { project: local.project, localPath: local.localPath };
+    }
     await ready();
     if (options.storage.getProject) {
       const project = await options.storage.getProject(id);
@@ -86,10 +94,7 @@ export function createWorkspaceBridge(
     getProjectById: async projectId => {
       const found = await find(projectId);
       if (read().project?.id === projectId) return current!;
-      if (!found.localPath || !read().readLocal) return found.project;
-      const project = await read().readLocal!(found.localPath);
-      if (project.id !== projectId) throw new Error('Local project ID changed: ' + projectId);
-      return project;
+      return found.project;
     },
     getCanvasPreview: async () => {
       const options = read();
@@ -123,7 +128,8 @@ export function createWorkspaceBridge(
         await ready();
         const result = await options.storage.listProjects({ query, page, pageSize });
         options.onSearch(query);
-        const summary = (project: ProjectState, source: string) => {
+        const summary = (project: ProjectState | ProjectSummary, source: string) => {
+          if ('kind' in project) return { id: project.id, title: project.title, updatedAt: project.updatedAt, canvas: { width: project.width, height: project.height }, pageCount: project.pageCount, layerCount: project.layerCount, source };
           const pageInfo = project.pages?.[0]?.pageInfo ?? project.pageInfo;
           return { id: project.id, title: project.title, updatedAt: project.updatedAt, canvas: { width: pageInfo.width, height: pageInfo.height }, pageCount: project.pages?.length ?? 1, layerCount: project.pages?.[0]?.layers.length ?? project.layers.length, source };
         };

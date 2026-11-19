@@ -24,10 +24,10 @@ export function waitForPreviewIdle(signal: AbortSignal): Promise<void> {
     const schedule = () => {
       if (idle) handle = window.requestIdleCallback(deadline => {
         const scheduling = navigator as Navigator & { scheduling?: { isInputPending: () => boolean } };
-        if (deadline.timeRemaining() < 8 || scheduling.scheduling?.isInputPending()) { schedule(); return; }
+        if (!deadline.didTimeout && (deadline.timeRemaining() < 8 || scheduling.scheduling?.isInputPending())) { schedule(); return; }
         cleanup();
         resolve();
-      });
+      }, { timeout: 1000 });
       else handle = window.setTimeout(() => { cleanup(); resolve(); }, 120);
     };
     signal.addEventListener('abort', abort, { once: true });

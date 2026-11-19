@@ -5,6 +5,7 @@ import LivePreview from '../components/LivePreview.tsx';
 import type { ProjectState } from '../types.ts';
 import { ensureProjectFonts, projectFontEmbedCSS } from '../features/ai/services/fontLoading.ts';
 import { waitForPreviewIdle, waitForPreviewTask } from './previewIdle.ts';
+import { previewImageAssets } from './previewImageAssets.ts';
 
 export interface RenderImageOptions {
   format?: 'png' | 'jpeg' | 'webp';
@@ -41,6 +42,7 @@ async function renderImage(project: ProjectState, options: RenderImageOptions): 
   await wait(ensureProjectFonts(project));
   await yieldForInput();
   const { width, height } = project.pageInfo;
+  const preview = options.background && options.maxEdge ? await previewImageAssets(project, options.maxEdge, signal) : { project, dispose: () => {} };
   const host = document.createElement('div');
   Object.assign(host.style, { position: 'fixed', left: '-100000px', top: '0', width: `${width}px`, height: `${height}px`, pointerEvents: 'none' });
   host.setAttribute('aria-hidden', 'true');
@@ -49,7 +51,7 @@ async function renderImage(project: ProjectState, options: RenderImageOptions): 
   const previewRef = { current: null as HTMLDivElement | null };
   let canvas: HTMLCanvasElement | undefined;
   try {
-    flushSync(() => root.render(<LivePreview project={project} previewRef={previewRef} />));
+    flushSync(() => root.render(<LivePreview project={preview.project} previewRef={previewRef} />));
     const node = previewRef.current;
     if (!node) throw new Error('Page renderer is unavailable.');
     await wait(Promise.all(Array.from(node.querySelectorAll('img')).map(image => image.decode())));
@@ -74,5 +76,6 @@ async function renderImage(project: ProjectState, options: RenderImageOptions): 
     if (canvas) { canvas.width = 0; canvas.height = 0; }
     root.unmount();
     host.remove();
+    preview.dispose();
   }
 }

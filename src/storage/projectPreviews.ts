@@ -3,6 +3,15 @@ import { sha256 } from '@noble/hashes/sha2.js';
 
 const previews = new WeakMap<ProjectPage['layers'], WeakMap<ProjectPage['pageInfo'], Uint8Array>>();
 const fingerprints = new WeakMap<ProjectPage['layers'], WeakMap<ProjectPage['pageInfo'], string>>();
+const pendingFingerprints = new WeakMap<ProjectPage['layers'], WeakMap<ProjectPage['pageInfo'], Promise<string>>>();
+let fingerprintQueue: Promise<void> = Promise.resolve();
+
+const rememberFingerprint = (page: ProjectPage, fingerprint: string) => {
+  let entries = fingerprints.get(page.layers);
+  if (!entries) { entries = new WeakMap(); fingerprints.set(page.layers, entries); }
+  entries.set(page.pageInfo, fingerprint);
+  return fingerprint;
+};
 
 export function notifyProjectPreview(projectId: string) {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('coverflow-project-preview', { detail: projectId }));
@@ -47,10 +56,32 @@ export function pagePreviewFingerprint(page: ProjectPage): string {
   };
   writeValue({ pageInfo: page.pageInfo, layers: page.layers });
   const fingerprint = Array.from(hash.digest(), byte => byte.toString(16).padStart(2, '0')).join('');
-  let entries = fingerprints.get(page.layers);
-  if (!entries) { entries = new WeakMap(); fingerprints.set(page.layers, entries); }
-  entries.set(page.pageInfo, fingerprint);
-  return fingerprint;
+  return rememberFingerprint(page, fingerprint);
+}
+
+export function pagePreviewFingerprintAsync(page: ProjectPage): Promise<string> {
+  const cached = fingerprints.get(page.layers)?.get(page.pageInfo);
+  if (cached) return Promise.resolve(cached);
+  let entries = pendingFingerprints.get(page.layers);
+  if (!entries) { entries = new WeakMap(); pendingFingerprints.set(page.layers, entries); }
+  const previous = entries.get(page.pageInfo);
+  if (previous) return previous;
+  const pending = fingerprintQueue.then(() => new Promise<string>((resolve, reject) => {
+    if (typeof Worker === 'undefined' || typeof document === 'undefined') { resolve(pagePreviewFingerprint(page)); return; }
+    const worker = new Worker(new URL('./projectPreviews.worker.ts', import.meta.url), { type: 'module' });
+    worker.onmessage = event => {
+      worker.terminate();
+      if (typeof event.data === 'string' && /^[a-f0-9]{64}$/.test(event.data)) resolve(rememberFingerprint(page, event.data));
+      else reject(new Error('Invalid preview fingerprint.'));
+    };
+    worker.onerror = event => { worker.terminate(); reject(new Error(event.message || 'Preview fingerprint failed.')); };
+    worker.onmessageerror = () => { worker.terminate(); reject(new Error('Preview fingerprint response failed.')); };
+    try { worker.postMessage({ layers: page.layers, pageInfo: page.pageInfo }); }
+    catch (error) { worker.terminate(); reject(error); }
+  })).catch(() => pagePreviewFingerprint(page));
+  fingerprintQueue = pending.then(() => {}, () => {});
+  entries.set(page.pageInfo, pending);
+  return pending;
 }
 
 export function rememberProjectPreview(_project: ProjectState, page: ProjectPage, bytes: Uint8Array) {

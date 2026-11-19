@@ -29,6 +29,10 @@ export function readLegacyCfj(text: string) {
   return readProject(JSON.parse(text));
 }
 
+export function readLegacyIndexedDBProject(input: unknown) {
+  return readProject(input);
+}
+
 export function migrateLegacyProjectPatch(input: Record<string, unknown>, current: PageInfo): Record<string, unknown> {
   if (!('canvasConfig' in input) && !('background' in input)) return input;
   const { canvasConfig, background, ...rest } = input;

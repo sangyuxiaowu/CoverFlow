@@ -44,3 +44,178 @@ test('upgrades a version 1 database without losing projects', async () => {
     assert.equal((await adapter.getProject(project.id))?.pageInfo.width, 120);
   } finally { vi.unstubAllGlobals(); }
 });
+
+test('stores pages separately, writes only changed pages, and deletes removed pages', async () => {
+  vi.stubGlobal('indexedDB', new IDBFactory());
+  const put = vi.spyOn(IDBObjectStore.prototype, 'put');
+  try {
+    const adapter = new IndexedDBAdapter();
+    const first = syncProjectPages({ id: 'paged', title: 'Paged', layers: [], pageInfo: { width: 120, height: 80, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } }, selectedLayerId: null, updatedAt: 1 });
+    const second = { ...first.pages![0], id: 'second', name: 'Second' };
+    const third = { ...first.pages![0], id: 'third', name: 'Third' };
+    const project = { ...first, pages: [first.pages![0], second, third] };
+    await adapter.saveProject(project);
+    assert.equal(put.mock.contexts.filter(store => (store as IDBObjectStore).name === 'projectPages').length, 3);
+    put.mockClear();
+    const changed = { ...project, pages: [project.pages[0], { ...second, name: 'Changed' }, third], updatedAt: 2 };
+    await adapter.saveProject(changed);
+    assert.equal(put.mock.contexts.filter(store => (store as IDBObjectStore).name === 'projectPages').length, 1);
+    const reopened = await adapter.getProject(project.id);
+    assert.deepEqual(reopened?.pages?.map(page => page.name), ['', 'Changed', 'Third']);
+    assert.equal(reopened?.selectedLayerId, null);
+    await adapter.saveProject({ ...reopened!, pages: [reopened!.pages![0], reopened!.pages![2]], updatedAt: 3 });
+    assert.deepEqual((await adapter.listProjects()).items[0].pages?.map(page => page.id), [project.pages[0].id, 'third']);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('coverflow_projects_db_v1', 4);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const records = await new Promise<unknown[]>((resolve, reject) => {
+      const request = db.transaction('projectPages').objectStore('projectPages').getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    assert.equal(records.length, 2);
+    db.close();
+    await adapter.deleteProject(project.id);
+    assert.equal(await adapter.getProject(project.id), null);
+  } finally { put.mockRestore(); vi.unstubAllGlobals(); }
+});
+
+test('migrates an inline IndexedDB project when saving without losing image data', async () => {
+  vi.stubGlobal('indexedDB', new IDBFactory());
+  try {
+    const image = 'data:image/png;base64,AQIDBA==';
+    const old = syncProjectPages({ id: 'inline', title: 'Inline', selectedLayerId: null, updatedAt: 1,
+      layers: [{ id: 'image', name: 'Image', type: 'image', content: image, x: 0, y: 0, width: 50, height: 50, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }],
+      pageInfo: { width: 120, height: 80, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open('coverflow_projects_db_v1', 2);
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore('projects', { keyPath: 'id' }).put(writeProject(old));
+        request.result.createObjectStore('summaries', { keyPath: 'id' });
+        request.result.createObjectStore('previews', { keyPath: ['projectId', 'pageId'] }).createIndex('projectId', 'projectId');
+      };
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => { request.result.close(); resolve(); };
+    });
+    const adapter = new IndexedDBAdapter();
+    const opened = await adapter.getProject(old.id);
+    assert.equal(opened?.layers[0].content, image);
+    await adapter.saveProject(opened!);
+    assert.equal((await adapter.getProject(old.id))?.layers[0].content, image);
+  } finally { vi.unstubAllGlobals(); }
+});
+
+test('rewrites all pages when another client replaces a project with the same id', async () => {
+  vi.stubGlobal('indexedDB', new IDBFactory());
+  const put = vi.spyOn(IDBObjectStore.prototype, 'put');
+  try {
+    const adapter = new IndexedDBAdapter();
+    const first = syncProjectPages({ id: 'concurrent', title: 'First', layers: [], selectedLayerId: null, updatedAt: 1,
+      pageInfo: { width: 120, height: 80, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
+    const project = { ...first, pages: [first.pages![0], { ...first.pages![0], id: 'second' }] };
+    await adapter.saveProject(project);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('coverflow_projects_db_v1', 4);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(['projects', 'projectPages'], 'readwrite');
+      tx.objectStore('projects').delete(project.id);
+      for (const page of project.pages) tx.objectStore('projectPages').delete([project.id, page.id]);
+      tx.oncomplete = () => resolve();
+      tx.onerror = tx.onabort = () => reject(tx.error);
+    });
+    db.close();
+    put.mockClear();
+    await adapter.saveProject(project);
+    assert.equal(put.mock.contexts.filter(store => (store as IDBObjectStore).name === 'projectPages').length, 2);
+    assert.equal((await adapter.getProject(project.id))?.pages?.length, 2);
+  } finally { put.mockRestore(); vi.unstubAllGlobals(); }
+});
+
+test('deduplicates binary images, avoids rewriting them on edits and removes unreferenced assets', async () => {
+  vi.stubGlobal('indexedDB', new IDBFactory());
+  const put = vi.spyOn(IDBObjectStore.prototype, 'put');
+  try {
+    const adapter = new IndexedDBAdapter();
+    const image = 'data:image/png;base64,AQIDBA==';
+    const initial = syncProjectPages({ id: 'assets', title: 'Assets', selectedLayerId: null, updatedAt: 1,
+      layers: [{ id: 'image', name: 'Image', type: 'image', content: image, x: 0, y: 0, width: 50, height: 50, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }],
+      pageInfo: { width: 120, height: 80, background: { type: 'image', value: image, overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
+    const project = { ...initial, pages: [initial.pages![0], { ...initial.pages![0], id: 'second' }] };
+    await adapter.saveProject(project);
+    assert.equal(put.mock.contexts.filter(store => (store as IDBObjectStore).name === 'projectImages').length, 1);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('coverflow_projects_db_v1', 4);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const read = <Value,>(store: string) => new Promise<Value[]>((resolve, reject) => {
+      const request = db.transaction(store).objectStore(store).getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const assets = await read<{ blob: Blob }>('projectImages');
+    assert.equal(assets.length, 1);
+    assert.deepEqual(new Uint8Array(await assets[0].blob.arrayBuffer()), new Uint8Array([1, 2, 3, 4]));
+    assert.equal(JSON.stringify(await read('projectPages')).includes(image), false);
+    put.mockClear();
+    const movedLayers = [{ ...project.layers[0], x: 20 }];
+    const moved = { ...project, layers: movedLayers, pages: [{ ...project.pages[0], layers: movedLayers }, project.pages[1]], updatedAt: 2 };
+    await adapter.saveProject(moved);
+    assert.equal(put.mock.contexts.filter(store => (store as IDBObjectStore).name === 'projectImages').length, 0);
+    const reopened = await adapter.getProject(project.id);
+    assert.equal(reopened?.layers[0].content, image);
+    assert.equal(reopened?.pages![1].pageInfo.background.value, image);
+    const emptyBackground = { ...reopened!.pageInfo.background, type: 'color' as const, value: '#fff' };
+    await adapter.saveProject({ ...reopened!, layers: [], pageInfo: { ...reopened!.pageInfo, background: emptyBackground },
+      pages: reopened!.pages!.map(page => ({ ...page, layers: [], pageInfo: { ...page.pageInfo, background: emptyBackground } })), updatedAt: 3 });
+    assert.equal((await read('projectImages')).length, 0);
+    await adapter.saveProject(project);
+    assert.equal((await read('projectImages')).length, 1);
+    assert.equal((await adapter.getProject(project.id))?.layers[0].content, image);
+    db.close();
+  } finally { put.mockRestore(); vi.unstubAllGlobals(); }
+});
+
+test('preserves an invalid legacy data URL instead of failing to save the project', async () => {
+  vi.stubGlobal('indexedDB', new IDBFactory());
+  try {
+    const adapter = new IndexedDBAdapter();
+    const invalid = 'data:image/png;base64,not-valid!';
+    const project = syncProjectPages({ id: 'invalid-image', title: 'Legacy', selectedLayerId: null, updatedAt: 1,
+      layers: [{ id: 'image', name: 'Image', type: 'image', content: invalid, x: 0, y: 0, width: 50, height: 50, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }],
+      pageInfo: { width: 120, height: 80, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
+    await adapter.saveProject(project);
+    assert.equal((await adapter.getProject(project.id))?.layers[0].content, invalid);
+  } finally { vi.unstubAllGlobals(); }
+});
+
+test('serializes image preparation, later saves and deletes across adapter instances', async () => {
+  vi.stubGlobal('indexedDB', new IDBFactory());
+  const originalFetch = globalThis.fetch;
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const fetching = new Promise<void>(resolve => { started = resolve; });
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementationOnce(async (...args) => { started(); await gate; return originalFetch(...args); });
+  try {
+    const firstAdapter = new IndexedDBAdapter();
+    const secondAdapter = new IndexedDBAdapter();
+    const project = syncProjectPages({ id: 'ordered', title: 'First', selectedLayerId: null, updatedAt: 1,
+      layers: [{ id: 'image', name: 'Image', type: 'image', content: 'data:image/png;base64,AQIDBA==', x: 0, y: 0, width: 50, height: 50, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }],
+      pageInfo: { width: 120, height: 80, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
+    const first = firstAdapter.saveProject(project);
+    await fetching;
+    const second = secondAdapter.saveProject({ ...project, title: 'Second' });
+    const deletion = firstAdapter.deleteProject(project.id);
+    release();
+    await Promise.all([first, second, deletion]);
+    assert.equal(await firstAdapter.getProject(project.id), null);
+    await secondAdapter.saveProject({ ...project, title: 'After delete' });
+    assert.equal((await firstAdapter.getProject(project.id))?.title, 'After delete');
+  } finally { fetch.mockRestore(); vi.unstubAllGlobals(); }
+});

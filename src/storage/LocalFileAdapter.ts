@@ -1,6 +1,6 @@
 import { ProjectState } from '../types.ts';
 import { ListProjectsOptions, StorageAdapter, StorageAdapterType, type ProjectSummary, summarizeProject } from './StorageAdapter.ts';
-import { decodeProjectArchive, decodeProjectArchiveWithPreviews, encodeProjectArchive, readProjectArchiveManifest, replaceProjectArchivePreviews } from './projectArchive.ts';
+import { decodeProjectArchive, encodeProjectArchive, prepareProjectArchivePreviews, readProjectArchiveManifest, sameStoredValue } from './projectArchive.ts';
 import { readLegacyCfj } from './legacyCfj.ts';
 import { readFileBlob, readFileBytes, readFileText, writeFileContent, writeFileContentOnce } from './fileAccess.ts';
 import { writeProject } from './projectCompatibility.ts';
@@ -19,19 +19,6 @@ const PREVIEW_DIR = 'preview';
 
 type IndexEntry = { name: string; size: number; lastModified: number; project: ProjectSummary; previewStamp?: string };
 type ProjectIndex = { format: 'coverflow-project-index'; version: 1; list: IndexEntry[] };
-
-const sameStoredValue = (left: unknown, right: unknown): boolean => {
-  if (left === right) return true;
-  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
-  if (Array.isArray(left) || Array.isArray(right)) {
-    return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => sameStoredValue(item, right[index]));
-  }
-  const leftObject = left as Record<string, unknown>;
-  const rightObject = right as Record<string, unknown>;
-  const keys = Object.keys(leftObject).filter(key => leftObject[key] !== undefined);
-  return keys.length === Object.keys(rightObject).filter(key => rightObject[key] !== undefined).length &&
-    keys.every(key => Object.hasOwn(rightObject, key) && sameStoredValue(leftObject[key], rightObject[key]));
-};
 
 const isIndex = (value: unknown): value is ProjectIndex => {
   if (!value || typeof value !== 'object') return false;
@@ -297,16 +284,13 @@ export class LocalFileAdapter implements StorageAdapter {
         const handle = await data.getFileHandle(name);
         const before = await handle.getFile();
         const archiveBytes = name.toLowerCase().endsWith('.cfjx') ? await readFileBytes(handle) : undefined;
-        const archive = archiveBytes ? await decodeProjectArchiveWithPreviews(archiveBytes) : undefined;
-        const stored = archive?.project ?? readLegacyCfj(await readFileText(handle));
-        if (!sameStoredValue(writeProject(stored), writeProject(project))) return;
+        const stored = archiveBytes ? project : readLegacyCfj(await readFileText(handle));
         let bytes: Uint8Array | undefined;
-        if (archive && Object.entries(cached).some(([pageId, preview]) => {
-          const previous = archive.previews[pageId];
-          return !previous || previous.length !== preview.length || preview.some((value, index) => value !== previous[index]);
-        })) {
-          bytes = await replaceProjectArchivePreviews(archiveBytes!, stored, { ...archive.previews, ...cached });
-        }
+        if (archiveBytes) {
+          const result = await prepareProjectArchivePreviews(archiveBytes, project, cached);
+          if (!result.matches) return;
+          bytes = result.bytes;
+        } else if (!sameStoredValue(writeProject(stored), writeProject(project))) return;
         const latest = await handle.getFile();
         if (latest.size !== before.size || latest.lastModified !== before.lastModified) return;
         if (!bytes && item?.previewStamp === `${latest.size}:${latest.lastModified}`) {

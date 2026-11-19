@@ -1,8 +1,11 @@
 // 模块：画布渲染与交互（拖拽、缩放、对齐）
 import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { Layer, ProjectState } from '../types.ts';
 import { applySvgAspectRatio } from '../utils/helpers.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
+import { updateProjectLayer } from '../features/ai/domain/layerOperations.ts';
+import { applyKeyboardLayerTransform, COMMIT_KEYBOARD_LAYER_TRANSFORM, KEYBOARD_LAYER_TRANSFORM, type KeyboardLayerTransform } from '../utils/keyboardLayerTransform.ts';
 import DecorationContent from './DecorationContent.tsx';
 import ImageLayerContent from './ImageLayerContent.tsx';
 import { translations, Language } from '../translations.ts';
@@ -18,6 +21,7 @@ interface CanvasProps {
   project: ProjectState;
   onSelectLayer: (id: string | null) => void;
   updateLayer: (id: string, updates: Partial<Layer>, record?: boolean) => void;
+  onKeyboardCommit: (modifier: (project: ProjectState) => ProjectState) => void;
   onCommit: () => void;
   onOpenImageCrop?: (layerId: string) => void;
 }
@@ -25,7 +29,17 @@ interface CanvasProps {
 const SNAP_THRESHOLD = 8;
 
 // 画布交互与渲染组件。
-const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLayer, onCommit, onOpenImageCrop }) => {
+const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSelectLayer, updateLayer, onKeyboardCommit, onCommit, onOpenImageCrop }) => {
+  const [draft, setDraft] = useState<{ pageKey: string; layerId: string; updates: Partial<Layer> } | null>(null);
+  const draftRef = useRef<typeof draft>(null);
+  const [keyboardDraft, setKeyboardDraft] = useState<KeyboardLayerTransform | null>(null);
+  const keyboardDraftRef = useRef<KeyboardLayerTransform | null>(null);
+  const keyboardKeysRef = useRef(new Set<string>());
+  const committedPageKey = `${committedProject.id}:${committedProject.activePageId ?? ''}`;
+  const keyboardProject = keyboardDraft ? applyKeyboardLayerTransform(committedProject, keyboardDraft) : committedProject;
+  const project = draft?.pageKey === committedPageKey && keyboardProject.layers.some(layer => layer.id === draft.layerId)
+    ? updateProjectLayer(keyboardProject, draft.layerId, draft.updates)
+    : keyboardProject;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fittedPageKeyRef = useRef<string | null>(null);
   const pageKey = `${project.id}:${project.activePageId ?? ''}`;
@@ -63,12 +77,66 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
 
   useLayoutEffect(() => {
     if (fittedPageKeyRef.current === pageKey) return;
+    draftRef.current = null;
+    setDraft(null);
+    keyboardDraftRef.current = null;
+    keyboardKeysRef.current.clear();
+    setKeyboardDraft(null);
     setInteraction(null);
     setGuidelines([]);
     setEditingLayerId(null);
     lastEditIdRef.current = null;
     if (fitCanvas()) fittedPageKeyRef.current = pageKey;
   }, [pageKey, fitCanvas]);
+
+  useEffect(() => {
+    const commit = () => {
+      const current = keyboardDraftRef.current;
+      if (!current) return;
+      keyboardDraftRef.current = null;
+      keyboardKeysRef.current.clear();
+      flushSync(() => {
+        setKeyboardDraft(null);
+        if (current.dx || current.dy || current.rotation) onKeyboardCommit(project => applyKeyboardLayerTransform(project, current));
+      });
+    };
+    const transform = (event: Event) => {
+      const next = (event as CustomEvent<KeyboardLayerTransform>).detail;
+      let current = keyboardDraftRef.current;
+      if (current && (current.projectId !== next.projectId || current.pageId !== next.pageId ||
+        Boolean(current.rotation) !== Boolean(next.rotation) || current.layerIds.join('\0') !== next.layerIds.join('\0'))) {
+        commit();
+        current = null;
+      }
+      const combined = current ? { ...current, dx: current.dx + next.dx, dy: current.dy + next.dy, rotation: current.rotation + next.rotation } : next;
+      keyboardKeysRef.current.add(next.key);
+      keyboardDraftRef.current = combined;
+      setKeyboardDraft(combined);
+    };
+    const keyup = (event: KeyboardEvent) => {
+      keyboardKeysRef.current.delete(event.key);
+      if (!keyboardKeysRef.current.size) commit();
+    };
+    const commitRequested = (event: Event) => {
+      if (!keyboardDraftRef.current) return;
+      event.preventDefault();
+      commit();
+    };
+    window.addEventListener(KEYBOARD_LAYER_TRANSFORM, transform);
+    window.addEventListener(COMMIT_KEYBOARD_LAYER_TRANSFORM, commitRequested);
+    window.addEventListener('keyup', keyup);
+    window.addEventListener('blur', commit);
+    window.addEventListener('mousedown', commit, true);
+    window.addEventListener('beforeunload', commit, true);
+    return () => {
+      window.removeEventListener(KEYBOARD_LAYER_TRANSFORM, transform);
+      window.removeEventListener(COMMIT_KEYBOARD_LAYER_TRANSFORM, commitRequested);
+      window.removeEventListener('keyup', keyup);
+      window.removeEventListener('blur', commit);
+      window.removeEventListener('mousedown', commit, true);
+      window.removeEventListener('beforeunload', commit, true);
+    };
+  }, [onKeyboardCommit]);
 
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
@@ -215,7 +283,9 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
       }
 
       setGuidelines(activeGuidelines);
-      updateLayer(interaction.layerId, { x: nextX, y: nextY }, false);
+      const next = { pageKey, layerId: interaction.layerId, updates: { x: nextX, y: nextY } };
+      draftRef.current = next;
+      setDraft(next);
       return;
     }
 
@@ -230,7 +300,9 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
       const angle = Math.atan2(e.clientY - screenCy, e.clientX - screenCx) * (180 / Math.PI);
       let newRotation = angle + 90; 
       if (e.shiftKey) newRotation = Math.round(newRotation / 15) * 15;
-      updateLayer(interaction.layerId, { rotation: newRotation }, false);
+      const next = { pageKey, layerId: interaction.layerId, updates: { rotation: newRotation } };
+      draftRef.current = next;
+      setDraft(next);
       return;
     }
 
@@ -268,25 +340,32 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project, onSelectLayer, updateLay
       const newCenterX = (initialData.x + initialData.w / 2) + rotatedCenterXChange;
       const newCenterY = (initialData.y + initialData.h / 2) + rotatedCenterYChange;
 
-      updateLayer(interaction.layerId, { x: newCenterX - newW / 2, y: newCenterY - newH / 2, width: newW, height: newH }, false);
+      const next = { pageKey, layerId: interaction.layerId, updates: { x: newCenterX - newW / 2, y: newCenterY - newH / 2, width: newW, height: newH } };
+      draftRef.current = next;
+      setDraft(next);
     }
-  }, [interaction, zoom, project.layers, project.pageInfo, updateLayer]);
+  }, [interaction, zoom, project.layers, project.pageInfo, pageKey]);
 
   const handleGlobalMouseUp = useCallback(() => {
     if (interaction) {
-      onCommit();
+      const current = draftRef.current;
+      if (current?.pageKey === pageKey && current.layerId === interaction.layerId) updateLayer(current.layerId, current.updates, true);
+      draftRef.current = null;
+      setDraft(null);
       setInteraction(null);
       setGuidelines([]);
     }
-  }, [interaction, onCommit]);
+  }, [interaction, pageKey, updateLayer]);
 
   useEffect(() => {
     if (interaction) {
       window.addEventListener('mousemove', handleGlobalMouseMove);
       window.addEventListener('mouseup', handleGlobalMouseUp);
+      window.addEventListener('blur', handleGlobalMouseUp);
       return () => {
         window.removeEventListener('mousemove', handleGlobalMouseMove);
         window.removeEventListener('mouseup', handleGlobalMouseUp);
+        window.removeEventListener('blur', handleGlobalMouseUp);
       };
     }
   }, [interaction, handleGlobalMouseMove, handleGlobalMouseUp]);

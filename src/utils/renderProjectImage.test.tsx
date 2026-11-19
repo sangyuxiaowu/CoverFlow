@@ -3,10 +3,13 @@ import { expect, it, vi } from 'vitest';
 import * as htmlToImage from 'html-to-image';
 import type { ProjectState } from '../types.ts';
 import { renderProjectImage } from './renderProjectImage.tsx';
+import { previewImageAssets } from './previewImageAssets.ts';
+import { cachedProjectImage } from '../storage/IndexedDBAdapter.ts';
 
 vi.mock('html-to-image', () => ({ toCanvas: vi.fn() }));
 vi.mock('../components/LivePreview.tsx', () => ({ default: ({ previewRef }: { previewRef: { current: HTMLDivElement | null } }) => <div ref={previewRef} /> }));
 vi.mock('../features/ai/services/fontLoading.ts', () => ({ ensureProjectFonts: vi.fn(async () => {}), projectFontEmbedCSS: vi.fn(async () => '') }));
+vi.mock('../storage/IndexedDBAdapter.ts', () => ({ cachedProjectImage: vi.fn() }));
 vi.mock('./previewIdle.ts', async importOriginal => ({ ...await importOriginal<typeof import('./previewIdle.ts')>(),
   waitForPreviewIdle: vi.fn(async (signal: AbortSignal) => signal.throwIfAborted()) }));
 
@@ -38,4 +41,31 @@ it('waits for an uncancellable screenshot before releasing the background queue 
   expect(secondCanvas.width).toBe(0);
   expect(secondCanvas.height).toBe(0);
   expect(document.querySelector('[aria-hidden="true"]')).toBeNull();
+});
+
+it('uses temporary reduced assets only for previews and revokes their URLs', async () => {
+  const image = 'data:image/png;base64,AQIDBA==';
+  const project: ProjectState = { id: 'preview', title: 'Preview', selectedLayerId: null, updatedAt: 1,
+    layers: [{ id: 'image', name: 'Image', type: 'image', content: image, x: 0, y: 0, width: 100, height: 100, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }],
+    pageInfo: { width: 1000, height: 1000, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } };
+  const close = vi.fn();
+  const drawImage = vi.fn();
+  const revoke = vi.fn();
+  vi.mocked(cachedProjectImage).mockReturnValue(Promise.resolve({ id: 'asset', blob: new Blob(['image']) }));
+  vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 2000, height: 1000, close })));
+  vi.stubGlobal('OffscreenCanvas', class {
+    constructor(public width: number, public height: number) {}
+    getContext() { return { drawImage }; }
+    async convertToBlob() { return new Blob(['preview'], { type: 'image/webp' }); }
+  });
+  vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:preview'), revokeObjectURL: revoke });
+  try {
+    const preview = await previewImageAssets(project, 320, new AbortController().signal);
+    expect(preview.project.layers[0].content).toBe('blob:preview');
+    expect(project.layers[0].content).toBe(image);
+    expect(drawImage).toHaveBeenCalledWith(expect.anything(), 0, 0, 640, 320);
+    expect(close).toHaveBeenCalledOnce();
+    preview.dispose();
+    expect(revoke).toHaveBeenCalledExactlyOnceWith('blob:preview');
+  } finally { vi.unstubAllGlobals(); vi.clearAllMocks(); }
 });

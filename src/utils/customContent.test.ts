@@ -42,7 +42,7 @@ describe('decoration rendering boundaries', () => {
       visible: true, locked: false, opacity: 0.6
     }] };
   const renderers = [
-    { name: 'canvas', render: (state: ProjectState) => createElement(Canvas, { project: state, lang: 'zh', onSelectLayer: () => {}, updateLayer: () => {}, onCommit: () => {} }) },
+    { name: 'canvas', render: (state: ProjectState) => createElement(Canvas, { project: state, lang: 'zh', onSelectLayer: () => {}, updateLayer: () => {}, onKeyboardCommit: () => {}, onCommit: () => {} }) },
     { name: 'live preview', render: (state: ProjectState) => createElement(LivePreview, { project: state }) }
   ];
 

@@ -28,7 +28,8 @@ import { OfflineIndicator } from './components/pwa/OfflineIndicator.tsx';
 // Tauri 环境下的本地文件适配器
 import { readLocalProject, useLocalProjects } from './hooks/useLocalProjects.ts';
 import type { BrowserProjectItem } from './views/ProjectBrowser.tsx';
-import type { ProjectSummary, StorageAdapter } from './storage/StorageAdapter.ts';
+import { summarizeProject, type ProjectSummary, type StorageAdapter } from './storage/StorageAdapter.ts';
+import { releaseProjectStorageCache } from './storage/IndexedDBAdapter.ts';
 import { pagePreviewFingerprint } from './storage/projectPreviews.ts';
 import { useProjectHistory } from './hooks/useProjectHistory.ts';
 import { useProjectAutoSave } from './hooks/useProjectAutoSave.ts';
@@ -146,6 +147,11 @@ const App: React.FC = () => {
   
   const { initProjectHistory, modifyProject, saveHistorySnapshot, handleUndo, handleRedo, canUndo, canRedo, aiHistory } = useProjectHistory(project, setProject);
   useEffect(() => { if (view !== 'editor') aiHistory.clear(); }, [view]);
+  useEffect(() => {
+    if (view !== 'editor' || !project) return;
+    const id = project.id;
+    return () => releaseProjectStorageCache(id);
+  }, [view, project?.id]);
 
   const [bgCropModal, setBgCropModal] = useState<{ src: string } | null>(null);
   const [bgCropPosition, setBgCropPosition] = useState({ x: 0, y: 0 });
@@ -1721,7 +1727,7 @@ const App: React.FC = () => {
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <button
             onClick={() => {
-              setProjects(prev => prev.map(item => item.id === project.id ? { ...project, updatedAt: Date.now() } : item));
+              setProjects(prev => prev.map(item => item.id === project.id ? (storageAdapter.listProjectSummaries ? summarizeProject({ ...project, updatedAt: Date.now() }) : { ...project, updatedAt: Date.now() }) : item));
               performAutoSave('leave');
               setProject(null);
               setView('landing');
@@ -1945,6 +1951,7 @@ const App: React.FC = () => {
             project={isExportModalOpen ? { ...project, selectedLayerId: null } : project}
             onSelectLayer={(id) => handleSelectLayer(id, 'replace')}
             updateLayer={updateLayer}
+            onKeyboardCommit={modifyProject}
             onCommit={saveHistorySnapshot}
             onOpenImageCrop={(id) => setCroppingImageLayerId(id)}
           />

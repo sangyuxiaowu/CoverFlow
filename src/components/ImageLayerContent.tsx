@@ -62,4 +62,10 @@ const ImageLayerContent: React.FC<ImageLayerContentProps> = ({ layer }) => {
   );
 };
 
-export default React.memo(ImageLayerContent);
+export default React.memo(ImageLayerContent, (previous, next) => {
+  const left = previous.layer;
+  const right = next.layer;
+  return left.content === right.content && left.name === right.name && left.opacity === right.opacity &&
+    left.imageFilters === right.imageFilters && left.imageCrop === right.imageCrop &&
+    left.flipX === right.flipX && left.flipY === right.flipY && left.ratioLocked === right.ratioLocked;
+});

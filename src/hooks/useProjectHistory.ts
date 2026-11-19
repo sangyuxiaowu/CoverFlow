@@ -54,6 +54,12 @@ export function useProjectHistory(project: ProjectState | null, setProject: Disp
     if (checkpoint.current && !isCheckpointValid(checkpoint.current.token)) clearCheckpoint();
   }, [project]);
   useEffect(() => () => { checkpoint.current = null; }, []);
+  useEffect(() => {
+    if (project) return;
+    setHistory([]);
+    setHistoryIndex(-1);
+    clearCheckpoint();
+  }, [project, clearCheckpoint]);
 
   const aiHistory: AiProjectHistory = {
     begin: (source = project) => {

@@ -2,7 +2,7 @@ import JSZip from 'jszip';
 import { sha256 } from '@noble/hashes/sha2.js';
 import type { ProjectDocument, ProjectState } from '../types.ts';
 import { readProject, writeProject } from './projectCompatibility.ts';
-import { pagePreviewFingerprint, projectPreviews, rememberProjectPreview } from './projectPreviews.ts';
+import { pagePreviewFingerprintAsync, projectPreviews, rememberProjectPreview } from './projectPreviews.ts';
 
 const FORMAT = 'coverflow-project';
 const FORMAT_VERSION = 1;
@@ -14,6 +14,44 @@ const MAX_PROJECT_SIZE = 32 * 1024 * 1024;
 const MAX_PREVIEW_SIZE = 2 * 1024 * 1024;
 const IMAGE_PATH = /^images\/([a-f0-9]{64})\.([a-z0-9.+-]+)$/;
 const PREVIEW_PATH = /^previews\/(0|[1-9][0-9]?)\.webp$/;
+let archiveQueue: Promise<void> = Promise.resolve();
+
+export const sameStoredValue = (left: unknown, right: unknown): boolean => {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => sameStoredValue(item, right[index]));
+  }
+  const leftObject = left as Record<string, unknown>;
+  const rightObject = right as Record<string, unknown>;
+  const keys = Object.keys(leftObject).filter(key => leftObject[key] !== undefined);
+  return keys.length === Object.keys(rightObject).filter(key => rightObject[key] !== undefined).length &&
+    keys.every(key => Object.hasOwn(rightObject, key) && sameStoredValue(leftObject[key], rightObject[key]));
+};
+
+type ArchiveTask = { kind: 'encode'; project: ProjectState; previews: Record<string, Uint8Array> } |
+  { kind: 'previews'; project: ProjectState; previews: Record<string, Uint8Array>; bytes: Uint8Array };
+type PreviewUpdate = { matches: boolean; bytes?: Uint8Array };
+
+function runArchiveTask<Result>(request: ArchiveTask, direct: () => Promise<Result>): Promise<Result> {
+  if (typeof Worker === 'undefined' || typeof document === 'undefined') return direct();
+  const task = archiveQueue.then(() => new Promise<Result>((resolve, reject) => {
+    let worker: Worker;
+    try { worker = new Worker(new URL('./projectArchive.worker.ts', import.meta.url), { type: 'module' }); }
+    catch { void direct().then(resolve, reject); return; }
+    worker.onmessage = event => {
+      worker.terminate();
+      if (event.data?.ok === true) resolve(event.data.result as Result);
+      else reject(new Error(typeof event.data?.error === 'string' ? event.data.error : 'Project archive operation failed.'));
+    };
+    worker.onerror = () => { worker.terminate(); void direct().then(resolve, reject); };
+    worker.onmessageerror = () => { worker.terminate(); void direct().then(resolve, reject); };
+    try { worker.postMessage(request); }
+    catch { worker.terminate(); void direct().then(resolve, reject); }
+  }));
+  archiveQueue = task.then(() => {}, () => {});
+  return task;
+}
 
 const isWebP = (bytes: Uint8Array) => bytes.length >= 12 &&
   String.fromCharCode(...bytes.subarray(0, 4)) === 'RIFF' &&
@@ -53,7 +91,11 @@ const mapImages = async (document: ProjectDocument, transform: (value: string) =
   })))
 });
 
-export async function encodeProjectArchive(project: ProjectState, previews: Record<string, Uint8Array> = projectPreviews(project)): Promise<Uint8Array> {
+export function encodeProjectArchive(project: ProjectState, previews: Record<string, Uint8Array> = projectPreviews(project)): Promise<Uint8Array> {
+  return runArchiveTask({ kind: 'encode', project, previews }, () => encodeProjectArchiveDirect(project, previews));
+}
+
+async function encodeProjectArchiveDirect(project: ProjectState, previews: Record<string, Uint8Array>): Promise<Uint8Array> {
   const zip = new JSZip();
   const files = new Set<string>();
   const images = new Map<string, Promise<string>>();
@@ -80,10 +122,10 @@ export async function encodeProjectArchive(project: ProjectState, previews: Reco
     return encoding;
   });
   const sourcePages = writeProject(project).pages;
-  const previewFingerprints = sourcePages.map(page => {
+  const previewFingerprints = await Promise.all(sourcePages.map(async page => {
     const preview = previews[page.id];
-    return preview && preview.length <= MAX_PREVIEW_SIZE && isWebP(preview) ? pagePreviewFingerprint(page) : null;
-  });
+    return preview && preview.length <= MAX_PREVIEW_SIZE && isWebP(preview) ? pagePreviewFingerprintAsync(page) : null;
+  }));
   const manifest = JSON.stringify({ format: FORMAT, formatVersion: FORMAT_VERSION, project: document, previews: previewFingerprints });
   const manifestSize = new TextEncoder().encode(manifest).length;
   if (manifestSize > MAX_PROJECT_SIZE || expandedSize + manifestSize > MAX_EXPANDED_SIZE) throw new Error('Project manifest exceeds the size limit.');
@@ -97,7 +139,7 @@ export async function encodeProjectArchive(project: ProjectState, previews: Reco
   }
   const result = await zip.generateAsync({ type: 'uint8array' });
   if (result.length > MAX_ARCHIVE_SIZE) {
-    if (previewFingerprints.some(Boolean)) return encodeProjectArchive(project, {});
+    if (previewFingerprints.some(Boolean)) return encodeProjectArchiveDirect(project, {});
     throw new Error('Project archive exceeds the size limit.');
   }
   return result;
@@ -133,10 +175,10 @@ export async function replaceProjectArchivePreviews(bytes: Uint8Array, project: 
   const { zip } = await openProjectArchive(bytes);
   const manifest = JSON.parse(await zip.file('project.json')!.async('string')) as { previews?: unknown };
   const pages = writeProject(project).pages;
-  const fingerprints = pages.map(page => {
+  const fingerprints = await Promise.all(pages.map(async page => {
     const preview = previews[page.id];
-    return preview && preview.length <= MAX_PREVIEW_SIZE && isWebP(preview) ? pagePreviewFingerprint(page) : null;
-  });
+    return preview && preview.length <= MAX_PREVIEW_SIZE && isWebP(preview) ? pagePreviewFingerprintAsync(page) : null;
+  }));
   manifest.previews = fingerprints;
   const text = JSON.stringify(manifest);
   const manifestSize = new TextEncoder().encode(text).length;
@@ -190,7 +232,7 @@ export async function decodeProjectArchiveWithPreviews(bytes: Uint8Array): Promi
       if (!file) continue;
       const size = (file as JSZip.JSZipObject & { _data?: { uncompressedSize?: number } })._data?.uncompressedSize;
       if (!Number.isSafeInteger(size) || size! < 0 || size! > MAX_PREVIEW_SIZE) continue;
-      if (previewFingerprints[index] !== pagePreviewFingerprint(page)) continue;
+      if (previewFingerprints[index] !== await pagePreviewFingerprintAsync(page)) continue;
       const preview = await file.async('uint8array');
       if (preview.length <= MAX_PREVIEW_SIZE && isWebP(preview)) {
         previews[page.id] = preview;
@@ -204,4 +246,16 @@ export async function decodeProjectArchive(bytes: Uint8Array): Promise<ProjectSt
   const { project, previews } = await decodeProjectArchiveWithPreviews(bytes);
   for (const page of project.pages ?? []) if (previews[page.id]) rememberProjectPreview(project, page, previews[page.id]);
   return project;
+}
+
+export function prepareProjectArchivePreviews(bytes: Uint8Array, project: ProjectState, previews: Record<string, Uint8Array>): Promise<PreviewUpdate> {
+  return runArchiveTask({ kind: 'previews', bytes, project, previews }, async () => {
+    const archive = await decodeProjectArchiveWithPreviews(bytes);
+    if (!sameStoredValue(writeProject(archive.project), writeProject(project))) return { matches: false };
+    const changed = Object.entries(previews).some(([pageId, preview]) => {
+      const previous = archive.previews[pageId];
+      return !previous || previous.length !== preview.length || preview.some((value, index) => value !== previous[index]);
+    });
+    return { matches: true, ...(changed ? { bytes: await replaceProjectArchivePreviews(bytes, archive.project, { ...archive.previews, ...previews }) } : {}) };
+  });
 }

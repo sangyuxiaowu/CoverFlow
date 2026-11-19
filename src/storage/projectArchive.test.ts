@@ -3,12 +3,71 @@ import JSZip from 'jszip';
 import { encodeProjectArchive, decodeProjectArchive, decodeProjectArchiveWithPreviews, replaceProjectArchivePreviews } from './projectArchive.ts';
 import { readLegacyCfj } from './legacyCfj.ts';
 import * as hashes from '@noble/hashes/sha2.js';
-import { pagePreviewFingerprint } from './projectPreviews.ts';
+import { pagePreviewFingerprint, pagePreviewFingerprintAsync } from './projectPreviews.ts';
 
 const image = 'data:image/png;base64,AQIDBA==';
 const legacy = JSON.stringify({ id: 'legacy', title: 'Test', version: '9.2.7', updatedAt: 1, pages: [{ id: 'page', name: '', layers: [{ id: 'image', type: 'image', content: image }], background: { type: 'image', value: image, overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 }, canvasConfig: { width: 900, height: 383, ratio: '2.35:1' } }] });
 
 describe('project archive', () => {
+  it('uses the archive worker and propagates encoding errors', async () => {
+    const project = readLegacyCfj(legacy);
+    const messages: unknown[] = [];
+    const terminated = vi.fn();
+    let fail = false;
+    class ArchiveWorker {
+      onmessage?: (event: { data: unknown }) => void;
+      postMessage(message: unknown) {
+        messages.push(message);
+        queueMicrotask(() => this.onmessage?.({ data: fail ? { ok: false, error: 'Encoding failed' } : { ok: true, result: new Uint8Array([1, 2, 3]) } }));
+      }
+      terminate() { terminated(); }
+    }
+    vi.stubGlobal('Worker', ArchiveWorker);
+    vi.stubGlobal('document', {});
+    try {
+      expect(await encodeProjectArchive(project, {})).toEqual(new Uint8Array([1, 2, 3]));
+      expect(messages[0]).toMatchObject({ kind: 'encode', project });
+      fail = true;
+      await expect(encodeProjectArchive(project, {})).rejects.toThrow('Encoding failed');
+      expect(terminated).toHaveBeenCalledTimes(2);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('falls back to direct archive encoding if workers cannot start', async () => {
+    const project = readLegacyCfj(legacy);
+    vi.stubGlobal('document', {});
+    vi.stubGlobal('Worker', class { constructor() { throw new Error('Workers unavailable'); } });
+    try {
+      expect(await decodeProjectArchive(await encodeProjectArchive(project, {}))).toEqual(project);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('shares an asynchronous fingerprint worker and preserves the existing hash', async () => {
+    const project = readLegacyCfj(legacy);
+    const page = { ...project.pages![0], layers: [...project.layers] };
+    const expected = pagePreviewFingerprint({ ...page, layers: [...page.layers] });
+    const workers: Array<{ terminated: boolean }> = [];
+    class FingerprintWorker {
+      onmessage?: (event: { data: string }) => void;
+      terminated = false;
+      constructor() { workers.push(this); }
+      postMessage(value: Pick<typeof page, 'layers' | 'pageInfo'>) {
+        queueMicrotask(() => this.onmessage?.({ data: pagePreviewFingerprint({ ...page, ...value }) }));
+      }
+      terminate() { this.terminated = true; }
+    }
+    vi.stubGlobal('Worker', FingerprintWorker);
+    vi.stubGlobal('document', {});
+    try {
+      const first = pagePreviewFingerprintAsync(page);
+      const second = pagePreviewFingerprintAsync(page);
+      expect(second).toBe(first);
+      expect(await first).toBe(expected);
+      expect(workers).toHaveLength(1);
+      expect(workers[0].terminated).toBe(true);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it('updates archive previews without decoding embedded images again', async () => {
     const project = readLegacyCfj(legacy);
     const original = await encodeProjectArchive(project, {});

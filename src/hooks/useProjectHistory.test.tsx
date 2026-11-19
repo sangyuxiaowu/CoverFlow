@@ -199,3 +199,25 @@ it('retains unchanged pages through repeated AI edits and restores history', asy
     vi.unstubAllGlobals();
   }
 });
+
+it('clears undo history when the project is closed', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const initial = syncProjectPages({ id: 'closed', title: 'Initial', layers: [], selectedLayerId: null, updatedAt: 1,
+    pageInfo: { width: 100, height: 100, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
+  let state: ReturnType<typeof useProjectHistory> & { setProject: Dispatch<SetStateAction<ProjectState | null>> };
+  function Harness() {
+    const [project, setProject] = useState<ProjectState | null>(initial);
+    state = { ...useProjectHistory(project, setProject), setProject };
+    return null;
+  }
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(<Harness />));
+    await act(async () => state!.initProjectHistory(initial));
+    await act(async () => state!.modifyProject(current => ({ ...current, title: 'Changed' })));
+    expect(state!.canUndo).toBe(true);
+    await act(async () => state!.setProject(null));
+    expect(state!.canUndo).toBe(false);
+    expect(state!.canRedo).toBe(false);
+  } finally { await act(async () => root.unmount()); vi.unstubAllGlobals(); }
+});

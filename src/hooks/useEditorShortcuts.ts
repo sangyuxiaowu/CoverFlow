@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { Layer, ProjectState } from '../types.ts';
 import { readProject } from '../storage/projectCompatibility.ts';
 import { migrateLegacyProjectPatch } from '../storage/legacyCfj.ts';
+import { COMMIT_KEYBOARD_LAYER_TRANSFORM, KEYBOARD_LAYER_TRANSFORM, type KeyboardLayerTransform } from '../utils/keyboardLayerTransform.ts';
 
 type EditorShortcutOptions = {
   view: 'landing' | 'editor';
@@ -25,6 +26,8 @@ type EditorShortcutOptions = {
 export function useEditorShortcuts({ view, project, aiBusy, selectedLayerIds, handleUndo, handleRedo,
   performAutoSave, modifyProject, updateLayer, handleDeleteLayers, handleCloneLayers, handleGroupLayers,
   addSvgLayerWithContent, addImageLayerWithContent, addTextLayerWithContent, applyProjectFromJson }: EditorShortcutOptions) {
+  const historyHandlers = useRef({ handleUndo, handleRedo });
+  historyHandlers.current = { handleUndo, handleRedo };
   useEffect(() => {
     if (view !== 'editor' || !project) return;
 
@@ -100,29 +103,39 @@ export function useEditorShortcuts({ view, project, aiBusy, selectedLayerIds, ha
   useEffect(() => {
     if (view !== 'editor' || !project) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (aiBusy || (e.target as HTMLElement).closest('.cf-ai-panel')) return;
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+      const target = e.target instanceof Element ? e.target : null;
+      if (e.defaultPrevented || aiBusy || target?.closest('.cf-ai-panel, [role="dialog"], [contenteditable]:not([contenteditable="false"])')) return;
+      if (target?.closest('input, textarea, select')) {
         return;
+      }
+      const arrow = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key);
+      let committedDraft = false;
+      if (!arrow && !['Control', 'Meta', 'Shift', 'Alt'].includes(e.key)) {
+        const commit = new Event(COMMIT_KEYBOARD_LAYER_TRANSFORM, { cancelable: true });
+        window.dispatchEvent(commit);
+        committedDraft = commit.defaultPrevented;
       }
 
       // 保存（Ctrl+S / Cmd+S）
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        performAutoSave('manual');
+        if (committedDraft) window.setTimeout(() => performAutoSave('manual'), 0);
+        else performAutoSave('manual');
         return;
       }
 
       // 撤销/重做
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        if (e.shiftKey) handleRedo();
-        else handleUndo();
+        const action = () => e.shiftKey ? historyHandlers.current.handleRedo() : historyHandlers.current.handleUndo();
+        if (committedDraft) window.setTimeout(action, 0);
+        else action();
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
         e.preventDefault();
-        handleRedo();
+        if (committedDraft) window.setTimeout(() => historyHandlers.current.handleRedo(), 0);
+        else historyHandlers.current.handleRedo();
         return;
       }
 
@@ -137,7 +150,9 @@ export function useEditorShortcuts({ view, project, aiBusy, selectedLayerIds, ha
       if (!project || !project.selectedLayerId) return;
 
       const layer = project.layers.find(l => l.id === project.selectedLayerId);
-      if (!layer || layer.locked) return;
+      if (!layer) return;
+      const isNudge = !e.ctrlKey && !e.metaKey && !e.altKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key);
+      if (layer.locked && !isNudge) return;
 
       // 回车：激活文字编辑
       if (e.key === 'Enter') {
@@ -158,10 +173,11 @@ export function useEditorShortcuts({ view, project, aiBusy, selectedLayerIds, ha
       }
 
       // 组合按键（Ctrl + 方向键）
-      if (e.ctrlKey || e.metaKey) {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
         // 层级调整
         if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
           e.preventDefault();
+          window.dispatchEvent(new Event(COMMIT_KEYBOARD_LAYER_TRANSFORM));
           modifyProject(p => {
             const index = p.layers.findIndex(l => l.id === project.selectedLayerId);
             const newLayers = [...p.layers];
@@ -179,7 +195,9 @@ export function useEditorShortcuts({ view, project, aiBusy, selectedLayerIds, ha
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
           e.preventDefault();
           const dr = e.key === 'ArrowLeft' ? -5 : 5;
-          updateLayer(project.selectedLayerId, { rotation: (layer.rotation + dr) % 360 });
+          window.dispatchEvent(new CustomEvent<KeyboardLayerTransform>(KEYBOARD_LAYER_TRANSFORM, { detail: {
+            projectId: project.id, pageId: project.activePageId, layerIds: [layer.id], key: e.key, dx: 0, dy: 0, rotation: dr
+          } }));
           return;
         }
 
@@ -193,7 +211,7 @@ export function useEditorShortcuts({ view, project, aiBusy, selectedLayerIds, ha
       }
 
       // 简单位移
-      if (!e.ctrlKey && !e.metaKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      if (isNudge) {
         e.preventDefault();
         const step = e.shiftKey ? 10 : 1;
         let dx = 0, dy = 0;
@@ -201,7 +219,10 @@ export function useEditorShortcuts({ view, project, aiBusy, selectedLayerIds, ha
         if (e.key === 'ArrowDown') dy = step;
         if (e.key === 'ArrowLeft') dx = -step;
         if (e.key === 'ArrowRight') dx = step;
-        updateLayer(project.selectedLayerId, { x: layer.x + dx, y: layer.y + dy });
+        window.dispatchEvent(new CustomEvent<KeyboardLayerTransform>(KEYBOARD_LAYER_TRANSFORM, { detail: {
+          projectId: project.id, pageId: project.activePageId,
+          layerIds: selectedLayerIds.length > 1 ? selectedLayerIds : [project.selectedLayerId], key: e.key, dx, dy, rotation: 0
+        } }));
         return;
       }
     };

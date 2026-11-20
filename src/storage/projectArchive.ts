@@ -242,7 +242,7 @@ export async function replaceProjectArchivePreviews(bytes: Uint8Array, project: 
   return result;
 }
 
-export async function decodeProjectArchiveWithPreviews(bytes: Uint8Array): Promise<{ project: ProjectState; previews: Record<string, Uint8Array> }> {
+export async function decodeProjectArchiveWithPreviews(bytes: Uint8Array, owner?: symbol): Promise<{ project: ProjectState; previews: Record<string, Uint8Array> }> {
   const { zip, project: parsed, previewFingerprints } = await openProjectArchive(bytes);
   const images = new Map<string, Promise<string>>();
   const document = await mapImages(writeProject(parsed), async value => {
@@ -256,6 +256,7 @@ export async function decodeProjectArchiveWithPreviews(bytes: Uint8Array): Promi
       if (!match || !file) throw new Error('Missing project image.');
       const image = await file.async('uint8array');
       if (image.length > MAX_IMAGE_SIZE || await digest(image) !== match[1]) throw new Error('Invalid project image.');
+      if (owner) return imageAssets.add(owner, new Blob([image as Uint8Array<ArrayBuffer>], { type: `image/${match[2]}` }));
       return `data:image/${match[2]};base64,${toBase64(image)}`;
     })();
     images.set(path, loading);
@@ -280,8 +281,8 @@ export async function decodeProjectArchiveWithPreviews(bytes: Uint8Array): Promi
   return { project, previews };
 }
 
-export async function decodeProjectArchive(bytes: Uint8Array): Promise<ProjectState> {
-  const { project, previews } = await decodeProjectArchiveWithPreviews(bytes);
+export async function decodeProjectArchive(bytes: Uint8Array, owner?: symbol): Promise<ProjectState> {
+  const { project, previews } = await decodeProjectArchiveWithPreviews(bytes, owner);
   for (const page of project.pages ?? []) if (previews[page.id]) rememberProjectPreview(project, page, previews[page.id]);
   return project;
 }

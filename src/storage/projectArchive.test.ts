@@ -152,6 +152,21 @@ describe('project archive', () => {
     } finally { imageAssets.release(owner); }
   });
 
+  it('decodes archive images into owner-scoped binary references', async () => {
+    const owner = imageAssets.createOwner();
+    try {
+      const original = readLegacyCfj(legacy);
+      const project = await decodeProjectArchive(await encodeProjectArchive(original, {}), owner);
+      const reference = project.layers[0].content;
+      expect(reference).toMatch(/^asset-image:/);
+      expect(project.pageInfo.background.value).toBe(reference);
+      expect(new Uint8Array(await imageAssets.blob(reference)!.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]));
+      expect(await decodeProjectArchive(await encodeProjectArchive(project, {}))).toEqual(original);
+      imageAssets.release(owner);
+      expect(imageAssets.blob(reference)).toBeUndefined();
+    } finally { imageAssets.release(owner); }
+  });
+
   it('passes binary assets to the archive worker while holding them for queued saves', async () => {
     const owner = imageAssets.createOwner();
     const project = readLegacyCfj(legacy);

@@ -86,6 +86,7 @@ test('stores pages separately, writes only changed pages, and deletes removed pa
 
 test('migrates an inline IndexedDB project when saving without losing image data', async () => {
   vi.stubGlobal('indexedDB', new IDBFactory());
+  const owner = imageAssets.createOwner();
   try {
     const image = 'data:image/png;base64,AQIDBA==';
     const old = syncProjectPages({ id: 'inline', title: 'Inline', selectedLayerId: null, updatedAt: 1,
@@ -104,9 +105,12 @@ test('migrates an inline IndexedDB project when saving without losing image data
     const adapter = new IndexedDBAdapter();
     const opened = await adapter.getProject(old.id);
     assert.equal(opened?.layers[0].content, image);
+    const binary = await adapter.getProject(old.id, owner);
+    assert.match(binary!.layers[0].content, /^asset-image:/);
+    assert.deepEqual(new Uint8Array(await imageAssets.blob(binary!.layers[0].content)!.arrayBuffer()), new Uint8Array([1, 2, 3, 4]));
     await adapter.saveProject(opened!);
     assert.equal((await adapter.getProject(old.id))?.layers[0].content, image);
-  } finally { vi.unstubAllGlobals(); }
+  } finally { imageAssets.release(owner); vi.unstubAllGlobals(); }
 });
 
 test('rewrites all pages when another client replaces a project with the same id', async () => {

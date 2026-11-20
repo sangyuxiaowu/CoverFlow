@@ -2,7 +2,7 @@ import { ProjectDocument, ProjectPage, ProjectState } from '../types.ts';
 import { ListProjectsOptions, StorageAdapter, StorageAdapterType, type ProjectSummary, summarizeProject } from './StorageAdapter.ts';
 import { readProject, writeProject } from './projectCompatibility.ts';
 import { notifyProjectPreview, pagePreviewFingerprint, pagePreviewFingerprintAsync, rememberProjectPreview } from './projectPreviews.ts';
-import { readLegacyIndexedDBProject } from './legacyCfj.ts';
+import { migrateLegacyIndexedDBImages, readLegacyIndexedDBProject } from './legacyCfj.ts';
 import { packImagePages, unpackImagePages, type ImageAsset, type ImageCache } from './indexedDbImages.ts';
 import { captureImageAssets } from './imageAssets.ts';
 
@@ -44,8 +44,11 @@ export const cachedProjectImage = (projectId: string, value: string) =>
 
 const isPagedProject = (value: unknown): value is PagedProject => Boolean(value && typeof value === 'object' && (value as PagedProject).storageFormat === 'paged-v1');
 
-const readStoredProject = async (value: unknown, records: StoredPage[], assets: StoredAsset[]) => {
-  if (!isPagedProject(value)) return { project: readLegacyIndexedDBProject(value), cache: new Map() as ImageCache };
+const readStoredProject = async (value: unknown, records: StoredPage[], assets: StoredAsset[], owner?: symbol) => {
+  if (!isPagedProject(value)) {
+    const project = readLegacyIndexedDBProject(value);
+    return { project: owner ? readProject({ ...writeProject(project), pages: await migrateLegacyIndexedDBImages(project.pages!, owner) }) : project, cache: new Map() as ImageCache };
+  }
   if (!Array.isArray(value.pageIds) || typeof value.revision !== 'string' || !value.revision) throw new Error('Invalid stored project index.');
   const pages = new Map(records.filter(record => record.projectId === value.id).map(record => [record.pageId, record.page]));
   const ordered = value.pageIds.map(id => {
@@ -53,8 +56,9 @@ const readStoredProject = async (value: unknown, records: StoredPage[], assets: 
     if (!page || page.id !== id) throw new Error('Missing stored project page.');
     return page;
   });
-  const unpacked = await unpackImagePages(ordered, assets.filter(asset => asset.projectId === value.id));
-  return { project: readProject({ ...value, pages: unpacked.pages }), cache: unpacked.cache };
+  const unpacked = await unpackImagePages(ordered, assets.filter(asset => asset.projectId === value.id), owner);
+  const resolvedPages = owner ? await migrateLegacyIndexedDBImages(unpacked.pages, owner) : unpacked.pages;
+  return { project: readProject({ ...value, pages: resolvedPages }), cache: unpacked.cache };
 };
 
 const requestValue = <Value,>(request: IDBRequest<Value>) => new Promise<Value>((resolve, reject) => {
@@ -182,7 +186,7 @@ export class IndexedDBAdapter implements StorageAdapter {
 
   ensureReady = async () => this.isAvailable();
 
-  getProject = async (projectId: string) => {
+  getProject = async (projectId: string, owner?: symbol) => {
     if (!this.isAvailable()) return null;
     const epoch = cacheEpoch;
     const db = await openIndexedDb();
@@ -194,9 +198,10 @@ export class IndexedDBAdapter implements StorageAdapter {
         requestValue(tx.objectStore(ASSET_STORE).index('projectId').getAll(IDBKeyRange.only(projectId)))
       ]);
       if (stored === undefined) return null;
-      const { project, cache } = await readStoredProject(stored, pages as StoredPage[], assets as StoredAsset[]);
+      const { project, cache } = await readStoredProject(stored, pages as StoredPage[], assets as StoredAsset[], owner);
       if (epoch === cacheEpoch) {
-        if (isPagedProject(stored)) lastPages = { factory: indexedDB, projectId, revision: stored.revision, pages: project.pages! };
+        if (isPagedProject(stored) && !owner) lastPages = { factory: indexedDB, projectId, revision: stored.revision, pages: project.pages! };
+        else lastPages = null;
         lastImages = { factory: indexedDB, projectId, cache };
       }
       let records: Array<{ pageId: string; fingerprint: string; blob: Blob }> = [];

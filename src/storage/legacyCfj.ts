@@ -1,6 +1,8 @@
 import { readProject, writeProject } from './projectCompatibility.ts';
 import { generateId } from '../utils/helpers.ts';
 import type { PageInfo } from '../types.ts';
+import type { ProjectPage } from '../types.ts';
+import { imageAssets } from './imageAssets.ts';
 
 // Remove this file and all CFJ compatibility handling when version 10.0.0 is released.
 export function migrateLegacyProject(input: Record<string, unknown>): Record<string, unknown> {
@@ -59,6 +61,30 @@ export async function readLegacyCfjx(bytes: Uint8Array) {
 
 export function readLegacyIndexedDBProject(input: unknown) {
   return readProject(input);
+}
+
+export async function migrateLegacyIndexedDBImages(pages: ProjectPage[], owner: symbol): Promise<ProjectPage[]> {
+  const pending = new Map<string, Promise<string>>();
+  const convert = (value: string): Promise<string> => {
+    if (!/^data:image\/[a-z0-9.+-]+;base64,/i.test(value)) return Promise.resolve(value);
+    let result = pending.get(value);
+    if (!result) {
+      result = (async () => {
+        let response: Response;
+        try { response = await fetch(value); } catch { return value; }
+        if (!response.ok) return value;
+        const blob = await response.blob();
+        return imageAssets.add(owner, blob);
+      })();
+      pending.set(value, result);
+    }
+    return result;
+  };
+  return Promise.all(pages.map(async page => ({
+    ...page,
+    layers: await Promise.all(page.layers.map(async layer => layer.type === 'image' ? { ...layer, content: await convert(layer.content) } : layer)),
+    pageInfo: { ...page.pageInfo, background: page.pageInfo.background.type === 'image' ? { ...page.pageInfo.background, value: await convert(page.pageInfo.background.value) } : page.pageInfo.background }
+  })));
 }
 
 export function migrateLegacyProjectPatch(input: Record<string, unknown>, current: PageInfo): Record<string, unknown> {

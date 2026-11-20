@@ -34,7 +34,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     page: { type: 'integer', description: '页码，默认 1。', minimum: 1 },
     pageSize: { type: 'integer', description: '每页数量，默认 20。', minimum: 1, maximum: 50 }
   })),
-  tool('manage_projects', '打开、重命名、复制、删除或保存项目。删除需用户确认。', object('', {
+  tool('manage_projects', '打开、重命名、复制、删除或保存项目。删除会触发授权弹窗。', object('', {
     action: enumeration('操作', Object.keys(PROJECT_MANAGE_RULES)),
     projectId: string('目标项目 ID，来自 get_context 或 search_projects，不限于当前项目。'),
     title: string('项目名称，rename 必填，duplicate 省略时自动追加 (copy)。')
@@ -164,10 +164,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     mode: enumeration('horizontal 为水平等间距，vertical 为垂直等间距。', [...DISTRIBUTE_MODES])
   }, ['layerIds', 'mode'])),
   // 画布与背景
-  tool('manage_pages', '管理项目页面。获取页面列表，更新页面画布大小、背景及名称，页面切换，页面移动，批量新增与复制；单个新增与复制后会切换到新页；调整页面画布尺寸不会缩放已有图层；删除需用户确认。', object('页面操作参数。', {
-    action: enumeration('list 读取页面列表；create 在目标页后新增空白页；switch 切页；duplicate 复制目标页到当前页后；move 移动目标页到当前页后；update 更新目标页属性；delete 删除目标页，至少保留一页。创建和复制成功后会自动切换到第一个新页。', ['list', 'create', 'switch', 'duplicate', 'delete', 'move', 'update']),
+  tool('manage_pages', '管理项目页面。获取页面列表，更新页面画布大小、背景及名称，页面切换，页面移动，批量新增与复制；调整页面画布尺寸不会缩放已有图层；删除会触发授权弹窗。', object('页面操作参数。', {
+    action: enumeration('list 读取页面列表；create 在 afterPageId 后新增空白页；switch 切页；duplicate 复制目标页到 afterPageId 后；move 移动目标页到 afterPageId 后；update 更新目标页属性；delete 删除目标页，至少保留一页。', ['list', 'create', 'switch', 'duplicate', 'delete', 'move', 'update']),
     count: { type: 'integer', description: '仅 create/duplicate 可用；批量创建或复制的页面数量，默认 1。', minimum: 1, maximum: 99 },
-    pageId: string('目标页，除 list 外均需填写，使用 get_context 或 list 返回的稳定页面 ID，不是顺序编号。'),
+    pageId: string('目标页，除 list/create 外均需填写，使用 get_context 或 list 返回的稳定页面 ID，不是顺序编号。'),
+    afterPageId: string('仅 create/duplicate/move 可用；省略则为当前页。'),
+    autoSwitch: { type: 'boolean', description: '[可选]，是否在创建、移动或复制成功后自动切换到新页，多页则为第一个新页，默认 true。' },
     name: { ...string('仅 create/update 可用的页面名称，最多 100 字符；新建时省略或空白表示沿用当前页，更新时省略保持不变，空白表示清除名称。'), maxLength: 100 },
     pageInfo: { ...object('仅 create/update 可用的画布和背景属性；新建时省略字段沿用当前页，更新时省略的字段保持不变。update 至少提供 name 或 pageInfo。', {
       width: numeric('画布宽度（px）。', 10, 10000),

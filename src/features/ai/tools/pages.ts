@@ -18,15 +18,21 @@ export async function executePageTool(input: unknown, bridge: WorkspaceBridge, s
   signal.throwIfAborted();
   const args = record(input);
   const action = choice(args.action, 'action', ['list', 'create', 'switch', 'duplicate', 'move', 'delete', 'update']);
-  const allowed = action === 'create' ? ['action', 'count', 'pageId', 'name', 'pageInfo'] : action === 'update' ? ['action', 'pageId', 'name', 'pageInfo'] : action === 'duplicate' ? ['action', 'count', 'pageId'] : action === 'list' ? ['action'] : ['action', 'pageId'];
+  const allowed = action === 'create' ? ['action', 'count', 'afterPageId', 'autoSwitch', 'name', 'pageInfo'] : action === 'update' ? ['action', 'pageId', 'name', 'pageInfo'] : action === 'duplicate' ? ['action', 'count', 'pageId', 'afterPageId', 'autoSwitch'] : action === 'move' ? ['action', 'pageId', 'afterPageId', 'autoSwitch'] : action === 'list' ? ['action'] : ['action', 'pageId'];
   if (Object.keys(args).some(key => !allowed.includes(key))) throw new Error('Unsupported page parameter.');
+  if (args.autoSwitch !== undefined && typeof args.autoSwitch !== 'boolean') throw new Error('Invalid autoSwitch.');
+  const autoSwitch = args.autoSwitch === undefined ? true : args.autoSwitch as boolean;
   const current = bridge.getProject();
   if (!current) throw new Error('No project open.');
   const project = syncProjectPages(current);
   if (action === 'list') return { projectId: project.id, ...pageContext(project) };
-  const pageId = text(args.pageId, 'pageId');
-  const target = project.pages!.find(page => page.id === pageId);
-  if (!target) throw new Error('Page not found.');
+  let pageId: string | undefined;
+  let target: NonNullable<ProjectState['pages']>[number] | undefined;
+  if (action !== 'create') {
+    pageId = text(args.pageId, 'pageId');
+    target = project.pages!.find(page => page.id === pageId);
+    if (!target) throw new Error('Page not found.');
+  }
   let next: ProjectState;
   if (action === 'create' || action === 'update') {
     const pageInfo = args.pageInfo === undefined ? {} : record(args.pageInfo);
@@ -51,7 +57,8 @@ export async function executePageTool(input: unknown, bridge: WorkspaceBridge, s
     if (action === 'create') {
       const count = args.count === undefined ? 1 : number(args.count, 'count', 1, 99);
       if (!Number.isInteger(count)) throw new Error('Invalid count');
-      next = insertProjectPages(project, name, nextPageInfo, background, count, pageId);
+      const afterPageId = args.afterPageId === undefined ? project.activePageId! : text(args.afterPageId, 'afterPageId');
+      next = insertProjectPages(project, name, nextPageInfo, background, count, afterPageId, autoSwitch);
     } else {
       const pages = project.pages!.map(page => page.id === pageId ? { ...page, name, pageInfo: nextPageInfo } : page);
       next = { ...project, pages, updatedAt: Date.now(), ...(pageId === project.activePageId ? { pageInfo: nextPageInfo } : {}) };
@@ -61,8 +68,12 @@ export async function executePageTool(input: unknown, bridge: WorkspaceBridge, s
     else if (action === 'duplicate') {
       const count = args.count === undefined ? 1 : number(args.count, 'count', 1, 99);
       if (!Number.isInteger(count)) throw new Error('Invalid count');
-      next = duplicateProjectPages(project, pageId, count);
-    } else if (action === 'move') next = moveProjectPageAfter(project, pageId, project.activePageId!);
+      const afterPageId = args.afterPageId === undefined ? project.activePageId! : text(args.afterPageId, 'afterPageId');
+      next = duplicateProjectPages(project, pageId!, count, afterPageId, autoSwitch);
+    } else if (action === 'move') {
+      const afterPageId = args.afterPageId === undefined ? project.activePageId! : text(args.afterPageId, 'afterPageId');
+      next = moveProjectPageAfter(project, pageId!, afterPageId, autoSwitch);
+    }
     else {
       if (project.pages!.length === 1) throw new Error('The last page cannot be deleted.');
       const page = project.pages!.find(item => item.id === pageId)!;

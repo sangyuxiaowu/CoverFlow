@@ -38,7 +38,7 @@ export function insertProjectPage(project: ProjectState, name: string, canvasCon
   return selectProjectPage({ ...synced, pages, updatedAt: Date.now() }, page.id);
 }
 
-export function insertProjectPages(project: ProjectState, name: string, canvasConfig: Pick<ProjectPage['pageInfo'], 'width' | 'height'>, background: ProjectPage['pageInfo']['background'], count: number, targetId: string): ProjectState {
+export function insertProjectPages(project: ProjectState, name: string, canvasConfig: Pick<ProjectPage['pageInfo'], 'width' | 'height'>, background: ProjectPage['pageInfo']['background'], count: number, targetId: string, autoSwitch = true): ProjectState {
   const synced = syncProjectPages(project);
   if (!synced.pages!.length || synced.pages!.length + count > MAX_PROJECT_PAGES) throw new Error('A project can contain at most 99 pages.');
   if (!Number.isFinite(canvasConfig.width) || !Number.isFinite(canvasConfig.height) || canvasConfig.width < 10 || canvasConfig.height < 10) throw new Error('Invalid page dimensions.');
@@ -51,33 +51,38 @@ export function insertProjectPages(project: ProjectState, name: string, canvasCo
     pages.splice(targetIndex + 1 + index, 0, page);
     if (!firstId) firstId = page.id;
   }
-  return selectProjectPage({ ...synced, pages, updatedAt: Date.now() }, firstId);
+  return autoSwitch
+    ? selectProjectPage({ ...synced, pages, updatedAt: Date.now() }, firstId)
+    : selectProjectPage({ ...synced, pages, updatedAt: Date.now() }, synced.activePageId!);
 }
 
-export function duplicateProjectPages(project: ProjectState, pageId: string, count: number): ProjectState {
+export function duplicateProjectPages(project: ProjectState, pageId: string, count: number, afterPageId: string, autoSwitch = true): ProjectState {
   const synced = syncProjectPages(project);
   if (synced.pages!.length + count > MAX_PROJECT_PAGES) throw new Error('A project can contain at most 99 pages.');
   const source = synced.pages!.find(page => page.id === pageId);
   if (!source) throw new Error('Page not found.');
-  const activeIndex = synced.pages!.findIndex(page => page.id === synced.activePageId);
-  if (activeIndex < 0) throw new Error('Page not found.');
+  const afterIndex = synced.pages!.findIndex(page => page.id === afterPageId);
+  if (afterIndex < 0) throw new Error('Page not found.');
   const pages = [...synced.pages!];
   const copies = Array.from({ length: count }, () => copyPage(source));
-  pages.splice(activeIndex + 1, 0, ...copies);
-  return selectProjectPage({ ...synced, pages, updatedAt: Date.now() }, copies[0].id);
+  pages.splice(afterIndex + 1, 0, ...copies);
+  return autoSwitch
+    ? selectProjectPage({ ...synced, pages, updatedAt: Date.now() }, copies[0].id)
+    : selectProjectPage({ ...synced, pages, updatedAt: Date.now() }, synced.activePageId!);
 }
 
-export function moveProjectPageAfter(project: ProjectState, pageId: string, targetId: string): ProjectState {
+export function moveProjectPageAfter(project: ProjectState, pageId: string, targetId: string, autoSwitch = true): ProjectState {
   const synced = syncProjectPages(project);
   const from = synced.pages!.findIndex(page => page.id === pageId);
   const target = synced.pages!.findIndex(page => page.id === targetId);
   if (from < 0 || target < 0) throw new Error('Page not found.');
-  if (from === target) return synced;
+  if (from === target) return selectProjectPage(synced, autoSwitch ? pageId : synced.activePageId!);
   const pages = [...synced.pages!];
   const [moved] = pages.splice(from, 1);
   const adjustedTarget = pages.findIndex(page => page.id === targetId);
   pages.splice(adjustedTarget + 1, 0, moved);
-  return { ...synced, pages, updatedAt: Date.now() };
+  const next = { ...synced, pages, updatedAt: Date.now() };
+  return selectProjectPage(next, autoSwitch ? pageId : synced.activePageId!);
 }
 
 export function deleteProjectPage(project: ProjectState, pageId: string): ProjectState {

@@ -1,5 +1,6 @@
 import type { ProjectState } from '../types.ts';
 import { cachedProjectImage } from '../storage/IndexedDBAdapter.ts';
+import { imageAssets } from '../storage/imageAssets.ts';
 
 export async function previewImageAssets(project: ProjectState, maxEdge: number, signal: AbortSignal) {
   const urls: string[] = [];
@@ -18,12 +19,13 @@ export async function previewImageAssets(project: ProjectState, maxEdge: number,
     for (const [value, limit] of requested) {
       signal.throwIfAborted();
       const cached = cachedProjectImage(project.id, value);
-      if (!cached) continue;
       let bitmap: ImageBitmap | undefined;
       try {
-        const asset = await cached;
+        const source = imageAssets.blob(value) ?? (cached ? (await cached).blob :
+          /^data:image\/|^blob:/i.test(value) ? await (await fetch(value, { signal })).blob() : undefined);
+        if (!source) continue;
         signal.throwIfAborted();
-        bitmap = await createImageBitmap(asset.blob);
+        bitmap = await createImageBitmap(source);
         signal.throwIfAborted();
         const scale = Math.min(1, limit / Math.max(bitmap.width, bitmap.height));
         const canvas = new OffscreenCanvas(Math.max(1, Math.round(bitmap.width * scale)), Math.max(1, Math.round(bitmap.height * scale)));

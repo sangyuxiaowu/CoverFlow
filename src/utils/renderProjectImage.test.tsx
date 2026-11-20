@@ -69,3 +69,25 @@ it('uses temporary reduced assets only for previews and revokes their URLs', asy
     expect(revoke).toHaveBeenCalledExactlyOnceWith('blob:preview');
   } finally { vi.unstubAllGlobals(); vi.clearAllMocks(); }
 });
+
+it('uses a binary image for a file project preview without an IndexedDB cache', async () => {
+  const image = 'data:image/png;base64,AQIDBA==';
+  const project: ProjectState = { id: 'file-preview', title: 'Preview', selectedLayerId: null, updatedAt: 1,
+    layers: [{ id: 'image', name: 'Image', type: 'image', content: image, x: 0, y: 0, width: 100, height: 100, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }],
+    pageInfo: { width: 1000, height: 1000, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } };
+  const source = new Blob(['image'], { type: 'image/png' });
+  vi.mocked(cachedProjectImage).mockReturnValue(undefined);
+  vi.stubGlobal('fetch', vi.fn(async () => ({ blob: async () => source })));
+  vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 1000, height: 500, close: vi.fn() })));
+  vi.stubGlobal('OffscreenCanvas', class {
+    getContext() { return { drawImage: vi.fn() }; }
+    async convertToBlob() { return new Blob(['preview']); }
+  });
+  vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:file-preview'), revokeObjectURL: vi.fn() });
+  try {
+    const preview = await previewImageAssets(project, 320, new AbortController().signal);
+    expect(preview.project.layers[0].content).toBe('blob:file-preview');
+    expect(createImageBitmap).toHaveBeenCalledWith(source);
+    preview.dispose();
+  } finally { vi.unstubAllGlobals(); vi.clearAllMocks(); }
+});

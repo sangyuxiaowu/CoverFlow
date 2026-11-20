@@ -4,6 +4,7 @@ import { encodeProjectArchive, decodeProjectArchive, decodeProjectArchiveWithPre
 import { readLegacyCfj, readLegacyCfjx } from './legacyCfj.ts';
 import * as hashes from '@noble/hashes/sha2.js';
 import { pagePreviewFingerprint, pagePreviewFingerprintAsync } from './projectPreviews.ts';
+import { imageAssets } from './imageAssets.ts';
 
 const image = 'data:image/png;base64,AQIDBA==';
 const legacy = JSON.stringify({ id: 'legacy', title: 'Test', version: '9.2.7', updatedAt: 1, pages: [{ id: 'page', name: '', layers: [{ id: 'image', type: 'image', content: image }], background: { type: 'image', value: image, overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 }, canvasConfig: { width: 900, height: 383, ratio: '2.35:1' } }] });
@@ -131,6 +132,50 @@ describe('project archive', () => {
     expect(manifest.project.pages).toBeUndefined();
     expect(await archive.file('pages/page.json')!.async('string')).not.toContain('base64');
     expect(await decodeProjectArchive(bytes)).toEqual(project);
+  });
+
+  it('embeds cached binary assets in archives and rejects missing references', async () => {
+    const owner = imageAssets.createOwner();
+    const project = readLegacyCfj(legacy);
+    const reference = await imageAssets.add(owner, new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'image/png' }));
+    const page = { ...project.pages![0], layers: project.layers.map(layer => ({ ...layer, content: reference })),
+      pageInfo: { ...project.pageInfo, background: { ...project.pageInfo.background, value: reference } } };
+    const binaryProject = { ...project, pages: [page], layers: page.layers, pageInfo: page.pageInfo };
+    try {
+      const archive = await JSZip.loadAsync(await encodeProjectArchive(binaryProject, {}));
+      const names = Object.keys(archive.files).filter(name => name.startsWith('images/') && !archive.files[name].dir);
+      expect(names).toHaveLength(1);
+      expect(await archive.file(names[0])!.async('uint8array')).toEqual(new Uint8Array([1, 2, 3, 4]));
+      expect((await decodeProjectArchive(await archive.generateAsync({ type: 'uint8array' }))).layers[0].content).toBe(image);
+      imageAssets.release(owner);
+      await expect(encodeProjectArchive(binaryProject, {})).rejects.toThrow('unavailable');
+    } finally { imageAssets.release(owner); }
+  });
+
+  it('passes binary assets to the archive worker while holding them for queued saves', async () => {
+    const owner = imageAssets.createOwner();
+    const project = readLegacyCfj(legacy);
+    const blob = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'image/png' });
+    const reference = await imageAssets.add(owner, blob);
+    const page = { ...project.pages![0], layers: project.layers.map(layer => ({ ...layer, content: reference })) };
+    const binaryProject = { ...project, pages: [page], layers: page.layers };
+    let message: { assets: Record<string, Blob> } | undefined;
+    class ArchiveWorker {
+      onmessage?: (event: { data: unknown }) => void;
+      postMessage(value: { assets: Record<string, Blob> }) {
+        message = value;
+        queueMicrotask(() => this.onmessage?.({ data: { ok: true, result: new Uint8Array([1]) } }));
+      }
+      terminate() {}
+    }
+    vi.stubGlobal('Worker', ArchiveWorker);
+    vi.stubGlobal('document', {});
+    try {
+      const saving = encodeProjectArchive(binaryProject, {});
+      imageAssets.release(owner);
+      await saving;
+      expect(message?.assets[reference]).toBe(blob);
+    } finally { imageAssets.release(owner); vi.unstubAllGlobals(); }
   });
 
   it('only converts single-JSON archives through the legacy reader', async () => {

@@ -3,6 +3,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import type { ProjectDocument, ProjectState } from '../types.ts';
 import { readProject, writeProject } from './projectCompatibility.ts';
 import { pagePreviewFingerprintAsync, projectPreviews, rememberProjectPreview } from './projectPreviews.ts';
+import { imageAssets, isImageAsset } from './imageAssets.ts';
 
 const FORMAT = 'coverflow-project';
 const FORMAT_VERSION = 2;
@@ -32,7 +33,7 @@ export const sameStoredValue = (left: unknown, right: unknown): boolean => {
     keys.every(key => Object.hasOwn(rightObject, key) && sameStoredValue(leftObject[key], rightObject[key]));
 };
 
-type ArchiveTask = { kind: 'encode'; project: ProjectState; previews: Record<string, Uint8Array> } |
+type ArchiveTask = { kind: 'encode'; project: ProjectState; previews: Record<string, Uint8Array>; assets: Record<string, Blob> } |
   { kind: 'previews'; project: ProjectState; previews: Record<string, Uint8Array>; bytes: Uint8Array };
 type PreviewUpdate = { matches: boolean; bytes?: Uint8Array };
 
@@ -94,25 +95,40 @@ const mapImages = async (document: ProjectDocument, transform: (value: string) =
   })))
 });
 
-export function encodeProjectArchive(project: ProjectState, previews: Record<string, Uint8Array> = projectPreviews(project)): Promise<Uint8Array> {
-  return runArchiveTask({ kind: 'encode', project, previews }, () => encodeProjectArchiveDirect(project, previews));
+export async function encodeProjectArchive(project: ProjectState, previews: Record<string, Uint8Array> = projectPreviews(project), suppliedAssets?: Record<string, Blob>): Promise<Uint8Array> {
+  const assets: Record<string, Blob> = {};
+  for (const page of writeProject(project).pages) {
+    const values = page.layers.filter(layer => layer.type === 'image').map(layer => layer.content);
+    if (page.pageInfo.background.type === 'image') values.push(page.pageInfo.background.value);
+    for (const value of values) {
+      if (!isImageAsset(value) || assets[value]) continue;
+      const blob = suppliedAssets?.[value] ?? imageAssets.blob(value);
+      if (!blob) throw new Error('Image asset is unavailable.');
+      assets[value] = blob;
+    }
+  }
+  return runArchiveTask({ kind: 'encode', project, previews, assets }, () => encodeProjectArchiveDirect(project, previews, assets));
 }
 
-async function encodeProjectArchiveDirect(project: ProjectState, previews: Record<string, Uint8Array>): Promise<Uint8Array> {
+async function encodeProjectArchiveDirect(project: ProjectState, previews: Record<string, Uint8Array>, assets: Record<string, Blob>): Promise<Uint8Array> {
   const zip = new JSZip();
   const files = new Set<string>();
   const images = new Map<string, Promise<string>>();
   let expandedSize = 0;
   const document = await mapImages(writeProject(project), async value => {
-    if (!value.startsWith('data:')) return value;
+    if (!value.startsWith('data:') && !isImageAsset(value)) return value;
     const existing = images.get(value);
     if (existing) return existing;
     const encoding = (async () => {
       const match = /^data:image\/([a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i.exec(value);
-      if (!match) throw new Error('Unsupported embedded image data URL.');
-      const bytes = fromBase64(match[2]);
+      const blob = assets[value];
+      if (!match && !blob) throw new Error('Unsupported embedded image data URL.');
+      const bytes = match ? fromBase64(match[2]) : new Uint8Array(await blob.arrayBuffer());
       if (bytes.length > MAX_IMAGE_SIZE) throw new Error('Embedded image exceeds the size limit.');
-      const path = `images/${await digest(bytes)}.${match[1].toLowerCase()}`;
+      const hash = await digest(bytes);
+      const type = match ? match[1].toLowerCase() : blob.type.toLowerCase().replace(/^image\//, '');
+      if (!/^[a-z0-9.+-]+$/.test(type) || (!match && value !== `asset-image:${hash}:image/${type}`)) throw new Error('Invalid image asset.');
+      const path = `images/${hash}.${type}`;
       if (!files.has(path)) {
         expandedSize += bytes.length;
         if (expandedSize > MAX_EXPANDED_SIZE) throw new Error('Project archive expands beyond the size limit.');
@@ -150,7 +166,7 @@ async function encodeProjectArchiveDirect(project: ProjectState, previews: Recor
   }
   const result = await zip.generateAsync({ type: 'uint8array' });
   if (result.length > MAX_ARCHIVE_SIZE) {
-    if (previewFingerprints.some(Boolean)) return encodeProjectArchiveDirect(project, {});
+    if (previewFingerprints.some(Boolean)) return encodeProjectArchiveDirect(project, {}, assets);
     throw new Error('Project archive exceeds the size limit.');
   }
   return result;

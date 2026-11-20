@@ -14,7 +14,7 @@ it('manages pages, retains each page content and confirms deletion', async () =>
   expect(project.pageInfo).toMatchObject({ width: 500, height: 383, background: { type: 'color', value: '#fff' } });
   const secondId = project.activePageId!;
   const context = await run('list');
-  expect(context.pages.map(page => page.number)).toEqual(['P01', 'P02']);
+  expect(context.pages.map(page => page.index)).toEqual([1, 2]);
   expect(context.pages.map(page => page.canvas)).toEqual(['900x383', '500x383']);
   await run('switch', { pageId: firstId });
   expect(project.pageInfo.width).toBe(900);

@@ -10,7 +10,7 @@ export function pageContext(project: ProjectState) {
   return {
     pageId: synced.activePageId,
     pageCount: synced.pages!.length,
-    pages: synced.pages!.map((page, index) => ({ id: page.id, number: pageNumber(index), name: page.name, canvas: `${page.pageInfo.width}x${page.pageInfo.height}`, layerCount: page.layers.length, active: page.id === synced.activePageId }))
+    pages: synced.pages!.map((page, index) => ({ id: page.id, index: index + 1, name: page.name, canvas: `${page.pageInfo.width}x${page.pageInfo.height}`, layerCount: page.layers.length, active: page.id === synced.activePageId }))
   };
 }
 

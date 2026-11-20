@@ -6,6 +6,7 @@ import { applySvgAspectRatio } from '../utils/helpers.ts';
 import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
 import { updateProjectLayer } from '../features/ai/domain/layerOperations.ts';
 import { applyKeyboardLayerTransform, COMMIT_KEYBOARD_LAYER_TRANSFORM, KEYBOARD_LAYER_TRANSFORM, type KeyboardLayerTransform } from '../utils/keyboardLayerTransform.ts';
+import { PANEL_LAYER_DRAFT, type PanelLayerDraft } from '../utils/panelLayerDraft.ts';
 import DecorationContent from './DecorationContent.tsx';
 import ImageLayerContent from './ImageLayerContent.tsx';
 import { translations, Language } from '../translations.ts';
@@ -33,13 +34,16 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
   const [draft, setDraft] = useState<{ pageKey: string; layerId: string; updates: Partial<Layer> } | null>(null);
   const draftRef = useRef<typeof draft>(null);
   const [keyboardDraft, setKeyboardDraft] = useState<KeyboardLayerTransform | null>(null);
+  const [panelDraft, setPanelDraft] = useState<PanelLayerDraft | null>(null);
   const keyboardDraftRef = useRef<KeyboardLayerTransform | null>(null);
   const keyboardKeysRef = useRef(new Set<string>());
   const committedPageKey = `${committedProject.id}:${committedProject.activePageId ?? ''}`;
   const keyboardProject = keyboardDraft ? applyKeyboardLayerTransform(committedProject, keyboardDraft) : committedProject;
-  const project = draft?.pageKey === committedPageKey && keyboardProject.layers.some(layer => layer.id === draft.layerId)
-    ? updateProjectLayer(keyboardProject, draft.layerId, draft.updates)
-    : keyboardProject;
+  const panelProject = panelDraft?.pageKey === committedPageKey && keyboardProject.layers.some(layer => layer.id === panelDraft.layerId)
+    ? updateProjectLayer(keyboardProject, panelDraft.layerId, panelDraft.updates) : keyboardProject;
+  const project = draft?.pageKey === committedPageKey && panelProject.layers.some(layer => layer.id === draft.layerId)
+    ? updateProjectLayer(panelProject, draft.layerId, draft.updates)
+    : panelProject;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fittedPageKeyRef = useRef<string | null>(null);
   const pageKey = `${project.id}:${project.activePageId ?? ''}`;
@@ -79,6 +83,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
     if (fittedPageKeyRef.current === pageKey) return;
     draftRef.current = null;
     setDraft(null);
+    setPanelDraft(null);
     keyboardDraftRef.current = null;
     keyboardKeysRef.current.clear();
     setKeyboardDraft(null);
@@ -88,6 +93,12 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
     lastEditIdRef.current = null;
     if (fitCanvas()) fittedPageKeyRef.current = pageKey;
   }, [pageKey, fitCanvas]);
+
+  useEffect(() => {
+    const update = (event: Event) => setPanelDraft((event as CustomEvent<PanelLayerDraft | null>).detail);
+    window.addEventListener(PANEL_LAYER_DRAFT, update);
+    return () => window.removeEventListener(PANEL_LAYER_DRAFT, update);
+  }, []);
 
   useEffect(() => {
     const commit = () => {

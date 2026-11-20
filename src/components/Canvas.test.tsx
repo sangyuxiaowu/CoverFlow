@@ -10,6 +10,7 @@ import { KEYBOARD_LAYER_TRANSFORM, type KeyboardLayerTransform } from '../utils/
 import { useEditorShortcuts } from '../hooks/useEditorShortcuts.ts';
 import { useProjectHistory } from '../hooks/useProjectHistory.ts';
 import { syncProjectPages } from '../storage/projectCompatibility.ts';
+import { PANEL_LAYER_DRAFT } from '../utils/panelLayerDraft.ts';
 
 let host: HTMLDivElement;
 let root: Root;
@@ -241,4 +242,18 @@ it('commits a held keyboard movement before undo and records one history entry',
   expect(latest.layers[0].x).toBe(100);
   await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Z', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true })));
   expect(latest.layers[0].x).toBe(102);
+});
+
+it('renders panel drafts locally without changing the committed project', async () => {
+  const updateLayer = vi.fn();
+  const current: ProjectState = { ...project('panel'), selectedLayerId: 'image', layers: [
+    { id: 'image', name: 'Image', type: 'image', content: 'data:image/png;base64,AAAA', x: 100, y: 100, width: 100, height: 100, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }
+  ] };
+  await act(async () => root.render(<Canvas lang="zh" project={current} onSelectLayer={() => {}} updateLayer={updateLayer} onKeyboardCommit={() => {}} onCommit={() => {}} />));
+  await act(async () => window.dispatchEvent(new CustomEvent(PANEL_LAYER_DRAFT, { detail: { pageKey: `${current.id}:${current.activePageId}`, layerId: 'image', updates: { x: 130, rotation: 45 } } })));
+  const layer = host.querySelector<HTMLDivElement>('#export-target > .group')!;
+  expect(layer.style.left).toBe('130px');
+  expect(layer.style.transform).toContain('rotate(45deg)');
+  expect(updateLayer).not.toHaveBeenCalled();
+  expect(current.layers[0].x).toBe(100);
 });

@@ -116,25 +116,64 @@ describe('decoration rendering boundaries', () => {
       const label = host.querySelector<HTMLLabelElement>('label[for="input-line-height"]')!;
       expect(label.textContent).toContain('行距（倍）');
       const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      await act(async () => input.focus());
       for (const [value, expected] of [['1.8', 1.8], ['0.1', 0.5], ['8', 5], ['', 1.1]] as const) {
         await act(async () => {
           setValue.call(input, value);
           input.dispatchEvent(new Event('input', { bubbles: true }));
         });
-        expect(update).toHaveBeenLastCalledWith('moon', { lineHeight: expected });
+        expect(input.value).toBe(String(expected));
+        expect(update).not.toHaveBeenCalled();
       }
+      await act(async () => input.blur());
+      expect(update).toHaveBeenCalledExactlyOnceWith('moon', { lineHeight: 1.1 }, true);
+      update.mockClear();
       await act(async () => label.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 20 })));
       for (const [clientX, expected] of [[70, 1.6], [-1000, 0.5], [1000, 5]]) {
         await act(async () => window.dispatchEvent(new MouseEvent('mousemove', { clientX })));
-        expect(update).toHaveBeenLastCalledWith('moon', { lineHeight: expected }, false);
+        expect(input.value).toBe(String(expected));
+        expect(update).not.toHaveBeenCalled();
       }
       await act(async () => window.dispatchEvent(new MouseEvent('mouseup')));
-      expect(commit).toHaveBeenCalledOnce();
+      expect(update).toHaveBeenCalledExactlyOnceWith('moon', { lineHeight: 5 }, true);
+      expect(commit).not.toHaveBeenCalled();
       await act(async () => root.render(renderPanel({ ...state, layers: [{ ...state.layers[0], lineHeight: 2 }] }, 'en')));
       expect(host.querySelector<HTMLInputElement>('#input-line-height')!.value).toBe('2');
       expect(host.querySelector('label[for="input-line-height"]')!.textContent).toContain('Line Height (x)');
       await act(async () => root.render(renderPanel({ ...state, layers: [{ ...state.layers[0], type: 'svg', content: '<svg />' }] })));
       expect(host.querySelector('#input-line-height')).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('previews image filter changes on canvas and commits once when the slider ends', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const state: ProjectState = { ...project, selectedLayerId: 'moon', layers: [{ ...project.layers[0], type: 'image', content: 'data:image/png;base64,AAAA' }] };
+    const update = vi.fn();
+    const noop = () => {};
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement('div', null,
+        createElement(Canvas, { project: state, lang: 'zh', onSelectLayer: noop, updateLayer: update, onKeyboardCommit: noop, onCommit: noop }),
+        createElement(LayersPanel, { lang: 'zh', project: state, selectedLayerIds: ['moon'], onUpdateLayer: update, onRemoveBackground: noop,
+          onDeleteLayer: noop, onSelectLayer: noop, onReorderLayers: noop, onCloneLayers: noop, onDeleteLayers: noop, onMoveLayersTop: noop,
+          onMoveLayersBottom: noop, onGroupLayers: noop, onUngroupLayer: noop, onCommit: noop, onCopyToClipboard: noop })
+      )));
+      const slider = host.querySelector<HTMLInputElement>('input[aria-label="亮度"]')!;
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      for (const value of ['110', '120']) await act(async () => {
+        setValue.call(slider, value);
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(host.querySelector<HTMLImageElement>('#export-target img')!.style.filter).toContain('brightness(120%)');
+      expect(update).not.toHaveBeenCalled();
+      await act(async () => slider.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })));
+      expect(update).toHaveBeenCalledExactlyOnceWith('moon', { imageFilters: { brightness: 120, contrast: 100, grayscale: 0, blur: 0 } }, true);
     } finally {
       await act(async () => root.unmount());
       host.remove();

@@ -1,10 +1,13 @@
 // 模块：图层面板与属性检查器
 import React, { useState, useCallback, useRef, useEffect, useMemo, useLayoutEffect } from 'react';
+import { flushSync } from 'react-dom';
 import { Layer, ProjectState, TextGradient, TextShadow, ImageFilters } from '../types.ts';
 import { translations, Language } from '../translations.ts';
 import { PRESET_COLORS, TEXT_GRADIENT_PRESETS } from '../constants.ts';
 import { sanitizeDecorationContent } from '../utils/decorationStyles.ts';
 import { parseColor } from '../utils/colors.ts';
+import { updateProjectLayer } from '../features/ai/domain/layerOperations.ts';
+import { PANEL_LAYER_DRAFT, type PanelLayerDraft } from '../utils/panelLayerDraft.ts';
 import {
   DEFAULT_IMAGE_CROP,
   DEFAULT_IMAGE_FILTERS,
@@ -95,7 +98,7 @@ const DEFAULT_TEXT_SHADOW: TextShadow = {
 // 图层面板与属性编辑组件。
 const LayersPanel: React.FC<LayersPanelProps> = ({
   lang,
-  project,
+  project: committedProject,
   selectedLayerIds,
   onUpdateLayer,
   onRemoveBackground,
@@ -112,6 +115,11 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   onCommit,
   onOpenImageCrop
 }) => {
+  const [panelDraft, setPanelDraft] = useState<PanelLayerDraft | null>(null);
+  const panelDraftRef = useRef<PanelLayerDraft | null>(null);
+  const pageKey = `${committedProject.id}:${committedProject.activePageId ?? ''}`;
+  const project = panelDraft?.pageKey === pageKey && committedProject.layers.some(layer => layer.id === panelDraft.layerId)
+    ? updateProjectLayer(committedProject, panelDraft.layerId, panelDraft.updates) : committedProject;
   const selectedLayer = project.layers.find(l => l.id === project.selectedLayerId);
   const t = translations[lang];
 
@@ -139,15 +147,49 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const latestSelectedLayerRef = useRef(selectedLayer);
-  const onUpdateLayerRef = useRef(onUpdateLayer);
   const scrubbingRef = useRef<{ prop: string, startValue: number, startX: number } | null>(null);
+
+  const previewDraft = useCallback((layerId: string, updates: Partial<Layer>) => {
+    const previous = panelDraftRef.current;
+    const next = { pageKey, layerId, updates: previous?.pageKey === pageKey && previous.layerId === layerId ? { ...previous.updates, ...updates } : updates };
+    panelDraftRef.current = next;
+    setPanelDraft(next);
+    window.dispatchEvent(new CustomEvent(PANEL_LAYER_DRAFT, { detail: next }));
+  }, [pageKey]);
+
+  const commitDraft = useCallback(() => {
+    const current = panelDraftRef.current;
+    if (!current) return;
+    panelDraftRef.current = null;
+    flushSync(() => {
+      setPanelDraft(null);
+      window.dispatchEvent(new CustomEvent(PANEL_LAYER_DRAFT, { detail: null }));
+      if (current.pageKey === pageKey) onUpdateLayer(current.layerId, current.updates, true);
+    });
+  }, [onUpdateLayer, pageKey]);
+
+  useEffect(() => {
+    window.addEventListener('blur', commitDraft);
+    window.addEventListener('beforeunload', commitDraft, true);
+    return () => {
+      window.removeEventListener('blur', commitDraft);
+      window.removeEventListener('beforeunload', commitDraft, true);
+    };
+  }, [commitDraft]);
+
+  useEffect(() => {
+    const current = panelDraftRef.current;
+    if (!current || (current.pageKey === pageKey && current.layerId === committedProject.selectedLayerId)) return;
+    panelDraftRef.current = null;
+    setPanelDraft(null);
+    window.dispatchEvent(new CustomEvent(PANEL_LAYER_DRAFT, { detail: null }));
+  }, [pageKey, committedProject.selectedLayerId]);
 
   const layerMap = useMemo(() => new Map(project.layers.map(l => [l.id, l])), [project.layers]);
 
   useEffect(() => {
     latestSelectedLayerRef.current = selectedLayer;
-    onUpdateLayerRef.current = onUpdateLayer;
-  }, [selectedLayer, onUpdateLayer]);
+  }, [selectedLayer]);
 
   // 加载本地字体
   useEffect(() => {
@@ -232,23 +274,23 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
     let finalValue = Math.round(newValue);
     if (scrubbingRef.current.prop === 'opacity') {
       finalValue = Math.min(Math.max(0, newValue), 1);
-      onUpdateLayerRef.current(latestSelectedLayerRef.current.id, { opacity: finalValue }, false);
+      previewDraft(latestSelectedLayerRef.current.id, { opacity: finalValue });
     } else if (scrubbingRef.current.prop === 'lineHeight') {
       finalValue = Math.min(5, Math.max(0.5, Math.round(newValue * 100) / 100));
-      onUpdateLayerRef.current(latestSelectedLayerRef.current.id, { lineHeight: finalValue }, false);
+      previewDraft(latestSelectedLayerRef.current.id, { lineHeight: finalValue });
     } else if (scrubbingRef.current.prop.startsWith('textShadow.')) {
       const current = latestSelectedLayerRef.current.textShadow || DEFAULT_TEXT_SHADOW;
       const shadowKey = scrubbingRef.current.prop.replace('textShadow.', '') as keyof TextShadow;
-      onUpdateLayerRef.current(latestSelectedLayerRef.current.id, {
+      previewDraft(latestSelectedLayerRef.current.id, {
         textShadow: {
           ...current,
           [shadowKey]: finalValue
         }
-      }, false);
+      });
     } else {
-      onUpdateLayerRef.current(latestSelectedLayerRef.current.id, { [scrubbingRef.current.prop]: finalValue }, false);
+      previewDraft(latestSelectedLayerRef.current.id, { [scrubbingRef.current.prop]: finalValue });
     }
-  }, []);
+  }, [previewDraft]);
 
   // 结束拖拽后提交历史快照
   const handleScrubMouseUp = useCallback(() => {
@@ -256,8 +298,9 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
     document.body.style.cursor = '';
     window.removeEventListener('mousemove', handleScrubMove);
     window.removeEventListener('mouseup', handleScrubMouseUp);
-    onCommit(); 
-  }, [handleScrubMove, onCommit]);
+    window.removeEventListener('blur', handleScrubMouseUp);
+    commitDraft();
+  }, [handleScrubMove, commitDraft]);
 
   const handleScrubMouseDown = (e: React.MouseEvent, prop: string, startValue: number) => {
     e.preventDefault();
@@ -265,6 +308,15 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
     document.body.style.cursor = 'ew-resize';
     window.addEventListener('mousemove', handleScrubMove);
     window.addEventListener('mouseup', handleScrubMouseUp);
+    window.addEventListener('blur', handleScrubMouseUp);
+  };
+
+  const handleDraftInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') event.currentTarget.blur();
+  };
+
+  const handleDraftRangePointerDown = (event: React.PointerEvent<HTMLInputElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   const handleDelete = (e: React.MouseEvent | React.TouchEvent, id: string) => {
@@ -496,13 +548,13 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                   <label onMouseDown={(e) => handleScrubMouseDown(e, 'x', selectedLayer.x)} className="flex items-center gap-1 w-7 flex-shrink-0 text-[9px] text-slate-500 font-bold cursor-ew-resize hover:text-blue-400 select-none">
                     <MoveHorizontal className="w-3 h-3"/> X
                   </label>
-                  <input type="number" value={Math.round(selectedLayer.x)} onChange={(e) => onUpdateLayer(selectedLayer.id, { x: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                  <input type="number" value={Math.round(selectedLayer.x)} onChange={(e) => previewDraft(selectedLayer.id, { x: parseInt(e.target.value)||0 })} onBlur={commitDraft} onKeyDown={handleDraftInputKeyDown} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                 </div>
                 <div className="flex items-center gap-2">
                   <label onMouseDown={(e) => handleScrubMouseDown(e, 'y', selectedLayer.y)} className="flex items-center gap-1 w-7 flex-shrink-0 text-[9px] text-slate-500 font-bold cursor-ew-resize hover:text-blue-400 select-none">
                     <MoveVertical className="w-3 h-3"/> Y
                   </label>
-                  <input type="number" value={Math.round(selectedLayer.y)} onChange={(e) => onUpdateLayer(selectedLayer.id, { y: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                  <input type="number" value={Math.round(selectedLayer.y)} onChange={(e) => previewDraft(selectedLayer.id, { y: parseInt(e.target.value)||0 })} onBlur={commitDraft} onKeyDown={handleDraftInputKeyDown} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                 </div>
               </div>
 
@@ -513,13 +565,13 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                     <label onMouseDown={(e) => handleScrubMouseDown(e, 'width', selectedLayer.width)} className="flex items-center gap-1 w-7 flex-shrink-0 text-[9px] text-slate-500 font-bold cursor-ew-resize hover:text-blue-400 select-none">
                       <Maximize2 className="w-3 h-3"/> W
                     </label>
-                    <input type="number" id="input-width" value={Math.round(selectedLayer.width)} onChange={(e) => onUpdateLayer(selectedLayer.id, { width: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                    <input type="number" id="input-width" value={Math.round(selectedLayer.width)} onChange={(e) => previewDraft(selectedLayer.id, { width: parseInt(e.target.value)||0 })} onBlur={commitDraft} onKeyDown={handleDraftInputKeyDown} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                   </div>
                   <div className="flex items-center gap-2">
                     <label onMouseDown={(e) => handleScrubMouseDown(e, 'height', selectedLayer.height)} className="flex items-center gap-1 w-7 flex-shrink-0 text-[9px] text-slate-500 font-bold cursor-ew-resize hover:text-blue-400 select-none">
                       <Maximize2 className="w-3 h-3"/> H
                     </label>
-                    <input type="number" id="input-height" value={Math.round(selectedLayer.height)} onChange={(e) => onUpdateLayer(selectedLayer.id, { height: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                    <input type="number" id="input-height" value={Math.round(selectedLayer.height)} onChange={(e) => previewDraft(selectedLayer.id, { height: parseInt(e.target.value)||0 })} onBlur={commitDraft} onKeyDown={handleDraftInputKeyDown} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                   </div>
                 </div>
                 <div className="absolute left-[38px] right-[10px] top-[22px] bottom-[-2px] pointer-events-none border-l border-r border-b border-slate-700/60 rounded-b-lg">
@@ -541,14 +593,14 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                   <label onMouseDown={(e) => handleScrubMouseDown(e, 'rotation', selectedLayer.rotation)} className="flex items-center gap-1 text-[8px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
                     <RotateCw className="w-2.5 h-2.5"/> {t.rotationShort}
                   </label>
-                  <input type="number" value={selectedLayer.rotation} onChange={(e) => onUpdateLayer(selectedLayer.id, { rotation: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                  <input type="number" value={selectedLayer.rotation} onChange={(e) => previewDraft(selectedLayer.id, { rotation: parseInt(e.target.value)||0 })} onBlur={commitDraft} onKeyDown={handleDraftInputKeyDown} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                 </div>
                 {selectedLayer.type === 'text' && (
                   <div className="space-y-1">
                     <label onMouseDown={(e) => handleScrubMouseDown(e, 'fontSize', selectedLayer.fontSize || 48)} className="flex items-center gap-1 text-[8px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
                       <Type className="w-2.5 h-2.5"/> {t.fontSizeShort}
                     </label>
-                    <input type="number" value={selectedLayer.fontSize || 48} onChange={(e) => onUpdateLayer(selectedLayer.id, { fontSize: parseInt(e.target.value)||0 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                    <input type="number" value={selectedLayer.fontSize || 48} onChange={(e) => previewDraft(selectedLayer.id, { fontSize: parseInt(e.target.value)||0 })} onBlur={commitDraft} onKeyDown={handleDraftInputKeyDown} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                   </div>
                 )}
                 {selectedLayer.type === 'text' && (
@@ -556,7 +608,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                     <label htmlFor="input-letter-spacing" onMouseDown={(e) => handleScrubMouseDown(e, 'letterSpacing', selectedLayer.letterSpacing ?? 0)} className="flex items-center gap-1 text-[8px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
                       <MoveHorizontal className="w-2.5 h-2.5"/> {t.letterSpacing} (px)
                     </label>
-                    <input id="input-letter-spacing" type="number" step="0.1" value={selectedLayer.letterSpacing ?? 0} onChange={(e) => onUpdateLayer(selectedLayer.id, { letterSpacing: Number.isFinite(e.target.valueAsNumber) ? e.target.valueAsNumber : 0 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                    <input id="input-letter-spacing" type="number" step="0.1" value={selectedLayer.letterSpacing ?? 0} onChange={(e) => previewDraft(selectedLayer.id, { letterSpacing: Number.isFinite(e.target.valueAsNumber) ? e.target.valueAsNumber : 0 })} onBlur={commitDraft} onKeyDown={handleDraftInputKeyDown} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                   </div>
                 )}
                 {selectedLayer.type === 'text' && (
@@ -564,14 +616,14 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                     <label htmlFor="input-line-height" onMouseDown={(e) => handleScrubMouseDown(e, 'lineHeight', selectedLayer.lineHeight ?? 1.1)} className="flex items-center gap-1 text-[8px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
                       <MoveVertical className="w-2.5 h-2.5"/> {t.lineHeight}
                     </label>
-                    <input id="input-line-height" type="number" min="0.5" max="5" step="0.1" value={selectedLayer.lineHeight ?? 1.1} onChange={(e) => onUpdateLayer(selectedLayer.id, { lineHeight: Number.isFinite(e.target.valueAsNumber) ? Math.min(5, Math.max(0.5, e.target.valueAsNumber)) : 1.1 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                    <input id="input-line-height" type="number" min="0.5" max="5" step="0.1" value={selectedLayer.lineHeight ?? 1.1} onChange={(e) => previewDraft(selectedLayer.id, { lineHeight: Number.isFinite(e.target.valueAsNumber) ? Math.min(5, Math.max(0.5, e.target.valueAsNumber)) : 1.1 })} onBlur={commitDraft} onKeyDown={handleDraftInputKeyDown} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                   </div>
                 )}
                 <div className="space-y-1">
                   <label onMouseDown={(e) => handleScrubMouseDown(e, 'opacity', selectedLayer.opacity)} className="flex items-center gap-1 text-[8px] text-slate-500 font-black uppercase cursor-ew-resize hover:text-blue-400 select-none truncate">
                     <Sliders className="w-2.5 h-2.5"/> {t.opacityShort}
                   </label>
-                  <input type="number" value={Math.round(selectedLayer.opacity * 100)} onChange={(e) => onUpdateLayer(selectedLayer.id, { opacity: Math.min(Math.max(0, parseInt(e.target.value)||0), 100) / 100 })} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
+                  <input type="number" value={Math.round(selectedLayer.opacity * 100)} onChange={(e) => previewDraft(selectedLayer.id, { opacity: Math.min(Math.max(0, parseInt(e.target.value)||0), 100) / 100 })} onBlur={commitDraft} onKeyDown={handleDraftInputKeyDown} className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors" />
                 </div>
               </div>
 
@@ -579,12 +631,11 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                 const filters = normalizeImageFilters(selectedLayer.imageFilters);
                 const filtersActive = hasActiveImageFilters(selectedLayer.imageFilters);
                 const cropActive = hasActiveImageCrop(selectedLayer.imageCrop);
-                const updateFilter = (patch: Partial<ImageFilters>, record = false) => {
+                const updateFilter = (patch: Partial<ImageFilters>) => {
                   const next = normalizeImageFilters({ ...filters, ...patch });
-                  onUpdateLayer(
+                  previewDraft(
                     selectedLayer.id,
-                    { imageFilters: hasActiveImageFilters(next) ? next : undefined },
-                    record
+                    { imageFilters: hasActiveImageFilters(next) ? next : undefined }
                   );
                 };
 
@@ -710,9 +761,14 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                             step={1}
                             aria-label={t.filterBrightness}
                             value={filters.brightness}
-                            onChange={(e) => updateFilter({ brightness: Number(e.target.value) }, false)}
-                            onMouseUp={onCommit}
-                            onTouchEnd={onCommit}
+                            onPointerDown={handleDraftRangePointerDown}
+                            onChange={(e) => updateFilter({ brightness: Number(e.target.value) })}
+                            onMouseUp={commitDraft}
+                            onTouchEnd={commitDraft}
+                            onPointerUp={commitDraft}
+                            onPointerCancel={commitDraft}
+                            onBlur={commitDraft}
+                            onKeyUp={commitDraft}
                             className="w-full accent-blue-600 h-2.5 cursor-pointer"
                           />
                         </div>
@@ -730,9 +786,14 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                             step={1}
                             aria-label={t.filterContrast}
                             value={filters.contrast}
-                            onChange={(e) => updateFilter({ contrast: Number(e.target.value) }, false)}
-                            onMouseUp={onCommit}
-                            onTouchEnd={onCommit}
+                            onPointerDown={handleDraftRangePointerDown}
+                            onChange={(e) => updateFilter({ contrast: Number(e.target.value) })}
+                            onMouseUp={commitDraft}
+                            onTouchEnd={commitDraft}
+                            onPointerUp={commitDraft}
+                            onPointerCancel={commitDraft}
+                            onBlur={commitDraft}
+                            onKeyUp={commitDraft}
                             className="w-full accent-blue-600 h-2.5 cursor-pointer"
                           />
                         </div>
@@ -750,9 +811,14 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                             step={1}
                             aria-label={t.filterGrayscale}
                             value={filters.grayscale}
-                            onChange={(e) => updateFilter({ grayscale: Number(e.target.value) }, false)}
-                            onMouseUp={onCommit}
-                            onTouchEnd={onCommit}
+                            onPointerDown={handleDraftRangePointerDown}
+                            onChange={(e) => updateFilter({ grayscale: Number(e.target.value) })}
+                            onMouseUp={commitDraft}
+                            onTouchEnd={commitDraft}
+                            onPointerUp={commitDraft}
+                            onPointerCancel={commitDraft}
+                            onBlur={commitDraft}
+                            onKeyUp={commitDraft}
                             className="w-full accent-blue-600 h-2.5 cursor-pointer"
                           />
                         </div>
@@ -770,9 +836,14 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                             step={0.5}
                             aria-label={t.filterBlur}
                             value={filters.blur}
-                            onChange={(e) => updateFilter({ blur: Number(e.target.value) }, false)}
-                            onMouseUp={onCommit}
-                            onTouchEnd={onCommit}
+                            onPointerDown={handleDraftRangePointerDown}
+                            onChange={(e) => updateFilter({ blur: Number(e.target.value) })}
+                            onMouseUp={commitDraft}
+                            onTouchEnd={commitDraft}
+                            onPointerUp={commitDraft}
+                            onPointerCancel={commitDraft}
+                            onBlur={commitDraft}
+                            onKeyUp={commitDraft}
                             className="w-full accent-blue-600 h-2.5 cursor-pointer"
                           />
                         </div>
@@ -996,7 +1067,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                         </div>
                         <div className="space-y-1">
                           <div className="flex justify-between text-[9px] text-slate-500 uppercase font-bold"><span>{t.angle}</span><span>{selectedLayer.textGradient.angle}°</span></div>
-                          <input type="range" min="0" max="360" value={selectedLayer.textGradient.angle} onChange={(e) => handleUpdateTextGradient({ angle: parseInt(e.target.value) })} onMouseUp={onCommit} className="w-full accent-blue-600 h-3" />
+                          <input type="range" min="0" max="360" value={selectedLayer.textGradient.angle} onChange={(e) => previewDraft(selectedLayer.id, { textGradient: { ...selectedLayer.textGradient!, angle: parseInt(e.target.value) } })} onPointerDown={handleDraftRangePointerDown} onPointerUp={commitDraft} onPointerCancel={commitDraft} onMouseUp={commitDraft} onTouchEnd={commitDraft} onBlur={commitDraft} onKeyUp={commitDraft} className="w-full accent-blue-600 h-3" />
                         </div>
                         <div className="grid grid-cols-5 gap-1 pt-0.5">
                           {TEXT_GRADIENT_PRESETS.slice(0, 10).map((p, idx) => (

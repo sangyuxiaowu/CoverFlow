@@ -35,7 +35,7 @@ interface SidebarProps {
   onAddLayer: (layer: Partial<Layer>) => void;
   onApplyTemplate: (template: DecorationTemplate) => void;
   onUpdateBackground: (bg: Partial<BackgroundConfig>) => void;
-  onOpenBackgroundCrop?: (dataUrl: string) => void;
+  onOpenBackgroundCrop: (source: string) => void;
   project: ProjectState;
   selectedLayerIds: string[];
   background: BackgroundConfig;
@@ -1181,18 +1181,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <input type="file" className="hidden" accept="image/*" onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (!file) return;
-                  if (onOpenBackgroundCrop) {
-                    onOpenBackgroundCrop(URL.createObjectURL(file));
-                    e.currentTarget.value = '';
-                    return;
-                  }
-                  const reader = new FileReader();
-                  reader.onload = (ev) => {
-                    const result = ev.target?.result as string;
-                    if (!result) return;
-                    onUpdateBackground({ value: result });
-                  };
-                  reader.readAsDataURL(file);
+                  onOpenBackgroundCrop(URL.createObjectURL(file));
                   e.currentTarget.value = '';
                 }} />
               </label>

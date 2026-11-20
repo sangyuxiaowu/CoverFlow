@@ -88,7 +88,7 @@ export async function executeAssetTool(name: 'search_assets' | 'place_asset', in
     sourceHeight = bitmap.height;
     bitmap.close();
     if (sourceWidth * sourceHeight > 67108864) throw new Error('Image asset exceeds 64 megapixels.');
-    content = await blobToDataUrl(blob);
+    content = bridge.registerImage ? await bridge.registerImage(blob) : await blobToDataUrl(blob);
   }
   if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth <= 0 || sourceHeight <= 0) throw new Error('Asset has invalid dimensions.');
   signal.throwIfAborted();

@@ -123,3 +123,18 @@ test('active commits use the shared save coordinator and propagate its failures'
   assert.equal(writes.length, 1);
   assert.equal(writes[0].title, 'Changed');
 });
+
+test('rejects a stale concurrent commit even before the UI publishes its new project', async () => {
+  const { bridge, options, signal, stored } = setup();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  options.prepareCommit = async project => { if (project.title === 'Slow') await gate; return project; };
+  options.onCommit = () => {};
+  await bridge.manageProjects({ action: 'create', title: 'Initial' }, signal);
+  const original = bridge.getProject()!;
+  const slow = bridge.commit({ ...original, title: 'Slow' }).catch(error => error);
+  await bridge.commit({ ...original, title: 'Fast' });
+  release();
+  assert.match((await slow).message, /changed while preparing/);
+  assert.equal(stored.get(original.id)?.title, 'Fast');
+});

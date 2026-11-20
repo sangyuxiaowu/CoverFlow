@@ -79,7 +79,7 @@ async function applyImages(bridge: WorkspaceBridge, projectId: string, pageId: s
   const decoded = await Promise.all(result.images.map(async blob => {
     imageMimeType(blob.type);
     if (blob.size > 25 * 1024 * 1024) throw new Error('Image exceeds the 25 MB source limit.');
-    const content = await blobToDataUrl(blob);
+    const content = bridge.registerImage ? await bridge.registerImage(blob) : await blobToDataUrl(blob);
     const bitmap = await createImageBitmap(blob);
     const width = bitmap.width, height = bitmap.height;
     bitmap.close();

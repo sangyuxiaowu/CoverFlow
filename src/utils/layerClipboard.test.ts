@@ -1,11 +1,41 @@
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import assert from 'node:assert/strict';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import type { Layer, ProjectState } from '../types.ts';
 import { syncProjectPages } from '../storage/projectCompatibility.ts';
 import { LayerClipboard } from './layerClipboard.ts';
+import { IndexedDBAdapter } from '../storage/IndexedDBAdapter.ts';
+import { imageAssets } from '../storage/imageAssets.ts';
+import { ProjectImageSession } from '../storage/projectImageSession.ts';
 
 const layer = (id: string, changes: Partial<Layer> = {}): Layer => ({ id, name: id, type: 'text', content: 'content', x: 1, y: 2, width: 30, height: 40, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1, ...changes });
 const project = (id: string, layers: Layer[]): ProjectState => syncProjectPages({ id, title: id, layers, pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } }, selectedLayerId: null, updatedAt: 0 });
+
+test('cross-project image paste survives closing the source and reopening the target', async () => {
+  vi.stubGlobal('indexedDB', new IDBFactory());
+  vi.stubGlobal('IDBKeyRange', IDBKeyRange);
+  const sourceSession = new ProjectImageSession();
+  const targetSession = new ProjectImageSession();
+  try {
+    const adapter = new IndexedDBAdapter();
+    const source = await sourceSession.adopt(project('source-binary', [layer('image', { type: 'image', content: 'data:image/png;base64,AQIDBA==' })]));
+    await adapter.saveProject(source);
+    const clipboard = new LayerClipboard();
+    const resolve = async (id: string) => (await adapter.getProject(id))!;
+    await clipboard.copy([{ projectId: source.id, pageId: source.activePageId!, layerId: 'image' }], resolve);
+    sourceSession.close();
+    const target = project('target-binary', []);
+    const pasted = await clipboard.paste(target, target.activePageId!, resolve);
+    const adopted = await targetSession.adopt(pasted.project);
+    const reference = adopted.layers[0].content;
+    assert.match(reference, /^asset-image:/);
+    assert.ok(imageAssets.blob(reference));
+    await adapter.saveProject(adopted);
+    targetSession.close();
+    assert.equal(imageAssets.blob(reference), undefined);
+    assert.equal((await adapter.getProject(target.id))!.layers[0].content, 'data:image/png;base64,AQIDBA==');
+  } finally { sourceSession.close(); targetSession.close(); vi.unstubAllGlobals(); }
+});
 
 test('clipboard resolves live group contents, deduplicates and remaps hierarchy in stacking order', async () => {
   const clipboard = new LayerClipboard();

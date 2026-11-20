@@ -1,5 +1,6 @@
-import type { ProjectState } from '../types.ts';
+import type { ProjectPage, ProjectState } from '../types.ts';
 import { syncProjectPages } from '../storage/projectCompatibility.ts';
+import { leaseImageAssets } from '../storage/imageAssets.ts';
 import { pageNumber, pageProject } from './projectPages.ts';
 import { buildEmbeddedProjectSvg } from './svgExport.ts';
 import { renderProjectImage } from './renderProjectImage.tsx';
@@ -49,6 +50,13 @@ export async function exportProjectPages(project: ProjectState, pageIds: string[
   const selected = new Set(pageIds);
   const pages = synced.pages!.filter(page => selected.has(page.id));
   if (!pages.length || pages.length !== selected.size) throw new Error('Select existing pages to export.');
+  const release = leaseImageAssets(pages);
+  try { return await exportSelectedProjectPages(synced, pages, settings, onProgress, language); }
+  finally { release(); }
+}
+
+async function exportSelectedProjectPages(project: ProjectState, pages: ProjectPage[], settings: PageExportSettings, onProgress?: (done: number, total: number) => void, language = 'zh'): Promise<{ blob: Blob; filename: string }> {
+  const synced = project;
   const title = safeExportName(project.title);
   if (settings.format === 'html') {
     onProgress?.(0, pages.length);

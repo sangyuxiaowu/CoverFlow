@@ -23,7 +23,7 @@ import DecorationCodeEditor from './DecorationCodeEditor.tsx';
 import ImageLayerCropModal from './ImageLayerCropModal.tsx';
 import RemoveBackgroundButton from './RemoveBackgroundButton.tsx';
 import { AI_FEATURES } from '../features/ai/featureConfig.ts';
-import type { RemovalResult } from '../utils/backgroundRemovalResult.ts';
+import type { BinaryRemovalResult } from '../utils/backgroundRemovalResult.ts';
 import { fontListItems, GOOGLE_FONTS, readInstalledFonts, type LocalFontSelection } from 'sang-ai-kit/fonts';
 import { 
   Eye, EyeOff, Lock, Unlock, Trash2, Hash, RotateCw, Maximize2, 
@@ -38,7 +38,7 @@ interface LayersPanelProps {
   project: ProjectState;
   selectedLayerIds: string[];
   onUpdateLayer: (id: string, updates: Partial<Layer>, record?: boolean) => void;
-  onRemoveBackground: (result: RemovalResult) => void;
+  onRemoveBackground: (result: BinaryRemovalResult, signal: AbortSignal) => Promise<void> | void;
   onDeleteLayer: (id: string) => void;
   onSelectLayer: (
     id: string | null,

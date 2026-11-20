@@ -4,11 +4,11 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Layer } from '../types.ts';
 import RemoveBackgroundButton from './RemoveBackgroundButton.tsx';
-import { blobDataUrl, removeBackground } from 'sang-ai-kit/background-removal/index.ts';
+import { removeBackground } from 'sang-ai-kit/background-removal/index.ts';
 import { download } from 'sang-ai-kit/background-removal/resources.ts';
 import { useResources } from 'sang-ai-kit/background-removal/useResources.ts';
 
-vi.mock('sang-ai-kit/background-removal/index.ts', () => ({ removeBackground: vi.fn(), blobDataUrl: vi.fn() }));
+vi.mock('sang-ai-kit/background-removal/index.ts', () => ({ removeBackground: vi.fn() }));
 vi.mock('sang-ai-kit/background-removal/resources.ts', () => ({ download: vi.fn() }));
 vi.mock('sang-ai-kit/background-removal/useResources.ts', () => ({ useResources: vi.fn() }));
 vi.mock('sang-ai-kit/background-removal/ColorMattingEditor.tsx', () => ({
@@ -36,7 +36,6 @@ beforeEach(() => {
   document.body.append(container);
   root = createRoot(container);
   vi.mocked(download).mockResolvedValue(new Blob(['image']));
-  vi.mocked(blobDataUrl).mockResolvedValue('data:image/png;base64,RESULT');
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -76,28 +75,32 @@ describe('image layer removal action', () => {
     await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === '颜色抠图')!.click());
     await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === '提交颜色抠图')!.click());
     expect(apply).toHaveBeenCalledExactlyOnceWith({ layerId: layer.id, originalContent: layer.content,
-      content: 'data:image/png;base64,RESULT', keepOriginal: false });
+      content: expect.any(Blob), keepOriginal: false }, expect.any(AbortSignal));
   });
-  it('rejects a shared editor result if the selected image changes while it is encoded', async () => {
-    let finish!: (value: string) => void;
-    vi.mocked(blobDataUrl).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    const apply = await render(layer);
+  it('aborts a shared editor result if the selected image changes while it is registered', async () => {
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    const committed = vi.fn();
+    const apply = vi.fn(async (_result, signal: AbortSignal) => { await gate; signal.throwIfAborted(); committed(); });
+    await render(layer, apply);
     await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === '颜色抠图')!.click());
     await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === '提交颜色抠图')!.click());
     await render({ ...layer, id: 'another-image' }, apply);
-    await act(async () => finish('data:image/png;base64,RESULT'));
-    expect(apply).not.toHaveBeenCalled();
+    await act(async () => finish());
+    expect(committed).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain('提交颜色抠图');
   });
-  it('does not apply an editor result after closing during encoding', async () => {
-    let finish!: (value: string) => void;
-    vi.mocked(blobDataUrl).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    const apply = await render(layer);
+  it('does not apply an editor result after closing during registration', async () => {
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    const committed = vi.fn();
+    const apply = vi.fn(async (_result, signal: AbortSignal) => { await gate; signal.throwIfAborted(); committed(); });
+    await render(layer, apply);
     await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === '颜色抠图')!.click());
     await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === '提交颜色抠图')!.click());
     await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === '关闭颜色抠图')!.click());
-    await act(async () => finish('data:image/png;base64,RESULT'));
-    expect(apply).not.toHaveBeenCalled();
+    await act(async () => finish());
+    expect(committed).not.toHaveBeenCalled();
   });
   it('follows changed defaults and displays MODNet rather than hardcoding U2NetP', async () => {
     await render(layer);
@@ -167,7 +170,7 @@ describe('image layer removal action', () => {
     await click();
     await complete();
     expect(apply).toHaveBeenCalledExactlyOnceWith({ layerId: layer.id, originalContent: layer.content,
-      content: 'data:image/png;base64,RESULT', keepOriginal: true });
+      content: expect.any(Blob), keepOriginal: true }, expect.any(AbortSignal));
   });
   it('allows keeping the original to be unchecked', async () => {
     const complete = pendingInference();
@@ -176,7 +179,7 @@ describe('image layer removal action', () => {
     await click();
     expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).disabled).toBe(true);
     await complete();
-    expect(apply).toHaveBeenCalledWith(expect.objectContaining({ keepOriginal: false }));
+    expect(apply).toHaveBeenCalledWith(expect.objectContaining({ keepOriginal: false }), expect.any(AbortSignal));
   });
   it('blocks images marked as already processed and displays a visible reason', async () => {
     await render({ ...layer, backgroundRemoved: true });

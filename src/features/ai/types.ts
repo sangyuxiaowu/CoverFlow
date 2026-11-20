@@ -61,6 +61,7 @@ export interface WorkspaceBridge {
   getCanvasPreview?: () => Promise<Blob>;
   getLayerPreview?: (layerId: string) => Promise<Blob>;
   getAssetFolder?: () => Promise<FileSystemDirectoryHandle | null>;
+  registerImage?: (blob: Blob) => Promise<string>;
   getSelection: () => string[];
   commit: (project: ProjectState) => Promise<void>;
   manageProjects: (args: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>;

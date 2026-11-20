@@ -14,20 +14,20 @@ import {
 } from 'lucide-react';
 import type { Layer } from '../types.ts';
 import { getModel, MODELS, type ModelId } from 'sang-ai-kit/background-removal/models.ts';
-import { blobDataUrl, removeBackground } from 'sang-ai-kit/background-removal/index.ts';
+import { removeBackground } from 'sang-ai-kit/background-removal/index.ts';
 import { download } from 'sang-ai-kit/background-removal/resources.ts';
 import { errorText, progressText } from 'sang-ai-kit/background-removal/status.ts';
 import { useResources } from 'sang-ai-kit/background-removal/useResources.ts';
 import type { Progress } from 'sang-ai-kit/background-removal/types.ts';
 import ColorMattingEditor from 'sang-ai-kit/background-removal/ColorMattingEditor.tsx';
-import type { RemovalResult } from '../utils/backgroundRemovalResult.ts';
+import type { BinaryRemovalResult } from '../utils/backgroundRemovalResult.ts';
 import { resolveImageSource } from '../storage/imageAssets.ts';
 import './background-removal.css';
 
 export default function RemoveBackgroundButton({ layer, english, onApply }: {
   layer: Layer;
   english: boolean;
-  onApply: (result: RemovalResult) => void;
+  onApply: (result: BinaryRemovalResult, signal: AbortSignal) => Promise<void> | void;
 }) {
   const resources = useResources();
   const [busy, setBusy] = useState(false);
@@ -86,10 +86,9 @@ export default function RemoveBackgroundButton({ layer, english, onApply }: {
       const result = await removeBackground(image, { signal: abort.signal, modelId, device: resources.settings.device, onProgress: value => {
         if (mounted.current) setProgress(value);
       } });
-      const content = await blobDataUrl(result.blob);
       abort.signal.throwIfAborted();
       const current = currentImage();
-      current.onApply({ layerId: id, originalContent: original, content, keepOriginal });
+      await current.onApply({ layerId: id, originalContent: original, content: result.blob, keepOriginal }, abort.signal);
     } catch (reason) {
       if (mounted.current && !abort.signal.aborted) setError(errorText(reason, english));
     } finally {
@@ -113,13 +112,12 @@ export default function RemoveBackgroundButton({ layer, english, onApply }: {
   return (
     <div className="cf-removal-layer bg-slate-900/60 border border-slate-800 rounded-xl p-2.5 space-y-2.5 transition-all hover:border-slate-700/80 shadow-sm">
       {colorSession && <ColorMattingEditor image={resolveImageSource(colorSession.original)} english={english} onClose={() => setColorSession(undefined)} onApply={async (blob, signal) => {
-        const content = await blobDataUrl(blob);
         signal.throwIfAborted();
         const current = latest.current;
         if (!mounted.current || current.layer.id !== colorSession.layerId || current.layer.content !== colorSession.original || current.layer.locked || current.layer.backgroundRemoved) {
           throw new Error(text('原图已更改，未替换抠图结果。', 'The original image changed; result was not applied.'));
         }
-        current.onApply({ layerId: colorSession.layerId, originalContent: colorSession.original, content, keepOriginal: colorSession.keepOriginal });
+        await current.onApply({ layerId: colorSession.layerId, originalContent: colorSession.original, content: blob, keepOriginal: colorSession.keepOriginal }, signal);
       }} />}
       {/* 头部：标题与状态标签 */}
       <div className="flex items-center justify-between gap-1.5 pb-1 border-b border-slate-800/60">

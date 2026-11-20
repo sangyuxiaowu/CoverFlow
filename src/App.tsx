@@ -22,7 +22,7 @@ import { clonePlainData } from './utils/clonePlainData.ts';
 import { updateProjectLayer } from './features/ai/domain/layerOperations.ts';
 import { ensureProjectFonts, projectFontEmbedCSS } from './features/ai/services/fontLoading.ts';
 import { applyRemovalResult } from './utils/backgroundRemovalResult.ts';
-import type { RemovalResult } from './utils/backgroundRemovalResult.ts';
+import type { BinaryRemovalResult } from './utils/backgroundRemovalResult.ts';
 import { PWAUpdatePrompt } from './components/pwa/PWAUpdatePrompt.tsx';
 import { OfflineIndicator } from './components/pwa/OfflineIndicator.tsx';
 // Tauri 环境下的本地文件适配器
@@ -669,16 +669,16 @@ const App: React.FC = () => {
     }, record);
   }, []);
 
-  const handleRemoveBackground = (result: RemovalResult) => {
+  const handleRemoveBackground = async (result: BinaryRemovalResult, signal: AbortSignal) => {
     const projectId = project?.id;
     const pageId = project?.activePageId;
     const session = imageSessionRef.current;
     if (!session) return;
-    void session.addImage(result.content).then(content => {
-      if (imageSessionRef.current !== session) return;
-      const copyId = generateId();
-      modifyProject(current => current.id === projectId && current.activePageId === pageId ? applyRemovalResult(current, { ...result, content }, copyId) : current);
-    }).catch(error => showToast(error instanceof Error ? error.message : String(error), 'error'));
+    const content = await session.addImage(result.content);
+    signal.throwIfAborted();
+    if (imageSessionRef.current !== session) return;
+    const copyId = generateId();
+    modifyProject(current => current.id === projectId && current.activePageId === pageId ? applyRemovalResult(current, { ...result, content }, copyId) : current);
   };
 
   const getExpandedSelection = (layers: Layer[], ids: string[]) => {
@@ -1519,6 +1519,13 @@ const App: React.FC = () => {
       if (!directory) throw new Error('No storage folder selected.');
       return directory;
     },
+    registerImage: async blob => {
+      const session = imageSessionRef.current;
+      if (!session) throw new Error('Project image session is unavailable.');
+      const reference = await session.addImage(blob);
+      if (imageSessionRef.current !== session) throw new Error('Active project changed while preparing images.');
+      return reference;
+    },
     prepareCommit: async next => {
       const session = imageSessionRef.current;
       if (!session) throw new Error('Project image session is unavailable.');
@@ -2011,7 +2018,20 @@ const App: React.FC = () => {
               }]
             }));
           }}
-          onUpdateBackground={(bg) => modifyProject(p => ({ ...p, pageInfo: { ...p.pageInfo, background: { ...p.pageInfo.background, ...bg } } }))}
+          onUpdateBackground={(bg) => {
+            if (bg.value && /^data:image\//i.test(bg.value)) {
+              const session = imageSessionRef.current;
+              if (!session) return;
+              void session.addImage(bg.value).then(value => {
+                if (imageSessionRef.current !== session) return;
+                modifyProject(p => p.id !== project.id || p.activePageId !== project.activePageId || p.pageInfo.background.value !== project.pageInfo.background.value ? p : ({
+                  ...p, pageInfo: { ...p.pageInfo, background: { ...p.pageInfo.background, ...bg, value } }
+                }));
+              }).catch(error => showToast(error instanceof Error ? error.message : String(error), 'error'));
+              return;
+            }
+            modifyProject(p => ({ ...p, pageInfo: { ...p.pageInfo, background: { ...p.pageInfo.background, ...bg } } }));
+          }}
         />
         <div className="flex-1 flex flex-col min-h-0 relative">
           <Canvas

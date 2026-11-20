@@ -59,4 +59,16 @@ describe('project image session', () => {
     session.close();
     expect(imageAssets.blob(other)).toBeUndefined();
   });
+
+  it('rejects a binary import when its session closes during hashing', async () => {
+    const session = new ProjectImageSession();
+    const blob = new Blob(['image'], { type: 'image/png' });
+    let finish!: (value: ArrayBuffer) => void;
+    blob.arrayBuffer = () => new Promise(resolve => { finish = resolve; });
+    const pending = session.addImage(blob);
+    session.close();
+    finish(new Uint8Array([1, 2, 3]).buffer);
+    await expect(pending).rejects.toThrow('released');
+    await expect(session.addImage(blob)).rejects.toThrow('closed');
+  });
 });

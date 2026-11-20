@@ -21,6 +21,16 @@ function setup() {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('host image tool callbacks', () => {
+  it('registers generated image blobs directly with the workspace', async () => {
+    const { signal, getProject } = setup();
+    const registerImage = vi.fn(async () => 'asset-image:generated:image/png');
+    const commit = vi.fn(async (_next: ProjectState) => {});
+    const bridge: WorkspaceBridge = { getProject, getSelection: () => [], manageProjects: async () => {}, registerImage, commit };
+    const prepared = await createImageToolExtensions(bridge).generate_image!.prepare({}, signal);
+    await prepared.complete({ images: [output], model: 'model' }, signal);
+    expect(registerImage).toHaveBeenCalledExactlyOnceWith(output);
+    expect(commit.mock.calls[0][0].layers.at(-1)?.content).toBe('asset-image:generated:image/png');
+  });
   it('uses the original binary asset as an AI reference and rejects released assets', async () => {
     const owner = imageAssets.createOwner();
     const blob = new Blob(['original-image'], { type: 'image/png' });

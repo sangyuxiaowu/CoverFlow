@@ -1,6 +1,5 @@
 import { type Area } from 'react-easy-crop';
 
-// 生成裁切后的 PNG 数据 URL。
 export const getCroppedImage = async (
   imageSrc: string,
   pixelCrop: Area,

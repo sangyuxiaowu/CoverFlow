@@ -5,6 +5,8 @@ import { syncProjectPages } from './projectCompatibility.ts';
 import { decodeProjectArchiveWithPreviews, encodeProjectArchive } from './projectArchive.ts';
 import { rememberProjectPreview } from './projectPreviews.ts';
 import { readFileBytes } from './fileAccess.ts';
+import { imageAssets } from './imageAssets.ts';
+import { ProjectImageSession } from './projectImageSession.ts';
 
 function setup() {
   const write = vi.fn().mockResolvedValue(undefined);
@@ -211,4 +213,19 @@ test('does not overwrite or delete a differently identified project using the sa
   await expect(adapter.deleteProject(project.id)).resolves.toBeUndefined();
   expect(write).not.toHaveBeenCalled();
   expect(removeEntry).not.toHaveBeenCalled();
+});
+
+test('opens local archives with binary image assets owned by the project session', async () => {
+  const { adapter, project } = setup();
+  project.layers.push({ id: 'image', name: 'Image', type: 'image', content: 'data:image/png;base64,AQIDBA==', x: 0, y: 0, width: 10, height: 10, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 });
+  Object.assign(adapter, { indexEntries: [{ name: `${project.id}.cfjx`, project, lastModified: 1 }] });
+  const session = new ProjectImageSession();
+  try {
+    const opened = await adapter.getProject(project.id, session.owner);
+    const reference = opened!.layers[0].content;
+    expect(reference).toMatch(/^asset-image:/);
+    expect(new Uint8Array(await imageAssets.blob(reference)!.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]));
+    session.close();
+    expect(imageAssets.blob(reference)).toBeUndefined();
+  } finally { session.close(); }
 });

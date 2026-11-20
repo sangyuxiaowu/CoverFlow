@@ -16,6 +16,7 @@ export interface WorkspaceOptions {
   getCanvasPreview?: () => Promise<Blob>;
   getLayerPreview?: (layerId: string) => Promise<Blob>;
   getAssetFolder?: () => Promise<FileSystemDirectoryHandle | null>;
+  registerImage?: (blob: Blob) => Promise<string>;
   selectedLayerIds: string[];
   storage: StorageAdapter;
   localProjects: { project: ProjectState | ProjectSummary; localPath?: string }[];
@@ -113,12 +114,14 @@ export function createWorkspaceBridge(
       return options.getLayerPreview(layerId);
     },
     getAssetFolder: async () => read().getAssetFolder?.() ?? null,
+    get registerImage() { return read().registerImage; },
     getSelection: () => read().selectedLayerIds,
     commit: async project => {
       const options = read();
       if (current?.id !== project.id) throw new Error('Active project changed.');
+      const previous = current;
       const prepared = options.prepareCommit ? await options.prepareCommit(project) : project;
-      if (read().project !== options.project || current?.id !== project.id) throw new Error('Active project changed while preparing images.');
+      if (read().project !== options.project || current !== previous) throw new Error('Active project changed while preparing images.');
       current = syncProjectPages(prepared);
       options.onCommit(current);
       await save(current, options.activeLocalPath || undefined);

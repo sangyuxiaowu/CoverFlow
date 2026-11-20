@@ -215,3 +215,37 @@ it('embeds binary image assets in SVG and HTML without exposing internal referen
     await expect(buildEmbeddedProjectSvg(target)).rejects.toThrow('unavailable');
   } finally { imageAssets.release(owner); }
 });
+
+it('keeps images on later pages alive when the project closes during export', async () => {
+  const owner = imageAssets.createOwner();
+  const blob = new NodeBlob(['later-page-image'], { type: 'image/png' }) as unknown as Blob;
+  const reference = await imageAssets.add(owner, blob);
+  const target = project();
+  target.pages![1] = { ...target.pages![1], layers: [{ id: 'later', name: 'Image', type: 'image', content: reference, x: 0, y: 0, width: 10, height: 10, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }] };
+  if (target.activePageId === target.pages![1].id) target.layers = target.pages![1].layers;
+  try {
+    const result = await exportProjectPages(target, target.pages!.map(page => page.id), { format: 'svg', pixelRatio: 1, compression: 'lossless', pptResolution: 'hd' }, done => {
+      if (done === 1) imageAssets.release(owner);
+    });
+    const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader(); reader.onload = () => resolve(reader.result as ArrayBuffer); reader.onerror = reject; reader.readAsArrayBuffer(result.blob);
+    });
+    const archive = await JSZip.loadAsync(bytes);
+    expect(await archive.file('P02-Detail.svg')!.async('string')).toContain('data:image/png;base64,');
+    expect(imageAssets.blob(reference)).toBeUndefined();
+  } finally { imageAssets.release(owner); }
+});
+
+it('releases the export lease when exporting fails', async () => {
+  const owner = imageAssets.createOwner();
+  const reference = await imageAssets.add(owner, new NodeBlob(['image'], { type: 'image/png' }) as unknown as Blob);
+  const target = project();
+  target.layers = [{ id: 'image', name: 'Image', type: 'image', content: reference, x: 0, y: 0, width: 10, height: 10, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }];
+  try {
+    await expect(exportProjectPages(target, [target.activePageId!], { format: 'html', pixelRatio: 1, compression: 'lossless', pptResolution: 'hd' }, () => {
+      imageAssets.release(owner);
+      throw new Error('Export cancelled');
+    })).rejects.toThrow('Export cancelled');
+    expect(imageAssets.blob(reference)).toBeUndefined();
+  } finally { imageAssets.release(owner); }
+});

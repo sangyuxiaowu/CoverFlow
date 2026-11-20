@@ -618,7 +618,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     if (!project) throw new Error('当前未打开画布项目，请先打开或创建一个项目。');
     const blob = await storeRef.current.loadImage(input.sessionId, input.imageId);
     if (!blob) throw new Error('图片资源不存在或已被清理。');
-    const content = await blobToDataUrl(blob);
+    const content = bridgeRef.current?.registerImage ? await bridgeRef.current.registerImage(blob) : await blobToDataUrl(blob);
 
     let sourceWidth = 0;
     let sourceHeight = 0;
@@ -649,8 +649,8 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     }
 
     const latestProject = bridgeRef.current?.getProject() || workspaceRef.current.project;
-    if (!latestProject || latestProject.id !== project.id) {
-      throw new Error('当前画布项目已切换，请重试。');
+    if (!latestProject || latestProject.id !== project.id || latestProject.activePageId !== project.activePageId) {
+      throw new Error('当前画布项目或页面已切换，请重试。');
     }
 
     const layerName = input.name.replace(/\.[a-z0-9]+$/i, '') || (input.category === 'generated' ? 'AI 生图' : '附件图片');

@@ -37,3 +37,5 @@ export function applyRemovalResult(project: ProjectState, result: RemovalResult,
     selectedLayerId: copyId, updatedAt: Date.now()
   };
 }
+
+export type BinaryRemovalResult = Omit<RemovalResult, 'content'> & { content: Blob };

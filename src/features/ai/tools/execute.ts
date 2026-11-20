@@ -11,6 +11,7 @@ import { ensureProjectFonts } from '../services/fontLoading.ts';
 import { executePageTool, pageContext } from './pages.ts';
 import { executeClipboardTool } from './clipboard.ts';
 import { isImageAsset } from '../../../storage/imageAssets.ts';
+import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
 
 export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false): Promise<unknown> {
   signal.throwIfAborted();
@@ -79,9 +80,16 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
   }
   if (Object.hasOwn(args, 'projectId')) throw new Error(`${name}: unsupported field projectId. This tool operates on the current page.`);
   if (name === 'read_layers') {
+    for (const field of Object.keys(args)) {
+      if (!['layerIds', 'query', 'pageId'].includes(field)) throw new Error(`${name}: unsupported field ${field}.`);
+    }
     const selected = args.layerIds === undefined ? null : ids(args.layerIds);
     const query = args.query === undefined ? '' : text(args.query, 'query').toLowerCase();
-    return project.layers.filter(layer => (!selected || selected.includes(layer.id)) && (!query || (layer.name + ' ' + layer.content).toLowerCase().includes(query))).map(layer => layerDetails({ ...layer, content: layer.content.startsWith('data:') || isImageAsset(layer.content) ? '[embedded image]' : layer.content }));
+    const synced = syncProjectPages(project);
+    const pageId = args.pageId === undefined ? synced.activePageId : text(args.pageId, 'pageId');
+    const page = synced.pages?.find(item => item.id === pageId);
+    if (!page) throw new Error('Page not found.');
+    return page.layers.filter(layer => (!selected || selected.includes(layer.id)) && (!query || (layer.name + ' ' + layer.content).toLowerCase().includes(query))).map(layer => layerDetails({ ...layer, content: layer.content.startsWith('data:') || isImageAsset(layer.content) ? '[embedded image]' : layer.content }));
   }
   let next = project;
   let createdLayerIds: string[] | undefined;

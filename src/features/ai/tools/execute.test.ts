@@ -145,6 +145,21 @@ test('project creation and search use dedicated tools and preserve bridge action
   await assert.rejects(executeTool('manage_projects', { action: 'list' }, projectBridge, signal), /search_projects/);
 });
 
+test('read_layers accepts an optional pageId and reads the target page without switching', async () => {
+  const { bridge, signal } = setup();
+  const initialId = bridge.getProject()!.activePageId!;
+  const created = await executeTool('manage_pages', { action: 'create', pageId: initialId, name: 'Second' }, bridge, signal) as { pageId: string };
+  await executeSingleLayerTool({ type: 'text', properties: { text: { content: 'Second page layer' } } }, bridge, signal);
+  await executeTool('manage_pages', { action: 'switch', pageId: initialId }, bridge, signal);
+
+  const read = await executeTool('read_layers', { pageId: created.pageId }, bridge, signal) as Record<string, unknown>[];
+  assert.equal(read.length, 1);
+  assert.equal((read[0].text as Record<string, unknown>).content, 'Second page layer');
+  assert.equal(bridge.getProject()!.activePageId, initialId);
+  await assert.rejects(executeTool('read_layers', { pageId: 'missing' }, bridge, signal), /Page not found/);
+  await assert.rejects(executeTool('read_layers', { projectId: 'p1' }, bridge, signal), /unsupported field projectId/);
+});
+
 test('context exposes only common layer properties and preserves group relationships', async () => {
   const common = { x: 10, y: 20, width: 300, height: 200, rotation: 15, zIndex: 2, visible: true, locked: false, opacity: 0.8, ratioLocked: true };
   const info = () => common;

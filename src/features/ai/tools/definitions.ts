@@ -67,6 +67,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   }, ['action'])),
   tool('get_context', '读取项目页面列表、当前页画布、背景、选区及图层元数据。图层工具仅操作当前页，跨页前使用 manage_pages 切换。', noParameters),
   tool('read_layers', '读取图层属性，含图层详细内容，内嵌图片内容使用占位符。可按 ID 或名称/内容关键词筛选，同时提供时取交集。修改已有内容前先调用。', object('', {
+    pageId: string('[可选]目标页面 ID，省略时读取当前页面。'),
     layerIds: layerIds('可选；省略时读取所有匹配图层。'),
     query: string('可选名称或内容关键词，不区分大小写；省略时不过滤，提供时不得为空白。')
   })),

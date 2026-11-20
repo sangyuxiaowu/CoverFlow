@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, useState, type Dispatch, type SetStateAction } from 'react';
+import { act, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { useProjectHistory } from './useProjectHistory.ts';
@@ -7,6 +7,46 @@ import type { ProjectState } from '../types.ts';
 import { syncProjectPages } from '../storage/projectCompatibility.ts';
 import { insertProjectPage, selectProjectPage } from '../utils/projectPages.ts';
 import { editLayers } from '../features/ai/domain/layerOperations.ts';
+import { imageAssets } from '../storage/imageAssets.ts';
+import { ProjectImageSession } from '../storage/projectImageSession.ts';
+
+it('retains images through undo history and AI checkpoints, then releases expired assets', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const session = new ProjectImageSession();
+  const reference = await session.addImage('data:image/png;base64,AQIDBA==');
+  const initial = syncProjectPages({ id: 'assets', title: 'Initial', selectedLayerId: null, updatedAt: 1,
+    layers: [{ id: 'image', name: 'Image', type: 'image', content: reference, x: 0, y: 0, width: 10, height: 10, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }],
+    pageInfo: { width: 100, height: 100, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
+  let state: ReturnType<typeof useProjectHistory> & { project: ProjectState | null };
+  function Harness() {
+    const [project, setProject] = useState<ProjectState | null>(initial);
+    const history = useProjectHistory(project, setProject);
+    state = { ...history, project };
+    useEffect(() => { if (project) session.reconcile([project, ...history.retainedProjects]); }, [project, history.retainedProjects]);
+    return null;
+  }
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(<Harness />));
+    await act(async () => state!.modifyProject(current => syncProjectPages({ ...current, layers: [] })));
+    await act(async () => state!.handleUndo());
+    expect(state!.project!.layers[0].content).toBe(reference);
+    expect(imageAssets.blob(reference)).toBeDefined();
+    let token!: symbol;
+    await act(async () => { token = state!.aiHistory.begin()!; });
+    for (let index = 0; index < 55; index++) {
+      await act(async () => state!.aiHistory.commit(syncProjectPages({ ...state!.project!, layers: [], title: `AI ${index}` })));
+    }
+    expect(state!.aiHistory.isValid(token)).toBe(true);
+    expect(imageAssets.blob(reference)).toBeDefined();
+    await act(async () => state!.aiHistory.clear());
+    expect(imageAssets.blob(reference)).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+    session.close();
+    vi.unstubAllGlobals();
+  }
+});
 
 it('keeps image payloads out of structured clones across 40 generated images while isolating mutable fields', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

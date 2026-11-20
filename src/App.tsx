@@ -51,6 +51,7 @@ import { PRESET_RATIOS } from './constants.ts';
 import { generateId, normalizeSVG, isNewerProjectVersion, formatCanvasRatio } from './utils/helpers.ts';
 import { buildEmbeddedProjectSvg } from './utils/svgExport.ts';
 import { resolveImageSource } from './storage/imageAssets.ts';
+import { ProjectImageSession } from './storage/projectImageSession.ts';
 import { buildHtmlSvg } from './utils/htmlExport.ts';
 import { syncProjectPages } from './storage/projectCompatibility.ts';
 import { decodeProjectArchive, encodeProjectArchive } from './storage/projectArchive.ts';
@@ -99,6 +100,13 @@ const App: React.FC = () => {
   const [aiBusy, setAiBusy] = useState(false);
   const [isAiOpen, setIsAiOpen] = useState(false);
   const [project, setProjectState] = useState<ProjectState | null>(null);
+  const [imageSession, setImageSession] = useState<ProjectImageSession | null>(null);
+  const imageSessionRef = useRef<ProjectImageSession | null>(null);
+  const switchImageSession = (session: ProjectImageSession | null) => {
+    imageSessionRef.current = session;
+    setImageSession(session);
+  };
+  useEffect(() => () => imageSession?.close(), [imageSession]);
   const setProject = useCallback<React.Dispatch<React.SetStateAction<ProjectState | null>>>((update) => {
     setProjectState(previous => {
       const next = typeof update === 'function' ? update(previous) : update;
@@ -146,7 +154,10 @@ const App: React.FC = () => {
   const [exportPreviewUrl, setExportPreviewUrl] = useState<string | null>(null);
   const [exportEstimating, setExportEstimating] = useState(false);
   
-  const { initProjectHistory, modifyProject, saveHistorySnapshot, handleUndo, handleRedo, canUndo, canRedo, aiHistory } = useProjectHistory(project, setProject);
+  const { initProjectHistory, modifyProject, saveHistorySnapshot, handleUndo, handleRedo, canUndo, canRedo, aiHistory, retainedProjects } = useProjectHistory(project, setProject);
+  useEffect(() => {
+    if (imageSession && project) imageSession.reconcile([project, ...retainedProjects.filter(snapshot => snapshot.id === project.id), ...(previewProject?.id === project.id ? [previewProject] : [])]);
+  }, [imageSession, project, retainedProjects, previewProject]);
   useEffect(() => { if (view !== 'editor') aiHistory.clear(); }, [view]);
   useEffect(() => {
     if (view !== 'editor' || !project) return;
@@ -155,6 +166,10 @@ const App: React.FC = () => {
   }, [view, project?.id]);
 
   const [bgCropModal, setBgCropModal] = useState<{ src: string } | null>(null);
+  useEffect(() => {
+    const source = bgCropModal?.src;
+    return () => { if (source?.startsWith('blob:')) URL.revokeObjectURL(source); };
+  }, [bgCropModal?.src]);
   const [bgCropPosition, setBgCropPosition] = useState({ x: 0, y: 0 });
   const [bgCropZoom, setBgCropZoom] = useState(1);
   const [bgCropRotation, setBgCropRotation] = useState(0);
@@ -211,11 +226,15 @@ const App: React.FC = () => {
     view,
     parseFailedMessage: t.parseFailed,
     showToast,
-    onOpenProject: (nextProject) => {
-      warnIfNewerProject(nextProject);
-      setProject(nextProject);
+    onOpenProject: async (nextProject, session) => {
+      const opened = await session.adopt(nextProject);
+      warnIfNewerProject(opened);
+      switchImageSession(session);
+      setProject(opened);
+      setSelectedLayerIds([]);
       setView('editor');
-      initProjectHistory(nextProject);
+      initProjectHistory(opened);
+      return opened;
     },
     onUpdateProject: handleLocalProjectUpdate
   });
@@ -347,11 +366,14 @@ const App: React.FC = () => {
   const deleteProjectById = useCallback((projectId: string) => {
     setProjects(prev => prev.filter(pr => pr.id !== projectId));
     if (project?.id === projectId) {
+      latestProjectRef.current = null;
+      cancelPendingSave();
+      switchImageSession(null);
       setProject(null);
       setView('landing');
     }
     removeStoredProject(projectId);
-  }, [project?.id, removeStoredProject]);
+  }, [project?.id, removeStoredProject, cancelPendingSave, latestProjectRef]);
 
   useEffect(() => { setStoredLanguage(lang); }, [lang]);
 
@@ -385,13 +407,17 @@ const App: React.FC = () => {
     if (!project || !bgCropModal || !bgCropAreaPixels) return;
     setBgCropSaving(true);
     try {
-      const nextValue = await getCroppedImage(
+      const session = imageSessionRef.current;
+      if (!session) throw new Error('Project image session is unavailable.');
+      const cropped = await getCroppedImage(
         bgCropModal.src,
         bgCropAreaPixels,
         bgCropRotation,
         bgCropFlip,
         { width: project.pageInfo.width, height: project.pageInfo.height }
       );
+      const nextValue = await session.addImage(cropped);
+      if (imageSessionRef.current !== session) return;
       modifyProject(p => p.id !== project.id || p.activePageId !== project.activePageId ? p : ({
         ...p,
         pageInfo: { ...p.pageInfo, background: { ...p.pageInfo.background, type: 'image', value: nextValue } }
@@ -430,8 +456,9 @@ const App: React.FC = () => {
       },
       selectedLayerId: null
     });
+    switchImageSession(new ProjectImageSession());
     setProject(newProject);
-    setProjects(prev => [newProject, ...prev]);
+    setProjects(prev => [summarizeProject(newProject), ...prev]);
     setView('editor');
     initProjectHistory(newProject);
     clearActiveLocalFilePath();
@@ -645,8 +672,13 @@ const App: React.FC = () => {
   const handleRemoveBackground = (result: RemovalResult) => {
     const projectId = project?.id;
     const pageId = project?.activePageId;
-    const copyId = generateId();
-    modifyProject(current => current.id === projectId && current.activePageId === pageId ? applyRemovalResult(current, result, copyId) : current);
+    const session = imageSessionRef.current;
+    if (!session) return;
+    void session.addImage(result.content).then(content => {
+      if (imageSessionRef.current !== session) return;
+      const copyId = generateId();
+      modifyProject(current => current.id === projectId && current.activePageId === pageId ? applyRemovalResult(current, { ...result, content }, copyId) : current);
+    }).catch(error => showToast(error instanceof Error ? error.message : String(error), 'error'));
   };
 
   const getExpandedSelection = (layers: Layer[], ids: string[]) => {
@@ -867,7 +899,7 @@ const App: React.FC = () => {
             imported.title += t.importedCopySuffix;
           }
           imported.selectedLayerId = null;
-          setProjects(prev => [imported, ...prev]);
+          setProjects(prev => [summarizeProject(imported), ...prev]);
           persistProject(imported);
           if (!warnIfNewerProject(imported)) showToast(t.importSuccess);
         }
@@ -894,7 +926,7 @@ const App: React.FC = () => {
   const handleDuplicateProject = (targetProject: ProjectState) => {
     const duplicated = copyProject(targetProject, `${targetProject.title}(${t.importedCopySuffix})`);
 
-    setProjects(prev => [duplicated, ...prev]);
+    setProjects(prev => [summarizeProject(duplicated), ...prev]);
     persistProject(duplicated);
     showToast(t.importedCopySuffix);
   };
@@ -1153,50 +1185,61 @@ const App: React.FC = () => {
     showToast(t.svgLayerPasted);
   };
 
-  const addImageLayerWithContent = (dataUrl: string) => {
+  const addImageLayerWithContent = (blob: Blob) => {
     if (!project) return;
-    const newId = generateId();
-    modifyProject(p => {
-      const size = Math.min(320, p.pageInfo.width * 0.6, p.pageInfo.height * 0.6);
-      return {
-        ...p,
-        layers: [...p.layers, {
-          id: newId,
-          name: t.imageLayerName,
-          type: 'image',
-          content: dataUrl,
-          imageSource: 'upload',
-          imageDescription: '',
-          x: p.pageInfo.width / 2 - size / 2,
-          y: p.pageInfo.height / 2 - size / 2,
-          width: size,
-          height: size,
-          rotation: 0,
-          zIndex: p.layers.length + 1,
-          visible: true,
-          locked: false,
-          opacity: 1,
-          ratioLocked: true
-        }],
-        selectedLayerId: newId
-      };
-    });
-    setSelectedLayerIds([newId]);
-    showToast(t.imageLayerPasted);
+    const session = imageSessionRef.current;
+    if (!session) return;
+    void session.addImage(blob).then(content => {
+      if (imageSessionRef.current !== session || latestProjectRef.current?.id !== project.id || latestProjectRef.current?.activePageId !== project.activePageId) return;
+      const newId = generateId();
+      modifyProject(p => {
+        const size = Math.min(320, p.pageInfo.width * 0.6, p.pageInfo.height * 0.6);
+        return {
+          ...p,
+          layers: [...p.layers, {
+            id: newId,
+            name: t.imageLayerName,
+            type: 'image',
+            content,
+            imageSource: 'upload',
+            imageDescription: '',
+            x: p.pageInfo.width / 2 - size / 2,
+            y: p.pageInfo.height / 2 - size / 2,
+            width: size,
+            height: size,
+            rotation: 0,
+            zIndex: p.layers.length + 1,
+            visible: true,
+            locked: false,
+            opacity: 1,
+            ratioLocked: true
+          }],
+          selectedLayerId: newId
+        };
+      });
+      setSelectedLayerIds([newId]);
+      showToast(t.imageLayerPasted);
+    }).catch(error => showToast(error instanceof Error ? error.message : String(error), 'error'));
   };
 
   const applyProjectFromJson = (data: Partial<ProjectState>) => {
     if (!project) return;
-    modifyProject(p => {
-      const newLayers = (data.layers || []).map(l => ({
-        ...l,
-        id: generateId()
-      }));
+    const session = imageSessionRef.current;
+    if (!session) return;
+    const incoming = { ...project, layers: data.layers?.length ? data.layers : project.layers, pageInfo: data.pageInfo || project.pageInfo };
+    void session.adopt(incoming).then(adopted => {
+      if (imageSessionRef.current !== session || latestProjectRef.current !== project) return;
+      modifyProject(p => {
+        const newLayers = data.layers?.length ? adopted.layers.map(l => ({
+          ...l,
+          id: generateId()
+        })) : [];
 
-      return { ...p, layers: newLayers.length > 0 ? newLayers : p.layers, pageInfo: data.pageInfo || p.pageInfo, selectedLayerId: null, updatedAt: Date.now() };
-    });
-    setSelectedLayerIds([]);
-    showToast(t.projectJsonApplied);
+        return { ...p, layers: newLayers.length > 0 ? newLayers : p.layers, pageInfo: adopted.pageInfo, selectedLayerId: null, updatedAt: Date.now() };
+      });
+      setSelectedLayerIds([]);
+      showToast(t.projectJsonApplied);
+    }).catch(error => showToast(error instanceof Error ? error.message : String(error), 'error'));
   };
 
   const handleAddText = () => {
@@ -1235,12 +1278,13 @@ const App: React.FC = () => {
     input.accept = 'image/*';
     input.onchange = (e: Event) => {
       const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          const content = ev.target?.result as string;
+      const session = imageSessionRef.current;
+      if (file && session) {
+          const url = URL.createObjectURL(file);
           const img = new Image();
+          img.onerror = () => { URL.revokeObjectURL(url); showToast(t.parseFailed, 'error'); };
           img.onload = () => {
+            URL.revokeObjectURL(url);
             if (latestProjectRef.current?.id !== project.id || latestProjectRef.current?.activePageId !== project.activePageId) return;
             const maxW = project.pageInfo.width * 0.8;
             const maxH = project.pageInfo.height * 0.8;
@@ -1250,6 +1294,8 @@ const App: React.FC = () => {
             if (w > maxW) { w = maxW; h = w / ratio; }
             if (h > maxH) { h = maxH; w = h * ratio; }
 
+            void session.addImage(file).then(content => {
+            if (imageSessionRef.current !== session || latestProjectRef.current?.id !== project.id || latestProjectRef.current?.activePageId !== project.activePageId) return;
             const newLayer: Layer = {
               id: generateId(),
               name: t.newImageLayerName,
@@ -1270,10 +1316,9 @@ const App: React.FC = () => {
             };
             modifyProject(p => ({ ...p, layers: [...p.layers, newLayer], selectedLayerId: newLayer.id }));
             setSelectedLayerIds([newLayer.id]);
+            }).catch(error => showToast(error instanceof Error ? error.message : String(error), 'error'));
           };
-          img.src = content;
-        };
-        reader.readAsDataURL(file);
+          img.src = url;
       }
     };
     input.click();
@@ -1474,6 +1519,13 @@ const App: React.FC = () => {
       if (!directory) throw new Error('No storage folder selected.');
       return directory;
     },
+    prepareCommit: async next => {
+      const session = imageSessionRef.current;
+      if (!session) throw new Error('Project image session is unavailable.');
+      const prepared = await session.adopt(next);
+      if (imageSessionRef.current !== session) throw new Error('Active project changed while preparing images.');
+      return prepared;
+    },
     onCommit: next => {
       latestProjectRef.current = next;
       aiHistory.commit(next);
@@ -1487,7 +1539,11 @@ const App: React.FC = () => {
       }
       clearActiveLocalFilePath();
       warnIfNewerProject(next);
-      const opened = { ...clonePlainData(next), selectedLayerId: null };
+      const session = new ProjectImageSession();
+      let opened: ProjectState;
+      try { opened = await session.adopt({ ...clonePlainData(next), selectedLayerId: null }); }
+      catch (error) { session.close(); throw error; }
+      switchImageSession(session);
       latestProjectRef.current = opened;
       setProject(opened);
       setSelectedLayerIds([]);
@@ -1495,7 +1551,7 @@ const App: React.FC = () => {
       initProjectHistory(opened);
       return opened;
     },
-    onUpsert: next => setProjects(previous => [next, ...previous.filter(item => item.id !== next.id)]),
+    onUpsert: next => setProjects(previous => [summarizeProject(next), ...previous.filter(item => item.id !== next.id)]),
     onDelete: (id, localPath) => {
       if (localPath) removeLocalRecentByPath(localPath);
       else setProjects(previous => previous.filter(item => item.id !== id));
@@ -1503,6 +1559,7 @@ const App: React.FC = () => {
         latestProjectRef.current = null;
         cancelPendingSave();
         clearActiveLocalFilePath();
+        switchImageSession(null);
         setProject(null);
         setSelectedLayerIds([]);
         setView('landing');
@@ -1541,10 +1598,10 @@ const App: React.FC = () => {
     return { width: Math.round(width), height: Math.round(height) };
   })();
 
-  const resolveRecentProject = async (item: BrowserProjectItem): Promise<ProjectState> => {
-    if (item.source === 'local' && item.localPath) return readLocalProject(item.localPath);
+  const resolveRecentProject = async (item: BrowserProjectItem, imageOwner?: symbol): Promise<ProjectState> => {
+    if (item.source === 'local' && item.localPath) return readLocalProject(item.localPath, imageOwner);
     if (!('kind' in item.project)) return item.project;
-    const loaded = await storageAdapter.getProject?.(item.project.id);
+    const loaded = await storageAdapter.getProject?.(item.project.id, imageOwner);
     if (!loaded) throw new Error('Project not found.');
     return loaded;
   };
@@ -1560,14 +1617,19 @@ const App: React.FC = () => {
     window.setTimeout(() => {
       const operation = item.source === 'local' && item.localPath
         ? openLocalProjectFromPath(item.localPath)
-        : resolveRecentProject(item).then(fullProject => {
+        : (async () => {
+          const session = new ProjectImageSession();
+          let fullProject: ProjectState;
+          try { fullProject = await session.adopt(await resolveRecentProject(item, session.owner)); }
+          catch (error) { session.close(); throw error; }
           warnIfNewerProject(fullProject);
           const opened = fullProject.pages?.[0] ? selectProjectPage(fullProject, fullProject.pages[0].id) : syncProjectPages({ ...fullProject, selectedLayerId: null });
+          switchImageSession(session);
           setProject(opened);
           setView('editor');
           initProjectHistory(opened);
           clearActiveLocalFilePath();
-        });
+        })();
       void operation.catch(error => reportStorageError(error, 'read-project', t.storageLoadFailed, item.project.id)).finally(() => {
         openingProjectRef.current = false;
         setOpeningProject(false);
@@ -1728,8 +1790,9 @@ const App: React.FC = () => {
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <button
             onClick={() => {
-              setProjects(prev => prev.map(item => item.id === project.id ? (storageAdapter.listProjectSummaries ? summarizeProject({ ...project, updatedAt: Date.now() }) : { ...project, updatedAt: Date.now() }) : item));
+              setProjects(prev => prev.map(item => item.id === project.id ? summarizeProject({ ...project, updatedAt: Date.now() }) : item));
               performAutoSave('leave');
+              switchImageSession(null);
               setProject(null);
               setView('landing');
             }}
@@ -1873,9 +1936,13 @@ const App: React.FC = () => {
             }
 
             if (l.type === 'image' && l.content) {
+              const session = imageSessionRef.current;
+              if (!session) return;
+              void session.addImage(l.content).then(content => {
+              if (imageSessionRef.current !== session) return;
               const img = new Image();
               img.onload = () => {
-                if (latestProjectRef.current?.id !== project.id || latestProjectRef.current?.activePageId !== project.activePageId) return;
+                if (imageSessionRef.current !== session || latestProjectRef.current?.id !== project.id || latestProjectRef.current?.activePageId !== project.activePageId) return;
                 let width = img.width || 100;
                 let height = img.height || 100;
                 const maxWidth = project.pageInfo.width * 0.8;
@@ -1895,7 +1962,7 @@ const App: React.FC = () => {
                   id: generateId(),
                   name: l.name || t.defaultLayerName,
                   type: 'image',
-                  content: l.content,
+                  content,
                   imageSource: l.imageSource || 'import',
                   imageDescription: l.imageDescription || l.name || '',
                   x: (project.pageInfo.width - width) / 2,
@@ -1917,7 +1984,8 @@ const App: React.FC = () => {
                 }));
                 setSelectedLayerIds([newLayer.id]);
               };
-              img.src = l.content;
+              img.src = resolveImageSource(content);
+              }).catch(error => showToast(error instanceof Error ? error.message : String(error), 'error'));
               return;
             }
             

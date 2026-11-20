@@ -49,6 +49,16 @@ export class ImageAssetCache {
     return entry.url ??= URL.createObjectURL(entry.blob);
   }
 
+  releaseReference(owner: symbol, reference: string): void {
+    const owned = this.owners.get(owner);
+    const entry = this.entries.get(reference);
+    if (!owned?.delete(reference) || !entry) return;
+    entry.owners.delete(owner);
+    if (entry.owners.size) return;
+    if (entry.url) URL.revokeObjectURL(entry.url);
+    this.entries.delete(reference);
+  }
+
   release(owner: symbol): void {
     const owned = this.owners.get(owner);
     if (!owned) return;

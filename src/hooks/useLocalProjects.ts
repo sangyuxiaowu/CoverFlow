@@ -6,10 +6,11 @@ import { summarizeProject, type ProjectSummary } from '../storage/StorageAdapter
 import { pagePreviewFingerprint } from '../storage/projectPreviews.ts';
 import { captureImageAssets } from '../storage/imageAssets.ts';
 import { writeProject } from '../storage/projectCompatibility.ts';
+import { ProjectImageSession } from '../storage/projectImageSession.ts';
 
-export const readLocalProject = async (path: string) => {
+export const readLocalProject = async (path: string, imageOwner?: symbol) => {
   const { readFile, readTextFile } = await import('@tauri-apps/plugin-fs');
-  return path.toLowerCase().endsWith('.cfjx') ? decodeProjectArchive(await readFile(path)) : readLegacyCfj(await readTextFile(path));
+  return path.toLowerCase().endsWith('.cfjx') ? decodeProjectArchive(await readFile(path), imageOwner) : readLegacyCfj(await readTextFile(path));
 };
 
 const LOCAL_RECENT_KEY = 'coverflow_recent_local_files_v1';
@@ -39,7 +40,7 @@ type UseLocalProjectsOptions = {
   view: 'landing' | 'editor';
   parseFailedMessage: string;
   showToast: (msg: string, type?: 'success' | 'error') => void;
-  onOpenProject: (project: ProjectState) => void;
+  onOpenProject: (project: ProjectState, session: ProjectImageSession) => Promise<ProjectState>;
   onUpdateProject: (project: ProjectState, source: ProjectState) => void;
 };
 
@@ -97,17 +98,18 @@ export const useLocalProjects = ({
 
   const openLocalProjectFromPath = useCallback(async (path: string) => {
     if (!isTauri) return;
+    const session = new ProjectImageSession();
     try {
-      const parsed = await readLocalProject(path);
-      onOpenProject(parsed);
+      const parsed = await onOpenProject(await readLocalProject(path, session.owner), session);
       setActiveLocalFilePath(path);
       updateLocalRecentMeta(path, parsed);
       setLocalRecentItems(prev => {
         const next = prev.filter(item => item.localPath !== path);
-        return [{ project: parsed, source: 'local', localPath: path }, ...next];
+        return [{ project: localSummary(parsed), source: 'local', localPath: path }, ...next];
       });
       return parsed;
     } catch (err) {
+      session.close();
       removeLocalRecentByPath(path);
       showToast(parseFailedMessage, 'error');
     }
@@ -146,7 +148,7 @@ export const useLocalProjects = ({
     updateLocalRecentMeta(targetPath, nextProject);
     setLocalRecentItems(prev => {
       const next = prev.filter(item => item.localPath !== targetPath && item.localPath !== path);
-      return [{ project: nextProject, source: 'local', localPath: targetPath }, ...next];
+      return [{ project: localSummary(nextProject), source: 'local', localPath: targetPath }, ...next];
     });
     return nextProject;
   }, [onUpdateProject, removeLocalRecentByPath, updateLocalRecentMeta]);

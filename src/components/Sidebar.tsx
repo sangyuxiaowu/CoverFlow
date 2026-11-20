@@ -66,13 +66,6 @@ interface AssetGroup {
 
 const ASSET_PAGE_SIZE = 120;
 
-const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-  const reader = new FileReader();
-  reader.onload = () => resolve((reader.result as string) || '');
-  reader.onerror = () => reject(reader.error);
-  reader.readAsDataURL(file);
-});
-
 type SidebarTranslation = typeof translations.zh;
 
 interface AssetRenderItem {
@@ -464,9 +457,19 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [faViewportMetrics, setFaViewportMetrics] = useState<ScrollViewportMetrics>(() => createDefaultViewportMetrics());
   const externalAssetCacheRef = useRef<Map<string, string>>(new Map());
   const externalAssetLoadingRef = useRef<Set<string>>(new Set());
+  const externalAssetGenerationRef = useRef(0);
   const assetPreviewCacheRef = useRef<Map<string, string>>(new Map());
   const faPreviewCacheRef = useRef<Map<string, string>>(new Map());
   const onAddLayerRef = useRef(onAddLayer);
+
+  const clearExternalAssetCache = useCallback(() => {
+    externalAssetGenerationRef.current++;
+    for (const value of externalAssetCacheRef.current.values()) if (value.startsWith('blob:')) URL.revokeObjectURL(value);
+    externalAssetCacheRef.current.clear();
+    externalAssetLoadingRef.current.clear();
+    assetPreviewCacheRef.current.clear();
+  }, []);
+  useEffect(() => clearExternalAssetCache, [clearExternalAssetCache]);
 
   // Font Awesome 数据状态
   const [faIcons, setFaIcons] = useState<Record<string, FAIconMetadata> | null>(null);
@@ -588,9 +591,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const scanExternalFolder = useCallback(async (handle: FileSystemDirectoryHandle) => {
     setExternalLoading(true);
     setExternalError(null);
-    externalAssetCacheRef.current.clear();
-    externalAssetLoadingRef.current.clear();
-    assetPreviewCacheRef.current.clear();
+    clearExternalAssetCache();
     setExternalCacheVersion(prev => prev + 1);
 
     try {
@@ -614,27 +615,29 @@ const Sidebar: React.FC<SidebarProps> = ({
     } finally {
       setExternalLoading(false);
     }
-  }, [t.assetFolderReadFailed]);
+  }, [clearExternalAssetCache, t.assetFolderReadFailed]);
 
   const loadExternalAsset = useCallback(async (item: ExternalAssetItem) => {
     if (externalAssetCacheRef.current.has(item.key)) return;
     if (externalAssetLoadingRef.current.has(item.key)) return;
+    const generation = externalAssetGenerationRef.current;
     externalAssetLoadingRef.current.add(item.key);
     try {
       const file = await item.fileHandle.getFile();
       if (item.assetType === 'svg') {
         const text = await file.text();
         const normalized = normalizeSVG(text);
+        if (generation !== externalAssetGenerationRef.current) return;
         externalAssetCacheRef.current.set(item.key, normalized);
       } else {
-        const dataUrl = await readFileAsDataUrl(file);
-        externalAssetCacheRef.current.set(item.key, dataUrl);
+        if (generation !== externalAssetGenerationRef.current) return;
+        externalAssetCacheRef.current.set(item.key, URL.createObjectURL(file));
       }
       setExternalCacheVersion(prev => prev + 1);
     } catch (err) {
       // ignore single file read errors
     } finally {
-      externalAssetLoadingRef.current.delete(item.key);
+      if (generation === externalAssetGenerationRef.current) externalAssetLoadingRef.current.delete(item.key);
     }
   }, []);
 
@@ -678,11 +681,9 @@ const Sidebar: React.FC<SidebarProps> = ({
     setExternalFolderHandle(null);
     setExternalFolderName('');
     setExternalGroups([]);
-    externalAssetCacheRef.current.clear();
-    externalAssetLoadingRef.current.clear();
-    assetPreviewCacheRef.current.clear();
+    clearExternalAssetCache();
     setExternalCacheVersion(prev => prev + 1);
-  }, []);
+  }, [clearExternalAssetCache]);
 
   useEffect(() => {
     let active = true;
@@ -1180,12 +1181,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <input type="file" className="hidden" accept="image/*" onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (!file) return;
+                  if (onOpenBackgroundCrop) {
+                    onOpenBackgroundCrop(URL.createObjectURL(file));
+                    e.currentTarget.value = '';
+                    return;
+                  }
                   const reader = new FileReader();
                   reader.onload = (ev) => {
                     const result = ev.target?.result as string;
                     if (!result) return;
-                    if (onOpenBackgroundCrop) onOpenBackgroundCrop(result);
-                    else onUpdateBackground({ value: result });
+                    onUpdateBackground({ value: result });
                   };
                   reader.readAsDataURL(file);
                   e.currentTarget.value = '';

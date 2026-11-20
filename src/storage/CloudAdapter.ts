@@ -1,6 +1,7 @@
 import { ProjectState } from '../types.ts';
 import { ListProjectsOptions, StorageAdapter, StorageAdapterType } from './StorageAdapter.ts';
 import { readProject, writeProject } from './projectCompatibility.ts';
+import { embedProjectImageAssets } from './projectImageSession.ts';
 
 // 用于使用云端API管理项目时的存储适配器。
 // 目前实现为基于 localStorage 的 Mock，后续替换为真实 API 调用。
@@ -65,10 +66,11 @@ export class CloudAdapter implements StorageAdapter {
 
   saveProject = async (project: ProjectState) => {
     if (!this.isAvailable()) return;
+    const embedded = await embedProjectImageAssets(project);
     const all = loadProjects();
     const idx = all.findIndex(item => item.id === project.id);
-    if (idx >= 0) all[idx] = project;
-    else all.unshift(project);
+    if (idx >= 0) all[idx] = embedded;
+    else all.unshift(embedded);
     saveProjects(all);
   };
 

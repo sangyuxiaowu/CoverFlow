@@ -39,7 +39,7 @@ export interface StorageAdapter {
   type: StorageAdapterType;
   isAvailable: () => boolean;
   ensureReady: (options?: { prompt?: boolean }) => Promise<boolean>;
-  getProject?: (projectId: string) => Promise<ProjectState | null>;
+  getProject?: (projectId: string, imageOwner?: symbol) => Promise<ProjectState | null>;
   listProjectSummaries?: () => Promise<ProjectSummary[]>;
   getProjectPreview?: (projectId: string) => Promise<Blob | undefined>;
   saveProjectPreview?: (project: ProjectState, pageId: string, preview: Blob) => Promise<void>;

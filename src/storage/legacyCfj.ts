@@ -63,6 +63,21 @@ export function readLegacyIndexedDBProject(input: unknown) {
   return readProject(input);
 }
 
+export function hasLegacyIndexedDBImages(pages: ProjectPage[]): boolean {
+  return pages.some(page => page.layers.some(layer => layer.type === 'image' && /^data:image\/[a-z0-9.+-]+;base64,/i.test(layer.content)) ||
+    (page.pageInfo.background.type === 'image' && /^data:image\/[a-z0-9.+-]+;base64,/i.test(page.pageInfo.background.value)));
+}
+
+export function sameLegacyIndexedDBRecord(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  if (Array.isArray(left) || Array.isArray(right)) return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => sameLegacyIndexedDBRecord(item, right[index]));
+  const first = left as Record<string, unknown>;
+  const second = right as Record<string, unknown>;
+  const keys = Object.keys(first);
+  return keys.length === Object.keys(second).length && keys.every(key => Object.hasOwn(second, key) && sameLegacyIndexedDBRecord(first[key], second[key]));
+}
+
 export async function migrateLegacyIndexedDBImages(pages: ProjectPage[], owner: symbol): Promise<ProjectPage[]> {
   const pending = new Map<string, Promise<string>>();
   const convert = (value: string): Promise<string> => {

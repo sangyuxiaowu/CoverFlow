@@ -137,5 +137,6 @@ export function useProjectHistory(project: ProjectState | null, setProject: Disp
   }, [history, historyIndex, setProject, clearCheckpoint]);
 
   return { initProjectHistory, modifyProject, saveHistorySnapshot, handleUndo, handleRedo, aiHistory,
+    retainedProjects: checkpoint.current ? [...history, checkpoint.current.snapshot, checkpoint.current.expected] : history,
     canUndo: historyIndex > 0, canRedo: historyIndex < history.length - 1 };
 }

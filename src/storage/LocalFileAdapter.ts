@@ -209,7 +209,7 @@ export class LocalFileAdapter implements StorageAdapter {
     return operation;
   };
 
-  getProject = async (projectId: string): Promise<ProjectState | null> => {
+  getProject = async (projectId: string, imageOwner?: symbol): Promise<ProjectState | null> => {
     if (!await this.ensureReady({ prompt: false }) || !this.rootHandle) return null;
     if (!this.indexEntries.length) await this.listProjectSummaries();
     const candidates = this.indexEntries.filter(item => item.project.id === projectId)
@@ -219,7 +219,7 @@ export class LocalFileAdapter implements StorageAdapter {
       try {
         const handle = await data.getFileHandle(item.name);
         const project = item.name.toLowerCase().endsWith('.cfjx')
-          ? await decodeProjectArchive(await readFileBytes(handle))
+          ? await decodeProjectArchive(await readFileBytes(handle), imageOwner)
           : readLegacyCfj(await readFileText(handle));
         if (project.id === projectId) return project;
       } catch (error) { console.warn('[CoverFlow project read]', item.name, error); }

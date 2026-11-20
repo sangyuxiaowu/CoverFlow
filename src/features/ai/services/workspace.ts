@@ -22,6 +22,7 @@ export interface WorkspaceOptions {
   activeLocalPath: string | null;
   chatStorageKey?: string;
   getChatDirectory?: () => Promise<FileSystemDirectoryHandle>;
+  prepareCommit?: (project: ProjectState) => Promise<ProjectState>;
   onCommit: (project: ProjectState) => void;
   onOpen: (project: ProjectState, localPath?: string) => Promise<ProjectState | void>;
   onUpsert: (project: ProjectState) => void;
@@ -116,7 +117,9 @@ export function createWorkspaceBridge(
     commit: async project => {
       const options = read();
       if (current?.id !== project.id) throw new Error('Active project changed.');
-      current = syncProjectPages(project);
+      const prepared = options.prepareCommit ? await options.prepareCommit(project) : project;
+      if (read().project !== options.project || current?.id !== project.id) throw new Error('Active project changed while preparing images.');
+      current = syncProjectPages(prepared);
       options.onCommit(current);
       await save(current, options.activeLocalPath || undefined);
     },

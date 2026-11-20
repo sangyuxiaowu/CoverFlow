@@ -180,3 +180,13 @@ it('dispatches clipboard formats and removes both listeners on unmount', async (
   expect(harness.options.handleDeleteLayers).not.toHaveBeenCalled();
   expect(harness.options.addTextLayerWithContent).toHaveBeenCalledOnce();
 });
+
+it('passes pasted image files without creating Base64 strings', async () => {
+  const { options } = await mount();
+  const file = new File(['image'], 'photo.png', { type: 'image/png' });
+  const event = new Event('paste', { bubbles: true, cancelable: true });
+  Object.defineProperty(event, 'clipboardData', { value: { files: [file], getData: () => '' } });
+  await act(async () => document.body.dispatchEvent(event));
+  expect(options.addImageLayerWithContent).toHaveBeenCalledExactlyOnceWith(file);
+  expect(event.defaultPrevented).toBe(true);
+});

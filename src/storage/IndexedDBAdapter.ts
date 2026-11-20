@@ -2,7 +2,7 @@ import { ProjectDocument, ProjectPage, ProjectState } from '../types.ts';
 import { ListProjectsOptions, StorageAdapter, StorageAdapterType, type ProjectSummary, summarizeProject } from './StorageAdapter.ts';
 import { readProject, writeProject } from './projectCompatibility.ts';
 import { notifyProjectPreview, pagePreviewFingerprint, pagePreviewFingerprintAsync, rememberProjectPreview } from './projectPreviews.ts';
-import { migrateLegacyIndexedDBImages, readLegacyIndexedDBProject } from './legacyCfj.ts';
+import { hasLegacyIndexedDBImages, migrateLegacyIndexedDBImages, readLegacyIndexedDBProject, sameLegacyIndexedDBRecord } from './legacyCfj.ts';
 import { packImagePages, unpackImagePages, type ImageAsset, type ImageCache } from './indexedDbImages.ts';
 import { captureImageAssets } from './imageAssets.ts';
 
@@ -119,7 +119,7 @@ const readAllProjects = async () => {
   }); } finally { db.close(); }
 };
 
-const upsertProject = async (project: ProjectState, held: Map<string, Blob>) => {
+const upsertProject = async (project: ProjectState, held: Map<string, Blob>, expected?: unknown) => {
   const epoch = cacheEpoch;
   const document = writeProject(project);
   const summary = await createSummary({ ...project, pages: document.pages });
@@ -133,9 +133,11 @@ const upsertProject = async (project: ProjectState, held: Map<string, Blob>) => 
   const pages = tx.objectStore(PAGE_STORE);
   const images = tx.objectStore(ASSET_STORE);
   const revision = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}-${Math.random()}`;
+  let skipped = false;
   const existing = store.get(project.id);
   existing.onsuccess = () => {
     const previous: unknown = existing.result;
+    if (expected !== undefined && !sameLegacyIndexedDBRecord(previous, expected)) { skipped = true; return; }
     if (isPagedProject(previous)) {
       if (!Array.isArray(previous.pageIds) || typeof previous.revision !== 'string' || !previous.revision) { tx.abort(); return; }
       const ids = new Set(document.pages.map(page => page.id));
@@ -153,7 +155,7 @@ const upsertProject = async (project: ProjectState, held: Map<string, Blob>) => 
     tx.objectStore(SUMMARY_STORE).put(summary);
   };
   return new Promise<void>((resolve, reject) => {
-    tx.oncomplete = () => { if (epoch === cacheEpoch) { lastPages = { factory: indexedDB, projectId: project.id, revision, pages: document.pages }; lastImages = { factory: indexedDB, projectId: project.id, cache }; } db.close(); resolve(); };
+    tx.oncomplete = () => { if (!skipped && epoch === cacheEpoch) { lastPages = { factory: indexedDB, projectId: project.id, revision, pages: document.pages }; lastImages = { factory: indexedDB, projectId: project.id, cache }; } db.close(); if (skipped) reject(new Error('Project changed during migration. Please open it again.')); else resolve(); };
     tx.onerror = () => { db.close(); reject(tx.error); };
     tx.onabort = () => { db.close(); reject(tx.error); };
   });
@@ -199,6 +201,11 @@ export class IndexedDBAdapter implements StorageAdapter {
       ]);
       if (stored === undefined) return null;
       const { project, cache } = await readStoredProject(stored, pages as StoredPage[], assets as StoredAsset[], owner);
+      const needsMigration = !isPagedProject(stored) || hasLegacyIndexedDBImages((pages as StoredPage[]).map(record => record.page));
+      if (owner && needsMigration) {
+        const held = captureImageAssets(writeProject(project).pages);
+        await enqueueProjectWrite(projectId, () => upsertProject(project, held, stored));
+      }
       if (epoch === cacheEpoch) {
         if (isPagedProject(stored) && !owner) lastPages = { factory: indexedDB, projectId, revision: stored.revision, pages: project.pages! };
         else lastPages = null;

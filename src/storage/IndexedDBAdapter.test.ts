@@ -108,6 +108,19 @@ test('migrates an inline IndexedDB project when saving without losing image data
     const binary = await adapter.getProject(old.id, owner);
     assert.match(binary!.layers[0].content, /^asset-image:/);
     assert.deepEqual(new Uint8Array(await imageAssets.blob(binary!.layers[0].content)!.arrayBuffer()), new Uint8Array([1, 2, 3, 4]));
+    const migratedDb = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('coverflow_projects_db_v1', 4);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const migrated = await new Promise<unknown>((resolve, reject) => {
+      const request = migratedDb.transaction('projects').objectStore('projects').get(old.id);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    assert.equal((migrated as { storageFormat?: string }).storageFormat, 'paged-v1');
+    assert.equal(JSON.stringify(migrated).includes(image), false);
+    migratedDb.close();
     await adapter.saveProject(opened!);
     assert.equal((await adapter.getProject(old.id))?.layers[0].content, image);
   } finally { imageAssets.release(owner); vi.unstubAllGlobals(); }
@@ -259,4 +272,33 @@ test('unpacks stored binary images into owner-scoped references and verifies the
     assert.equal(unpacked.pages[0].pageInfo.background.value, reference);
     await assert.rejects(unpackImagePages(project.pages!, [{ id, blob: new NodeBlob(['wrong'], { type: 'image/png' }) as unknown as Blob }], owner), /Invalid stored project image/);
   } finally { imageAssets.release(owner); }
+});
+
+test('does not overwrite a newer project while migrating legacy images', async () => {
+  vi.stubGlobal('indexedDB', new IDBFactory());
+  const owner = imageAssets.createOwner();
+  const project = syncProjectPages({ id: 'legacy-race', title: 'Old', selectedLayerId: null, updatedAt: 1,
+    layers: [{ id: 'image', name: 'Image', type: 'image', content: 'data:image/png;base64,AQIDBA==', x: 0, y: 0, width: 10, height: 10, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }],
+    pageInfo: { width: 100, height: 80, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const fetching = new Promise<void>(resolve => { started = resolve; });
+  const originalFetch = globalThis.fetch;
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementationOnce(async (...args) => { started(); await gate; return originalFetch(...args); });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open('coverflow_projects_db_v1', 1);
+      request.onupgradeneeded = () => request.result.createObjectStore('projects', { keyPath: 'id' }).put(writeProject(project));
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => { request.result.close(); resolve(); };
+    });
+    const adapter = new IndexedDBAdapter();
+    const opening = adapter.getProject(project.id, owner).catch(error => error);
+    await fetching;
+    await adapter.saveProject({ ...project, title: 'Newer', layers: [], pages: [{ ...project.pages![0], layers: [] }], updatedAt: 2 });
+    release();
+    assert.match((await opening).message, /changed during migration/);
+    assert.equal((await adapter.getProject(project.id))?.title, 'Newer');
+  } finally { release(); fetch.mockRestore(); imageAssets.release(owner); vi.unstubAllGlobals(); }
 });

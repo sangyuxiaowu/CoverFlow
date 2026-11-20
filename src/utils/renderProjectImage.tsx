@@ -6,6 +6,8 @@ import type { ProjectState } from '../types.ts';
 import { ensureProjectFonts, projectFontEmbedCSS } from '../features/ai/services/fontLoading.ts';
 import { waitForPreviewIdle, waitForPreviewTask } from './previewIdle.ts';
 import { previewImageAssets } from './previewImageAssets.ts';
+import { leaseImageAssets } from '../storage/imageAssets.ts';
+import { writeProject } from '../storage/projectCompatibility.ts';
 
 export interface RenderImageOptions {
   format?: 'png' | 'jpeg' | 'webp';
@@ -20,15 +22,18 @@ export interface RenderImageOptions {
 let backgroundTail: Promise<void> = Promise.resolve();
 
 export async function renderProjectImage(project: ProjectState, options: RenderImageOptions = {}): Promise<Blob> {
-  if (!options.background) return renderImage(project, options);
-  const previous = backgroundTail;
-  let release!: () => void;
-  backgroundTail = new Promise<void>(resolve => { release = resolve; });
-  await previous;
+  const releaseAssets = leaseImageAssets(writeProject(project).pages);
   try {
-    options.signal?.throwIfAborted();
-    return await renderImage(project, options);
-  } finally { release(); }
+    if (!options.background) return await renderImage(project, options);
+    const previous = backgroundTail;
+    let release!: () => void;
+    backgroundTail = new Promise<void>(resolve => { release = resolve; });
+    await previous;
+    try {
+      options.signal?.throwIfAborted();
+      return await renderImage(project, options);
+    } finally { release(); }
+  } finally { releaseAssets(); }
 }
 
 async function renderImage(project: ProjectState, options: RenderImageOptions): Promise<Blob> {

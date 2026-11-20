@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import JSZip from 'jszip';
-import { encodeProjectArchive, decodeProjectArchive, decodeProjectArchiveWithPreviews, replaceProjectArchivePreviews } from './projectArchive.ts';
+import { encodeProjectArchive, decodeProjectArchive, decodeProjectArchiveWithPreviews, prepareProjectArchivePreviews, replaceProjectArchivePreviews } from './projectArchive.ts';
 import { readLegacyCfj, readLegacyCfjx } from './legacyCfj.ts';
 import * as hashes from '@noble/hashes/sha2.js';
 import { pagePreviewFingerprint, pagePreviewFingerprintAsync } from './projectPreviews.ts';
@@ -164,6 +164,21 @@ describe('project archive', () => {
       expect(await decodeProjectArchive(await encodeProjectArchive(project, {}))).toEqual(original);
       imageAssets.release(owner);
       expect(imageAssets.blob(reference)).toBeUndefined();
+    } finally { imageAssets.release(owner); }
+  });
+
+  it('updates previews for archives opened with binary image references', async () => {
+    const owner = imageAssets.createOwner();
+    try {
+      const original = readLegacyCfj(legacy);
+      const initial = await encodeProjectArchive(original, {});
+      const binary = await decodeProjectArchive(initial, owner);
+      const archive = await encodeProjectArchive(binary, {});
+      const preview = new Uint8Array([82, 73, 70, 70, 4, 0, 0, 0, 87, 69, 66, 80]);
+      const result = await prepareProjectArchivePreviews(archive, binary, { [binary.pages![0].id]: preview });
+      expect(result.matches).toBe(true);
+      expect(result.bytes).toBeDefined();
+      expect((await decodeProjectArchiveWithPreviews(result.bytes!, owner)).previews[binary.pages![0].id]).toEqual(preview);
     } finally { imageAssets.release(owner); }
   });
 

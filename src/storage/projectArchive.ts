@@ -289,12 +289,18 @@ export async function decodeProjectArchive(bytes: Uint8Array, owner?: symbol): P
 
 export function prepareProjectArchivePreviews(bytes: Uint8Array, project: ProjectState, previews: Record<string, Uint8Array>): Promise<PreviewUpdate> {
   return runArchiveTask({ kind: 'previews', bytes, project, previews }, async () => {
-    const archive = await decodeProjectArchiveWithPreviews(bytes);
-    if (!sameStoredValue(writeProject(archive.project), writeProject(project))) return { matches: false };
-    const changed = Object.entries(previews).some(([pageId, preview]) => {
-      const previous = archive.previews[pageId];
-      return !previous || previous.length !== preview.length || preview.some((value, index) => value !== previous[index]);
-    });
-    return { matches: true, ...(changed ? { bytes: await replaceProjectArchivePreviews(bytes, archive.project, { ...archive.previews, ...previews }) } : {}) };
+    const pages = writeProject(project).pages;
+    const binary = pages.some(page => page.layers.some(layer => layer.type === 'image' && isImageAsset(layer.content)) ||
+      (page.pageInfo.background.type === 'image' && isImageAsset(page.pageInfo.background.value)));
+    const owner = binary ? imageAssets.createOwner() : undefined;
+    try {
+      const archive = await decodeProjectArchiveWithPreviews(bytes, owner);
+      if (!sameStoredValue(writeProject(archive.project), writeProject(project))) return { matches: false };
+      const changed = Object.entries(previews).some(([pageId, preview]) => {
+        const previous = archive.previews[pageId];
+        return !previous || previous.length !== preview.length || preview.some((value, index) => value !== previous[index]);
+      });
+      return { matches: true, ...(changed ? { bytes: await replaceProjectArchivePreviews(bytes, archive.project, { ...archive.previews, ...previews }) } : {}) };
+    } finally { if (owner) imageAssets.release(owner); }
   });
 }

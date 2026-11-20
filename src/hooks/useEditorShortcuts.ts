@@ -18,7 +18,7 @@ type EditorShortcutOptions = {
   handleCloneLayers: (ids: string[]) => void;
   handleGroupLayers: (ids: string[]) => void;
   addSvgLayerWithContent: (content: string) => void;
-  addImageLayerWithContent: (content: string) => void;
+  addImageLayerWithContent: (content: Blob) => void;
   addTextLayerWithContent: (content: string) => void;
   applyProjectFromJson: (data: Partial<ProjectState>) => void;
 };
@@ -36,13 +36,6 @@ export function useEditorShortcuts({ view, project, aiBusy, selectedLayerIds, ha
       reader.onload = () => resolve(reader.result as string);
       reader.onerror = () => reject(reader.error);
       reader.readAsText(file);
-    });
-
-    const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
     });
 
     const handlePaste = async (e: ClipboardEvent) => {
@@ -63,8 +56,7 @@ export function useEditorShortcuts({ view, project, aiBusy, selectedLayerIds, ha
             const text = await readFileAsText(file);
             addSvgLayerWithContent(text);
           } else if (file.type.startsWith('image/')) {
-            const dataUrl = await readFileAsDataUrl(file);
-            addImageLayerWithContent(dataUrl);
+            addImageLayerWithContent(file);
           }
         }
         return;

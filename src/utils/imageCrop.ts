@@ -44,7 +44,7 @@ export const getCroppedImage = async (
     outputSize.height
   );
 
-  return croppedCanvas.toDataURL('image/png');
+  return new Promise<Blob>((resolve, reject) => croppedCanvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Unable to encode cropped image.')), 'image/png'));
 };
 
 const createImage = (url: string): Promise<HTMLImageElement> =>

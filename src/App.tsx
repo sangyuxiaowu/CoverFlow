@@ -49,7 +49,8 @@ import { translations, Language } from './translations.ts';
 import { getAssetFolder } from './storage/assets.ts';
 import { PRESET_RATIOS } from './constants.ts';
 import { generateId, normalizeSVG, isNewerProjectVersion, formatCanvasRatio } from './utils/helpers.ts';
-import { buildProjectSvg } from './utils/svgExport.ts';
+import { buildEmbeddedProjectSvg } from './utils/svgExport.ts';
+import { resolveImageSource } from './storage/imageAssets.ts';
 import { buildHtmlSvg } from './utils/htmlExport.ts';
 import { syncProjectPages } from './storage/projectCompatibility.ts';
 import { decodeProjectArchive, encodeProjectArchive } from './storage/projectArchive.ts';
@@ -525,7 +526,7 @@ const App: React.FC = () => {
     }
     await ensureProjectFonts(targetProject);
     if (settings.format === 'svg') {
-      const svgMarkup = buildProjectSvg(targetProject);
+      const svgMarkup = await buildEmbeddedProjectSvg(targetProject);
       return new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' });
     }
 
@@ -554,7 +555,7 @@ const App: React.FC = () => {
   ) => {
     await ensureProjectFonts(targetProject);
     if (settings.format === 'svg' || settings.format === 'html') {
-      const svgMarkup = buildProjectSvg(targetProject);
+      const svgMarkup = await buildEmbeddedProjectSvg(targetProject);
       const bytes = new TextEncoder().encode(svgMarkup);
       let binary = '';
       bytes.forEach((b) => {
@@ -1458,7 +1459,7 @@ const App: React.FC = () => {
     getLayerPreview: async layerId => {
       const layer = project?.layers.find(item => item.id === layerId);
       if (!layer || layer.type !== 'image') throw new Error('Image layer is unavailable.');
-      const response = await fetch(layer.content);
+      const response = await fetch(resolveImageSource(layer.content));
       if (!response.ok) throw new Error('Image could not be loaded for preview.');
       return encodeWebp(await response.blob());
     },

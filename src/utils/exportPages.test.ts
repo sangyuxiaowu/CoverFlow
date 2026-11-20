@@ -6,6 +6,9 @@ import { insertProjectPage } from './projectPages.ts';
 import { containImage, exportProjectPages, getExportPixelRatio, preparePptSvg, safeExportName } from './exportPages.ts';
 import { buildHtmlExport, buildHtmlSvg } from './htmlExport.ts';
 import { projectFontEmbedCSS } from '../features/ai/services/fontLoading.ts';
+import { Blob as NodeBlob } from 'node:buffer';
+import { imageAssets } from '../storage/imageAssets.ts';
+import { buildEmbeddedProjectSvg, buildProjectSvg } from './svgExport.ts';
 
 vi.mock('../features/ai/services/fontLoading.ts', () => ({ projectFontEmbedCSS: vi.fn(async () => '') }));
 
@@ -193,4 +196,22 @@ it('reveals floating controls on activity, hides after leaving, and plays SVG pa
     player.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }));
     expect(player.body.classList.contains('controls-visible')).toBe(true);
   } finally { frame.remove(); vi.useRealTimers(); }
+});
+
+it('embeds binary image assets in SVG and HTML without exposing internal references', async () => {
+  const owner = imageAssets.createOwner();
+  const reference = await imageAssets.add(owner, new NodeBlob([new Uint8Array([1, 2, 3, 4])], { type: 'image/png' }) as unknown as Blob);
+  const target = project();
+  target.pageInfo.background = { ...target.pageInfo.background, type: 'image', value: reference };
+  target.layers = [{ id: 'image', name: 'Image', type: 'image', content: reference, x: 0, y: 0, width: 10, height: 10, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }];
+  try {
+    expect(() => buildProjectSvg(target)).toThrow('must be embedded');
+    for (const svg of [await buildEmbeddedProjectSvg(target), await buildHtmlSvg(target)]) {
+      expect(svg.match(/data:image\/png;base64,AQIDBA==/g)).toHaveLength(2);
+      expect(svg).not.toContain('asset-image:');
+      expect(svg).not.toContain('blob:');
+    }
+    imageAssets.release(owner);
+    await expect(buildEmbeddedProjectSvg(target)).rejects.toThrow('unavailable');
+  } finally { imageAssets.release(owner); }
 });

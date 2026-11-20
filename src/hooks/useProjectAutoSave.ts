@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import type { ProjectDocument, ProjectState } from '../types.ts';
 import type { StorageAdapter } from '../storage/StorageAdapter.ts';
 import { writeProject } from '../storage/projectCompatibility.ts';
+import { leaseImageAssets } from '../storage/imageAssets.ts';
 
 const sameDocument = (left: ProjectDocument | null, right: ProjectDocument) => Boolean(left &&
   left.id === right.id && left.title === right.title && left.version === right.version &&
@@ -64,6 +65,9 @@ export function useProjectAutoSave({ project, view, storageAdapter, storageReady
     const lastSaved = lastSavedSnapshotRef.current;
     if (pending && pending.adapter === storageAdapter && pending.path === path && sameDocument(pending.snapshot, snapshot)) return pending.promise;
     if (!force && !pending && lastSaved?.adapter === storageAdapter && lastSaved.path === path && sameDocument(lastSaved.snapshot, snapshot)) return Promise.resolve(nextProject);
+    let releaseAssets: () => void;
+    try { releaseAssets = leaseImageAssets(snapshot.pages); }
+    catch (error) { return Promise.reject(error); }
     const promise = saveQueueRef.current.then(async () => {
       if (path) return saveLocalProjectToFile(path, nextProject);
       if (!await storageAdapter.ensureReady({ prompt: false })) throw new Error('Storage is not ready. Select a storage folder first.');
@@ -80,6 +84,7 @@ export function useProjectAutoSave({ project, view, storageAdapter, storageReady
     const task = { adapter: storageAdapter, path, snapshot, promise };
     pendingRef.current = task;
     saveQueueRef.current = promise.then(() => {}, () => {});
+    void promise.then(releaseAssets, releaseAssets);
     void promise.then(() => { if (pendingRef.current === task) pendingRef.current = null; }, () => { if (pendingRef.current === task) pendingRef.current = null; });
     return promise;
   }, [storageAdapter, saveLocalProjectToFile]);

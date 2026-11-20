@@ -4,6 +4,7 @@ import { readProject, writeProject } from './projectCompatibility.ts';
 import { notifyProjectPreview, pagePreviewFingerprint, pagePreviewFingerprintAsync, rememberProjectPreview } from './projectPreviews.ts';
 import { readLegacyIndexedDBProject } from './legacyCfj.ts';
 import { packImagePages, unpackImagePages, type ImageAsset, type ImageCache } from './indexedDbImages.ts';
+import { captureImageAssets } from './imageAssets.ts';
 
 const DB_NAME = 'coverflow_projects_db_v1';
 const STORE_NAME = 'projects';
@@ -114,14 +115,14 @@ const readAllProjects = async () => {
   }); } finally { db.close(); }
 };
 
-const upsertProject = async (project: ProjectState) => {
+const upsertProject = async (project: ProjectState, held: Map<string, Blob>) => {
   const epoch = cacheEpoch;
   const document = writeProject(project);
   const summary = await createSummary({ ...project, pages: document.pages });
   const cache: ImageCache = new Map();
   const previousPages = lastPages;
   const previousImages = lastImages?.factory === indexedDB && lastImages.projectId === project.id ? lastImages.cache : undefined;
-  const packed = await packImagePages(document.pages, cache, previousImages);
+  const packed = await packImagePages(document.pages, cache, previousImages, held);
   const db = await openIndexedDb();
   const tx = db.transaction([STORE_NAME, SUMMARY_STORE, PAGE_STORE, ASSET_STORE], 'readwrite');
   const store = tx.objectStore(STORE_NAME);
@@ -290,7 +291,8 @@ export class IndexedDBAdapter implements StorageAdapter {
 
   saveProject = async (project: ProjectState) => {
     if (!this.isAvailable()) return;
-    await enqueueProjectWrite(project.id, () => upsertProject(project));
+    const held = captureImageAssets(writeProject(project).pages);
+    await enqueueProjectWrite(project.id, () => upsertProject(project, held));
   };
 
   deleteProject = async (projectId: string) => {

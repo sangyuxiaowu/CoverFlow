@@ -5,6 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useProjectAutoSave } from './useProjectAutoSave.ts';
 import type { ProjectState } from '../types.ts';
 import { selectProjectPage } from '../utils/projectPages.ts';
+import { Blob as NodeBlob } from 'node:buffer';
+import { imageAssets } from '../storage/imageAssets.ts';
 
 type Options = Parameters<typeof useProjectAutoSave>[0];
 const initial: ProjectState = { id: 'project', title: 'Initial', layers: [], selectedLayerId: null, updatedAt: 1, pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } }, activePageId: 'page', pages: [{ id: 'page', name: '', layers: [], pageInfo: { ...({ width: 100, height: 100 }), background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } }] };
@@ -215,4 +217,29 @@ it('does not confuse different local file destinations', async () => {
   await harness.render({ activeLocalFilePath: 'second.cfjx' });
   await act(async () => harness.getResult().performAutoSave('manual'));
   expect(harness.options.saveLocalProjectToFile).toHaveBeenCalledExactlyOnceWith('second.cfjx', initial);
+});
+
+it('retains binary assets while an automatic save is queued', async () => {
+  const owner = imageAssets.createOwner();
+  const blob = new NodeBlob(['image'], { type: 'image/png' }) as unknown as Blob;
+  const reference = await imageAssets.add(owner, blob);
+  const layer = { id: 'image', type: 'image' as const, name: 'Image', content: reference, x: 0, y: 0, width: 10, height: 10, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 };
+  const page = { ...initial.pages![0], layers: [layer] };
+  const project = { ...initial, layers: page.layers, pages: [page] };
+  const harness = await mount({ project, isCloudMode: true });
+  let release!: () => void;
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  vi.mocked(harness.options.storageAdapter.saveProject).mockImplementation(async () => {
+    await waiting;
+    expect(imageAssets.blob(reference)).toBe(blob);
+  });
+  try {
+    const saving = harness.getResult().saveActiveProject(project, undefined, true);
+    imageAssets.release(owner);
+    expect(imageAssets.blob(reference)).toBe(blob);
+    release();
+    await saving;
+    await Promise.resolve();
+    expect(imageAssets.blob(reference)).toBeUndefined();
+  } finally { release(); imageAssets.release(owner); }
 });

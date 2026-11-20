@@ -21,6 +21,7 @@ import { useResources } from 'sang-ai-kit/background-removal/useResources.ts';
 import type { Progress } from 'sang-ai-kit/background-removal/types.ts';
 import ColorMattingEditor from 'sang-ai-kit/background-removal/ColorMattingEditor.tsx';
 import type { RemovalResult } from '../utils/backgroundRemovalResult.ts';
+import { resolveImageSource } from '../storage/imageAssets.ts';
 import './background-removal.css';
 
 export default function RemoveBackgroundButton({ layer, english, onApply }: {
@@ -75,7 +76,7 @@ export default function RemoveBackgroundButton({ layer, english, onApply }: {
     setBusy(true);
     setError('');
     try {
-      const url = new URL(original, window.location.href);
+      const url = new URL(resolveImageSource(original), window.location.href);
       if (!['data:', 'blob:', 'https:', 'http:'].includes(url.protocol)) throw new Error('Unsupported image URL');
       abort.signal.throwIfAborted();
       currentImage();
@@ -111,7 +112,7 @@ export default function RemoveBackgroundButton({ layer, english, onApply }: {
 
   return (
     <div className="cf-removal-layer bg-slate-900/60 border border-slate-800 rounded-xl p-2.5 space-y-2.5 transition-all hover:border-slate-700/80 shadow-sm">
-      {colorSession && <ColorMattingEditor image={colorSession.original} english={english} onClose={() => setColorSession(undefined)} onApply={async (blob, signal) => {
+      {colorSession && <ColorMattingEditor image={resolveImageSource(colorSession.original)} english={english} onClose={() => setColorSession(undefined)} onApply={async (blob, signal) => {
         const content = await blobDataUrl(blob);
         signal.throwIfAborted();
         const current = latest.current;

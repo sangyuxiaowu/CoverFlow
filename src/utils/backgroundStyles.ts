@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { BackgroundConfig } from '../types.ts';
 import { backgroundCssStyle } from './customContent.ts';
+import { resolveImageSource } from '../storage/imageAssets.ts';
 
 export type BackgroundStyleOptions = {
   patternScale?: number;
@@ -19,7 +20,7 @@ export const buildBackgroundStyles = (
   } else if (bg.type === 'gradient') {
     baseBackground = bg.value;
   } else if (bg.type === 'image') {
-    baseBackground = `url(${bg.value})`;
+    baseBackground = `url(${resolveImageSource(bg.value)})`;
     styles.backgroundSize = 'cover';
     styles.backgroundPosition = 'center';
   } else if (bg.type === 'css') {

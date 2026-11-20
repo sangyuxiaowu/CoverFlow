@@ -17,6 +17,7 @@ import type { Layer, LayerType, ProjectState } from '../types.ts';
 import type { Language } from '../translations.ts';
 import type { LayerClipboard, ClipboardDetails, ClipboardEntry } from '../utils/layerClipboard.ts';
 import { syncProjectPages } from '../storage/projectCompatibility.ts';
+import { resolveImageSource } from '../storage/imageAssets.ts';
 import type { WorkspaceBridge } from '../features/ai/types.ts';
 import { executeClipboardTool } from '../features/ai/tools/clipboard.ts';
 import { normalizeSVG } from '../utils/helpers.ts';
@@ -64,7 +65,7 @@ function LayerPreviewThumb({
     return (
       <div className="w-10 h-10 rounded-lg bg-slate-950 border border-slate-800 overflow-hidden shrink-0 flex items-center justify-center">
         <img
-          src={layer.content}
+          src={resolveImageSource(layer.content)}
           alt={item.name || ''}
           referrerPolicy="no-referrer"
           onError={onImageError}

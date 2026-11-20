@@ -10,6 +10,7 @@ import { executeAssetTool } from './assets.ts';
 import { ensureProjectFonts } from '../services/fontLoading.ts';
 import { executePageTool, pageContext } from './pages.ts';
 import { executeClipboardTool } from './clipboard.ts';
+import { isImageAsset } from '../../../storage/imageAssets.ts';
 
 export async function executeTool(name: string, input: unknown, bridge: WorkspaceBridge, signal: AbortSignal, supportsVision = false): Promise<unknown> {
   signal.throwIfAborted();
@@ -36,7 +37,7 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
   if (name === 'get_context') return project ? {
     projectId: project.id, title: project.title,
     ...pageContext(project),
-    pageInfo: { ...project.pageInfo, background: { ...project.pageInfo.background, value: project.pageInfo.background.value.startsWith('data:') ? '[embedded image]' : project.pageInfo.background.value } },
+    pageInfo: { ...project.pageInfo, background: { ...project.pageInfo.background, value: project.pageInfo.background.value.startsWith('data:') || isImageAsset(project.pageInfo.background.value) ? '[embedded image]' : project.pageInfo.background.value } },
     selectedLayerIds: bridge.getSelection(),
     layers: project.layers.map(({ id, name, type, x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked, parentId, children }) => ({
       id, name, type, parentId, layerInfo: { x, y, width, height, rotation, zIndex, visible, locked, opacity, ratioLocked }, ...(type === 'group' && children ? { group: { children } } : {})
@@ -55,7 +56,7 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
       }
       const { content } = layer;
       const imageInfo: Record<string, unknown> = {
-        sourceType: content.startsWith('data:') ? 'embedded' : 'url',
+        sourceType: content.startsWith('data:') || isImageAsset(content) ? 'embedded' : 'url',
         sourceLength: content.length,
         previewStatus: supportsVision ? 'unavailable' : 'not_requested'
       };
@@ -80,7 +81,7 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
   if (name === 'read_layers') {
     const selected = args.layerIds === undefined ? null : ids(args.layerIds);
     const query = args.query === undefined ? '' : text(args.query, 'query').toLowerCase();
-    return project.layers.filter(layer => (!selected || selected.includes(layer.id)) && (!query || (layer.name + ' ' + layer.content).toLowerCase().includes(query))).map(layer => layerDetails({ ...layer, content: layer.content.startsWith('data:') ? '[embedded image]' : layer.content }));
+    return project.layers.filter(layer => (!selected || selected.includes(layer.id)) && (!query || (layer.name + ' ' + layer.content).toLowerCase().includes(query))).map(layer => layerDetails({ ...layer, content: layer.content.startsWith('data:') || isImageAsset(layer.content) ? '[embedded image]' : layer.content }));
   }
   let next = project;
   let createdLayerIds: string[] | undefined;

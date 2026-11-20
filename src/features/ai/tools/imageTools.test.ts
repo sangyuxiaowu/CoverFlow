@@ -4,6 +4,7 @@ import type { WorkspaceBridge } from '../types.ts';
 import { createImageToolExtensions } from './imageTools.ts';
 import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
 import { insertProjectPage } from '../../../utils/projectPages.ts';
+import { imageAssets } from '../../../storage/imageAssets.ts';
 
 const original: Layer = { id: 'source', type: 'image', name: 'Photo', content: 'data:image/png;base64,iVBORw0KGgo=',
   x: 20, y: 30, width: 200, height: 300, rotation: 25, zIndex: 1, visible: true, locked: false, opacity: 0.7 };
@@ -20,6 +21,19 @@ function setup() {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('host image tool callbacks', () => {
+  it('uses the original binary asset as an AI reference and rejects released assets', async () => {
+    const owner = imageAssets.createOwner();
+    const blob = new Blob(['original-image'], { type: 'image/png' });
+    const reference = await imageAssets.add(owner, blob);
+    const { tools, signal, getProject } = setup();
+    getProject().layers[0].content = reference;
+    try {
+      const prepared = await tools.generate_image!.prepare({ references: ['source'] }, signal);
+      expect(prepared.inputImages![0]).toBe(blob);
+      imageAssets.release(owner);
+      await expect(tools.generate_image!.prepare({ references: ['source'] }, signal)).rejects.toThrow('unavailable');
+    } finally { imageAssets.release(owner); }
+  });
   it('uses original reference bytes and adds multiple generated results in one commit', async () => {
     const { tools, signal, commit, getProject } = setup();
     const prepared = await tools.generate_image!.prepare({ references: ['source', 'source'] }, signal);

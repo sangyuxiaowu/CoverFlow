@@ -1,7 +1,7 @@
 import type { ProjectState } from '../types.ts';
 import { syncProjectPages } from '../storage/projectCompatibility.ts';
 import { pageNumber, pageProject } from './projectPages.ts';
-import { buildProjectSvg } from './svgExport.ts';
+import { buildEmbeddedProjectSvg } from './svgExport.ts';
 import { renderProjectImage } from './renderProjectImage.tsx';
 import { buildHtmlExport, buildHtmlSvg } from './htmlExport.ts';
 
@@ -79,10 +79,10 @@ export async function exportProjectPages(project: ProjectState, pageIds: string[
   for (const [index, page] of pages.entries()) {
     const target = pageProject(synced, page);
     const pixelRatio = getExportPixelRatio(page.pageInfo.width, page.pageInfo.height, settings);
-    const svgMarkup = settings.format === 'pptx' ? buildProjectSvg(target) : null;
+    const svgMarkup = settings.format === 'pptx' || settings.format === 'svg' ? await buildEmbeddedProjectSvg(target) : null;
     const pptSvg = svgMarkup ? preparePptSvg(svgMarkup, page.pageInfo.width, page.pageInfo.height, pixelRatio) : null;
     const blob = settings.format === 'svg'
-      ? new Blob([buildProjectSvg(target)], { type: 'image/svg+xml;charset=utf-8' })
+      ? new Blob([svgMarkup!], { type: 'image/svg+xml;charset=utf-8' })
       : pptSvg
         ? new Blob([pptSvg], { type: 'image/svg+xml;charset=utf-8' })
         : await renderProjectImage(target, { format: settings.format === 'pptx' ? 'png' : settings.format, pixelRatio, quality });

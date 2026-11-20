@@ -1,4 +1,5 @@
 import { sha256 } from '@noble/hashes/sha2.js';
+import type { ProjectPage } from '../types.ts';
 
 const PREFIX = 'asset-image:';
 type Entry = { blob: Blob; owners: Set<symbol>; url?: string };
@@ -64,3 +65,31 @@ export class ImageAssetCache {
 
 export const isImageAsset = (value: string) => value.startsWith(PREFIX);
 export const imageAssets = new ImageAssetCache();
+export const resolveImageSource = (value: string) => isImageAsset(value) ? imageAssets.url(value) : value;
+
+export function captureImageAssets(pages: ProjectPage[]): Map<string, Blob> {
+  const blobs = new Map<string, Blob>();
+  for (const page of pages) {
+    const values = page.layers.filter(layer => layer.type === 'image').map(layer => layer.content);
+    if (page.pageInfo.background.type === 'image') values.push(page.pageInfo.background.value);
+    for (const value of values) {
+      if (!isImageAsset(value) || blobs.has(value)) continue;
+      const blob = imageAssets.blob(value);
+      if (!blob) throw new Error('Image asset is unavailable.');
+      blobs.set(value, blob);
+    }
+  }
+  return blobs;
+}
+
+export function leaseImageAssets(pages: ProjectPage[]): () => void {
+  const assets = captureImageAssets(pages);
+  const owner = imageAssets.createOwner();
+  try {
+    for (const reference of assets.keys()) imageAssets.retain(owner, reference);
+  } catch (error) {
+    imageAssets.release(owner);
+    throw error;
+  }
+  return () => imageAssets.release(owner);
+}

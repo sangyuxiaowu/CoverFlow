@@ -1,5 +1,6 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import type { ProjectPage } from '../types.ts';
+import { imageAssets, isImageAsset } from './imageAssets.ts';
 
 const PREFIX = 'idb-image:';
 export type ImageAsset = { id: string; blob: Blob };
@@ -24,9 +25,17 @@ async function imageAsset(value: string, cache: ImageCache): Promise<ImageAsset>
   return pending;
 }
 
-export async function packImagePages(pages: ProjectPage[], cache: ImageCache, previous?: ImageCache) {
+export async function packImagePages(pages: ProjectPage[], cache: ImageCache, previous?: ImageCache, held = new Map<string, Blob>()) {
   const assets = new Map<string, ImageAsset>();
   const transform = async (value: string) => {
+    if (isImageAsset(value)) {
+      const blob = held.get(value);
+      if (!blob) throw new Error('Image asset is unavailable.');
+      const asset = { id: value.slice('asset-image:'.length), blob };
+      cache.set(value, Promise.resolve(asset));
+      assets.set(asset.id, asset);
+      return PREFIX + asset.id;
+    }
     if (!/^data:image\/[a-z0-9.+-]+;base64,/i.test(value)) return value;
     const existing = previous?.get(value);
     if (existing && !cache.has(value)) cache.set(value, existing);
@@ -49,7 +58,7 @@ export async function packImagePages(pages: ProjectPage[], cache: ImageCache, pr
   return { pages: packed, assets };
 }
 
-export async function unpackImagePages(pages: ProjectPage[], assets: ImageAsset[]) {
+export async function unpackImagePages(pages: ProjectPage[], assets: ImageAsset[], owner?: symbol) {
   const blobs = new Map(assets.map(asset => [asset.id, asset]));
   const cache = new Map<string, Promise<string>>();
   const imageCache: ImageCache = new Map();
@@ -61,6 +70,12 @@ export async function unpackImagePages(pages: ProjectPage[], assets: ImageAsset[
       const asset = blobs.get(id);
       if (!asset?.blob) throw new Error('Missing stored project image.');
       pending = (async () => {
+        if (owner) {
+          const result = await imageAssets.add(owner, asset.blob);
+          if (result !== `asset-image:${asset.id}`) throw new Error('Invalid stored project image.');
+          imageCache.set(result, Promise.resolve(asset));
+          return result;
+        }
         const bytes = new Uint8Array(await asset.blob.arrayBuffer());
         let binary = '';
         for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));

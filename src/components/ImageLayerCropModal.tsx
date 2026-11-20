@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { FlipHorizontal2, FlipVertical2, RotateCcw, Crop as CropIcon, X, Check } from 'lucide-react';
 import { ImageCrop, Layer } from '../types.ts';
 import { translations, Language } from '../translations.ts';
+import { resolveImageSource } from '../storage/imageAssets.ts';
 import {
   DEFAULT_IMAGE_CROP,
   buildFlipTransform,
@@ -75,7 +76,7 @@ const ImageLayerCropModal: React.FC<ImageLayerCropModalProps> = ({
         setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
       }
     };
-    img.src = layer.content;
+    img.src = resolveImageSource(layer.content);
     return () => {
       active = false;
     };
@@ -311,7 +312,7 @@ const ImageLayerCropModal: React.FC<ImageLayerCropModalProps> = ({
               style={{ width: stageSize.width, height: stageSize.height }}
             >
               <img
-                src={layer.content}
+                src={resolveImageSource(layer.content)}
                 alt={layer.name}
                 draggable={false}
                 className="w-full h-full object-fill pointer-events-none select-none"

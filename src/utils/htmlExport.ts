@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ChevronLeft, ChevronRight, Maximize, Pause, Play, Printer } from 'lucide-react';
 import type { ProjectState } from '../types.ts';
 import { projectFontEmbedCSS } from '../features/ai/services/fontLoading.ts';
-import { buildProjectSvg } from './svgExport.ts';
+import { buildEmbeddedProjectSvg } from './svgExport.ts';
 
 interface HtmlPage {
   svg: string;
@@ -15,7 +15,7 @@ interface HtmlPage {
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
 
 export async function buildHtmlSvg(project: ProjectState): Promise<string> {
-  const document = new DOMParser().parseFromString(buildProjectSvg(project), 'image/svg+xml');
+  const document = new DOMParser().parseFromString(await buildEmbeddedProjectSvg(project), 'image/svg+xml');
   if (document.querySelector('parsererror')) throw new Error('Unable to build page SVG.');
   const fontCss = await projectFontEmbedCSS(project);
   if (fontCss) {

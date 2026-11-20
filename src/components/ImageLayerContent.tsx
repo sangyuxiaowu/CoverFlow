@@ -1,5 +1,6 @@
 import React from 'react';
 import { Layer } from '../types.ts';
+import { resolveImageSource } from '../storage/imageAssets.ts';
 import {
   buildFlipTransform,
   buildImageFilterCss,
@@ -15,6 +16,7 @@ const ImageLayerContent: React.FC<ImageLayerContentProps> = ({ layer }) => {
   const filterCss = buildImageFilterCss(layer.imageFilters);
   const flipTransform = buildFlipTransform(layer.flipX, layer.flipY);
   const isCropped = hasActiveImageCrop(layer.imageCrop);
+  const source = resolveImageSource(layer.content);
 
   if (isCropped) {
     const crop = normalizeImageCrop(layer.imageCrop);
@@ -24,7 +26,7 @@ const ImageLayerContent: React.FC<ImageLayerContentProps> = ({ layer }) => {
         style={{ opacity: layer.opacity }}
       >
         <img
-          src={layer.content}
+          src={source}
           alt={layer.name || 'layer'}
           draggable={false}
           className="absolute pointer-events-none select-none"
@@ -49,7 +51,7 @@ const ImageLayerContent: React.FC<ImageLayerContentProps> = ({ layer }) => {
       style={{ opacity: layer.opacity }}
     >
       <img
-        src={layer.content}
+        src={source}
         alt={layer.name || 'layer'}
         draggable={false}
         className={`w-full h-full ${layer.ratioLocked ? 'object-contain' : 'object-fill'} pointer-events-none select-none`}

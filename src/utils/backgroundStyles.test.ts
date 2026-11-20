@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { Blob } from 'node:buffer';
 import type { BackgroundConfig } from '../types.ts';
 import { buildBackgroundStyles } from './backgroundStyles.ts';
+import { imageAssets } from '../storage/imageAssets.ts';
 
 const background: BackgroundConfig = {
   type: 'gradient',
@@ -22,6 +24,20 @@ describe('background textures', () => {
 
   it('preserves image sizing beneath the grid', () => {
     expect(buildBackgroundStyles({ ...background, type: 'image', value: 'data:image/png;base64,AA==' }).backgroundSize).toBe('40px 40px, 40px 40px, cover');
+  });
+
+  it('resolves binary backgrounds through one owned object URL', async () => {
+    const owner = imageAssets.createOwner();
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:background');
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    try {
+      const reference = await imageAssets.add(owner, new Blob(['image'], { type: 'image/png' }) as globalThis.Blob);
+      const styles = buildBackgroundStyles({ ...background, type: 'image', value: reference });
+      expect(styles.backgroundImage).toContain('url(blob:background)');
+      expect(create).toHaveBeenCalledOnce();
+      imageAssets.release(owner);
+      expect(revoke).toHaveBeenCalledExactlyOnceWith('blob:background');
+    } finally { imageAssets.release(owner); create.mockRestore(); revoke.mockRestore(); }
   });
 
   it('leaves untextured backgrounds unchanged', () => {

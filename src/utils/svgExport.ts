@@ -3,6 +3,7 @@ import { applySvgAspectRatio, normalizeSVG } from './helpers.ts';
 import { detectDecorationFormat, sanitizeBackgroundCss, sanitizeDecorationHtml } from './customContent.ts';
 import { sanitizeDecorationCss } from './decorationStyles.ts';
 import { buildImageFilterCss, hasActiveImageCrop, normalizeImageCrop } from './imageLayer.ts';
+import { imageAssets, isImageAsset } from '../storage/imageAssets.ts';
 
 const escapeXml = (value: string): string =>
   value
@@ -337,6 +338,8 @@ const buildDecorationLayerSvg = (layer: Layer): string => {
 };
 
 export const buildProjectSvg = (project: ProjectState): string => {
+  if ((project.pageInfo.background.type === 'image' && isImageAsset(project.pageInfo.background.value)) ||
+      project.layers.some(layer => layer.type === 'image' && isImageAsset(layer.content))) throw new Error('Binary images must be embedded before SVG export.');
   const { width, height } = project.pageInfo;
   const allDefs: string[] = [
     `<clipPath id="cf-canvas-clip"><rect width="${width}" height="${height}" /></clipPath>`
@@ -418,3 +421,27 @@ export const buildProjectSvg = (project: ProjectState): string => {
     `</svg>`
   ].join('\n');
 };
+
+export async function buildEmbeddedProjectSvg(project: ProjectState): Promise<string> {
+  const blobs = new Map<string, Blob>();
+  const values = project.layers.filter(layer => layer.type === 'image').map(layer => layer.content);
+  if (project.pageInfo.background.type === 'image') values.push(project.pageInfo.background.value);
+  for (const value of values) {
+    if (!isImageAsset(value) || blobs.has(value)) continue;
+    const blob = imageAssets.blob(value);
+    if (!blob) throw new Error('Image asset is unavailable.');
+    blobs.set(value, blob);
+  }
+  const embedded = new Map<string, string>();
+  await Promise.all([...blobs].map(async ([value, blob]) => {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+    embedded.set(value, `data:${blob.type};base64,${btoa(binary)}`);
+  }));
+  const background = project.pageInfo.background;
+  return buildProjectSvg({ ...project,
+    layers: project.layers.map(layer => layer.type === 'image' && embedded.has(layer.content) ? { ...layer, content: embedded.get(layer.content)! } : layer),
+    pageInfo: { ...project.pageInfo, background: background.type === 'image' && embedded.has(background.value) ? { ...background, value: embedded.get(background.value)! } : background }
+  });
+}

@@ -5,6 +5,7 @@ import { readLegacyCfj } from './legacyCfj.ts';
 import { readFileBlob, readFileBytes, readFileText, writeFileContent, writeFileContentOnce } from './fileAccess.ts';
 import { writeProject } from './projectCompatibility.ts';
 import { notifyProjectPreview, projectPreviews } from './projectPreviews.ts';
+import { captureImageAssets } from './imageAssets.ts';
 
 const FS_DB_NAME = 'coverflow_fs_handles_v1';
 const FS_STORE_NAME = 'handles';
@@ -318,6 +319,7 @@ export class LocalFileAdapter implements StorageAdapter {
   };
 
   saveProject = async (project: ProjectState) => {
+    const assets = Object.fromEntries(captureImageAssets(writeProject(project).pages));
     const ready = await this.ensureReady({ prompt: false });
     if (!ready || !this.rootHandle) throw new Error('Project storage folder is unavailable or write permission was not granted.');
 
@@ -338,7 +340,7 @@ export class LocalFileAdapter implements StorageAdapter {
         if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
       }
       const fileHandle = await dataHandle.getFileHandle(`${project.id}.${PROJECT_FILE_EXT}`, { create: true });
-      const bytes = await encodeProjectArchive(project);
+      const bytes = await encodeProjectArchive(project, undefined, assets);
       await writeFileContent(fileHandle, new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/zip' }));
       try {
         const file = await fileHandle.getFile();

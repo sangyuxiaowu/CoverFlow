@@ -4,6 +4,8 @@ import { decodeProjectArchive, encodeProjectArchive } from '../storage/projectAr
 import { readLegacyCfj } from '../storage/legacyCfj.ts';
 import { summarizeProject, type ProjectSummary } from '../storage/StorageAdapter.ts';
 import { pagePreviewFingerprint } from '../storage/projectPreviews.ts';
+import { captureImageAssets } from '../storage/imageAssets.ts';
+import { writeProject } from '../storage/projectCompatibility.ts';
 
 export const readLocalProject = async (path: string) => {
   const { readFile, readTextFile } = await import('@tauri-apps/plugin-fs');
@@ -124,6 +126,7 @@ export const useLocalProjects = ({
   }, [isTauri, openLocalProjectFromPath]);
 
   const saveLocalProjectToFile = useCallback(async (path: string, projectData: ProjectState) => {
+    const assets = Object.fromEntries(captureImageAssets(writeProject(projectData).pages));
     const { writeFile } = await import('@tauri-apps/plugin-fs');
     const nextProject = { ...projectData, updatedAt: Date.now() };
     let targetPath = path;
@@ -134,7 +137,7 @@ export const useLocalProjects = ({
       if (!selected.toLowerCase().endsWith('.cfjx')) throw new Error('Expected a CFJX project file.');
       targetPath = selected;
     }
-    const operation = writeQueue.current.then(async () => { await writeFile(targetPath, await encodeProjectArchive(nextProject)); });
+    const operation = writeQueue.current.then(async () => { await writeFile(targetPath, await encodeProjectArchive(nextProject, undefined, assets)); });
     writeQueue.current = operation.catch(() => {});
     await operation;
     setActiveLocalFilePath(current => current === path ? targetPath : current);

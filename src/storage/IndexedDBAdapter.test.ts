@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import { IndexedDBAdapter } from './IndexedDBAdapter.ts';
 import { syncProjectPages, writeProject } from './projectCompatibility.ts';
 import { Blob as NodeBlob } from 'node:buffer';
+import { imageAssets } from './imageAssets.ts';
+import { unpackImagePages } from './indexedDbImages.ts';
 
 test('reads an individual project by ID', async () => {
   const adapter = new IndexedDBAdapter();
@@ -218,4 +220,39 @@ test('serializes image preparation, later saves and deletes across adapter insta
     await secondAdapter.saveProject({ ...project, title: 'After delete' });
     assert.equal((await firstAdapter.getProject(project.id))?.title, 'After delete');
   } finally { fetch.mockRestore(); vi.unstubAllGlobals(); }
+});
+
+test('holds referenced binary images through queued saves and rejects unavailable assets', async () => {
+  vi.stubGlobal('indexedDB', new IDBFactory());
+  const owner = imageAssets.createOwner();
+  try {
+    const adapter = new IndexedDBAdapter();
+    const reference = await imageAssets.add(owner, new NodeBlob([new Uint8Array([1, 2, 3, 4])], { type: 'image/png' }) as unknown as Blob);
+    const project = syncProjectPages({ id: 'binary-queue', title: 'Binary', selectedLayerId: null, updatedAt: 1,
+      layers: [{ id: 'image', name: 'Image', type: 'image', content: reference, x: 0, y: 0, width: 50, height: 50, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }],
+      pageInfo: { width: 120, height: 80, background: { type: 'image', value: reference, overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
+    const saving = adapter.saveProject(project);
+    imageAssets.release(owner);
+    await saving;
+    const opened = await adapter.getProject(project.id);
+    assert.equal(opened?.layers[0].content, 'data:image/png;base64,AQIDBA==');
+    assert.equal(opened?.pageInfo.background.value, 'data:image/png;base64,AQIDBA==');
+    await assert.rejects(adapter.saveProject(project), /unavailable/);
+  } finally { imageAssets.release(owner); vi.unstubAllGlobals(); }
+});
+
+test('unpacks stored binary images into owner-scoped references and verifies their hash', async () => {
+  const owner = imageAssets.createOwner();
+  const blob = new NodeBlob([new Uint8Array([1, 2, 3, 4])], { type: 'image/png' }) as unknown as Blob;
+  const reference = await imageAssets.add(owner, blob);
+  const id = reference.slice('asset-image:'.length);
+  const project = syncProjectPages({ id: 'binary-read', title: 'Binary', selectedLayerId: null, updatedAt: 1,
+    layers: [{ id: 'image', name: 'Image', type: 'image', content: `idb-image:${id}`, x: 0, y: 0, width: 50, height: 50, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }],
+    pageInfo: { width: 120, height: 80, background: { type: 'image', value: `idb-image:${id}`, overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
+  try {
+    const unpacked = await unpackImagePages(project.pages!, [{ id, blob }], owner);
+    assert.equal(unpacked.pages[0].layers[0].content, reference);
+    assert.equal(unpacked.pages[0].pageInfo.background.value, reference);
+    await assert.rejects(unpackImagePages(project.pages!, [{ id, blob: new NodeBlob(['wrong'], { type: 'image/png' }) as unknown as Blob }], owner), /Invalid stored project image/);
+  } finally { imageAssets.release(owner); }
 });

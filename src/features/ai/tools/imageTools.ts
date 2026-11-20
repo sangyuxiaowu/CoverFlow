@@ -7,6 +7,7 @@ import { safeImage, text } from './validation.ts';
 import { generateId } from '../../../utils/helpers.ts';
 import { applyRemovalResult } from '../../../utils/backgroundRemovalResult.ts';
 import { findAsset } from '../../../storage/assets.ts';
+import { imageAssets, isImageAsset } from '../../../storage/imageAssets.ts';
 
 export const IMAGE_TOOL_SCHEMAS: ImageToolExtensions<ImageToolSchemaExtension> = {
   generate_image: {
@@ -55,10 +56,19 @@ function imageLayer(project: ProjectState, layerId: string, removal: boolean): L
 }
 
 async function loadLayerImage(content: string, signal: AbortSignal): Promise<Blob> {
-  safeImage(content);
-  const url = new URL(content);
-  if (url.username || url.password) throw new Error('Image URLs must not contain credentials.');
-  const blob = await download(content, 25 * 1024 * 1024, signal);
+  let blob: Blob;
+  if (isImageAsset(content)) {
+    signal.throwIfAborted();
+    const stored = imageAssets.blob(content);
+    if (!stored) throw new Error('Image asset is unavailable.');
+    if (stored.size > 25 * 1024 * 1024) throw new Error('Image exceeds the 25 MB source limit.');
+    blob = stored;
+  } else {
+    safeImage(content);
+    const url = new URL(content);
+    if (url.username || url.password) throw new Error('Image URLs must not contain credentials.');
+    blob = await download(content, 25 * 1024 * 1024, signal);
+  }
   if (blob.type === 'image/gif') return encodeWebp(blob, Infinity, 0.95);
   imageMimeType(blob.type);
   return blob;

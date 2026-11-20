@@ -132,6 +132,22 @@ it('does not rerender unchanged image contents when selection changes', async ()
   expect(buildFilters).toHaveBeenCalledTimes(9);
 });
 
+it('lets canvas selection pass through locked layers to editable layers below', async () => {
+  const onSelectLayer = vi.fn();
+  const current: ProjectState = { ...project('locked-hit-test'), layers: [
+    { id: 'editable', name: 'Editable', type: 'image', content: 'data:image/png;base64,AAAA', x: 100, y: 100, width: 100, height: 100, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 },
+    { id: 'locked', name: 'Locked', type: 'image', content: 'data:image/png;base64,AAAA', x: 100, y: 100, width: 100, height: 100, rotation: 0, zIndex: 2, visible: true, locked: true, opacity: 1 }
+  ] };
+  await act(async () => root.render(<Canvas lang="zh" project={current} onSelectLayer={onSelectLayer} updateLayer={() => {}} onKeyboardCommit={() => {}} onCommit={() => {}} />));
+  const layers = host.querySelectorAll<HTMLDivElement>('#export-target > .group');
+  expect(layers[0].style.pointerEvents).toBe('auto');
+  expect(layers[1].style.pointerEvents).toBe('none');
+
+  await act(async () => layers[0].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 20, clientY: 20 })));
+  expect(onSelectLayer).toHaveBeenCalledExactlyOnceWith('editable');
+  expect(layers[0].style.cursor).toBe('grabbing');
+});
+
 it('previews continuous dragging locally and commits the final position once', async () => {
   const updateLayer = vi.fn();
   const onCommit = vi.fn();

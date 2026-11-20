@@ -479,7 +479,8 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
                       height: layer.height,
                       transform: `rotate(${layer.rotation}deg)`,
                       zIndex: layer.zIndex,
-                      cursor: interaction ? 'grabbing' : 'move',
+                      pointerEvents: layer.locked ? 'none' : 'auto',
+                      cursor: layer.locked ? 'default' : interaction ? 'grabbing' : 'move',
                       willChange: 'transform',
                       backfaceVisibility: 'hidden'
                     }}

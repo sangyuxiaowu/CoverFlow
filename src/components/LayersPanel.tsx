@@ -1345,14 +1345,14 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                   <span className="block text-[11px] truncate font-medium">{layer.name}</span>
                 )}
               </div>
-              <div className={`flex gap-0.5 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                 <button type="button" onClick={(e) => { e.stopPropagation(); onUpdateLayer(layer.id, { visible: !layer.visible }); }} className="p-0.5 hover:text-white transition-colors">
+              <div className="flex gap-0.5">
+                 <button type="button" onClick={(e) => { e.stopPropagation(); onUpdateLayer(layer.id, { visible: !layer.visible }); }} className={`p-0.5 hover:text-white transition-all ${isSelected || !layer.visible ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                    {layer.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
                  </button>
-                 <button type="button" onClick={(e) => { e.stopPropagation(); onUpdateLayer(layer.id, { locked: !layer.locked }); }} className="p-0.5 hover:text-white transition-colors">
+                 <button type="button" onClick={(e) => { e.stopPropagation(); onUpdateLayer(layer.id, { locked: !layer.locked }); }} className={`p-0.5 hover:text-white transition-all ${isSelected || layer.locked ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                    {layer.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
                  </button>
-                 <button type="button" onClick={(e) => handleDelete(e, layer.id)} className="p-0.5 text-slate-400 hover:text-red-400 transition-colors">
+                 <button type="button" onClick={(e) => handleDelete(e, layer.id)} className={`p-0.5 text-slate-400 hover:text-red-400 transition-all ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                     <Trash2 className="w-3 h-3" />
                  </button>
               </div>

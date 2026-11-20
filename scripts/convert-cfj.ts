@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { link, mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
-import { readLegacyCfj } from '../src/storage/legacyCfj.ts';
+import { readLegacyCfj, readLegacyCfjx } from '../src/storage/legacyCfj.ts';
 import { decodeProjectArchive, encodeProjectArchive } from '../src/storage/projectArchive.ts';
 import { writeProject } from '../src/storage/projectCompatibility.ts';
 
@@ -12,16 +12,16 @@ const outputIndex = args.indexOf('--output');
 const outputOption = outputIndex >= 0 ? args[outputIndex + 1] : undefined;
 const positional = args.filter((arg, index) => arg !== '--dry-run' && arg !== '--output' && (outputIndex < 0 || index !== outputIndex + 1));
 if (positional.length !== 1 || (outputIndex >= 0 && (!outputOption || outputOption.startsWith('--'))) || args.some(arg => arg.startsWith('--') && !['--dry-run', '--output'].includes(arg))) {
-  console.error('Usage: bun run scripts/convert-cfj.ts <file.cfj|directory> [--output directory] [--dry-run]');
+  console.error('Usage: bun run scripts/convert-cfj.ts <file.cfj|file.cfjx|directory> [--output directory] [--dry-run]');
   process.exit(1);
 }
 
 const source = resolve(positional[0]);
 const sourceStat = await stat(source);
 const files = sourceStat.isDirectory()
-  ? (await readdir(source, { withFileTypes: true })).filter(entry => entry.isFile() && extname(entry.name).toLowerCase() === '.cfj').map(entry => join(source, entry.name)).sort()
-  : extname(source).toLowerCase() === '.cfj' ? [source] : [];
-if (!files.length) throw new Error('No CFJ files found.');
+  ? (await readdir(source, { withFileTypes: true })).filter(entry => entry.isFile() && ['.cfj', '.cfjx'].includes(extname(entry.name).toLowerCase())).map(entry => join(source, entry.name)).sort()
+  : ['.cfj', '.cfjx'].includes(extname(source).toLowerCase()) ? [source] : [];
+if (!files.length) throw new Error('No CFJ or CFJX files found.');
 const outputDirectory = outputOption ? resolve(outputOption) : undefined;
 if (outputDirectory && !dryRun) await mkdir(outputDirectory, { recursive: true });
 
@@ -35,10 +35,11 @@ function normalizedDocument(project: ReturnType<typeof writeProject>) {
 
 let failures = 0;
 for (const file of files) {
-  const target = join(outputDirectory ?? dirname(file), `${basename(file, extname(file))}.cfjx`);
+  const oldArchive = extname(file).toLowerCase() === '.cfjx';
+  const target = join(outputDirectory ?? dirname(file), `${basename(file, extname(file))}${oldArchive ? '.converted' : ''}.cfjx`);
   let temporary: string | undefined;
   try {
-    const project = readLegacyCfj(await readFile(file, 'utf8'));
+    const project = oldArchive ? await readLegacyCfjx(new Uint8Array(await readFile(file))) : readLegacyCfj(await readFile(file, 'utf8'));
     const archive = await encodeProjectArchive(project);
     const restored = await decodeProjectArchive(archive);
     if (!isDeepStrictEqual(normalizedDocument(writeProject(project)), normalizedDocument(writeProject(restored)))) throw new Error('Round-trip verification failed.');
@@ -53,6 +54,10 @@ for (const file of files) {
     }
     console.log(`${dryRun ? 'VERIFIED' : 'CONVERTED'} ${basename(file)} -> ${basename(target)} (${archive.length} bytes)`);
   } catch (error) {
+    if (oldArchive && error instanceof Error && error.message === 'Not a legacy single-JSON CFJX archive.') {
+      console.log(`SKIPPED ${basename(file)} (not a legacy single-JSON CFJX archive)`);
+      continue;
+    }
     failures++;
     console.error(`FAILED ${basename(file)}: ${error instanceof Error ? error.message : String(error)}`);
   } finally {

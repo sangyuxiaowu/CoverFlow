@@ -5,7 +5,7 @@ import { readProject, writeProject } from './projectCompatibility.ts';
 import { pagePreviewFingerprintAsync, projectPreviews, rememberProjectPreview } from './projectPreviews.ts';
 
 const FORMAT = 'coverflow-project';
-const FORMAT_VERSION = 1;
+const FORMAT_VERSION = 2;
 const IMAGE_REFERENCE = 'cfjx:';
 const MAX_ARCHIVE_SIZE = 256 * 1024 * 1024;
 const MAX_EXPANDED_SIZE = 512 * 1024 * 1024;
@@ -13,8 +13,11 @@ const MAX_IMAGE_SIZE = 64 * 1024 * 1024;
 const MAX_PROJECT_SIZE = 32 * 1024 * 1024;
 const MAX_PREVIEW_SIZE = 2 * 1024 * 1024;
 const IMAGE_PATH = /^images\/([a-f0-9]{64})\.([a-z0-9.+-]+)$/;
+const PAGE_PATH = /^pages\/[^/]+\.json$/;
 const PREVIEW_PATH = /^previews\/(0|[1-9][0-9]?)\.webp$/;
 let archiveQueue: Promise<void> = Promise.resolve();
+
+const pagePath = (id: string) => `pages/${encodeURIComponent(id)}.json`;
 
 export const sameStoredValue = (left: unknown, right: unknown): boolean => {
   if (left === right) return true;
@@ -126,7 +129,15 @@ async function encodeProjectArchiveDirect(project: ProjectState, previews: Recor
     const preview = previews[page.id];
     return preview && preview.length <= MAX_PREVIEW_SIZE && isWebP(preview) ? pagePreviewFingerprintAsync(page) : null;
   }));
-  const manifest = JSON.stringify({ format: FORMAT, formatVersion: FORMAT_VERSION, project: document, previews: previewFingerprints });
+  const { pages, ...metadata } = document;
+  for (const page of pages) {
+    const text = JSON.stringify(page);
+    const size = new TextEncoder().encode(text).length;
+    if (size > MAX_PROJECT_SIZE) throw new Error('Project page exceeds the size limit.');
+    expandedSize += size;
+    zip.file(pagePath(page.id), text, { compression: 'DEFLATE' });
+  }
+  const manifest = JSON.stringify({ format: FORMAT, formatVersion: FORMAT_VERSION, project: { ...metadata, pageIds: pages.map(page => page.id) }, previews: previewFingerprints });
   const manifestSize = new TextEncoder().encode(manifest).length;
   if (manifestSize > MAX_PROJECT_SIZE || expandedSize + manifestSize > MAX_EXPANDED_SIZE) throw new Error('Project manifest exceeds the size limit.');
   zip.file('project.json', manifest, { compression: 'DEFLATE' });
@@ -155,16 +166,27 @@ async function openProjectArchive(bytes: Uint8Array): Promise<{ zip: JSZip; proj
     if (entry.dir) continue;
     const size = unsafe._data?.uncompressedSize;
     if (PREVIEW_PATH.test(entry.name) && (!Number.isSafeInteger(size) || size! < 0 || size! > MAX_PREVIEW_SIZE)) continue;
-    if (!Number.isSafeInteger(size) || size! < 0 || size! > (entry.name === 'project.json' ? MAX_PROJECT_SIZE : MAX_IMAGE_SIZE)) throw new Error('Invalid project archive entry size.');
-    if (entry.name !== 'project.json' && !IMAGE_PATH.test(entry.name) && !PREVIEW_PATH.test(entry.name)) throw new Error('Unexpected project archive entry.');
+    if (!Number.isSafeInteger(size) || size! < 0 || size! > (entry.name === 'project.json' || PAGE_PATH.test(entry.name) ? MAX_PROJECT_SIZE : MAX_IMAGE_SIZE)) throw new Error('Invalid project archive entry size.');
+    if (entry.name !== 'project.json' && !PAGE_PATH.test(entry.name) && !IMAGE_PATH.test(entry.name) && !PREVIEW_PATH.test(entry.name)) throw new Error('Unexpected project archive entry.');
     expandedSize += size!;
     if (expandedSize > MAX_EXPANDED_SIZE) throw new Error('Project archive expands beyond the size limit.');
   }
   const projectFile = zip.file('project.json');
   if (!projectFile) throw new Error('Missing project manifest.');
-  const manifest = JSON.parse(await projectFile.async('string')) as { format?: unknown; formatVersion?: unknown; project?: unknown; previews?: unknown };
+  const manifest = JSON.parse(await projectFile.async('string')) as { format?: unknown; formatVersion?: unknown; project?: { pageIds?: unknown }; previews?: unknown };
   if (manifest.format !== FORMAT || manifest.formatVersion !== FORMAT_VERSION) throw new Error('Unsupported project archive format.');
-  return { zip, project: readProject(manifest.project), previewFingerprints: manifest.previews };
+  const ids = manifest.project?.pageIds;
+  if (!Array.isArray(ids) || !ids.length || ids.length > 99 || ids.some(id => typeof id !== 'string' || !id) || new Set(ids).size !== ids.length) throw new Error('Invalid project page index.');
+  const pages = await Promise.all(ids.map(async id => {
+    const file = zip.file(pagePath(id));
+    if (!file) throw new Error('Missing project page.');
+    const page = JSON.parse(await file.async('string')) as { id?: unknown };
+    if (page.id !== id) throw new Error('Invalid project page ID.');
+    return page;
+  }));
+  const expectedPages = new Set(ids.map(pagePath));
+  if (Object.values(zip.files).some(file => !file.dir && PAGE_PATH.test(file.name) && !expectedPages.has(file.name))) throw new Error('Unexpected project page.');
+  return { zip, project: readProject({ ...manifest.project, pages }), previewFingerprints: manifest.previews };
 }
 
 export async function readProjectArchiveManifest(bytes: Uint8Array): Promise<ProjectState> {
@@ -184,7 +206,7 @@ export async function replaceProjectArchivePreviews(bytes: Uint8Array, project: 
   const manifestSize = new TextEncoder().encode(text).length;
   let expandedSize = manifestSize;
   for (const entry of Object.values(zip.files)) {
-    if (IMAGE_PATH.test(entry.name)) expandedSize += (entry as JSZip.JSZipObject & { _data: { uncompressedSize: number } })._data.uncompressedSize;
+    if (IMAGE_PATH.test(entry.name) || PAGE_PATH.test(entry.name)) expandedSize += (entry as JSZip.JSZipObject & { _data: { uncompressedSize: number } })._data.uncompressedSize;
   }
   if (manifestSize > MAX_PROJECT_SIZE || expandedSize > MAX_EXPANDED_SIZE) throw new Error('Project manifest exceeds the size limit.');
   zip.file('project.json', text, { compression: 'DEFLATE' });

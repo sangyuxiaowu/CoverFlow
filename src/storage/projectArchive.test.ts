@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import JSZip from 'jszip';
 import { encodeProjectArchive, decodeProjectArchive, decodeProjectArchiveWithPreviews, replaceProjectArchivePreviews } from './projectArchive.ts';
-import { readLegacyCfj } from './legacyCfj.ts';
+import { readLegacyCfj, readLegacyCfjx } from './legacyCfj.ts';
 import * as hashes from '@noble/hashes/sha2.js';
 import { pagePreviewFingerprint, pagePreviewFingerprintAsync } from './projectPreviews.ts';
 
@@ -105,14 +105,14 @@ describe('project archive', () => {
     const archive = await JSZip.loadAsync(bytes);
     expect(await archive.file('previews/0.webp')!.async('uint8array')).toEqual(preview);
     expect(await decodeProjectArchiveWithPreviews(bytes)).toEqual({ project, previews: { [project.pages![0].id]: preview } });
-    const manifest = JSON.parse(await archive.file('project.json')!.async('string'));
-    manifest.project.pages[0].pageInfo.width = 100;
-    archive.file('project.json', JSON.stringify(manifest));
+    const page = JSON.parse(await archive.file('pages/page.json')!.async('string'));
+    page.pageInfo.width = 100;
+    archive.file('pages/page.json', JSON.stringify(page));
     const stale = await decodeProjectArchiveWithPreviews(await archive.generateAsync({ type: 'uint8array' }));
     expect(stale.project.pageInfo.width).toBe(100);
     expect(stale.previews).toEqual({});
     archive.file('previews/0.webp', 'invalid');
-    archive.file('project.json', await (await JSZip.loadAsync(bytes)).file('project.json')!.async('string'));
+    archive.file('pages/page.json', await (await JSZip.loadAsync(bytes)).file('pages/page.json')!.async('string'));
     expect(await decodeProjectArchiveWithPreviews(await archive.generateAsync({ type: 'uint8array' }))).toEqual({ project, previews: {} });
     archive.file('previews/0.webp', new Uint8Array(2 * 1024 * 1024 + 1));
     expect(await decodeProjectArchiveWithPreviews(await archive.generateAsync({ type: 'uint8array' }))).toEqual({ project, previews: {} });
@@ -125,7 +125,28 @@ describe('project archive', () => {
     const archive = await JSZip.loadAsync(bytes);
     expect(Object.keys(archive.files).filter(name => name.startsWith('images/') && !archive.files[name].dir)).toHaveLength(1);
     expect(await archive.file('project.json')!.async('string')).not.toContain('base64');
+    const manifest = JSON.parse(await archive.file('project.json')!.async('string'));
+    expect(manifest.formatVersion).toBe(2);
+    expect(manifest.project.pageIds).toEqual(['page']);
+    expect(manifest.project.pages).toBeUndefined();
+    expect(await archive.file('pages/page.json')!.async('string')).not.toContain('base64');
     expect(await decodeProjectArchive(bytes)).toEqual(project);
+  });
+
+  it('only converts single-JSON archives through the legacy reader', async () => {
+    const project = readLegacyCfj(legacy);
+    const zip = await JSZip.loadAsync(await encodeProjectArchive(project));
+    const manifest = JSON.parse(await zip.file('project.json')!.async('string'));
+    const page = JSON.parse(await zip.file('pages/page.json')!.async('string'));
+    zip.remove('pages');
+    delete manifest.project.pageIds;
+    manifest.project.pages = [page];
+    manifest.formatVersion = 1;
+    zip.file('project.json', JSON.stringify(manifest));
+    const old = await zip.generateAsync({ type: 'uint8array' });
+    await expect(decodeProjectArchive(old)).rejects.toThrow('Unsupported project archive format');
+    expect(await readLegacyCfjx(old)).toEqual(project);
+    await expect(readLegacyCfjx(await encodeProjectArchive(project))).rejects.toThrow('Not a legacy single-JSON CFJX');
   });
 
   it('does not persist selection and opens with no selected layer', async () => {

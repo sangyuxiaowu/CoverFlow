@@ -691,7 +691,7 @@ describe('image tools and persistence', () => {
         return Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }] });
       }
       const output = ++round === 1
-        ? [{ type: 'function_call', call_id: 'generate', name: 'generate_image', arguments: JSON.stringify({ prompt: 'City', references: ['source', 'attachment://upload'] }) }]
+        ? [{ type: 'function_call', call_id: 'generate', name: 'generate_image', arguments: JSON.stringify({ prompt: 'City', references: ['layer:source', 'attachment://upload'] }) }]
         : [{ type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done', annotations: [] }] }];
       return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response', status: 'completed', output } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
     }));

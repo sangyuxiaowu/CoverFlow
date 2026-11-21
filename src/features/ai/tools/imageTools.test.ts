@@ -38,15 +38,15 @@ describe('host image tool callbacks', () => {
     const { tools, signal, getProject } = setup();
     getProject().layers[0].content = reference;
     try {
-      const prepared = await tools.generate_image!.prepare({ references: ['source'] }, signal);
+      const prepared = await tools.generate_image!.prepare({ references: ['layer:source'] }, signal);
       expect(prepared.inputImages![0]).toBe(blob);
       imageAssets.release(owner);
-      await expect(tools.generate_image!.prepare({ references: ['source'] }, signal)).rejects.toThrow('unavailable');
+      await expect(tools.generate_image!.prepare({ references: ['layer:source'] }, signal)).rejects.toThrow('unavailable');
     } finally { imageAssets.release(owner); }
   });
   it('uses original reference bytes and adds multiple generated results in one commit', async () => {
     const { tools, signal, commit, getProject } = setup();
-    const prepared = await tools.generate_image!.prepare({ references: ['source', 'source'] }, signal);
+    const prepared = await tools.generate_image!.prepare({ references: ['layer:source', 'layer:source'] }, signal);
     expect(prepared.inputImages).toHaveLength(2);
     expect(await prepared.inputImages![0].arrayBuffer()).toEqual(Uint8Array.from(atob('iVBORw0KGgo='), c => c.charCodeAt(0)).buffer);
     const result = await prepared.complete({ images: [output, output], model: 'model', prompt: 'City' }, signal) as { layerIds: string[] };
@@ -71,7 +71,7 @@ describe('host image tool callbacks', () => {
       getAssetFolder: async () => ({ getDirectoryHandle }) as unknown as FileSystemDirectoryHandle,
       commit: async () => {}, manageProjects: async () => {} };
     const prepared = await createImageToolExtensions(bridge, async id => id === 'upload' ? attachment : null).generate_image!.prepare({
-      references: ['source', 'page2/other', 'external/page2/other', 'folder:桑仔/2D.png', 'attachment://upload']
+      references: ['layer:source', 'layer:page2/other', 'layer:external/page2/other', 'folder:桑仔/2D.png', 'attachment://upload']
     }, signal);
     expect(prepared.inputImages).toHaveLength(5);
     expect(await Promise.all(prepared.inputImages!.slice(0, 3).map(image => image.arrayBuffer()))).toEqual(
@@ -86,14 +86,14 @@ describe('host image tool callbacks', () => {
   });
   it('rejects invalid and missing reference sources', async () => {
     const { tools, signal } = setup();
-    for (const reference of ['', 'page/', 'a/b/c/d', 'missing', 'missing/source', 'other/page/source', 'attachment://', 'attachment://missing', 'folder:../image.png']) {
+    for (const reference of ['', 'source', 'page/source', 'project/page/source', 'layer:', 'layer:page/', 'layer:a/b/c/d', 'a/b/c/d', 'missing', 'missing/source', 'other/page/source', 'attachment://', 'attachment://missing', 'folder:../image.png']) {
       await expect(tools.generate_image!.prepare({ references: [reference] }, signal)).rejects.toThrow();
     }
     await expect(tools.generate_image!.prepare({ references: [5] }, signal)).rejects.toThrow('Invalid');
   });
   it('checks reference changes during output decoding', async () => {
     const { tools, signal, getProject, commit } = setup();
-    const prepared = await tools.generate_image!.prepare({ references: ['source'] }, signal);
+    const prepared = await tools.generate_image!.prepare({ references: ['layer:source'] }, signal);
     vi.stubGlobal('createImageBitmap', vi.fn(async () => {
       getProject().layers[0].content = 'data:image/png;base64,AAAA';
       return { width: 100, height: 100, close: vi.fn() };
@@ -151,7 +151,7 @@ describe('host image tool callbacks', () => {
     await expect(tools.generate_image!.prepare({ references: 'source' }, signal)).rejects.toThrow('array');
     await expect(tools.remove_background!.prepare({}, signal)).rejects.toThrow('either layerId or imageId');
     await expect(tools.remove_background!.prepare({ imageId: 'attachment', keepOriginal: true }, signal)).rejects.toThrow('requires layerId');
-    const prepared = await tools.generate_image!.prepare({ references: ['source'] }, signal);
+    const prepared = await tools.generate_image!.prepare({ references: ['layer:source'] }, signal);
     getProject().layers[0].content = 'data:image/png;base64,AAAA';
     await expect(prepared.complete({ images: [output], model: 'model', prompt: 'City' }, signal)).rejects.toThrow('changed');
     const controller = new AbortController();

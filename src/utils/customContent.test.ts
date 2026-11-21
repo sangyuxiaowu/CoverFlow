@@ -9,7 +9,7 @@ import LayersPanel from '../components/LayersPanel.tsx';
 import type { ProjectState } from '../types.ts';
 import { readProject, writeProject } from '../storage/projectCompatibility.ts';
 import { copyProject } from './projectPages.ts';
-import { backgroundCssStyle, detectDecorationFormat, sanitizeBackgroundCss, sanitizeDecorationHtml } from './customContent.ts';
+import { backgroundCssStyle, detectDecorationFormat, resolveDecorationLayerImages, sanitizeBackgroundCss, sanitizeDecorationHtml } from './customContent.ts';
 import { PRESET_DECORATIONS } from '../constants.ts';
 import { buildDecorationLayerStyle, sanitizeDecorationContent } from './decorationStyles.ts';
 import { buildBackgroundStyles } from './backgroundStyles.ts';
@@ -275,6 +275,16 @@ describe('HTML decorations', () => {
     expect(result.issues).toEqual([]);
     expect(result.source).toContain('[data-cf-fragment="full"]{background:red}');
     expect(sanitizeDecorationHtml('<body onload="alert(1)"><p>Hi</p></body>').issues.length).toBeGreaterThan(0);
+  });
+  it('preserves and resolves same-page layer image references', () => {
+    const result = sanitizeDecorationHtml('<img src="layer:photo" alt="Photo">');
+    expect(result.issues).toEqual([]);
+    expect(result.source).toContain('layer:photo');
+    const resolved = resolveDecorationLayerImages(result.source, [{
+      id: 'photo', name: 'Photo', type: 'image', content: 'data:image/png;base64,AAAA',
+      x: 0, y: 0, width: 100, height: 100, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1
+    }]);
+    expect(resolved).toContain('src="data:image/png;base64,AAAA"');
   });
   it('removes scripts, events and external resources', () => {
     const result = sanitizeDecorationHtml('<script>alert(1)</script><img src="https://example.com/a.png" onerror="alert(1)"><div style="background:url(https://example.com)">Test</div>');

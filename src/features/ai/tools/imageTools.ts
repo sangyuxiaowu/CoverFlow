@@ -13,7 +13,7 @@ export const IMAGE_TOOL_SCHEMAS: ImageToolExtensions<ImageToolSchemaExtension> =
   generate_image: {
     description: '生成或修改图像并直接添加到当前画布，返回图层 ID。',
     properties: {
-      references: { type: 'array', items: { type: 'string' }, description: '可选，按顺序提供参考图标识：当前页 layerId、项目内 pageId/layerId、跨项目 projectId/pageId/layerId、素材 folder:分类/文件.png、会话图片 attachment://imageId。使用原图，可混合多种来源；数量须符合模型限制。' }
+      references: { type: 'array', items: { type: 'string' }, description: '可选，按顺序提供参考图标识：当前页 layer:layerId、项目内 layer:pageId/layerId、跨项目 layer:projectId/pageId/layerId、素材 folder:分类/文件.png、会话图片 attachment://imageId。使用原图，可混合多种来源；数量须符合模型限制。' }
     }
   },
   remove_background: {
@@ -153,7 +153,8 @@ export function createImageToolExtensions(bridge: WorkspaceBridge, loadImage?: (
             if (![137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => signature[index] === byte)) throw new Error('Reference asset must contain a PNG.');
             return file.slice(0, file.size, 'image/png');
           }
-          const parts = reference.split('/');
+          if (!reference.startsWith('layer:')) throw new Error('Invalid reference protocol. Use layer:, folder: or attachment://.');
+          const parts = reference.slice('layer:'.length).split('/');
           if (parts.length > 3 || parts.some(part => !part)) throw new Error('Invalid layer reference.');
           const layerId = parts.at(-1)!;
           const referencePageId = parts.length > 1 ? parts.at(-2)! : pageId;

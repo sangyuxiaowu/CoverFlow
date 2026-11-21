@@ -40,6 +40,12 @@ export interface ImageCrop {
   height: number;
 }
 
+export interface ImageAppearance {
+  borderRadius: string;
+  clipPath: string;
+  maskImage: string;
+}
+
 // 模块：类型定义
 export interface Layer {
   id: string;
@@ -53,6 +59,7 @@ export interface Layer {
   flipY?: boolean;
   imageFilters?: ImageFilters;
   imageCrop?: ImageCrop;
+  imageAppearance?: Partial<ImageAppearance>;
   x: number;
   y: number;
   width: number;

@@ -1,4 +1,5 @@
-import { ImageCrop, ImageFilters, Layer } from '../types.ts';
+import type { CSSProperties } from 'react';
+import { ImageAppearance, ImageCrop, ImageFilters, Layer } from '../types.ts';
 
 export const DEFAULT_IMAGE_FILTERS: ImageFilters = {
   brightness: 100,
@@ -73,6 +74,35 @@ export const hasActiveImageCrop = (crop?: Partial<ImageCrop>): boolean => {
 export const buildFlipTransform = (flipX?: boolean, flipY?: boolean): string | undefined => {
   if (!flipX && !flipY) return undefined;
   return `scale(${flipX ? -1 : 1}, ${flipY ? -1 : 1})`;
+};
+
+export const normalizeImageAppearance = (appearance?: Partial<ImageAppearance>): ImageAppearance => ({
+  borderRadius: appearance?.borderRadius ?? '',
+  clipPath: appearance?.clipPath ?? '',
+  maskImage: appearance?.maskImage ?? '',
+});
+
+export const hasActiveImageAppearance = (appearance?: Partial<ImageAppearance>): boolean => {
+  const normalized = normalizeImageAppearance(appearance);
+  return Boolean(normalized.borderRadius.trim() || normalized.clipPath.trim() || normalized.maskImage.trim());
+};
+
+export const buildImageAppearanceStyle = (appearance?: Partial<ImageAppearance>): CSSProperties => {
+  const normalized = normalizeImageAppearance(appearance);
+  return {
+    ...(normalized.borderRadius.trim() ? { borderRadius: normalized.borderRadius.trim() } : {}),
+    ...(normalized.clipPath.trim() ? { clipPath: normalized.clipPath.trim() } : {}),
+    ...(normalized.maskImage.trim() ? { maskImage: normalized.maskImage.trim(), WebkitMaskImage: normalized.maskImage.trim() } : {}),
+  };
+};
+
+export const buildImageAppearanceCss = (appearance?: Partial<ImageAppearance>): string => {
+  const normalized = normalizeImageAppearance(appearance);
+  return [
+    normalized.borderRadius.trim() ? `border-radius:${normalized.borderRadius.trim()}` : '',
+    normalized.clipPath.trim() ? `clip-path:${normalized.clipPath.trim()}` : '',
+    normalized.maskImage.trim() ? `mask-image:${normalized.maskImage.trim()};-webkit-mask-image:${normalized.maskImage.trim()}` : '',
+  ].filter(Boolean).join(';');
 };
 
 /**

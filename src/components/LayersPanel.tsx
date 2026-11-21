@@ -1,7 +1,7 @@
 // 模块：图层面板与属性检查器
 import React, { useState, useCallback, useRef, useEffect, useMemo, useLayoutEffect } from 'react';
 import { flushSync } from 'react-dom';
-import { Layer, ProjectState, TextGradient, TextShadow, ImageFilters } from '../types.ts';
+import { Layer, ProjectState, TextGradient, TextShadow, ImageFilters, ImageAppearance } from '../types.ts';
 import { translations, Language } from '../translations.ts';
 import { PRESET_COLORS, TEXT_GRADIENT_PRESETS } from '../constants.ts';
 import { sanitizeDecorationContent } from '../utils/decorationStyles.ts';
@@ -15,6 +15,7 @@ import {
   computeLayerFlipUpdates,
   hasActiveImageCrop,
   hasActiveImageFilters,
+  normalizeImageAppearance,
   normalizeImageFilters,
 } from '../utils/imageLayer.ts';
 import ColorPicker from './ColorPicker.tsx';
@@ -631,6 +632,13 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                 const filters = normalizeImageFilters(selectedLayer.imageFilters);
                 const filtersActive = hasActiveImageFilters(selectedLayer.imageFilters);
                 const cropActive = hasActiveImageCrop(selectedLayer.imageCrop);
+                const appearance = normalizeImageAppearance(selectedLayer.imageAppearance);
+                const updateAppearance = (patch: Partial<ImageAppearance>) => {
+                  const next = normalizeImageAppearance({ ...appearance, ...patch });
+                  previewDraft(selectedLayer.id, {
+                    imageAppearance: next.borderRadius.trim() || next.clipPath.trim() || next.maskImage.trim() ? next : undefined
+                  });
+                };
                 const updateFilter = (patch: Partial<ImageFilters>) => {
                   const next = normalizeImageFilters({ ...filters, ...patch });
                   previewDraft(
@@ -723,6 +731,32 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                           <CropIcon className="w-3 h-3 text-blue-400 shrink-0" />
                           <span className="truncate">{cropActive ? t.editCrop : t.cropLayerImage}</span>
                         </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 pt-2 border-t border-slate-800/60">
+                      <h4 className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">
+                        {t.imageAppearance}
+                      </h4>
+                      <div className="space-y-2">
+                        {([
+                          ['borderRadius', t.imageBorderRadius],
+                          ['clipPath', t.imageClipPath],
+                          ['maskImage', t.imageMaskImage],
+                        ] as const).map(([field, label]) => (
+                          <label key={field} className="block space-y-0.5">
+                            <span className="block text-[10px] text-slate-400 font-semibold truncate">{label}</span>
+                            <input
+                              type="text"
+                              value={appearance[field]}
+                              placeholder={field === 'borderRadius' ? '16px / 50%' : field === 'clipPath' ? 'circle(50%)' : 'linear-gradient(...)'}
+                              onChange={(event) => updateAppearance({ [field]: event.target.value })}
+                              onBlur={commitDraft}
+                              onKeyDown={handleDraftInputKeyDown}
+                              className="bg-slate-800/50 rounded-md px-2 py-1 w-full text-[11px] text-slate-200 border border-slate-700/50 focus:border-blue-500 outline-none transition-colors"
+                            />
+                          </label>
+                        ))}
                       </div>
                     </div>
 

@@ -1,6 +1,8 @@
 import DOMPurify from 'dompurify';
 import * as csstree from 'css-tree';
 import type { CSSProperties } from 'react';
+import type { Layer } from '../types.ts';
+import { resolveImageSource } from '../storage/imageAssets.ts';
 
 export type DecorationFormat = 'css' | 'html';
 export interface CustomContentResult {
@@ -163,6 +165,7 @@ export const sanitizeDecorationHtml = (source: string, scopeId = 'preview'): Cus
   parsed.querySelectorAll('style').forEach((style) => style.remove());
   const purified = DOMPurify.sanitize(`${parsed.head.innerHTML}${parsed.body.innerHTML}`, {
     USE_PROFILES: { html: true },
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|callto|sms|cid|xmpp|layer):|[^a-z]|[a-z+.\-]+(?:[^a-z+-.:]|$))/i,
     FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'link', 'meta', 'base', 'form', 'input', 'button', 'textarea', 'select', 'video', 'audio', 'canvas', 'marquee', 'blink'],
     FORBID_ATTR: ['srcset', 'href', 'action', 'formaction', 'is', 'contenteditable', 'tabindex', 'draggable', 'autofocus', 'background', 'poster', 'lowsrc', 'dynsrc'],
     ALLOW_DATA_ATTR: false
@@ -178,9 +181,9 @@ export const sanitizeDecorationHtml = (source: string, scopeId = 'preview'): Cus
       issues.push(...result.issues);
       element.setAttribute('style', result.source);
     }
-    if (element.hasAttribute('src') && !/^data:image\/(png|jpeg|webp|gif);base64,[a-z0-9+/=\s]+$/i.test(element.getAttribute('src') || '')) {
+    if (element.hasAttribute('src') && !/^(?:data:image\/(?:png|jpeg|webp|gif);base64,[a-z0-9+/=\s]+|layer:[a-z0-9_-]+)$/i.test(element.getAttribute('src') || '')) {
       element.removeAttribute('src');
-      issues.push('Only embedded bitmap images are supported.');
+      issues.push('Only embedded bitmap images and layer references are supported.');
     }
   });
   try {
@@ -189,4 +192,18 @@ export const sanitizeDecorationHtml = (source: string, scopeId = 'preview'): Cus
   } catch (error) {
     return { source: container.innerHTML, issues: [...new Set([...issues, error instanceof Error ? error.message : 'Invalid stylesheet.'])] };
   }
+};
+
+export const resolveDecorationLayerImages = (source: string, layers: readonly Layer[]): string => {
+  if (typeof document === 'undefined' || !source.includes('layer:')) return source;
+  const container = document.createElement('div');
+  container.innerHTML = source;
+  container.querySelectorAll('[src^="layer:"]').forEach((element) => {
+    const reference = element.getAttribute('src') || '';
+    const layerId = reference.slice('layer:'.length);
+    const layer = layers.find(item => item.id === layerId && item.type === 'image');
+    if (layer) element.setAttribute('src', resolveImageSource(layer.content));
+    else element.removeAttribute('src');
+  });
+  return container.innerHTML;
 };

@@ -1,8 +1,8 @@
 import { BackgroundConfig, Layer, ProjectState } from '../types.ts';
 import { applySvgAspectRatio, normalizeSVG } from './helpers.ts';
-import { detectDecorationFormat, sanitizeBackgroundCss, sanitizeDecorationHtml } from './customContent.ts';
+import { detectDecorationFormat, resolveDecorationLayerImages, sanitizeBackgroundCss, sanitizeDecorationHtml } from './customContent.ts';
 import { sanitizeDecorationCss } from './decorationStyles.ts';
-import { buildImageFilterCss, hasActiveImageCrop, normalizeImageCrop } from './imageLayer.ts';
+import { buildImageAppearanceCss, buildImageFilterCss, hasActiveImageCrop, normalizeImageCrop } from './imageLayer.ts';
 import { imageAssets, isImageAsset } from '../storage/imageAssets.ts';
 
 const escapeXml = (value: string): string =>
@@ -319,7 +319,7 @@ const buildTextLayerSvg = (layer: Layer): string => {
   return buildForeignObject(layer, element);
 };
 
-const buildDecorationLayerSvg = (layer: Layer): string => {
+const buildDecorationLayerSvg = (layer: Layer, layers: readonly Layer[]): string => {
   const element = document.createElement('div');
   const format = detectDecorationFormat(layer.content);
   if (format === 'html') {
@@ -329,7 +329,7 @@ const buildDecorationLayerSvg = (layer: Layer): string => {
     const fragment = document.createElement('div');
     fragment.setAttribute('data-cf-fragment', scopeId);
     fragment.style.cssText = 'width:100%;height:100%;position:relative;box-sizing:border-box;';
-    fragment.innerHTML = sanitized.source;
+    fragment.innerHTML = resolveDecorationLayerImages(sanitized.source, layers);
     element.append(fragment);
   } else {
     element.style.cssText = `width:100%;height:100%;box-sizing:border-box;${sanitizeDecorationCss(layer.content).cssText}`;
@@ -370,12 +370,23 @@ export const buildProjectSvg = (project: ProjectState): string => {
       innerMarkup = buildTextLayerSvg(layer);
     } else if (layer.type === 'image') {
       const filterCss = buildImageFilterCss(layer.imageFilters);
+      const appearanceCss = buildImageAppearanceCss(layer.imageAppearance);
       const filterStyleAttr = filterCss ? ` style="filter: ${escapeXml(filterCss)};"` : '';
       const hasFlip = Boolean(layer.flipX || layer.flipY);
       const sx = layer.flipX ? -1 : 1;
       const sy = layer.flipY ? -1 : 1;
 
-      if (hasActiveImageCrop(layer.imageCrop)) {
+      if (appearanceCss) {
+        const crop = normalizeImageCrop(layer.imageCrop);
+        const isCropped = hasActiveImageCrop(layer.imageCrop);
+        const imageStyle = isCropped
+          ? `position:absolute;left:${(-crop.x / crop.width) * 100}%;top:${(-crop.y / crop.height) * 100}%;width:${(100 / crop.width) * 100}%;height:${(100 / crop.height) * 100}%;max-width:none;max-height:none;`
+          : 'width:100%;height:100%;';
+        const transformStyle = hasFlip ? `transform:scale(${sx},${sy});` : '';
+        const filterStyle = filterCss ? `filter:${filterCss};` : '';
+        const objectFit = layer.ratioLocked && !isCropped ? 'contain' : 'fill';
+        innerMarkup = `<foreignObject width="${layer.width}" height="${layer.height}"><div xmlns="http://www.w3.org/1999/xhtml" style="width:100%;height:100%;position:relative;overflow:hidden;box-sizing:border-box;${escapeXml(appearanceCss)}"><img src="${escapeXml(layer.content)}" alt="" style="${escapeXml(`${imageStyle}${transformStyle}${filterStyle}object-fit:${objectFit};`)}" /></div></foreignObject>`;
+      } else if (hasActiveImageCrop(layer.imageCrop)) {
         const crop = normalizeImageCrop(layer.imageCrop);
         const clipId = `cf-crop-${layer.id}`.replace(/[^a-z0-9-_]/gi, '');
         allDefs.push(
@@ -399,7 +410,7 @@ export const buildProjectSvg = (project: ProjectState): string => {
         innerMarkup = `<image href="${escapeXml(layer.content)}" x="0" y="0" width="${layer.width}" height="${layer.height}" preserveAspectRatio="${par}"${imgTransformAttr}${filterStyleAttr} />`;
       }
     } else if (layer.type === 'decoration') {
-      innerMarkup = buildDecorationLayerSvg(layer);
+      innerMarkup = buildDecorationLayerSvg(layer, project.layers);
     }
 
     if (innerMarkup) {

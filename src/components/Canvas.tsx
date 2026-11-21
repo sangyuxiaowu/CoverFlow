@@ -540,7 +540,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
                       )
                     ) : layer.type === 'decoration' ? (
                       <div className="w-full h-full pointer-events-none" style={{ opacity: layer.opacity }}>
-                        <DecorationContent content={layer.content} />
+                        <DecorationContent content={layer.content} layers={project.layers} />
                       </div>
                     ) : (
                       <ImageLayerContent layer={layer} />

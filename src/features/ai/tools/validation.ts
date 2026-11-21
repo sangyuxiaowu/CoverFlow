@@ -45,7 +45,7 @@ export function safeImage(value: string): string {
 }
 
 export const LAYER_FIELD_GROUPS: Record<string, readonly (keyof Layer)[]> = {
-  image: ['content', 'imageSource', 'imageDescription', 'flipX', 'flipY', 'imageFilters', 'imageCrop'],
+  image: ['content', 'imageSource', 'imageDescription', 'flipX', 'flipY', 'imageFilters', 'imageCrop', 'imageAppearance'],
   text: ['content', 'color', 'fontFamily', 'fontWeight', 'fontSize', 'letterSpacing', 'lineHeight', 'textAlign', 'writingMode', 'textGradient', 'textShadow'],
   svg: ['content', 'color'],
   decoration: ['content']
@@ -147,6 +147,13 @@ export function layerPatch(value: unknown): Partial<Layer> {
         throw new Error('Invalid imageCrop: crop bounds cannot exceed 100%.');
       }
       output[field] = crop;
+    } else if (field === 'imageAppearance') {
+      const nested = record(raw);
+      const allowed = ['borderRadius', 'clipPath', 'maskImage'] as const;
+      const keys = Object.keys(nested);
+      if (!keys.length || keys.some(key => !allowed.includes(key as typeof allowed[number]))) throw new Error('Invalid imageAppearance');
+      const appearance = Object.fromEntries(keys.map(key => [key, typeof nested[key] === 'string' && nested[key].length <= 10000 ? nested[key].trim() : (() => { throw new Error(`Invalid imageAppearance.${key}`); })()]));
+      output[field] = Object.values(appearance).some(value => String(value).trim()) ? appearance : undefined;
     } else if (field === 'textGradient' || field === 'textShadow') {
       const nested = record(raw);
       const allowed = field === 'textGradient' ? ['enabled', 'from', 'to', 'angle'] : ['enabled', 'color', 'blur', 'offsetX', 'offsetY'];

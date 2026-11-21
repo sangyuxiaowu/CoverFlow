@@ -122,6 +122,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           y: numeric('裁剪区域左上角垂直起始百分比。', 0, 100),
           width: numeric('裁剪区域宽度百分比；x + width 不得超过 100。', 1, 100),
           height: numeric('裁剪区域高度百分比；y + height 不得超过 100。', 1, 100)
+        }), minProperties: 1 },
+        imageAppearance: { ...object('图像外观设置。', {
+          borderRadius: string('边框圆角，使用 CSS border-radius 语法，如 "16px"、"50%"。'),
+          clipPath: string('裁剪路径，使用 CSS clip-path 语法，如 circle(50% at 50% 50%)。'),
+          maskImage: string('遮罩图像，使用 CSS mask-image 语法，如 linear-gradient(180deg,#000 60%,transparent)。')
         }), minProperties: 1 }
       }, ['content']),
       svg: object('SVG 图层专属属性，type 为 svg 时必填。', {
@@ -129,7 +134,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         color: string('[可选] SVG 主色，currentColor，使用 CSS 颜色值。')
       }, ['content']),
       decoration: object('装饰图层专属属性，type 为 decoration 时必填。', {
-        content: string('必填：完整 CSS 声明或静态 HTML。建议使用var定义必要的颜色，以便用户后续自行调整。1. CSS 声明会直接作用于装饰容器，不得包含选择器或规则花括号，示例：`--accent: rgba(255,255,255,0.5); background: var(--accent); border-radius: 8px;`。2. 静态 HTML：需要显示文字、布局子元素或使用选择器时，用 HTML 元素，并建议把选择器规则放进 <style> 标签。必须包含实际显示的文字节点。HTML 示例：`<style>:root { --accent: rgba(255,255,255,0.5); } span { display: block; color: var(--accent);line-height: 30px; }</style><span>文本</span>`。禁止脚本、事件、外部资源、url()/image-set()、CSS at-rule、动画/transition、fixed/sticky、pointer-events 和视口单位，图片仅允许嵌入位图。')
+        content: string('必填（CSS 最多 6000 字符）：完整 CSS 声明或静态 HTML。建议使用 var 定义必要的颜色，以便用户后续自行调整。1. CSS 声明会直接作用于装饰容器，不得包含选择器或规则花括号，示例：`--accent: rgba(255,255,255,0.5); background: var(--accent); border-radius: 8px;`。2. 静态 HTML：需要显示文字、布局子元素或使用选择器时，用 HTML 元素，并建议把选择器规则放进 <style> 标签。必须包含实际显示的文字节点。HTML 示例：`<style>:root { --accent: rgba(255,255,255,0.5); } span { display: block; color: var(--accent);line-height: 30px; }</style><span>文本</span>`。禁止脚本、事件、外部资源、url()/image-set()、CSS at-rule、动画/transition、fixed/sticky、pointer-events 和视口单位，图片仅允许 src 使用 `layer:<layerId>` 协议指定本页图片图层。')
       }, ['content'])
     })
     }, ['type', 'properties']) }

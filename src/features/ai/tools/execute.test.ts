@@ -299,6 +299,8 @@ test('tool schemas describe every parameter and nested field with valid required
   assert.equal(Object.hasOwn(canvasProperties, 'name'), false);
   assert.equal(imageFields.imageFilters.minProperties, 1);
   assert.equal(imageFields.imageCrop.minProperties, 1);
+  assert.equal(imageFields.imageAppearance.minProperties, 1);
+  assert.deepEqual(Object.keys(imageFields.imageAppearance.properties), ['borderRadius', 'clipPath', 'maskImage']);
   assert.ok(Object.hasOwn(textProperties, 'fontSize'));
   assert.ok(Object.hasOwn(textProperties, 'letterSpacing'));
   assert.equal(textProperties.lineHeight.minimum, 0.5);
@@ -317,7 +319,7 @@ test('layer tools use matching type groups for input and output', async () => {
     ['text', { text: { content: 'Title\nSecond line', fontSize: 34, letterSpacing: 2.5, lineHeight: 1.8, color: '#fff7ec' } }],
     ['svg', { svg: { content: '<svg xmlns="http://www.w3.org/2000/svg"></svg>', color: '#d8ab63' } }],
     ['decoration', { decoration: { content: 'background:red;' } }],
-    ['image', { image: { content: 'https://example.com/photo.png', imageSource: 'upload', flipX: true } }]
+    ['image', { image: { content: 'https://example.com/photo.png', imageSource: 'upload', flipX: true, imageAppearance: { borderRadius: '16px', clipPath: 'circle(50%)', maskImage: 'linear-gradient(#000, transparent)' } } }]
   ];
   for (const [type, properties] of cases) {
     await executeSingleLayerTool( { type, properties }, bridge, signal);

@@ -3,11 +3,14 @@ import {
   DEFAULT_IMAGE_CROP,
   DEFAULT_IMAGE_FILTERS,
   buildFlipTransform,
+  buildImageAppearanceCss,
+  buildImageAppearanceStyle,
   buildImageFilterCss,
   computeCroppedLayerGeometry,
   computeLayerFlipUpdates,
   hasActiveImageCrop,
   hasActiveImageFilters,
+  hasActiveImageAppearance,
   normalizeImageCrop,
   normalizeImageFilters,
 } from './imageLayer.ts';
@@ -15,6 +18,16 @@ import { buildProjectSvg } from './svgExport.ts';
 import type { ProjectState } from '../types.ts';
 
 describe('imageLayer utilities', () => {
+  it('treats empty image appearance as inactive and formats CSS values', () => {
+    expect(hasActiveImageAppearance()).toBe(false);
+    expect(hasActiveImageAppearance({ borderRadius: ' ', clipPath: '', maskImage: '' })).toBe(false);
+    expect(buildImageAppearanceStyle({ borderRadius: '', clipPath: '', maskImage: '' })).toEqual({});
+    const appearance = { borderRadius: '16px', clipPath: 'circle(50% at 50% 50%)', maskImage: 'linear-gradient(#000, transparent)' };
+    expect(hasActiveImageAppearance(appearance)).toBe(true);
+    expect(buildImageAppearanceStyle(appearance)).toMatchObject({ borderRadius: '16px', clipPath: appearance.clipPath, maskImage: appearance.maskImage });
+    expect(buildImageAppearanceCss(appearance)).toContain('-webkit-mask-image:linear-gradient(#000, transparent)');
+  });
+
   it('normalizes and formats image filters into CSS filter strings', () => {
     expect(hasActiveImageFilters(undefined)).toBe(false);
     expect(hasActiveImageFilters(DEFAULT_IMAGE_FILTERS)).toBe(false);
@@ -129,5 +142,12 @@ describe('imageLayer utilities', () => {
     expect(svg).toContain('clipPath id="cf-crop-img1"');
     expect(svg).toContain('filter: brightness(120%) contrast(110%) grayscale(50%) blur(2px);');
     expect(svg).toContain('scale(-1, 1)');
+
+    const appearanceSvg = buildProjectSvg({ ...project, layers: [{ ...project.layers[0], imageAppearance: { borderRadius: '16px', clipPath: 'circle(50%)', maskImage: 'linear-gradient(#000, transparent)' } }] });
+    expect(appearanceSvg).toContain('<foreignObject');
+    expect(appearanceSvg).toContain('border-radius:16px');
+    expect(appearanceSvg).toContain('clip-path:circle(50%)');
+    expect(appearanceSvg).toContain('-webkit-mask-image:linear-gradient(#000, transparent)');
+    expect(appearanceSvg).toContain('object-fit:fill');
   });
 });

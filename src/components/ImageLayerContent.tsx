@@ -3,6 +3,7 @@ import { Layer } from '../types.ts';
 import { resolveImageSource } from '../storage/imageAssets.ts';
 import {
   buildFlipTransform,
+  buildImageAppearanceStyle,
   buildImageFilterCss,
   hasActiveImageCrop,
   normalizeImageCrop,
@@ -15,6 +16,7 @@ interface ImageLayerContentProps {
 const ImageLayerContent: React.FC<ImageLayerContentProps> = ({ layer }) => {
   const filterCss = buildImageFilterCss(layer.imageFilters);
   const flipTransform = buildFlipTransform(layer.flipX, layer.flipY);
+  const appearanceStyle = buildImageAppearanceStyle(layer.imageAppearance);
   const isCropped = hasActiveImageCrop(layer.imageCrop);
   const source = resolveImageSource(layer.content);
 
@@ -23,7 +25,7 @@ const ImageLayerContent: React.FC<ImageLayerContentProps> = ({ layer }) => {
     return (
       <div
         className="w-full h-full overflow-hidden relative pointer-events-none"
-        style={{ opacity: layer.opacity }}
+        style={{ opacity: layer.opacity, ...appearanceStyle }}
       >
         <img
           src={source}
@@ -48,7 +50,7 @@ const ImageLayerContent: React.FC<ImageLayerContentProps> = ({ layer }) => {
   return (
     <div
       className="w-full h-full overflow-hidden pointer-events-none"
-      style={{ opacity: layer.opacity }}
+      style={{ opacity: layer.opacity, ...appearanceStyle }}
     >
       <img
         src={source}
@@ -68,6 +70,6 @@ export default React.memo(ImageLayerContent, (previous, next) => {
   const left = previous.layer;
   const right = next.layer;
   return left.content === right.content && left.name === right.name && left.opacity === right.opacity &&
-    left.imageFilters === right.imageFilters && left.imageCrop === right.imageCrop &&
+    left.imageFilters === right.imageFilters && left.imageCrop === right.imageCrop && left.imageAppearance === right.imageAppearance &&
     left.flipX === right.flipX && left.flipY === right.flipY && left.ratioLocked === right.ratioLocked;
 });

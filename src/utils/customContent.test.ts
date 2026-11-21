@@ -208,6 +208,10 @@ describe('decoration rendering boundaries', () => {
     expect(scope!.querySelector('.moon')?.textContent).toBe('HelloWorld & stars');
     expect(scope!.querySelector('style')?.textContent).toContain(`[data-cf-fragment="${scope!.getAttribute('data-cf-fragment')}"] .moon`);
     expect(scope!.querySelector('br')?.namespaceURI).toBe('http://www.w3.org/1999/xhtml');
+    const boundary = scope!.parentElement;
+    expect(boundary?.getAttribute('style')).toMatch(/overflow:\s*visible/);
+    expect(boundary?.getAttribute('style')).toMatch(/contain:\s*layout style/);
+    expect(boundary?.getAttribute('style')).not.toContain('paint');
     expect(xml.documentElement.querySelector('style')?.textContent).toContain('box-sizing:border-box;margin:0;padding:0;');
   });
 
@@ -245,16 +249,19 @@ describe('decoration rendering boundaries', () => {
     expect(canvas!.classList.contains('overflow-hidden') || canvas!.style.overflow === 'hidden').toBe(true);
   });
 
-  it.each(renderers)('$name preserves HTML fragment clipping and isolation', ({ render }) => {
+  it.each(renderers)('$name lets HTML shadows extend while isolating the fragment', ({ render }) => {
     const container = document.createElement('div');
     const htmlProject: ProjectState = { ...project, layers: [{ ...project.layers[0], content: `<div style="width:100%;height:100%;box-shadow:${shadow}">Moon</div>` }] };
     container.innerHTML = renderToStaticMarkup(render(htmlProject));
     const boundary = container.querySelector('[data-cf-fragment]')?.parentElement;
     expect(boundary).toBeTruthy();
-    expect(boundary!.style.overflow).toBe('hidden');
+    expect(boundary!.style.overflow).toBe('visible');
     expect(boundary!.style.isolation).toBe('isolate');
-    expect(boundary!.style.contain).toBe('layout paint style');
+    expect(boundary!.style.contain).toBe('layout style');
     expect(boundary!.style.pointerEvents).toBe('none');
+    const canvas = Array.from(container.querySelectorAll('div')).find(element => element.style.width === '800px' && element.style.height === '600px');
+    expect(canvas).toBeDefined();
+    expect(canvas!.classList.contains('overflow-hidden') || canvas!.style.overflow === 'hidden').toBe(true);
   });
 });
 

@@ -14,7 +14,7 @@ const DecorationContent: React.FC<DecorationContentProps> = ({ content, layers =
   if (resolved === 'css') return <div className="w-full h-full" style={buildDecorationLayerStyle(content)} />;
   const result = sanitizeDecorationHtml(content, instanceId);
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden', isolation: 'isolate', contain: 'layout paint style', pointerEvents: 'none', boxSizing: 'border-box' }}>
+    <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'visible', isolation: 'isolate', contain: 'layout style', pointerEvents: 'none', boxSizing: 'border-box' }}>
       <div
         data-cf-fragment={instanceId}
         style={{ width: '100%', height: '100%', position: 'relative', boxSizing: 'border-box' }}

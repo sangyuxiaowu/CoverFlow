@@ -325,7 +325,7 @@ const buildDecorationLayerSvg = (layer: Layer, layers: readonly Layer[]): string
   if (format === 'html') {
     const scopeId = `svg-${layer.id}`.replace(/[^a-z0-9-]/gi, '');
     const sanitized = sanitizeDecorationHtml(layer.content, scopeId);
-    element.style.cssText = 'width:100%;height:100%;position:relative;overflow:hidden;isolation:isolate;contain:layout paint style;pointer-events:none;box-sizing:border-box;';
+    element.style.cssText = 'width:100%;height:100%;position:relative;overflow:visible;isolation:isolate;contain:layout style;pointer-events:none;box-sizing:border-box;';
     const fragment = document.createElement('div');
     fragment.setAttribute('data-cf-fragment', scopeId);
     fragment.style.cssText = 'width:100%;height:100%;position:relative;box-sizing:border-box;';

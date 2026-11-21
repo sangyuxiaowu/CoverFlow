@@ -2038,7 +2038,8 @@ const App: React.FC = () => {
             key={project.id}
             lang={lang}
             project={isExportModalOpen ? { ...project, selectedLayerId: null } : project}
-            onSelectLayer={(id) => handleSelectLayer(id, 'replace')}
+            selectedLayerIds={isExportModalOpen ? [] : selectedLayerIds}
+            onSelectLayer={handleSelectLayer}
             updateLayer={updateLayer}
             onKeyboardCommit={modifyProject}
             onCommit={saveHistorySnapshot}

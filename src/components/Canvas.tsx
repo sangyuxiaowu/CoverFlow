@@ -7,6 +7,7 @@ import { buildBackgroundStyles } from '../utils/backgroundStyles.ts';
 import { updateProjectLayer } from '../features/ai/domain/layerOperations.ts';
 import { applyKeyboardLayerTransform, COMMIT_KEYBOARD_LAYER_TRANSFORM, KEYBOARD_LAYER_TRANSFORM, type KeyboardLayerTransform } from '../utils/keyboardLayerTransform.ts';
 import { PANEL_LAYER_DRAFT, type PanelLayerDraft } from '../utils/panelLayerDraft.ts';
+import { applyCanvasLayerUpdates, boundsOfLayers, rootSelectionIds, selectionBounds, type CanvasLayerUpdate } from '../utils/canvasLayerTransform.ts';
 import DecorationContent from './DecorationContent.tsx';
 import ImageLayerContent from './ImageLayerContent.tsx';
 import { translations, Language } from '../translations.ts';
@@ -20,7 +21,12 @@ interface Guideline {
 interface CanvasProps {
   lang: Language;
   project: ProjectState;
-  onSelectLayer: (id: string | null) => void;
+  selectedLayerIds?: string[];
+  onSelectLayer: (
+    id: string | null,
+    mode?: 'replace' | 'toggle' | 'range' | 'range-add',
+    orderedIds?: string[]
+  ) => void;
   updateLayer: (id: string, updates: Partial<Layer>, record?: boolean) => void;
   onKeyboardCommit: (modifier: (project: ProjectState) => ProjectState) => void;
   onCommit: () => void;
@@ -30,8 +36,8 @@ interface CanvasProps {
 const SNAP_THRESHOLD = 8;
 
 // 画布交互与渲染组件。
-const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSelectLayer, updateLayer, onKeyboardCommit, onCommit, onOpenImageCrop }) => {
-  const [draft, setDraft] = useState<{ pageKey: string; layerId: string; updates: Partial<Layer> } | null>(null);
+const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, selectedLayerIds = committedProject.selectedLayerId ? [committedProject.selectedLayerId] : [], onSelectLayer, updateLayer, onKeyboardCommit, onCommit, onOpenImageCrop }) => {
+  const [draft, setDraft] = useState<{ pageKey: string; updates: CanvasLayerUpdate[] } | null>(null);
   const draftRef = useRef<typeof draft>(null);
   const [keyboardDraft, setKeyboardDraft] = useState<KeyboardLayerTransform | null>(null);
   const [panelDraft, setPanelDraft] = useState<PanelLayerDraft | null>(null);
@@ -41,8 +47,8 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
   const keyboardProject = keyboardDraft ? applyKeyboardLayerTransform(committedProject, keyboardDraft) : committedProject;
   const panelProject = panelDraft?.pageKey === committedPageKey && keyboardProject.layers.some(layer => layer.id === panelDraft.layerId)
     ? updateProjectLayer(keyboardProject, panelDraft.layerId, panelDraft.updates) : keyboardProject;
-  const project = draft?.pageKey === committedPageKey && panelProject.layers.some(layer => layer.id === draft.layerId)
-    ? updateProjectLayer(panelProject, draft.layerId, draft.updates)
+  const project = draft?.pageKey === committedPageKey
+    ? applyCanvasLayerUpdates(panelProject, draft.updates)
     : panelProject;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fittedPageKeyRef = useRef<string | null>(null);
@@ -59,9 +65,11 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
   const [interaction, setInteraction] = useState<{
     type: 'move' | 'resize' | 'rotate';
     layerId: string;
+    layerIds: string[];
     startX: number;
     startY: number;
     initialData: { x: number; y: number; w: number; h: number; rotation: number };
+    initialLayers: Record<string, { x: number; y: number; w: number; h: number; rotation: number }>;
     handle?: string;
   } | null>(null);
 
@@ -189,14 +197,28 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
     e.stopPropagation();
     if (editingLayerId === layer.id) return;
     if (editingLayerId && editingLayerId !== layer.id) setEditingLayerId(null);
-    onSelectLayer(layer.id);
+    if (e.ctrlKey || e.metaKey) {
+      onSelectLayer(layer.id, 'toggle');
+      return;
+    }
+    if (e.shiftKey) {
+      const orderedIds = [...project.layers].sort((a, b) => b.zIndex - a.zIndex).map(item => item.id);
+      onSelectLayer(layer.id, 'range', orderedIds);
+      return;
+    }
+    if (!selectedLayerIds.includes(layer.id)) onSelectLayer(layer.id);
     
+    const layerIds = selectedLayerIds.includes(layer.id)
+      ? rootSelectionIds(project, selectedLayerIds)
+      : [layer.id];
     setInteraction({
       type: 'move',
       layerId: layer.id,
+      layerIds: layerIds.length ? layerIds : [layer.id],
       startX: e.clientX,
       startY: e.clientY,
-      initialData: { x: layer.x, y: layer.y, w: layer.width, h: layer.height, rotation: layer.rotation }
+      initialData: { x: layer.x, y: layer.y, w: layer.width, h: layer.height, rotation: layer.rotation },
+      initialLayers: Object.fromEntries(project.layers.filter(item => layerIds.includes(item.id)).map(item => [item.id, { x: item.x, y: item.y, w: item.width, h: item.height, rotation: item.rotation }]))
     });
   };
 
@@ -218,13 +240,18 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
   const handleControlMouseDown = (e: React.MouseEvent, layer: Layer, type: 'resize' | 'rotate', handle?: string) => {
     e.stopPropagation();
     e.preventDefault();
+    const layerIds = selectedLayerIds.length > 1 || selectedLayerIds.includes(layer.id)
+      ? rootSelectionIds(project, selectedLayerIds)
+      : [layer.id];
     setInteraction({
       type,
       layerId: layer.id,
+      layerIds: layerIds.length ? layerIds : [layer.id],
       startX: e.clientX,
       startY: e.clientY,
       handle,
-      initialData: { x: layer.x, y: layer.y, w: layer.width, h: layer.height, rotation: layer.rotation }
+      initialData: { x: layer.x, y: layer.y, w: layer.width, h: layer.height, rotation: layer.rotation },
+      initialLayers: Object.fromEntries(project.layers.filter(item => layerIds.includes(item.id)).map(item => [item.id, { x: item.x, y: item.y, w: item.width, h: item.height, rotation: item.rotation }]))
     });
   };
 
@@ -242,17 +269,25 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
       const activeGuidelines: Guideline[] = [];
       const movingLayer = project.layers.find(l => l.id === interaction.layerId);
       if (!movingLayer) return;
-
-      const halfW = movingLayer.width / 2;
-      const halfH = movingLayer.height / 2;
+      const initialLayers = interaction.layerIds.map(layerId => interaction.initialLayers[layerId]).filter(Boolean);
+      const initialBounds = boundsOfLayers(initialLayers.map(layer => ({ ...layer, width: layer.w, height: layer.h })));
+      if (!initialBounds) return;
+      const selectionLeft = initialBounds.x + dx;
+      const selectionTop = initialBounds.y + dy;
+      const selectionWidth = initialBounds.width;
+      const selectionHeight = initialBounds.height;
 
       // 吸附目标：画布边缘与中心
       const targetsX = [0, project.pageInfo.width / 2, project.pageInfo.width];
       const targetsY = [0, project.pageInfo.height / 2, project.pageInfo.height];
+      const movingIds = new Set(interaction.layerIds);
+      interaction.layerIds.forEach(id => {
+        project.layers.find(layer => layer.id === id)?.children?.forEach(childId => movingIds.add(childId));
+      });
 
       // 吸附目标：其他图层
       project.layers.forEach(l => {
-        if (l.id === movingLayer.id || !l.visible || l.type === 'group') return;
+        if (movingIds.has(l.id) || !l.visible || l.type === 'group') return;
         targetsX.push(l.x, l.x + l.width / 2, l.x + l.width);
         targetsY.push(l.y, l.y + l.height / 2, l.y + l.height);
       });
@@ -260,13 +295,11 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
       // 水平吸附
       let snappedX = false;
       for (const tx of targetsX) {
-        // 源点：左、中、右
-        const sources = [nextX, nextX + halfW, nextX + movingLayer.width];
+        // 源点：组合左、中、右
+        const sources = [selectionLeft, selectionLeft + selectionWidth / 2, selectionLeft + selectionWidth];
         for (let i = 0; i < sources.length; i++) {
           if (Math.abs(sources[i] - tx) < SNAP_THRESHOLD) {
-            if (i === 0) nextX = tx;
-            if (i === 1) nextX = tx - halfW;
-            if (i === 2) nextX = tx - movingLayer.width;
+            nextX = initialData.x + tx - sources[i] + dx;
             activeGuidelines.push({ type: 'v', pos: tx });
             snappedX = true;
             break;
@@ -278,13 +311,11 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
       // 垂直吸附
       let snappedY = false;
       for (const ty of targetsY) {
-        // 源点：上、中、下
-        const sources = [nextY, nextY + halfH, nextY + movingLayer.height];
+        // 源点：组合上、中、下
+        const sources = [selectionTop, selectionTop + selectionHeight / 2, selectionTop + selectionHeight];
         for (let i = 0; i < sources.length; i++) {
           if (Math.abs(sources[i] - ty) < SNAP_THRESHOLD) {
-            if (i === 0) nextY = ty;
-            if (i === 1) nextY = ty - halfH;
-            if (i === 2) nextY = ty - movingLayer.height;
+            nextY = initialData.y + ty - sources[i] + dy;
             activeGuidelines.push({ type: 'h', pos: ty });
             snappedY = true;
             break;
@@ -294,7 +325,13 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
       }
 
       setGuidelines(activeGuidelines);
-      const next = { pageKey, layerId: interaction.layerId, updates: { x: nextX, y: nextY } };
+      const offsetX = nextX - initialData.x;
+      const offsetY = nextY - initialData.y;
+      const updates = interaction.layerIds.map(layerId => {
+        const initial = interaction.initialLayers[layerId] ?? initialData;
+        return { layerId, updates: { x: initial.x + offsetX, y: initial.y + offsetY } };
+      });
+      const next = { pageKey, updates };
       draftRef.current = next;
       setDraft(next);
       return;
@@ -311,7 +348,30 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
       const angle = Math.atan2(e.clientY - screenCy, e.clientX - screenCx) * (180 / Math.PI);
       let newRotation = angle + 90; 
       if (e.shiftKey) newRotation = Math.round(newRotation / 15) * 15;
-      const next = { pageKey, layerId: interaction.layerId, updates: { rotation: newRotation } };
+      const rotationDelta = newRotation - initialData.rotation;
+      const radians = rotationDelta * Math.PI / 180;
+      const selected = interaction.layerIds.map(layerId => interaction.initialLayers[layerId]).filter(Boolean);
+      const bounds = selected.length > 1 ? {
+        left: Math.min(...selected.map(layer => layer.x)),
+        top: Math.min(...selected.map(layer => layer.y)),
+        right: Math.max(...selected.map(layer => layer.x + layer.w)),
+        bottom: Math.max(...selected.map(layer => layer.y + layer.h))
+      } : null;
+      const centerX = bounds ? (bounds.left + bounds.right) / 2 : cx;
+      const centerY = bounds ? (bounds.top + bounds.bottom) / 2 : cy;
+      const updates = interaction.layerIds.map(layerId => {
+        const initial = interaction.initialLayers[layerId] ?? initialData;
+        const relativeX = initial.x + initial.w / 2 - centerX;
+        const relativeY = initial.y + initial.h / 2 - centerY;
+        const nextCenterX = centerX + relativeX * Math.cos(radians) - relativeY * Math.sin(radians);
+        const nextCenterY = centerY + relativeX * Math.sin(radians) + relativeY * Math.cos(radians);
+        return { layerId, updates: {
+          x: nextCenterX - initial.w / 2,
+          y: nextCenterY - initial.h / 2,
+          rotation: initial.rotation + rotationDelta
+        } };
+      });
+      const next = { pageKey, updates };
       draftRef.current = next;
       setDraft(next);
       return;
@@ -351,7 +411,31 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
       const newCenterX = (initialData.x + initialData.w / 2) + rotatedCenterXChange;
       const newCenterY = (initialData.y + initialData.h / 2) + rotatedCenterYChange;
 
-      const next = { pageKey, layerId: interaction.layerId, updates: { x: newCenterX - newW / 2, y: newCenterY - newH / 2, width: newW, height: newH } };
+      if (interaction.layerIds.length === 1) {
+        const next = { pageKey, updates: [{ layerId: interaction.layerId, updates: { x: newCenterX - newW / 2, y: newCenterY - newH / 2, width: newW, height: newH } }] };
+        draftRef.current = next;
+        setDraft(next);
+        return;
+      }
+
+      const scaleX = newW / initialData.w;
+      const scaleY = newH / initialData.h;
+      const selected = interaction.layerIds.map(layerId => interaction.initialLayers[layerId]).filter(Boolean);
+      const left = Math.min(...selected.map(item => item.x));
+      const top = Math.min(...selected.map(item => item.y));
+      const right = Math.max(...selected.map(item => item.x + item.w));
+      const bottom = Math.max(...selected.map(item => item.y + item.h));
+      const anchorX = handle.includes('w') ? right : handle.includes('e') ? left : (left + right) / 2;
+      const anchorY = handle.includes('n') ? bottom : handle.includes('s') ? top : (top + bottom) / 2;
+      const updates = interaction.layerIds.map(layerId => {
+        const initial = interaction.initialLayers[layerId] ?? initialData;
+        const width = Math.max(10, initial.w * scaleX);
+        const height = Math.max(10, initial.h * scaleY);
+        const x = anchorX + (initial.x - anchorX) * scaleX;
+        const y = anchorY + (initial.y - anchorY) * scaleY;
+        return { layerId, updates: { x, y, width, height } };
+      });
+      const next = { pageKey, updates };
       draftRef.current = next;
       setDraft(next);
     }
@@ -360,13 +444,18 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
   const handleGlobalMouseUp = useCallback(() => {
     if (interaction) {
       const current = draftRef.current;
-      if (current?.pageKey === pageKey && current.layerId === interaction.layerId) updateLayer(current.layerId, current.updates, true);
+      if (current?.pageKey === pageKey && current.updates.length === 1) {
+        const update = current.updates[0];
+        updateLayer(update.layerId, update.updates, true);
+      } else if (current?.pageKey === pageKey && current.updates.length > 1) {
+        onKeyboardCommit(currentProject => applyCanvasLayerUpdates(currentProject, current.updates));
+      }
       draftRef.current = null;
       setDraft(null);
       setInteraction(null);
       setGuidelines([]);
     }
-  }, [interaction, pageKey, updateLayer]);
+  }, [interaction, pageKey, onKeyboardCommit, updateLayer]);
 
   useEffect(() => {
     if (interaction) {
@@ -471,7 +560,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
                     key={layer.id}
                     onMouseDown={(e) => handleLayerMouseDown(e, layer)}
                     onDoubleClick={(e) => handleLayerDoubleClick(e, layer)}
-                    className={`absolute select-none group ${project.selectedLayerId === layer.id ? 'z-50' : ''}`}
+                    className={`absolute select-none group ${selectedLayerIds.includes(layer.id) ? 'selected-layer' : ''}`}
                     style={{
                       left: layer.x,
                       top: layer.y,
@@ -545,9 +634,11 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
                     ) : (
                       <ImageLayerContent layer={layer} />
                     )}
-                    {project.selectedLayerId === layer.id && !layer.locked && (
+                    {selectedLayerIds.length === 1 && selectedLayerIds.includes(layer.id) && (
+                      <div className="absolute inset-0 border border-blue-500 pointer-events-none" style={{ willChange: 'transform', backfaceVisibility: 'hidden' }} />
+                    )}
+                    {selectedLayerIds.length === 1 && project.selectedLayerId === layer.id && selectedLayerIds.includes(layer.id) && !layer.locked && (
                       <>
-                        <div className="absolute inset-0 border border-blue-500 pointer-events-none" style={{ willChange: 'transform', backfaceVisibility: 'hidden' }} />
                         <div className="absolute left-1/2 -top-8 -translate-x-1/2 flex flex-col items-center cursor-grab" onMouseDown={(e) => handleControlMouseDown(e, layer, 'rotate')}>
                           <div className="w-5 h-5 bg-white border border-blue-600 rounded-full flex items-center justify-center text-blue-600"><RotateCw className="w-3 h-3" /></div>
                           <div className="w-px h-3 bg-blue-600" />
@@ -578,47 +669,98 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, onSele
                 );
               })}
 
-            {(() => {
-              const selectedGroup = project.layers.find(l => l.id === project.selectedLayerId && l.type === 'group');
-              if (!selectedGroup || selectedGroup.locked) return null;
-              return (
+            {selectedLayerIds.length === 1 && project.layers
+              .filter(layer => layer.type === 'group' && selectedLayerIds.includes(layer.id))
+              .map(selectedGroup => (
                 <div
-                  onMouseDown={(e) => handleLayerMouseDown(e, selectedGroup)}
-                  className="absolute select-none"
+                  key={`selected-group-${selectedGroup.id}`}
+                  onMouseDown={(event) => handleLayerMouseDown(event, selectedGroup)}
+                  className="absolute select-none selected-group"
                   style={{
                     left: selectedGroup.x,
                     top: selectedGroup.y,
                     width: selectedGroup.width,
                     height: selectedGroup.height,
                     transform: `rotate(${selectedGroup.rotation}deg)`,
-                    zIndex: 9999,
-                    cursor: interaction ? 'grabbing' : 'move'
+                    zIndex: selectedGroup.id === project.selectedLayerId ? 9999 : 9998,
+                    pointerEvents: selectedGroup.locked ? 'none' : 'auto',
+                    cursor: interaction ? 'grabbing' : selectedGroup.locked ? 'default' : 'move'
                   }}
                 >
                   <div className="absolute inset-0 border border-blue-400 border-dashed pointer-events-none" />
-                  <div className="absolute left-1/2 -top-8 -translate-x-1/2 flex flex-col items-center cursor-grab" onMouseDown={(e) => handleControlMouseDown(e, selectedGroup, 'rotate')}>
-                    <div className="w-5 h-5 bg-white border border-blue-600 rounded-full flex items-center justify-center text-blue-600"><RotateCw className="w-3 h-3" /></div>
-                    <div className="w-px h-3 bg-blue-600" />
-                  </div>
-                  {['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'].map(h => {
-                    const isN = h.includes('n');
-                    const isS = h.includes('s');
-                    const isW = h.includes('w');
-                    const isE = h.includes('e');
-                    return (
-                      <div
-                        key={h}
-                        className="absolute w-2.5 h-2.5 bg-white border border-blue-600 rounded-full z-50 pointer-events-auto"
-                        onMouseDown={(e) => handleControlMouseDown(e, selectedGroup, 'resize', h)}
-                        style={{
-                          top: isN ? 0 : isS ? '100%' : '50%',
-                          left: isW ? 0 : isE ? '100%' : '50%',
-                          transform: 'translate(-50%, -50%)',
-                          cursor: `${h}-resize`
-                        }}
-                      />
-                    );
-                  })}
+                  {selectedGroup.id === project.selectedLayerId && !selectedGroup.locked && (
+                    <>
+                      <div className="absolute left-1/2 -top-8 -translate-x-1/2 flex flex-col items-center cursor-grab" onMouseDown={(event) => handleControlMouseDown(event, selectedGroup, 'rotate')}>
+                        <div className="w-5 h-5 bg-white border border-blue-600 rounded-full flex items-center justify-center text-blue-600"><RotateCw className="w-3 h-3" /></div>
+                        <div className="w-px h-3 bg-blue-600" />
+                      </div>
+                      {['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'].map(handle => {
+                        const isN = handle.includes('n');
+                        const isS = handle.includes('s');
+                        const isW = handle.includes('w');
+                        const isE = handle.includes('e');
+                        return (
+                          <div
+                            key={handle}
+                            className="absolute w-2.5 h-2.5 bg-white border border-blue-600 rounded-full z-50 pointer-events-auto"
+                            onMouseDown={(event) => handleControlMouseDown(event, selectedGroup, 'resize', handle)}
+                            style={{
+                              top: isN ? 0 : isS ? '100%' : '50%',
+                              left: isW ? 0 : isE ? '100%' : '50%',
+                              transform: 'translate(-50%, -50%)',
+                              cursor: `${handle}-resize`
+                            }}
+                          />
+                        );
+                      })}
+                    </>
+                  )}
+                </div>
+              ))}
+            {(() => {
+              if (selectedLayerIds.length < 2) return null;
+              const bounds = selectionBounds(project, selectedLayerIds);
+              if (!bounds) return null;
+              const activeLayer = project.layers.find(layer => layer.id === project.selectedLayerId) ?? null;
+              const selectionLayer: Layer = {
+                id: '__multi-selection__', name: 'Selection', type: 'group', content: '',
+                x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
+                rotation: 0, zIndex: 9999, visible: true, locked: false, opacity: 1,
+                children: rootSelectionIds(project, selectedLayerIds)
+              };
+              return (
+                <div
+                  className="absolute select-none multi-selection-box pointer-events-none"
+                  style={{ left: bounds.x, top: bounds.y, width: bounds.width, height: bounds.height, zIndex: 9999 }}
+                >
+                  <div className="absolute inset-0 border border-blue-400 border-dashed pointer-events-none" />
+                  {activeLayer && !activeLayer.locked && (
+                    <>
+                      <div className="absolute left-1/2 -top-8 -translate-x-1/2 flex flex-col items-center cursor-grab pointer-events-auto" onMouseDown={(event) => handleControlMouseDown(event, selectionLayer, 'rotate')}>
+                        <div className="w-5 h-5 bg-white border border-blue-600 rounded-full flex items-center justify-center text-blue-600"><RotateCw className="w-3 h-3" /></div>
+                        <div className="w-px h-3 bg-blue-600" />
+                      </div>
+                      {['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'].map(handle => {
+                        const isN = handle.includes('n');
+                        const isS = handle.includes('s');
+                        const isW = handle.includes('w');
+                        const isE = handle.includes('e');
+                        return (
+                          <div
+                            key={handle}
+                            className="absolute w-2.5 h-2.5 bg-white border border-blue-600 rounded-full z-50 pointer-events-auto"
+                            onMouseDown={(event) => handleControlMouseDown(event, selectionLayer, 'resize', handle)}
+                            style={{
+                              top: isN ? 0 : isS ? '100%' : '50%',
+                              left: isW ? 0 : isE ? '100%' : '50%',
+                              transform: 'translate(-50%, -50%)',
+                              cursor: `${handle}-resize`
+                            }}
+                          />
+                        );
+                      })}
+                    </>
+                  )}
                 </div>
               );
             })()}

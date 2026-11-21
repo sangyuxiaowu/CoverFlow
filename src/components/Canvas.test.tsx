@@ -11,6 +11,7 @@ import { useEditorShortcuts } from '../hooks/useEditorShortcuts.ts';
 import { useProjectHistory } from '../hooks/useProjectHistory.ts';
 import { syncProjectPages } from '../storage/projectCompatibility.ts';
 import { PANEL_LAYER_DRAFT } from '../utils/panelLayerDraft.ts';
+import { selectionBounds } from '../utils/canvasLayerTransform.ts';
 
 let host: HTMLDivElement;
 let root: Root;
@@ -146,6 +147,114 @@ it('lets canvas selection pass through locked layers to editable layers below', 
   await act(async () => layers[0].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 20, clientY: 20 })));
   expect(onSelectLayer).toHaveBeenCalledExactlyOnceWith('editable');
   expect(layers[0].style.cursor).toBe('grabbing');
+});
+
+it('supports ctrl multi-selection on the canvas without starting a drag', async () => {
+  const onSelectLayer = vi.fn();
+  const updateLayer = vi.fn();
+  const current: ProjectState = { ...project('ctrl-selection'), layers: [
+    { id: 'first', name: 'First', type: 'image', content: 'data:image/png;base64,AAAA', x: 20, y: 20, width: 100, height: 100, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 }
+  ] };
+  await act(async () => root.render(<Canvas lang="zh" project={current} onSelectLayer={onSelectLayer} updateLayer={updateLayer} onKeyboardCommit={() => {}} onCommit={() => {}} />));
+  const layer = host.querySelector<HTMLDivElement>('#export-target > .group')!;
+  await act(async () => layer.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, ctrlKey: true, clientX: 20, clientY: 20 })));
+  expect(onSelectLayer).toHaveBeenCalledExactlyOnceWith('first', 'toggle');
+  expect(layer.style.cursor).toBe('move');
+  await act(async () => window.dispatchEvent(new MouseEvent('mousemove', { clientX: 60, clientY: 60 })));
+  expect(layer.style.left).toBe('20px');
+});
+
+it('calculates multi-selection bounds from rotated layer corners', () => {
+  const current: ProjectState = { ...project('rotated-bounds'), layers: [
+    { id: 'rotated', name: 'Rotated', type: 'image', content: 'data:image/png;base64,AAAA', x: 0, y: 0, width: 100, height: 50, rotation: 90, zIndex: 1, visible: true, locked: false, opacity: 1 },
+    { id: 'plain', name: 'Plain', type: 'image', content: 'data:image/png;base64,AAAA', x: 100, y: 100, width: 40, height: 30, rotation: 0, zIndex: 2, visible: true, locked: false, opacity: 1 }
+  ] };
+  const bounds = selectionBounds(current, ['rotated', 'plain'])!;
+  expect(bounds.x).toBeCloseTo(25);
+  expect(bounds.y).toBeCloseTo(-25);
+  expect(bounds.width).toBeCloseTo(115);
+  expect(bounds.height).toBeCloseTo(155);
+});
+
+it('renders one combined selection box for multiple layers', async () => {
+  const current: ProjectState = { ...project('multi-selection'), selectedLayerId: 'second', layers: [
+    { id: 'first', name: 'First', type: 'image', content: 'data:image/png;base64,AAAA', x: 20, y: 20, width: 100, height: 100, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 },
+    { id: 'second', name: 'Second', type: 'image', content: 'data:image/png;base64,AAAA', x: 160, y: 20, width: 100, height: 100, rotation: 0, zIndex: 2, visible: true, locked: false, opacity: 1 }
+  ] };
+  await act(async () => root.render(<Canvas lang="zh" project={current} selectedLayerIds={['first', 'second']} onSelectLayer={() => {}} updateLayer={() => {}} onKeyboardCommit={() => {}} onCommit={() => {}} />));
+  const layers = host.querySelectorAll<HTMLDivElement>('#export-target > .group');
+  expect(layers).toHaveLength(2);
+  expect(layers[0].classList.contains('selected-layer')).toBe(true);
+  expect(layers[1].classList.contains('selected-layer')).toBe(true);
+  expect(host.querySelectorAll('#export-target > .group > .border-blue-500')).toHaveLength(0);
+  const selectionBox = host.querySelector<HTMLDivElement>('.multi-selection-box');
+  expect(selectionBox).not.toBeNull();
+  expect(selectionBox!.style.left).toBe('20px');
+  expect(selectionBox!.style.top).toBe('20px');
+  expect(selectionBox!.style.width).toBe('240px');
+  expect(selectionBox!.style.height).toBe('100px');
+  const resizeHandles = Array.from(selectionBox!.querySelectorAll<HTMLElement>('[style]'))
+    .filter(element => element.style.cursor.endsWith('-resize'));
+  expect(resizeHandles).toHaveLength(8);
+});
+
+it('scales every selected layer from the combined selection handle', async () => {
+  const onKeyboardCommit = vi.fn();
+  const current: ProjectState = { ...project('multi-resize'), selectedLayerId: 'second', layers: [
+    { id: 'first', name: 'First', type: 'image', content: 'data:image/png;base64,AAAA', x: 20, y: 20, width: 100, height: 100, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 },
+    { id: 'second', name: 'Second', type: 'image', content: 'data:image/png;base64,AAAA', x: 160, y: 20, width: 100, height: 100, rotation: 0, zIndex: 2, visible: true, locked: false, opacity: 1 }
+  ] };
+  await act(async () => root.render(<Canvas lang="zh" project={current} selectedLayerIds={['first', 'second']} onSelectLayer={() => {}} updateLayer={() => {}} onKeyboardCommit={onKeyboardCommit} onCommit={() => {}} />));
+  const handle = Array.from(host.querySelectorAll<HTMLElement>('.multi-selection-box [style]')).find(element => element.style.cursor === 'se-resize')!;
+  await act(async () => handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 20, clientY: 20 })));
+  await act(async () => window.dispatchEvent(new MouseEvent('mousemove', { clientX: 140, clientY: 70 })));
+  await act(async () => window.dispatchEvent(new MouseEvent('mouseup')));
+  expect(onKeyboardCommit).toHaveBeenCalledOnce();
+  const committed = onKeyboardCommit.mock.calls[0][0](current);
+  expect(committed.layers[0].width).toBeGreaterThan(100);
+  expect(committed.layers[1].width).toBeGreaterThan(100);
+  expect(committed.layers[0].x).toBeCloseTo(20);
+  expect(committed.layers[1].x).toBeGreaterThan(160);
+});
+
+it('snaps guides from the combined multi-selection bounds', async () => {
+  const current: ProjectState = { ...project('multi-snap'), selectedLayerId: 'second', layers: [
+    { id: 'first', name: 'First', type: 'image', content: 'data:image/png;base64,AAAA', x: 100, y: 100, width: 100, height: 100, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 },
+    { id: 'second', name: 'Second', type: 'image', content: 'data:image/png;base64,AAAA', x: 500, y: 200, width: 100, height: 100, rotation: 0, zIndex: 2, visible: true, locked: false, opacity: 1 }
+  ] };
+  await act(async () => root.render(<Canvas lang="zh" project={current} selectedLayerIds={['first', 'second']} onSelectLayer={() => {}} updateLayer={() => {}} onKeyboardCommit={() => {}} onCommit={() => {}} />));
+  const layers = host.querySelectorAll<HTMLDivElement>('#export-target > .group');
+  await act(async () => layers[0].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 20, clientY: 20 })));
+  await act(async () => window.dispatchEvent(new MouseEvent('mousemove', { clientX: 20 + 450 * 0.545, clientY: 20 })));
+  const guide = Array.from(host.querySelectorAll<HTMLElement>('#export-target [style]')).find(element => element.style.left === '800px' && element.style.width === '1px');
+  expect(guide).toBeDefined();
+  expect(parseFloat(layers[0].style.left)).toBeCloseTo(550);
+  expect(parseFloat(layers[1].style.left)).toBeCloseTo(950);
+});
+
+it('moves every selected layer together with one committed transform', async () => {
+  const updateLayer = vi.fn();
+  const onKeyboardCommit = vi.fn();
+  const current: ProjectState = { ...project('multi-drag'), selectedLayerId: 'second', layers: [
+    { id: 'first', name: 'First', type: 'image', content: 'data:image/png;base64,AAAA', x: 100, y: 100, width: 100, height: 100, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 },
+    { id: 'second', name: 'Second', type: 'image', content: 'data:image/png;base64,AAAA', x: 250, y: 160, width: 100, height: 100, rotation: 0, zIndex: 2, visible: true, locked: false, opacity: 1 }
+  ] };
+  await act(async () => root.render(<Canvas lang="zh" project={current} selectedLayerIds={['first', 'second']} onSelectLayer={() => {}} updateLayer={updateLayer} onKeyboardCommit={onKeyboardCommit} onCommit={() => {}} />));
+  const layers = host.querySelectorAll<HTMLDivElement>('#export-target > .group');
+  await act(async () => layers[0].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 20, clientY: 20 })));
+  await act(async () => window.dispatchEvent(new MouseEvent('mousemove', { clientX: 40, clientY: 50 })));
+  const offsetX = 20 / 0.545;
+  const offsetY = 30 / 0.545;
+  expect(parseFloat(layers[0].style.left)).toBeCloseTo(100 + offsetX);
+  expect(parseFloat(layers[1].style.left)).toBeCloseTo(250 + offsetX);
+  expect(parseFloat(layers[0].style.top)).toBeCloseTo(100 + offsetY);
+  expect(parseFloat(layers[1].style.top)).toBeCloseTo(160 + offsetY);
+  await act(async () => window.dispatchEvent(new MouseEvent('mouseup')));
+  expect(updateLayer).not.toHaveBeenCalled();
+  expect(onKeyboardCommit).toHaveBeenCalledOnce();
+  const committed = onKeyboardCommit.mock.calls[0][0](current);
+  expect(committed.layers[0].x).toBeCloseTo(100 + offsetX);
+  expect(committed.layers[1].x).toBeCloseTo(250 + offsetX);
 });
 
 it('previews continuous dragging locally and commits the final position once', async () => {

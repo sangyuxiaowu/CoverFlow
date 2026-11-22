@@ -107,6 +107,22 @@ it('allows a keyless endpoint to send text and image attachments', async () => {
   expect(assistant.send).toHaveBeenCalledWith('Inspect this page', [expect.objectContaining({ image: expect.objectContaining({ id: 'upload' }) })]);
 });
 
+it('allows queueing during a reply and restores pending messages when stopped', async () => {
+  assistant.busy = true;
+  assistant.queuedMessages = [{ id: 'queued', prompt: 'Earlier', attachments: [] }];
+  assistant.takeQueuedMessages = vi.fn(() => assistant.queuedMessages!);
+  assistant.stop = vi.fn();
+  await render(true);
+  expect(host.querySelector<HTMLTextAreaElement>('textarea')!.disabled).toBe(false);
+  expect(host.textContent).toContain('Queued');
+  await enterPrompt('Next');
+  await act(async () => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  expect(assistant.send).toHaveBeenCalledWith('Next', []);
+  await act(async () => { host.querySelector<HTMLButtonElement>('button[title="Stop"]')!.click(); });
+  expect(host.querySelector('textarea')?.value).toBe('Earlier');
+  expect(assistant.stop).toHaveBeenCalledOnce();
+});
+
 it('holds pending images while sending text and restores them when switching back to vision', async () => {
   await render(true);
   expect(host.querySelector<HTMLButtonElement>('[aria-label="Attach image"]')?.disabled).toBe(false);

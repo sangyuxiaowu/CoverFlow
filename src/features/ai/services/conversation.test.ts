@@ -426,6 +426,74 @@ test('Responses text deltas and final output are returned', async () => {
   assert.equal(response.output[0].type, 'message');
 });
 
+test('queued input yields after a safe completed message before the response stream ends', async () => {
+  const originalFetch = globalThis.fetch;
+  let ready = false;
+  let text = '';
+  let history: ResponseItem[] = [];
+  const usages: RequestUsage[] = [];
+  const events = [
+    { type: 'response.output_item.added', output_index: 0, item: { ...textOutput, status: 'in_progress' } },
+    { type: 'response.output_text.delta', delta: 'Done' },
+    { type: 'response.output_item.done', output_index: 0, item: textOutput },
+    { type: 'error', message: 'Should not read past the safe boundary' }
+  ];
+  globalThis.fetch = async () => new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''), { headers: { 'Content-Type': 'text/event-stream' } });
+  try {
+    const result = await runConversation({ config, input: [{ role: 'user', content: 'First' }], bridge,
+      signal: new AbortController().signal, onText: chunk => { text += chunk; ready = true; }, onTool: () => {},
+      shouldYield: () => ready, onHistory: items => { history = items; }, onUsage: usage => usages.push(usage) });
+    assert.equal(result, 'Done');
+    assert.equal(text, 'Done');
+    assert.deepEqual(history.at(-1), textOutput);
+    assert.equal(usages[0].status, 'aborted');
+    assert.equal(usages[0].usage, undefined);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('queued input yields only after every tool in the current batch finishes', async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  const events: ToolEvent[] = [];
+  let history: ResponseItem[] = [];
+  globalThis.fetch = async () => {
+    requests++;
+    return streamResponse(responsePayload([
+      { type: 'function_call', call_id: 'first', name: 'list_fonts', arguments: '{}' },
+      { type: 'function_call', call_id: 'second', name: 'list_fonts', arguments: '{}' }
+    ]));
+  };
+  try {
+    await runConversation({ config, input: [], bridge, signal: new AbortController().signal,
+      onText: () => {}, onTool: event => events.push(event), shouldYield: () => true, onHistory: items => { history = items; } });
+    assert.equal(requests, 1);
+    assert.deepEqual(events.filter(event => event.status === 'success').map(event => event.id), ['first', 'second']);
+    assert.deepEqual(history.filter(item => item.type === 'function_call_output').map(item => item.call_id), ['first', 'second']);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('a completed message cannot yield while a tool output item is pending', async () => {
+  const originalFetch = globalThis.fetch;
+  const call = { type: 'function_call', id: 'tool-item', call_id: 'tool', name: 'list_fonts', arguments: '{}' };
+  const events = [
+    { type: 'response.output_item.added', output_index: 0, item: call },
+    { type: 'response.output_item.added', output_index: 1, item: { ...textOutput, status: 'in_progress' } },
+    { type: 'response.output_item.done', output_index: 1, item: textOutput },
+    { type: 'response.output_item.done', output_index: 0, item: call },
+    { type: 'response.completed', response: responsePayload([call, textOutput]) }
+  ];
+  const tools: ToolEvent[] = [];
+  const usages: RequestUsage[] = [];
+  globalThis.fetch = async () => new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''), { headers: { 'Content-Type': 'text/event-stream' } });
+  try {
+    await runConversation({ config, input: [], bridge, signal: new AbortController().signal,
+      onText: () => {}, onTool: event => tools.push(event), shouldYield: () => true, onUsage: usage => usages.push(usage) });
+    assert.equal(tools.at(-1)?.status, 'success');
+    assert.equal(tools.at(-1)?.id, 'tool');
+    assert.equal(usages[0].status, 'completed');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('vision models receive a WebP image from the canvas preview tool', async () => {
   const originalFetch = globalThis.fetch;
   const requests: Record<string, any>[] = [];

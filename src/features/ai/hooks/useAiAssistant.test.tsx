@@ -168,6 +168,234 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+it('merges all queued messages and attachments into the next turn', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  vi.mocked(runConversation).mockImplementationOnce(async () => { await gate; return 'First answer'; })
+    .mockResolvedValue('Next answer');
+  const store = memoryStore();
+  const config = defaultConfig();
+  config.endpoints[0].models[0].supportsVision = true;
+  store.loadConfig = async () => config;
+  store.saveImage = vi.fn(async () => {});
+  const harness = await mount(store);
+  const attachment = { image: { id: 'queued-image', name: 'image.webp', type: 'image/webp' as const, size: 3 }, blob: new Blob(['img']) };
+  const secondAttachment = { image: { id: 'second-image', name: 'other.webp', type: 'image/webp' as const, size: 3 }, blob: new Blob(['img']) };
+  let first!: Promise<void>;
+  await act(async () => { first = harness.getAssistant().send('First'); });
+  await act(async () => {
+    await harness.getAssistant().send('Second', [attachment]);
+    await harness.getAssistant().send('Third', [secondAttachment]);
+  });
+  expect(harness.getAssistant().queuedMessages.map(item => item.prompt)).toEqual(['Second', 'Third']);
+  expect(runConversation).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(runConversation).mock.calls[0][0].shouldYield?.()).toBe(true);
+  await act(async () => { release(); await first; });
+  expect(runConversation).toHaveBeenCalledTimes(2);
+  expect(harness.getAssistant().entries.filter(entry => entry.role === 'user').map(entry => entry.content)).toEqual(['First', 'Second\nThird']);
+  expect(harness.getAssistant().entries.filter(entry => entry.role === 'user')[1].images?.map(image => image.id)).toEqual(['queued-image', 'second-image']);
+  expect(store.saveImage).toHaveBeenCalledWith(expect.any(String), 'queued-image', attachment.blob);
+  expect(store.saveImage).toHaveBeenCalledWith(expect.any(String), 'second-image', secondAttachment.blob);
+  expect(harness.getAssistant().queuedMessages).toEqual([]);
+  expect(harness.getAssistant().busy).toBe(false);
+});
+
+it('returns a reserved batch on stop while its attachments are being saved', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  let releaseFirst!: () => void;
+  let releaseImage!: () => void;
+  let imageStarted!: () => void;
+  const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
+  const imageGate = new Promise<void>(resolve => { releaseImage = resolve; });
+  const imageSaving = new Promise<void>(resolve => { imageStarted = resolve; });
+  vi.mocked(runConversation).mockImplementationOnce(async () => { await firstGate; return 'Done'; });
+  const store = memoryStore();
+  const config = defaultConfig();
+  config.endpoints[0].models[0].supportsVision = true;
+  store.loadConfig = async () => config;
+  store.saveImage = async () => { imageStarted(); await imageGate; };
+  const harness = await mount(store);
+  const attachment = { image: { id: 'queued-image', name: 'image.webp', type: 'image/webp' as const, size: 3 }, blob: new Blob(['img']) };
+  let first!: Promise<void>;
+  await act(async () => { first = harness.getAssistant().send('First'); });
+  await act(async () => { await harness.getAssistant().send('One', [attachment]); await harness.getAssistant().send('Two'); releaseFirst(); await imageSaving; });
+  let recovered: ReturnType<typeof harness.getAssistant>['queuedMessages'] = [];
+  await act(async () => { recovered = harness.getAssistant().takeQueuedMessages(); harness.getAssistant().stop(); releaseImage(); await first; });
+  expect(recovered.map(item => item.prompt)).toEqual(['One', 'Two']);
+  expect(recovered[0].attachments).toEqual([attachment]);
+  expect(harness.getAssistant().entries.filter(entry => entry.role === 'user').map(entry => entry.content)).toEqual(['First']);
+  expect(runConversation).toHaveBeenCalledTimes(1);
+});
+
+it('preserves a batch when attachment storage fails and merges it with a later message', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  vi.mocked(runConversation).mockImplementationOnce(async () => { await gate; return 'Done'; }).mockResolvedValue('Done');
+  const store = memoryStore();
+  const config = defaultConfig();
+  config.endpoints[0].models[0].supportsVision = true;
+  store.loadConfig = async () => config;
+  store.saveImage = vi.fn().mockRejectedValueOnce(new Error('Disk full')).mockResolvedValue(undefined);
+  const harness = await mount(store);
+  const attachment = { image: { id: 'queued-image', name: 'image.webp', type: 'image/webp' as const, size: 3 }, blob: new Blob(['img']) };
+  let first!: Promise<void>;
+  await act(async () => { first = harness.getAssistant().send('First'); });
+  await act(async () => { await harness.getAssistant().send('One', [attachment]); await harness.getAssistant().send('Two'); release(); await first; });
+  expect(harness.getAssistant().queuedMessages.map(item => item.prompt)).toEqual(['One', 'Two']);
+  expect(harness.getAssistant().configError).toContain('Disk full');
+  expect(runConversation).toHaveBeenCalledTimes(1);
+  await act(async () => { await harness.getAssistant().send('Three'); });
+  expect(harness.getAssistant().entries.filter(entry => entry.role === 'user').map(entry => entry.content)).toEqual(['First', 'One\nTwo\nThree']);
+  expect(harness.getAssistant().queuedMessages).toEqual([]);
+  expect(harness.getAssistant().configError).toBe('');
+  expect(runConversation).toHaveBeenCalledTimes(2);
+});
+
+it('rolls back a reserved batch stopped while the session is being saved', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  let releaseFirst!: () => void;
+  let releaseSave!: () => void;
+  let saveStarted!: () => void;
+  const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
+  const saveGate = new Promise<void>(resolve => { releaseSave = resolve; });
+  const saving = new Promise<void>(resolve => { saveStarted = resolve; });
+  vi.mocked(runConversation).mockImplementationOnce(async () => { await firstGate; return 'Done'; });
+  const store = memoryStore();
+  const saved: ChatSession[] = [];
+  store.saveSession = vi.fn(async session => {
+    if (session.entries.some(entry => entry.role === 'user' && entry.content === 'One\nTwo')) { saveStarted(); await saveGate; }
+    saved.push(structuredClone(session));
+  });
+  const harness = await mount(store);
+  let first!: Promise<void>;
+  await act(async () => { first = harness.getAssistant().send('First'); });
+  await act(async () => { await harness.getAssistant().send('One'); await harness.getAssistant().send('Two'); releaseFirst(); await saving; });
+  let recovered: ReturnType<typeof harness.getAssistant>['queuedMessages'] = [];
+  await act(async () => { recovered = harness.getAssistant().takeQueuedMessages(); harness.getAssistant().stop(); releaseSave(); await first; });
+  expect(recovered.map(item => item.prompt)).toEqual(['One', 'Two']);
+  expect(saved.at(-1)?.entries.filter(entry => entry.role === 'user').map(entry => entry.content)).toEqual(['First']);
+  expect(harness.getAssistant().entries.filter(entry => entry.role === 'user').map(entry => entry.content)).toEqual(['First']);
+  expect(runConversation).toHaveBeenCalledTimes(1);
+});
+
+it('sends a merged queue with completed message history while the original stream remains open', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const { runConversation: realRunConversation } = await vi.importActual<typeof import('../services/conversation.ts')>('../services/conversation.ts');
+  vi.mocked(runConversation).mockImplementation(realRunConversation);
+  let stream!: ReadableStreamDefaultController<Uint8Array>;
+  let started!: () => void;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  const requests: { input: Array<{ role?: string; content?: unknown }> }[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init: RequestInit) => {
+    requests.push(JSON.parse(String(init.body)));
+    if (requests.length === 1) return new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; started(); } }), { headers: { 'Content-Type': 'text/event-stream' } });
+    const response = { status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Next' }] }] };
+    return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+  }));
+  const harness = await mount();
+  let first!: Promise<void>;
+  await act(async () => { first = harness.getAssistant().send('First'); await ready; });
+  await act(async () => { await harness.getAssistant().send('One'); await harness.getAssistant().send('Two'); });
+  const message = { type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Partial', annotations: [] }] };
+  const events = [{ type: 'response.output_text.delta', delta: 'Partial' }, { type: 'response.output_item.done', output_index: 0, item: message }];
+  await act(async () => { stream.enqueue(new TextEncoder().encode(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''))); await first; });
+  expect(requests).toHaveLength(2);
+  expect(requests[1].input.map(item => item.role)).toEqual(['user', 'assistant', 'user']);
+  expect(requests[1].input.at(-1)?.content).toBe('One\nTwo');
+  expect(harness.getAssistant().entries.map(entry => entry.content)).toEqual(['First', 'Partial', 'One\nTwo', 'Next']);
+  expect(harness.getAssistant().sessions[0].requests[0].status).toBe('aborted');
+});
+
+it('keeps queued messages after an error and resumes them only after a successful retry', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  vi.mocked(runConversation).mockImplementationOnce(async () => { await gate; throw new Error('Connection failed'); })
+    .mockResolvedValue('Done');
+  const harness = await mount();
+  let first!: Promise<void>;
+  await act(async () => { first = harness.getAssistant().send('First'); });
+  await act(async () => { await harness.getAssistant().send('Queued'); });
+  await act(async () => { release(); await first; });
+  expect(runConversation).toHaveBeenCalledTimes(1);
+  expect(harness.getAssistant().queuedMessages.map(item => item.prompt)).toEqual(['Queued']);
+  expect(harness.getAssistant().executionError?.message).toBe('Connection failed');
+  await act(async () => { await harness.getAssistant().retry(); });
+  expect(runConversation).toHaveBeenCalledTimes(3);
+  expect(harness.getAssistant().queuedMessages).toEqual([]);
+  expect(harness.getAssistant().entries.filter(entry => entry.role === 'user').map(entry => entry.content)).toEqual(['First', 'Queued']);
+});
+
+it('retains the queue on panel close, isolates sessions, and permits restoring or removing queued messages', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  waitForAbort();
+  const sessions = new Map<string, ChatSession>();
+  const store = memoryStore();
+  store.saveSession = vi.fn(async session => { sessions.set(session.id, structuredClone(session)); });
+  store.listSessions = async () => [...sessions.values()].map(session => structuredClone(session));
+  const harness = await mount(store);
+  const firstSession = harness.getAssistant().activeSessionId!;
+  let first!: Promise<void>;
+  await act(async () => { first = harness.getAssistant().send('First'); });
+  await act(async () => {
+    await harness.getAssistant().send('Keep');
+    await harness.getAssistant().send('Remove');
+    harness.getAssistant().stop('panel_closed');
+    await first;
+  });
+  const removeId = harness.getAssistant().queuedMessages[1].id;
+  await act(async () => { harness.getAssistant().removeQueuedMessage(removeId); await harness.getAssistant().newSession(); });
+  expect(harness.getAssistant().queuedMessages).toEqual([]);
+  await act(async () => { await harness.getAssistant().selectSession(firstSession); });
+  expect(harness.getAssistant().queuedMessages.map(item => item.prompt)).toEqual(['Keep']);
+  let restored: ReturnType<typeof harness.getAssistant>['queuedMessages'] = [];
+  await act(async () => { restored = harness.getAssistant().takeQueuedMessages(); });
+  expect(restored.map(item => item.prompt)).toEqual(['Keep']);
+  expect(harness.getAssistant().queuedMessages).toEqual([]);
+});
+
+it('keeps queued messages scoped to their chat store when storage changes', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  waitForAbort();
+  const sessions = new Map<string, ChatSession>();
+  const store = memoryStore('first-store');
+  store.saveSession = vi.fn(async session => { sessions.set(session.id, structuredClone(session)); });
+  store.listSessions = async () => [...sessions.values()].map(session => structuredClone(session));
+  const harness = await mount(store);
+  let first!: Promise<void>;
+  await act(async () => { first = harness.getAssistant().send('First'); });
+  await act(async () => { await harness.getAssistant().send('Queued'); });
+  await harness.render(memoryStore('other-store'));
+  await act(async () => { await first; });
+  expect(harness.getAssistant().queuedMessages).toEqual([]);
+  expect(runConversation).toHaveBeenCalledTimes(1);
+  await harness.render(store);
+  expect(harness.getAssistant().queuedMessages.map(item => item.prompt)).toEqual(['Queued']);
+});
+
+it('drains queued messages after continuing a failed tool turn', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  vi.mocked(runConversation).mockImplementationOnce(async options => {
+    options.onTool({ id: 'tool', name: 'read', arguments: '{}', status: 'error' });
+    await gate;
+    throw new Error('Interrupted');
+  }).mockResolvedValue('Done');
+  const harness = await mount();
+  let first!: Promise<void>;
+  await act(async () => { first = harness.getAssistant().send('First'); });
+  await act(async () => { await harness.getAssistant().send('Queued'); });
+  await act(async () => { release(); await first; });
+  expect(harness.getAssistant().queuedMessages).toHaveLength(1);
+  await act(async () => { await harness.getAssistant().retry(); });
+  expect(runConversation).toHaveBeenCalledTimes(3);
+  expect(harness.getAssistant().queuedMessages).toEqual([]);
+  expect(harness.getAssistant().entries.filter(entry => entry.role === 'user').map(entry => entry.content)).toEqual(['First', 'Queued']);
+});
+
 it('preserves ordered reasoning, tool and text activity across a continued turn', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.mocked(runConversation).mockImplementationOnce(async options => {
@@ -281,7 +509,7 @@ it('keeps chat accessible when API keys cannot be decrypted without overwriting 
   expect(harness.getAssistant().sessions).toHaveLength(2);
   expect(harness.getAssistant().activeSessionId).toMatch(/^[0-9a-z]{9}$/);
   expect(store.saveConfig).not.toHaveBeenCalled();
-  await act(async () => { await harness.getAssistant().send('Do not send while locked'); });
+  await act(async () => { await expect(harness.getAssistant().send('Do not send while locked')).rejects.toThrow('busy or unavailable'); });
   expect(runConversation).not.toHaveBeenCalled();
   await expect(harness.getAssistant().configure(config)).rejects.toThrow(/Import or reset/);
   store.loadConfig = async () => config;

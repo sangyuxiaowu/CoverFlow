@@ -13,8 +13,10 @@ import { blobToDataUrl, imageMimeType } from 'sang-ai-kit/image-attachments';
 import { appendReasoningActivity, orderResponseActivity } from 'sang-ai-kit/conversation-utils';
 import { ConfigDecryptionError } from '../services/configStore.ts';
 import { clonePlainData } from '../../../utils/clonePlainData.ts';
+import type { QueuedMessage } from 'sang-ai-kit';
 
 interface Confirmation { message: string; resolve: (accepted: boolean) => void }
+type SessionQueuedMessage = QueuedMessage & { sessionId: string; storeId: string };
 
 function stoppedConversationMessage(signal: AbortSignal): string {
   const details = conversationAbortDetails(signal);
@@ -67,11 +69,19 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   const storeRef = useRef(store);
   storeRef.current = store;
   const [busy, setBusy] = useState(false);
+  const [queuedMessages, setQueuedMessages] = useState<SessionQueuedMessage[]>([]);
+  const queueRef = useRef<SessionQueuedMessage[]>([]);
+  const transitionQueueRef = useRef<SessionQueuedMessage[]>([]);
+  const setQueue = (next: SessionQueuedMessage[]) => {
+    queueRef.current = next;
+    setQueuedMessages(next);
+  };
 
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
   const controllerRef = useRef<AbortController | null>(null);
+  const requestTargetRef = useRef<{ store: ChatStore; sessionId: string } | null>(null);
   const redoRef = useRef<{ token: symbol; sessionId: string; entryId: string; responseCount: number; storeId: string } | null>(null);
   const bridgeRef = useRef<ReturnType<typeof createWorkspaceBridge> | null>(null);
   if (!bridgeRef.current) bridgeRef.current = createWorkspaceBridge(() => workspaceRef.current, (message, signal) => new Promise<boolean>((resolve, reject) => {
@@ -183,6 +193,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   });
   const deleteSession = (id: string) => operateSession(async () => {
     await store.deleteSession(id);
+    setQueue(queueRef.current.filter(item => item.storeId !== store.id || item.sessionId !== id));
     const remaining = await store.listSessions();
     setSessions(remaining);
     if (sessionRef.current?.id === id) {
@@ -232,18 +243,20 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     return { image, blob };
   }));
 
-  const send = async (prompt: string, attachments: ChatImageUpload[] = []) => {
-    if ((!prompt.trim() && !attachments.length) || controllerRef.current || loading || loadError || keyError || savingRef.current || !sessionRef.current) return;
+  const runSend = async (prompt: string, attachments: ChatImageUpload[] = [], reserved?: SessionQueuedMessage[]) => {
+    if (controllerRef.current || loading || loadError || keyError || savingRef.current || !sessionRef.current) throw new Error('AI settings are busy or unavailable.');
     const requestConfig = toRequestConfig(config);
     if (attachments.length && !requestConfig.supportsVision) throw new Error('Select a vision model to attach images.');
     setExecutionError(null);
     const controller = new AbortController();
     controllerRef.current = controller;
+    requestTargetRef.current = { store, sessionId: sessionRef.current.id };
     setBusy(true);
     onBusyChange(true);
     const id = generateId();
     const targetStore = store;
-    let working = clonePlainData(sessionRef.current);
+    const previousSession = clonePlainData(sessionRef.current);
+    let working = clonePlainData(previousSession);
     working.entries = working.entries.map(entry => entry.continuable ? { ...entry, continuable: false } : entry);
     // 确保若上轮以未封闭的 tool 输出结尾，添加占位 assistant 标记以保持 turn 规范
     working.responseItems = sanitizeResponseItems(working.responseItems);
@@ -278,15 +291,32 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
       setEntries([...working.entries]);
       upsert(working);
     };
-    publish();
+    if (!reserved) publish();
     const update = (modifier: (entry: ChatEntry) => ChatEntry) => { working = { ...working, entries: working.entries.map(entry => entry.id === id ? modifier(entry) : entry) }; publish(); };
+    let completed = false;
+    let saved = true;
+    let committed = !reserved;
+    let initialSaveAttempted = false;
     try {
-      for (const attachment of attachments) await targetStore.saveImage(working.id, attachment.image.id, attachment.blob);
+      for (const attachment of attachments) {
+        controller.signal.throwIfAborted();
+        await targetStore.saveImage(working.id, attachment.image.id, attachment.blob);
+      }
+      controller.signal.throwIfAborted();
+      initialSaveAttempted = true;
       await persist(working, targetStore);
+      controller.signal.throwIfAborted();
+      if (reserved) {
+        if (transitionQueueRef.current !== reserved) throw new Error('Queued messages were retrieved before sending.');
+        transitionQueueRef.current = [];
+        committed = true;
+        publish();
+      }
       let streamedText = '';
       const historyStart = working.responseItems.length;
       const content = await runConversation({
         config: toRequestConfig(config), input: working.responseItems, bridge: bridgeRef.current!, signal: controller.signal,
+        shouldYield: () => queueRef.current.some(item => item.storeId === targetStore.id && item.sessionId === working.id),
         getImageConfig: () => configRef.current,
         onText: chunk => {
           streamedText += chunk;
@@ -322,8 +352,25 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
           ? { ...entry, content: entry.content + content }
           : appendAssistantText(entry, content);
       });
+      completed = true;
     } catch (error) {
-      if (controller.signal.aborted) {
+      if (!committed && reserved) {
+        if (transitionQueueRef.current === reserved) {
+          transitionQueueRef.current = [];
+          setQueue([...reserved, ...queueRef.current]);
+        }
+        let failure = !controller.signal.aborted ? (error instanceof Error ? error.message : 'Unable to send queued messages.') : '';
+        try {
+          if (initialSaveAttempted) await persist(previousSession, targetStore);
+          await targetStore.pruneImages(previousSession.id, previousSession.entries.flatMap(entry => [
+            ...(entry.images || []), ...(entry.tools || []).flatMap(tool => tool.image ? [tool.image] : [])
+          ]).map(image => image.id));
+        } catch (cleanupError) {
+          const detail = cleanupError instanceof Error ? cleanupError.message : 'Unable to restore the previous conversation.';
+          failure = [failure, detail].filter(Boolean).join(' ');
+        }
+        if (failure && storeRef.current === targetStore) setConfigError(failure);
+      } else if (controller.signal.aborted) {
         const message = stoppedConversationMessage(controller.signal);
         update(entry => ({
           ...entry,
@@ -363,14 +410,51 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
         publish();
       }
     } finally {
-      try { await persist(working, targetStore); }
-      catch (error) { if (storeRef.current === targetStore) setConfigError(error instanceof Error ? error.message : 'Chat save failed.'); }
-      await targetStore.pruneImages(working.id, working.entries.flatMap(entry => entry.images || []).map(image => image.id)).catch(() => {});
+      if (committed) {
+        try { await persist(working, targetStore); }
+        catch (error) { saved = false; if (storeRef.current === targetStore) setConfigError(error instanceof Error ? error.message : 'Chat save failed.'); }
+        await targetStore.pruneImages(working.id, working.entries.flatMap(entry => entry.images || []).map(image => image.id)).catch(() => {});
+      }
       if (token) workspaceRef.current.aiHistory?.setRunning(token, false);
       controllerRef.current = null;
+      requestTargetRef.current = null;
       setBusy(false);
       onBusyChange(false);
     }
+    if (completed && saved && !controller.signal.aborted) await drainQueue(targetStore, working.id);
+  };
+
+  const drainQueue = async (targetStore: ChatStore, sessionId: string) => {
+    if (!mountedRef.current || storeRef.current !== targetStore || sessionRef.current?.id !== sessionId || controllerRef.current) return;
+    const pending = queueRef.current.filter(item => item.storeId === targetStore.id && item.sessionId === sessionId);
+    if (!pending.length) return;
+    setQueue(queueRef.current.filter(item => !pending.includes(item)));
+    transitionQueueRef.current = pending;
+    setConfigError('');
+    try {
+      await runSend(pending.map(item => item.prompt).join('\n'), pending.flatMap(item => item.attachments), pending);
+    } catch (error) {
+      if (transitionQueueRef.current === pending) {
+        transitionQueueRef.current = [];
+        setQueue([...pending, ...queueRef.current]);
+      }
+      setConfigError(error instanceof Error ? error.message : 'Unable to send queued message.');
+    }
+  };
+
+  const send = async (prompt: string, attachments: ChatImageUpload[] = []) => {
+    if (!prompt.trim() && !attachments.length) return;
+    if (loading || loadError || keyError || savingRef.current || !sessionRef.current) throw new Error('AI settings are busy or unavailable.');
+    if (attachments.length && !toRequestConfig(config).supportsVision) throw new Error('Select a vision model to attach images.');
+    const sessionId = sessionRef.current.id;
+    const target = requestTargetRef.current;
+    if (controllerRef.current && (target?.store !== store || target.sessionId !== sessionId)) throw new Error('Another conversation is still stopping.');
+    if (controllerRef.current || queueRef.current.some(item => item.storeId === store.id && item.sessionId === sessionId)) {
+      setQueue([...queueRef.current, { id: generateId(), storeId: store.id, sessionId, prompt, attachments }]);
+      if (!controllerRef.current) await drainQueue(store, sessionId);
+      return;
+    }
+    await runSend(prompt, attachments);
   };
 
   const continueTurn = async (assistantId: string, userApprovedRetry = false) => {
@@ -379,6 +463,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     if (token) workspaceRef.current.aiHistory?.setRunning(token, true);
     const controller = new AbortController();
     controllerRef.current = controller;
+    requestTargetRef.current = { store, sessionId: sessionRef.current.id };
     setBusy(true);
     onBusyChange(true);
     const targetStore = store;
@@ -417,6 +502,8 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
       publish();
     };
 
+    let completed = false;
+    let saved = true;
     try {
       await persist(working, targetStore);
       let streamedText = '';
@@ -426,6 +513,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
       const content = await runConversation({
         config: toRequestConfig(config),
         input: working.responseItems,
+        shouldYield: () => queueRef.current.some(item => item.storeId === targetStore.id && item.sessionId === working.id),
         getImageConfig: () => configRef.current,
         bridge: bridgeRef.current!,
         signal: controller.signal,
@@ -480,6 +568,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
           ? { ...entry, content: entry.content + text }
           : appendAssistantText(entry, text);
       });
+      completed = true;
     } catch (error) {
       if (controller.signal.aborted) {
         const message = stoppedConversationMessage(controller.signal);
@@ -510,13 +599,15 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
       }
     } finally {
       try { await persist(working, targetStore); }
-      catch (error) { if (storeRef.current === targetStore) setConfigError(error instanceof Error ? error.message : 'Chat save failed.'); }
+      catch (error) { saved = false; if (storeRef.current === targetStore) setConfigError(error instanceof Error ? error.message : 'Chat save failed.'); }
       await targetStore.pruneImages(working.id, working.entries.flatMap(entry => entry.images || []).map(image => image.id)).catch(() => {});
       if (token) workspaceRef.current.aiHistory?.setRunning(token, false);
       controllerRef.current = null;
+      requestTargetRef.current = null;
       setBusy(false);
       onBusyChange(false);
     }
+    if (completed && saved && !controller.signal.aborted) await drainQueue(targetStore, working.id);
   };
 
   const clear = () => operateSession(async () => {
@@ -524,6 +615,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     const next = { ...sessionRef.current, entries: [], responseItems: [], requests: [], updatedAt: Date.now() };
     await persist(next);
     await store.pruneImages(next.id, []);
+    setQueue(queueRef.current.filter(item => item.storeId !== store.id || item.sessionId !== next.id));
     activate(next);
   });
   const clearExecutionError = () => setExecutionError(null);
@@ -558,7 +650,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
         sessionRef.current = working;
         setEntries([...working.entries]);
       }
-      await send(promptToRetry, uploads);
+      await runSend(promptToRetry, uploads);
     }
   };
 
@@ -603,7 +695,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
       savingRef.current = false;
       setSaving(false);
     }
-    await send(promptToRerun, uploads);
+    await runSend(promptToRerun, uploads);
   };
 
   const insertImage = async (input: {
@@ -694,7 +786,17 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   return {
     config, configure, entries, sessions, activeSessionId, newSession, selectSession,
     renameSession, deleteSession, deleteImages, insertImage, busy, loading, saving, loadError, keyError, configError,
-    reloadConfig, send, clear, confirmation,
+    reloadConfig, send, clear, confirmation, messageQueueEnabled: true,
+    queuedMessages: queuedMessages.filter(item => item.storeId === store.id && item.sessionId === activeSessionId)
+      .map(({ id, prompt, attachments }): QueuedMessage => ({ id, prompt, attachments })),
+    removeQueuedMessage: (id: string) => setQueue(queueRef.current.filter(item => item.id !== id)),
+    takeQueuedMessages: (): QueuedMessage[] => {
+      const matches = (item: SessionQueuedMessage) => item.storeId === store.id && item.sessionId === sessionRef.current?.id;
+      const pending = [...transitionQueueRef.current.filter(matches), ...queueRef.current.filter(matches)];
+      transitionQueueRef.current = transitionQueueRef.current.filter(item => !matches(item));
+      setQueue(queueRef.current.filter(item => !matches(item)));
+      return pending;
+    },
     stop: (source: 'user_stop' | 'panel_closed' = 'user_stop') => {
       if (source === 'panel_closed') invalidateRegenerate();
       controllerRef.current?.abort(new ConversationAbortError(source));

@@ -33,6 +33,7 @@ interface ConversationOptions {
   onImage?: (image: ChatImageRef) => void;
   onLimit?: () => void;
   getImageConfig?: () => AiConfig;
+  shouldYield?: () => boolean;
 }
 
 export type ConversationAbortSource = 'user_stop' | 'panel_closed' | 'storage_changed' | 'assistant_disposed';
@@ -102,7 +103,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
   let failedNavigation: { name: string; callId: string } | undefined;
   const maxToolRounds = config.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
   return runToolLoop<ResponseItem, Extract<Response['output'][number], { type: 'function_call' }>>({
-    input, signal, maxRounds: maxToolRounds, onText, onHistory: options.onHistory, onLimit: options.onLimit,
+    input, signal, maxRounds: maxToolRounds, onText, onHistory: options.onHistory, onLimit: options.onLimit, shouldYield: options.shouldYield,
     cancelledMessage: '操作已取消。',
     limitMessage: '已达到本轮工具调用上限。已完成的修改已保留，请检查画布后继续。',
     assistantMessage: content => ({ role: 'assistant', content }),
@@ -113,6 +114,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
     const timeout = setTimeout(() => requestController.abort(new Error('AI request timed out after 120 seconds.')), 120000);
     let response: Response;
     let reported = false;
+    let interrupted = false;
     let streamedText = '';
     const startTime = Date.now();
     const request = { id: generateId(), endpoint: baseURL, model: config.model, createdAt: startTime, inputEstimate: estimateToolInput(input, builtIn.instructions, tools) };
@@ -127,10 +129,14 @@ export async function runConversation(options: ConversationOptions): Promise<str
       response = await readResponse(stream, chunk => {
         streamedText += chunk;
         onText(chunk);
-      }, requestController.signal, options.onReasoning);
+      }, requestController.signal, options.onReasoning, items => {
+        if (!options.shouldYield?.()) return undefined;
+        interrupted = true;
+        return { status: 'completed', output: items } as Response;
+      });
       const completedAt = Date.now();
       const durationMs = Math.max(1, completedAt - startTime);
-      options.onUsage?.({ ...request, completedAt, durationMs, responseId: response.id, status: response.status === 'incomplete' ? 'incomplete' : response.status === 'failed' ? 'failed' : 'completed', usage: normalizeUsage(response.usage) });
+      options.onUsage?.({ ...request, completedAt, durationMs, responseId: response.id, status: interrupted ? 'aborted' : response.status === 'incomplete' ? 'incomplete' : response.status === 'failed' ? 'failed' : 'completed', usage: normalizeUsage(response.usage) });
       reported = true;
       if (response.status === 'incomplete') throw new Error(`Response incomplete: ${response.incomplete_details?.reason || 'unknown'}. Increase output tokens or start a new session.`);
       if (response.status === 'failed' || response.error) throw new Error(response.error?.message || 'AI response failed.');
@@ -146,7 +152,7 @@ export async function runConversation(options: ConversationOptions): Promise<str
     const calls = response.output.filter(item => item.type === 'function_call');
     const output = response.output.filter(item => item.type === 'message' || item.type === 'reasoning' || item.type === 'function_call');
     failedNavigation = undefined;
-    return { content: responseText(response), streamedText, calls, output, unsupportedOutput: output.length !== response.output.length };
+    return { content: responseText(response) || streamedText, streamedText, calls, output, unsupportedOutput: output.length !== response.output.length };
     },
     execute: async (call, cancelled) => {
       const startedAt = Date.now();

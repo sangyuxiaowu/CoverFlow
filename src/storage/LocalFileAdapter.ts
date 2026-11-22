@@ -58,9 +58,10 @@ const setStoredProjectDirectoryHandle = async (handle: FileSystemDirectoryHandle
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction(FS_STORE_NAME, 'readwrite');
     const store = tx.objectStore(FS_STORE_NAME);
-    const req = store.put(handle, FS_PROJECT_KEY);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
+    store.put(handle, FS_PROJECT_KEY);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onabort = () => { db.close(); reject(tx.error); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
   });
 };
 
@@ -79,11 +80,30 @@ export class LocalFileAdapter implements StorageAdapter {
 
   getRootHandle = () => this.rootHandle;
 
+  pickFolder = async () => {
+    const picker = (window as Window & { showDirectoryPicker?: (options: { mode: 'readwrite' }) => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker;
+    if (!picker) throw new Error('Folder storage is not supported by this browser.');
+    const handle = await picker.call(window, { mode: 'readwrite' });
+    if (!await this.verifyFolderPermission(handle, false)) throw new Error('Write permission for the selected folder was not granted.');
+    await this.ensureFolderStructure(handle);
+    for (const timer of this.previewTimers.values()) clearTimeout(timer);
+    this.previewTimers.clear();
+    const operation = this.writeQueue.then(async () => {
+      await setStoredProjectDirectoryHandle(handle);
+      this.rootHandle = handle;
+      this.indexEntries = [];
+      this.indexLoaded = false;
+    });
+    this.writeQueue = operation.catch(() => {});
+    await operation;
+  };
+
   ensureReady = async (options?: { prompt?: boolean }) => {
     if (!this.isAvailable()) return false;
 
     if (!this.rootHandle) {
-      this.rootHandle = await getStoredProjectDirectoryHandle();
+      const storedHandle = await getStoredProjectDirectoryHandle();
+      if (!this.rootHandle) this.rootHandle = storedHandle;
     }
 
     if (!this.rootHandle && options?.prompt) {

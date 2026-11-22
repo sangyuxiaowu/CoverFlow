@@ -94,6 +94,8 @@ const App: React.FC = () => {
     return storageType === 'localfile' ? localFileAdapter : indexedDbAdapter;
   }, [storageType, localFileAdapter, indexedDbAdapter, cloudAdapter]);
   const [storageFolderName, setStorageFolderName] = useState('');
+  const [storageFolderRevision, setStorageFolderRevision] = useState(0);
+  const pickingStorageFolderRef = useRef(false);
   const storageReadyRef = useRef(false);
   
   const [view, setView] = useState<'landing' | 'editor'>('landing');
@@ -249,35 +251,32 @@ const App: React.FC = () => {
       showToast(t.storageFolderUnsupported, 'error');
       return;
     }
-    const ready = await localFileAdapter.ensureReady({ prompt: true });
-    if (!ready) {
-      showToast(t.storageFolderPickFailed, 'error');
-      return;
-    }
-    setStorageFolderName(localFileAdapter.getFolderName());
-    if (storageType !== 'localfile') {
+    if (pickingStorageFolderRef.current) return;
+    pickingStorageFolderRef.current = true;
+    try {
+      await localFileAdapter.pickFolder();
       storageReadyRef.current = false;
-      setStorageType('localfile');
+      setStorageFolderName(localFileAdapter.getFolderName());
+      setStorageFolderRevision(revision => revision + 1);
+      if (storageType !== 'localfile') setStorageType('localfile');
+    } catch (error) {
+      if (!(error instanceof Error && error.name === 'AbortError')) {
+        reportStorageError(error, 'select-storage-folder', t.storageFolderPickFailed);
+      }
+    } finally {
+      pickingStorageFolderRef.current = false;
     }
-  }, [localFileAdapter, showToast, storageType, t.storageFolderPickFailed, t.storageFolderUnsupported]);
+  }, [localFileAdapter, reportStorageError, showToast, storageType, t.storageFolderPickFailed, t.storageFolderUnsupported]);
 
   const handleStorageTypeChange = useCallback(async (nextType: StorageAdapterType) => {
     if (nextType === storageType) return;
     if (nextType === 'localfile') {
-      if (!localFileAdapter.isAvailable()) {
-        showToast(t.storageFolderUnsupported, 'error');
-        return;
-      }
-      const ready = await localFileAdapter.ensureReady({ prompt: true });
-      if (!ready) {
-        showToast(t.storageFolderPickFailed, 'error');
-        return;
-      }
-      setStorageFolderName(localFileAdapter.getFolderName());
+      await handlePickStorageFolder();
+      return;
     }
     storageReadyRef.current = false;
     setStorageType(nextType);
-  }, [localFileAdapter, showToast, storageType, t.storageFolderPickFailed, t.storageFolderUnsupported]);
+  }, [handlePickStorageFolder, storageType]);
 
   useEffect(() => {
     if (isCloudMode) return;
@@ -347,7 +346,7 @@ const App: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [storageAdapter, storageType, localFileAdapter, t.storageLoadFailed, isCloudMode, reportStorageError, view]);
+  }, [storageAdapter, storageType, localFileAdapter, storageFolderRevision, t.storageLoadFailed, isCloudMode, reportStorageError, view]);
 
   const { performAutoSave, persistProject, saveActiveProject, latestProjectRef, cancelPendingSave } = useProjectAutoSave({
     project, view, storageAdapter, storageReadyRef, isCloudMode, isTauri, activeLocalFilePath,

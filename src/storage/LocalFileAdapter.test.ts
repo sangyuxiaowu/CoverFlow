@@ -8,6 +8,86 @@ import { readFileBytes } from './fileAccess.ts';
 import { imageAssets } from './imageAssets.ts';
 import { ProjectImageSession } from './projectImageSession.ts';
 
+function setupFolderSelection() {
+  const stale = {
+    name: 'old', queryPermission: vi.fn().mockResolvedValue('denied'),
+    requestPermission: vi.fn().mockResolvedValue('denied')
+  };
+  const selected = {
+    name: 'selected', queryPermission: vi.fn().mockResolvedValue('granted'),
+    getDirectoryHandle: vi.fn().mockResolvedValue({})
+  };
+  const records = new Map<string, unknown>([['projectStorageFolder', stale], ['assetsFolder', 'asset-handle']]);
+  const open = vi.fn(() => {
+    const request = {
+      result: {
+        close: () => {},
+        transaction: () => {
+          const tx = {
+            oncomplete: () => {}, onabort: () => {}, onerror: () => {},
+            objectStore: () => ({
+            get: (key: string) => {
+              const req = { result: records.get(key), onsuccess: () => {}, onerror: () => {} };
+              queueMicrotask(() => req.onsuccess());
+              return req;
+            },
+            put: (value: unknown, key: string) => {
+              queueMicrotask(() => { records.set(key, value); tx.oncomplete(); });
+            }
+          })
+          };
+          return tx;
+        }
+      },
+      onsuccess: () => {}, onerror: () => {}, onupgradeneeded: () => {}
+    };
+    queueMicrotask(() => request.onsuccess());
+    return request;
+  });
+  const picker = vi.fn().mockResolvedValue(selected);
+  vi.stubGlobal('indexedDB', { open });
+  vi.stubGlobal('window', { showDirectoryPicker: picker });
+  return { stale, selected, records, open, picker };
+}
+
+test('reselects a folder after a stored handle loses permission without removing other data', async () => {
+  const { stale, selected, records, open, picker } = setupFolderSelection();
+  try {
+    const adapter = new LocalFileAdapter();
+    expect(await adapter.ensureReady({ prompt: false })).toBe(false);
+    expect(stale.requestPermission).not.toHaveBeenCalled();
+    Object.assign(adapter, { indexLoaded: true, indexEntries: [{ name: 'old.cfjx' }] });
+    open.mockClear();
+    const selection = adapter.pickFolder();
+    expect(picker).toHaveBeenCalledTimes(1);
+    expect(picker).toHaveBeenCalledWith({ mode: 'readwrite' });
+    expect(open).not.toHaveBeenCalled();
+    await selection;
+    expect(records.get('projectStorageFolder')).toBe(selected);
+    expect(records.get('assetsFolder')).toBe('asset-handle');
+    expect(adapter.getFolderName()).toBe('selected');
+    expect(adapter).toMatchObject({ indexLoaded: false, indexEntries: [] });
+    expect(selected.getDirectoryHandle).toHaveBeenCalledTimes(4);
+    const reopened = new LocalFileAdapter();
+    expect(await reopened.ensureReady({ prompt: false })).toBe(true);
+    expect(reopened.getFolderName()).toBe('selected');
+  } finally { vi.unstubAllGlobals(); }
+});
+
+test('cancelled or inaccessible folder selection keeps the previous stored folder', async () => {
+  const { stale, selected, records, picker } = setupFolderSelection();
+  try {
+    const adapter = new LocalFileAdapter();
+    await adapter.ensureReady({ prompt: false });
+    picker.mockRejectedValueOnce(new DOMException('Cancelled', 'AbortError'));
+    await expect(adapter.pickFolder()).rejects.toMatchObject({ name: 'AbortError' });
+    selected.queryPermission.mockResolvedValueOnce('denied');
+    await expect(adapter.pickFolder()).rejects.toThrow('Write permission');
+    expect(records.get('projectStorageFolder')).toBe(stale);
+    expect(adapter.getFolderName()).toBe('old');
+  } finally { vi.unstubAllGlobals(); }
+});
+
 function setup() {
   const write = vi.fn().mockResolvedValue(undefined);
   const close = vi.fn().mockResolvedValue(undefined);

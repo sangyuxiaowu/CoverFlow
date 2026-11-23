@@ -1,7 +1,7 @@
 import type { AiConfig, ChatSession, ChatUiState } from '../types.ts';
 import { defaultConfig, loadConfig, normalizeConfig, validateConfig } from './config.ts';
 import { IMAGE_FORMATS, imageMimeType } from 'sang-ai-kit/image-attachments';
-import { ConfigDecryptionError, decryptEndpointKeys, deleteStoredSession, encryptEndpointKeys, listStoredSessions, loadStoredImage, loadStoredUiState, pruneStoredImages, readEncryptionKey, replaceEncryptionKey, saveStoredConfig, saveStoredImage, saveStoredSession, saveStoredUiState, validateSession, verifyStoredEncryptionKey } from './configStore.ts';
+import { AI_DATABASE_NAME, ConfigDecryptionError, decryptEndpointKeys, deleteStoredSession, encryptEndpointKeys, listStoredSessions, loadStoredImage, loadStoredUiState, pruneStoredImages, readEncryptionKey, replaceEncryptionKey, saveStoredConfig, saveStoredImage, saveStoredSession, saveStoredUiState, validateSession, verifyStoredEncryptionKey } from './configStore.ts';
 import { generateEncryptionKey, type EncryptionManager } from './encryptionKeys.ts';
 import { clonePlainData } from '../../../utils/clonePlainData.ts';
 
@@ -25,6 +25,7 @@ export interface ChatStore {
   saveImage: (sessionId: string, imageId: string, blob: Blob) => Promise<void>;
   loadImage: (sessionId: string, imageId: string, type?: string) => Promise<Blob | null>;
   pruneImages: (sessionId: string, keepIds: string[]) => Promise<void>;
+  deleteImages: (images: { sessionId: string; imageId: string }[]) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
   loadUiState: () => Promise<ChatUiState>;
   saveUiState: (patch: Partial<ChatUiState>) => Promise<void>;
@@ -57,9 +58,37 @@ export function removeSessionImages(session: ChatSession, imageIds: Set<string>)
 }
 
 export function createBrowserChatStore(): ChatStore {
-  const store: ChatStore = { id: 'indexeddb', loadConfig, saveConfig: async config => { validateConfig(config); await loadConfig(); await saveStoredConfig(config); }, listSessions: listStoredSessions, saveSession: saveStoredSession, saveImage: saveStoredImage, loadImage: loadStoredImage, pruneImages: pruneStoredImages, deleteSession: deleteStoredSession, loadUiState: loadStoredUiState, saveUiState: saveStoredUiState };
+  const store: ChatStore = { id: 'indexeddb', loadConfig, saveConfig: async config => { validateConfig(config); await loadConfig(); await saveStoredConfig(config); }, listSessions: listStoredSessions, saveSession: saveStoredSession, saveImage: saveStoredImage, loadImage: loadStoredImage, pruneImages: pruneStoredImages, deleteImages: deleteBrowserImages, deleteSession: deleteStoredSession, loadUiState: loadStoredUiState, saveUiState: saveStoredUiState };
   store.encryption = encryptionManager(store, verifyStoredEncryptionKey, (key, preserve) => replaceEncryptionKey(key, !preserve));
   return store;
+}
+
+async function deleteBrowserImages(images: { sessionId: string; imageId: string }[]): Promise<void> {
+  if (!images.length) return;
+  await loadStoredUiState();
+  const database = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(AI_DATABASE_NAME);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Unable to open image storage.'));
+    request.onblocked = () => reject(new Error('Image storage is blocked.'));
+  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction('images', 'readwrite');
+      const records = transaction.objectStore('images');
+      for (const { sessionId, imageId } of images) {
+        const request = records.get(imageId);
+        request.onsuccess = () => {
+          if (request.result?.sessionId === sessionId) records.delete(imageId);
+        };
+      }
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error || new Error('Unable to delete images.'));
+      transaction.onabort = () => reject(transaction.error || new Error('Image deletion was aborted.'));
+    });
+  } finally {
+    database.close();
+  }
 }
 
 function encryptionManager(store: ChatStore, verify: (key: CryptoKey) => Promise<void>, regenerate: (key: CryptoKey, preserve: boolean) => Promise<void>): EncryptionManager {
@@ -197,6 +226,13 @@ export function createFileChatStore(files: ChatFileAccess, id: string): ChatStor
         }
       });
     },
+    deleteImages: images => enqueue(async () => {
+      for (const { sessionId, imageId } of images) {
+        if (!/^[a-zA-Z0-9_-]+$/.test(imageId)) throw new Error('Invalid image ID.');
+        const prefix = `${imageDirectory(sessionId)}/${imageId}`;
+        for (const extension of Object.values(IMAGE_FORMATS)) await files.remove(`${prefix}.${extension}`);
+      }
+    }),
     deleteSession: sessionId => enqueue(async () => {
       await files.removeDirectory(imageDirectory(sessionId));
       await files.remove(sessionPath(sessionId));

@@ -1,4 +1,5 @@
 import AiAssistantView from 'sang-ai-kit/assistant';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { GalleryImageClassifier } from 'sang-ai-kit';
 import type { Language } from '../../../translations.ts';
 import type { WorkspaceOptions } from '../services/workspace.ts';
@@ -14,6 +15,7 @@ import MarkdownView from './MarkdownView.tsx';
 import ModelControls from 'sang-ai-kit/model-controls';
 import TokenUsageBar from './TokenUsageBar.tsx';
 import { AI_FEATURES } from '../featureConfig.ts';
+import type { ChatStore } from '../services/chatStore.ts';
 
 interface Props {
   workspace: WorkspaceOptions;
@@ -61,13 +63,48 @@ const classifyGalleryImage: GalleryImageClassifier = (image, tools) => {
 };
 
 export default function AiAssistant({ workspace, lang, onBusyChange, open, onOpenChange }: Props) {
-  const chatStore = useChatStore(workspace);
-  const assistant = useAiAssistant(workspace, onBusyChange, chatStore);
+  const requestedStore = useChatStore(workspace);
+  const requestedStoreRef = useRef(requestedStore);
+  requestedStoreRef.current = requestedStore;
+  const [current, setCurrent] = useState<{ store: ChatStore; generation: number }>(() => ({ store: requestedStore, generation: 0 }));
+  const switching = current.store !== requestedStore;
+  const activeWorkspace = useRef(workspace);
+  if (!switching) activeWorkspace.current = workspace;
+  const finishSwitch = () => {
+    const target = requestedStoreRef.current;
+    if (target === current.store) return;
+    setCurrent({ store: target, generation: current.generation + 1 });
+  };
+  return <ActiveAiAssistant key={current.generation} workspace={activeWorkspace.current} lang={lang} onBusyChange={onBusyChange}
+    open={open} onOpenChange={onOpenChange} chatStore={current.store}
+    switching={switching} onSwitchReady={finishSwitch} />;
+}
+
+function ActiveAiAssistant({ workspace, lang, onBusyChange, open, onOpenChange, chatStore, switching, onSwitchReady }: Props & {
+  chatStore: ChatStore;
+  switching: boolean;
+  onSwitchReady: () => void;
+}) {
+  const assistant = useAiAssistant(workspace, onBusyChange, chatStore, switching);
   const floating = useFloatingPanel(chatStore);
   const english = lang === 'en';
   const project = workspace.project;
+  const [switchError, setSwitchError] = useState('');
 
-  return <AiAssistantView
+  useLayoutEffect(() => {
+    if (!switching) { setSwitchError(''); return; }
+    assistant.stop('storage_changed');
+    if (assistant.busy || assistant.switchPending || switchError) return;
+    let cancelled = false;
+    void assistant.flushForSwitch().then(() => {
+      if (!cancelled) onSwitchReady();
+    }).catch(error => {
+      if (!cancelled) setSwitchError(error instanceof Error ? error.message : String(error));
+    });
+    return () => { cancelled = true; };
+  }, [switching, assistant.busy, assistant.switchPending, switchError]);
+
+  return <><AiAssistantView
     assistant={assistant}
     floating={floating}
     language={lang}
@@ -98,5 +135,10 @@ export default function AiAssistant({ workspace, lang, onBusyChange, open, onOpe
     renderUsage={(prompt, useEnglish) => <TokenUsageBar session={assistant.sessions.find(session => session.id === assistant.activeSessionId)} config={assistant.config} prompt={prompt} busy={assistant.busy} english={useEnglish} />}
     renderModelControls={(disabled, useEnglish) => <ModelControls config={assistant.config} configure={assistant.configure} resolveSelection={resolveSelection} selectModel={selectModel} updateActiveModel={updateActiveModel} disabled={disabled} english={useEnglish} />}
     renderSettings={(close, initialSecurity) => <AiSettings key={chatStore.id} config={assistant.config} onSave={assistant.configure} onBack={close} english={english} store={chatStore} onKeyChanged={assistant.reloadConfig} initialSecurity={initialSecurity} />}
-  />;
+  />
+    {switchError && <div role="alert" className="fixed bottom-4 right-4 z-[100] rounded-lg bg-red-950 p-4 text-sm text-red-100 shadow-lg">
+      <p>{english ? 'Could not save chat before switching storage:' : '切换存储前无法保存聊天：'} {switchError}</p>
+      <button type="button" className="mt-2 underline" onClick={() => setSwitchError('')}>{english ? 'Retry' : '重试'}</button>
+    </div>}
+  </>;
 }

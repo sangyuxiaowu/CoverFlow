@@ -1,4 +1,5 @@
-import type { AiRequestConfig, AiSkillConfig, ChatSession, ImagePromptConfig, RequestUsage, ResponseItem, TokenUsage, ToolDefinition } from '../types.ts';
+import type { AssistantSession } from 'sang-ai-kit';
+import type { AiRequestConfig, AiSkillConfig, ImagePromptConfig, RequestUsage, ResponseItem, TokenUsage, ToolDefinition } from '../types.ts';
 import { normalizeEndpoint } from './config.ts';
 import { TOOL_DEFINITIONS, VISION_TOOL_DEFINITIONS } from '../tools/definitions.ts';
 import { builtInToolDefinitions } from 'sang-ai-kit/built-in-tools';
@@ -40,7 +41,7 @@ export interface TurnPerformance {
   totalDurationMs?: number;
 }
 
-export function sessionUsage(session: ChatSession | undefined, config: AiRequestConfig, input: ResponseItem[], prompt: string) {
+export function sessionUsage(session: Pick<AssistantSession, 'entries' | 'requests'> | undefined, config: AiRequestConfig, input: ResponseItem[], prompt: string) {
   const requests = session?.requests || [];
   const lastEntry = session ? [...session.entries].reverse().find(entry => entry.role === 'assistant') : undefined;
   const current = requests.filter(request => request.entryId === lastEntry?.id);

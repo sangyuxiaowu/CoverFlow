@@ -6,5 +6,7 @@ export const AI_FEATURES: Readonly<AiFeatures> = {
   quickSnippets: true,
   fontManagement: true,
   onlineFonts: true,
-  backgroundRemoval: true
+  backgroundRemoval: true,
+  placeholders: true,
+  sessionToolPicker: true
 };

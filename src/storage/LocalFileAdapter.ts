@@ -80,7 +80,7 @@ export class LocalFileAdapter implements StorageAdapter {
 
   getRootHandle = () => this.rootHandle;
 
-  pickFolder = async () => {
+  pickFolder = async (beforeChange?: () => void) => {
     const picker = (window as Window & { showDirectoryPicker?: (options: { mode: 'readwrite' }) => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker;
     if (!picker) throw new Error('Folder storage is not supported by this browser.');
     const handle = await picker.call(window, { mode: 'readwrite' });
@@ -89,6 +89,7 @@ export class LocalFileAdapter implements StorageAdapter {
     for (const timer of this.previewTimers.values()) clearTimeout(timer);
     this.previewTimers.clear();
     const operation = this.writeQueue.then(async () => {
+      beforeChange?.();
       await setStoredProjectDirectoryHandle(handle);
       this.rootHandle = handle;
       this.indexEntries = [];

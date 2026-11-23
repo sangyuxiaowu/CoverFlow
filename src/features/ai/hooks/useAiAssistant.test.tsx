@@ -29,7 +29,7 @@ function memoryStore(id = 'test'): ChatStore {
   return {
     id, loadConfig: async () => defaultConfig(), saveConfig: async () => {}, listSessions: async () => [],
     saveSession: vi.fn(async () => {}), saveImage: async () => {}, loadImage: async () => null,
-    pruneImages: async () => {}, deleteSession: async () => {}, loadUiState: async () => ({}), saveUiState: async () => {}
+    pruneImages: async () => {}, deleteImages: async () => {}, deleteSession: async () => {}, loadUiState: async () => ({}), saveUiState: async () => {}
   };
 }
 
@@ -136,7 +136,7 @@ it('does not rerun the model when restoring the immediate project cannot be save
   fail = true;
   await act(async () => { await harness.getState().assistant.regenerate(); });
   expect(runConversation).toHaveBeenCalledOnce();
-  expect(harness.getState().assistant.configError).toBe('Disk full');
+  expect(harness.getState().assistant.executionError?.message).toContain('Disk full');
   expect(harness.getState().assistant.canRegenerate).toBe(false);
   expect(harness.getState().assistant.entries).toHaveLength(2);
 });
@@ -244,7 +244,7 @@ it('preserves a batch when attachment storage fails and merges it with a later m
   await act(async () => { first = harness.getAssistant().send('First'); });
   await act(async () => { await harness.getAssistant().send('One', [attachment]); await harness.getAssistant().send('Two'); release(); await first; });
   expect(harness.getAssistant().queuedMessages.map(item => item.prompt)).toEqual(['One', 'Two']);
-  expect(harness.getAssistant().configError).toContain('Disk full');
+  expect(harness.getAssistant().executionError?.message).toContain('Disk full');
   expect(runConversation).toHaveBeenCalledTimes(1);
   await act(async () => { await harness.getAssistant().send('Three'); });
   expect(harness.getAssistant().entries.filter(entry => entry.role === 'user').map(entry => entry.content)).toEqual(['First', 'One\nTwo\nThree']);
@@ -328,6 +328,24 @@ it('keeps queued messages after an error and resumes them only after a successfu
   expect(harness.getAssistant().entries.filter(entry => entry.role === 'user').map(entry => entry.content)).toEqual(['First', 'Queued']);
 });
 
+it('keeps the queued batch when the completed response cannot be saved', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  vi.mocked(runConversation).mockImplementationOnce(async options => { await gate; options.onText('Done'); return 'Done'; });
+  const store = memoryStore();
+  store.saveSession = vi.fn(async session => {
+    if (session.entries.at(-1)?.content === 'Done') throw new Error('Disk full');
+  });
+  const harness = await mount(store);
+  let first!: Promise<void>;
+  await act(async () => { first = harness.getAssistant().send('First'); });
+  await act(async () => { await harness.getAssistant().send('Queued'); release(); await first; });
+  expect(runConversation).toHaveBeenCalledTimes(1);
+  expect(harness.getAssistant().queuedMessages.map(item => item.prompt)).toEqual(['Queued']);
+  expect(harness.getAssistant().configError).toContain('Disk full');
+});
+
 it('retains the queue on panel close, isolates sessions, and permits restoring or removing queued messages', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   waitForAbort();
@@ -354,25 +372,6 @@ it('retains the queue on panel close, isolates sessions, and permits restoring o
   await act(async () => { restored = harness.getAssistant().takeQueuedMessages(); });
   expect(restored.map(item => item.prompt)).toEqual(['Keep']);
   expect(harness.getAssistant().queuedMessages).toEqual([]);
-});
-
-it('keeps queued messages scoped to their chat store when storage changes', async () => {
-  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  waitForAbort();
-  const sessions = new Map<string, ChatSession>();
-  const store = memoryStore('first-store');
-  store.saveSession = vi.fn(async session => { sessions.set(session.id, structuredClone(session)); });
-  store.listSessions = async () => [...sessions.values()].map(session => structuredClone(session));
-  const harness = await mount(store);
-  let first!: Promise<void>;
-  await act(async () => { first = harness.getAssistant().send('First'); });
-  await act(async () => { await harness.getAssistant().send('Queued'); });
-  await harness.render(memoryStore('other-store'));
-  await act(async () => { await first; });
-  expect(harness.getAssistant().queuedMessages).toEqual([]);
-  expect(runConversation).toHaveBeenCalledTimes(1);
-  await harness.render(store);
-  expect(harness.getAssistant().queuedMessages.map(item => item.prompt)).toEqual(['Queued']);
 });
 
 it('drains queued messages after continuing a failed tool turn', async () => {
@@ -455,7 +454,7 @@ it('orders activity by native response history instead of tool execution callbac
   ]);
 });
 
-it('retries a reasoning-only failure without merging the next reasoning into the previous item', async () => {
+it('retries a reasoning-only failure as a new generation', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.mocked(runConversation).mockImplementationOnce(async options => {
     options.onReasoning?.('First');
@@ -471,7 +470,6 @@ it('retries a reasoning-only failure without merging the next reasoning into the
   await act(async () => { await harness.getAssistant().retry(); });
   expect(harness.getAssistant().entries).toHaveLength(2);
   expect(harness.getAssistant().entries[1].activity).toEqual([
-    expect.objectContaining({ type: 'reasoning', text: 'First' }),
     { id: 'rs-2', type: 'reasoning', text: 'Second' },
     expect.objectContaining({ type: 'text', text: 'Done' })
   ]);
@@ -490,6 +488,10 @@ it('does not duplicate a non-streamed limit message already in response history'
   expect(harness.getAssistant().entries[1].activity).toEqual([
     expect.objectContaining({ type: 'text', text: 'Limit reached' })
   ]);
+  expect(harness.getAssistant().entries[1].continuable).toBe(true);
+  vi.mocked(runConversation).mockImplementationOnce(async options => { options.onText('Done'); return 'Done'; });
+  await act(async () => { await harness.getAssistant().send('继续'); });
+  expect(harness.getAssistant().entries[1].continuable).toBe(false);
 });
 
 it('keeps chat accessible when API keys cannot be decrypted without overwriting configuration', async () => {
@@ -504,12 +506,13 @@ it('keeps chat accessible when API keys cannot be decrypted without overwriting 
   expect(harness.getAssistant().keyError).toBe(true);
   expect(harness.getAssistant().config.endpoints[0].apiKey).toBe('');
   expect(harness.getAssistant().sessions).toHaveLength(1);
-  expect(harness.getAssistant().sessions[0].id).toMatch(/^[0-9a-z]{9}$/);
+  expect(harness.getAssistant().sessions[0].id).toMatch(/^[0-9a-z-]+$/);
   await act(async () => { await harness.getAssistant().newSession(); });
   expect(harness.getAssistant().sessions).toHaveLength(2);
-  expect(harness.getAssistant().activeSessionId).toMatch(/^[0-9a-z]{9}$/);
+  expect(harness.getAssistant().activeSessionId).toMatch(/^[0-9a-z-]+$/);
   expect(store.saveConfig).not.toHaveBeenCalled();
   await act(async () => { await expect(harness.getAssistant().send('Do not send while locked')).rejects.toThrow('busy or unavailable'); });
+  await act(async () => { await expect(harness.getAssistant().startSession({ initialPrompt: 'Do not auto-send' })).rejects.toThrow('busy or unavailable'); });
   expect(runConversation).not.toHaveBeenCalled();
   await expect(harness.getAssistant().configure(config)).rejects.toThrow(/Import or reset/);
   store.loadConfig = async () => config;
@@ -542,7 +545,7 @@ it('rejects new attachments for a text-only model even when image generation is 
   expect(harness.getAssistant().entries).toEqual(entries);
 });
 
-it('deletes selected images and history references before pruning, preserving other assets', async () => {
+it('deletes selected images and history references without removing other assets', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const image = { id: 'preview', name: 'canvas-preview.webp', type: 'image/webp' as const, size: 100 };
   const keep = { ...image, id: 'generated', name: 'generated.png' };
@@ -559,7 +562,7 @@ it('deletes selected images and history references before pruning, preserving ot
   };
   const store = memoryStore();
   store.listSessions = async () => [structuredClone(session)];
-  store.pruneImages = vi.fn(async () => {});
+  store.deleteImages = vi.fn(async () => {});
   const harness = await mount(store);
   await act(async () => { expect(await harness.getAssistant().deleteImages([{ sessionId: 'session', imageId: 'preview' }])).toBe(true); });
   const next = harness.getAssistant().sessions[0];
@@ -570,8 +573,8 @@ it('deletes selected images and history references before pruning, preserving ot
   expect(JSON.stringify(next.responseItems)).toContain('Keep text');
   expect(next.updatedAt).toBe(2);
   expect(harness.getAssistant().entries).toEqual(next.entries);
-  expect(store.pruneImages).toHaveBeenCalledWith('session', ['generated', 'generated']);
-  expect(vi.mocked(store.saveSession).mock.invocationCallOrder.at(-1)).toBeLessThan(vi.mocked(store.pruneImages).mock.invocationCallOrder[0]);
+  expect(store.deleteImages).toHaveBeenCalledWith([{ sessionId: 'session', imageId: 'preview' }]);
+  expect(vi.mocked(store.saveSession).mock.invocationCallOrder.at(-1)).toBeLessThan(vi.mocked(store.deleteImages).mock.invocationCallOrder[0]);
 });
 
 it.each(['user_stop', 'panel_closed'] as const)('records %s without confusing it with missing retry approval', async source => {
@@ -601,14 +604,13 @@ it('does not abort an active turn on an ordinary rerender', async () => {
   await act(async () => { harness.getAssistant().stop(); await pending!; });
 });
 
-it('distinguishes a real storage switch from assistant disposal', async () => {
+it('records a host-requested storage interruption before disposal', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const getSignal = waitForAbort();
   const harness = await mount();
   let pending: Promise<void>;
   await act(async () => { pending = harness.getAssistant().send('Generate'); });
-  await harness.render(memoryStore('other-directory'));
-  await act(async () => { await pending!; });
+  await act(async () => { harness.getAssistant().stop('storage_changed'); await pending!; });
   expect(getSignal().reason.source).toBe('storage_changed');
   const saved = vi.mocked(harness.store.saveSession).mock.calls.at(-1)![0];
   expect(saved.entries.at(-1)!.content).toContain('存储位置已切换');
@@ -622,11 +624,9 @@ it('records disposal when an active assistant is unmounted', async () => {
   await act(async () => { pending = harness.getAssistant().send('Generate'); });
   await act(async () => { harness.root.unmount(); roots.delete(harness.root); await pending!; });
   expect(getSignal().reason.source).toBe('assistant_disposed');
-  const saved = vi.mocked(harness.store.saveSession).mock.calls.at(-1)![0];
-  expect(saved.entries.at(-1)!.content).toContain('卸载或重新加载');
 });
 
-it('passes explicit user approval and a fresh signal when the retry button resumes progress', async () => {
+it('retries the user request with a fresh signal without rolling back workspace effects', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.mocked(runConversation).mockImplementationOnce(async options => {
     options.onTool({ id: 'failed-tool', name: 'generate_image', arguments: '{}', status: 'error', result: '{"error":"Provider failed"}' });
@@ -640,7 +640,7 @@ it('passes explicit user approval and a fresh signal when the retry button resum
   const [first, second] = vi.mocked(runConversation).mock.calls.map(call => call[0]);
   expect(second.signal).not.toBe(first.signal);
   expect(second.signal.aborted).toBe(false);
-  expect(second.input.at(-1)).toMatchObject({ role: 'user', content: expect.stringContaining('明确批准重试') });
-  expect(JSON.stringify(second.input)).toContain('Provider failed');
+  expect(second.input.at(-1)).toMatchObject({ role: 'user', content: 'Generate' });
+  expect(JSON.stringify(second.input)).not.toContain('Provider failed');
   expect(harness.getAssistant().executionError).toBeNull();
 });

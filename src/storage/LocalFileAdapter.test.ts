@@ -58,11 +58,16 @@ test('reselects a folder after a stored handle loses permission without removing
     expect(stale.requestPermission).not.toHaveBeenCalled();
     Object.assign(adapter, { indexLoaded: true, indexEntries: [{ name: 'old.cfjx' }] });
     open.mockClear();
-    const selection = adapter.pickFolder();
+    const beforeChange = vi.fn(() => {
+      expect(records.get('projectStorageFolder')).toBe(stale);
+      expect(adapter.getFolderName()).toBe('old');
+    });
+    const selection = adapter.pickFolder(beforeChange);
     expect(picker).toHaveBeenCalledTimes(1);
     expect(picker).toHaveBeenCalledWith({ mode: 'readwrite' });
     expect(open).not.toHaveBeenCalled();
     await selection;
+    expect(beforeChange).toHaveBeenCalledOnce();
     expect(records.get('projectStorageFolder')).toBe(selected);
     expect(records.get('assetsFolder')).toBe('asset-handle');
     expect(adapter.getFolderName()).toBe('selected');
@@ -79,10 +84,12 @@ test('cancelled or inaccessible folder selection keeps the previous stored folde
   try {
     const adapter = new LocalFileAdapter();
     await adapter.ensureReady({ prompt: false });
+    const beforeChange = vi.fn();
     picker.mockRejectedValueOnce(new DOMException('Cancelled', 'AbortError'));
-    await expect(adapter.pickFolder()).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(adapter.pickFolder(beforeChange)).rejects.toMatchObject({ name: 'AbortError' });
     selected.queryPermission.mockResolvedValueOnce('denied');
-    await expect(adapter.pickFolder()).rejects.toThrow('Write permission');
+    await expect(adapter.pickFolder(beforeChange)).rejects.toThrow('Write permission');
+    expect(beforeChange).not.toHaveBeenCalled();
     expect(records.get('projectStorageFolder')).toBe(stale);
     expect(adapter.getFolderName()).toBe('old');
   } finally { vi.unstubAllGlobals(); }

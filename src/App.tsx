@@ -95,6 +95,7 @@ const App: React.FC = () => {
   }, [storageType, localFileAdapter, indexedDbAdapter, cloudAdapter]);
   const [storageFolderName, setStorageFolderName] = useState('');
   const [storageFolderRevision, setStorageFolderRevision] = useState(0);
+  const storageFolderRevisionRef = useRef(0);
   const pickingStorageFolderRef = useRef(false);
   const storageReadyRef = useRef(false);
   
@@ -253,17 +254,18 @@ const App: React.FC = () => {
     }
     if (pickingStorageFolderRef.current) return;
     pickingStorageFolderRef.current = true;
+    let folderChangeStarted = false;
     try {
-      await localFileAdapter.pickFolder();
+      await localFileAdapter.pickFolder(() => { storageFolderRevisionRef.current += 1; folderChangeStarted = true; });
       storageReadyRef.current = false;
       setStorageFolderName(localFileAdapter.getFolderName());
-      setStorageFolderRevision(revision => revision + 1);
       if (storageType !== 'localfile') setStorageType('localfile');
     } catch (error) {
       if (!(error instanceof Error && error.name === 'AbortError')) {
         reportStorageError(error, 'select-storage-folder', t.storageFolderPickFailed);
       }
     } finally {
+      if (folderChangeStarted) setStorageFolderRevision(revision => revision + 1);
       pickingStorageFolderRef.current = false;
     }
   }, [localFileAdapter, reportStorageError, showToast, storageType, t.storageFolderPickFailed, t.storageFolderUnsupported]);
@@ -1478,6 +1480,8 @@ const App: React.FC = () => {
   }, [isExportModalOpen, exportSettings, project?.id, project?.activePageId, project?.layers, project?.pageInfo.background, project?.pageInfo]);
 
   const cropAspect = project ? project.pageInfo.width / project.pageInfo.height : 1;
+  const chatDirectory = localFileAdapter.getRootHandle();
+  const chatDirectoryRevision = storageFolderRevisionRef.current;
   const aiWorkspace: WorkspaceOptions = {
     project,
     clipboard: layerClipboard,
@@ -1511,9 +1515,11 @@ const App: React.FC = () => {
     storage: storageAdapter,
     localProjects: localRecentItems,
     activeLocalPath: activeLocalFilePath,
-    chatStorageKey: `directory:${storageFolderName}`,
+    chatStorageKey: `directory:${storageFolderName}:${storageFolderRevision}`,
     getChatDirectory: async () => {
+      if (chatDirectory) return chatDirectory;
       if (!await localFileAdapter.ensureReady({ prompt: false })) throw new Error('Select a storage folder and grant file access first.');
+      if (storageFolderRevisionRef.current !== chatDirectoryRevision) throw new Error('The chat storage folder changed.');
       const directory = localFileAdapter.getRootHandle();
       if (!directory) throw new Error('No storage folder selected.');
       return directory;

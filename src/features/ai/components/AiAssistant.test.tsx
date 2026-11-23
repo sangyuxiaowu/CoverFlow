@@ -11,7 +11,8 @@ import type { StorageAdapter } from '../../../storage/StorageAdapter.ts';
 import { AI_FEATURES } from '../featureConfig.ts';
 
 vi.mock('../hooks/useAiAssistant.ts', () => ({ useAiAssistant: vi.fn() }));
-vi.mock('../hooks/useChatStore.ts', () => ({ useChatStore: () => ({ id: 'test' }) }));
+const chatStore = vi.hoisted(() => ({ current: { id: 'test' } }));
+vi.mock('../hooks/useChatStore.ts', () => ({ useChatStore: () => chatStore.current }));
 vi.mock('sang-ai-kit/floating', () => ({ useFloatingPanel: () => ({ minimized: false, setMinimized: vi.fn() }) }));
 vi.mock('sang-ai-kit/chat-scroll', () => ({ useChatScroll: () => ({ resetScroll: vi.fn() }) }));
 vi.mock('./TokenUsageBar.tsx', () => ({ default: () => null }));
@@ -31,6 +32,7 @@ const workspace: WorkspaceOptions = {
 };
 
 beforeEach(() => {
+  chatStore.current = { id: 'test' };
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('URL', class extends URL {
     static createObjectURL = vi.fn(() => 'blob:test');
@@ -46,6 +48,44 @@ beforeEach(() => {
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
+});
+
+it('stops and flushes the old controller before remounting', async () => {
+  const firstStore = chatStore.current;
+  const secondStore = { id: 'other' };
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  assistant.busy = true;
+  assistant.switchPending = false;
+  assistant.stop = vi.fn();
+  assistant.flushForSwitch = vi.fn(() => gate);
+  await render(true);
+  chatStore.current = secondStore;
+  await render(true);
+  expect(assistant.stop).toHaveBeenCalledWith('storage_changed');
+  expect(assistant.flushForSwitch).not.toHaveBeenCalled();
+  expect(vi.mocked(useAiAssistant).mock.calls.at(-1)?.[2]).toBe(firstStore);
+  assistant.busy = false;
+  await render(true);
+  expect(assistant.flushForSwitch).toHaveBeenCalledOnce();
+  expect(vi.mocked(useAiAssistant).mock.calls.at(-1)?.[2]).toBe(firstStore);
+  await act(async () => { release(); await gate; });
+  expect(vi.mocked(useAiAssistant).mock.calls.at(-1)?.[2]).toBe(secondStore);
+});
+
+it('keeps the old controller and offers a retry when flushing fails', async () => {
+  const firstStore = chatStore.current;
+  assistant.busy = false;
+  assistant.switchPending = false;
+  assistant.stop = vi.fn();
+  assistant.flushForSwitch = vi.fn().mockRejectedValueOnce(new Error('Disk full')).mockResolvedValue(undefined);
+  await render(true);
+  chatStore.current = { id: 'other' };
+  await render(true);
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('Disk full');
+  expect(vi.mocked(useAiAssistant).mock.calls.at(-1)?.[2]).toBe(firstStore);
+  await act(async () => host.querySelector<HTMLButtonElement>('[role="alert"] button')!.click());
+  expect(vi.mocked(useAiAssistant).mock.calls.at(-1)?.[2]).toBe(chatStore.current);
 });
 
 afterEach(async () => {
@@ -184,12 +224,15 @@ it('renders tool duration through the shared assistant and stops timing on compl
       id: 'reply', role: 'assistant', content: '',
       tools: [{ id: 'tool', name: 'generate_image', arguments: '{}', status: 'running', startedAt: Date.now() }]
     }];
+    assistant.busy = true;
     await render(true);
     expect(host.querySelector('.cf-ai-tool-duration')?.textContent).toBe('0s');
     await act(async () => { vi.advanceTimersByTime(68000); });
     expect(host.querySelector('.cf-ai-tool-duration')?.textContent).toBe('1m 08s');
     assistant.entries[0].tools![0] = { id: 'tool', name: 'generate_image', arguments: '{}', status: 'success', durationMs: 68500 };
+    assistant.busy = false;
     await render(true);
+    await act(async () => host.querySelector<HTMLButtonElement>('.cf-ai-process-toggle')?.click());
     await act(async () => { vi.advanceTimersByTime(120000); });
     expect(host.querySelector('.cf-ai-tool-duration')?.textContent).toBe('1m 08s');
   } finally {

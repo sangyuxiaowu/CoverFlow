@@ -11,6 +11,33 @@ import {
 
 export type LayerAction = 'update' | 'delete' | 'duplicate' | 'group' | 'ungroup' | 'front' | 'back' | 'forward' | 'backward' | 'align' | 'distribute';
 
+export function stackingUnits(layers: Layer[], selectedIds: ReadonlySet<string>): Layer[][] {
+  const groupedIds = new Map<string, string>();
+  for (const group of layers) {
+    if (group.type !== 'group' || !group.children?.length) continue;
+    if (!selectedIds.has(group.id) && group.children.some(id => selectedIds.has(id))) continue;
+    groupedIds.set(group.id, group.id);
+    for (const id of group.children) groupedIds.set(id, group.id);
+  }
+  const units: Layer[][] = [];
+  const groups = new Map<string, Layer[]>();
+  for (const layer of [...layers].sort((left, right) => left.zIndex - right.zIndex)) {
+    const groupId = groupedIds.get(layer.id);
+    if (!groupId) {
+      units.push([layer]);
+      continue;
+    }
+    let unit = groups.get(groupId);
+    if (!unit) {
+      unit = [];
+      groups.set(groupId, unit);
+      units.push(unit);
+    }
+    unit.push(layer);
+  }
+  return units;
+}
+
 export function groupBounds(layers: Layer[], ids: string[]) {
   const children = layers.filter(layer => ids.includes(layer.id));
   if (!children.length) return { x: 0, y: 0, width: 1, height: 1 };
@@ -177,16 +204,16 @@ export function editLayers(project: ProjectState, action: LayerAction, ids: stri
     const staying = ordered.filter(layer => !expanded.has(layer.id));
     result.layers = (action === 'front' ? [...staying, ...moving] : [...moving, ...staying]).map((layer, index) => ({ ...layer, zIndex: index + 1 }));
   } else if (action === 'forward' || action === 'backward') {
-    const ordered = [...result.layers].sort((left, right) => left.zIndex - right.zIndex);
+    const ordered = stackingUnits(result.layers, new Set(ids));
     const step = action === 'forward' ? 1 : -1;
     const start = step === 1 ? ordered.length - 2 : 1;
     for (let index = start; index >= 0 && index < ordered.length; index -= step) {
       const neighbor = index + step;
-      if (neighbor >= 0 && neighbor < ordered.length && expanded.has(ordered[index].id) && !expanded.has(ordered[neighbor].id)) {
+      if (neighbor >= 0 && neighbor < ordered.length && ordered[index].some(layer => expanded.has(layer.id)) && !ordered[neighbor].some(layer => expanded.has(layer.id))) {
         [ordered[index], ordered[neighbor]] = [ordered[neighbor], ordered[index]];
       }
     }
-    result.layers = ordered.map((layer, index) => ({ ...layer, zIndex: index + 1 }));
+    result.layers = ordered.flat().map((layer, index) => ({ ...layer, zIndex: index + 1 }));
   } else if (action === 'align') {
     if (!['left', 'center', 'right', 'top', 'middle', 'bottom'].includes(mode || '')) throw new Error('Invalid alignment.');
     selected.filter(layer => !layer.parentId || !expanded.has(layer.parentId)).forEach(layer => {

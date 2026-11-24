@@ -124,6 +124,22 @@ test('active commits use the shared save coordinator and propagate its failures'
   assert.equal(writes[0].title, 'Changed');
 });
 
+test('deferred commits avoid immediate writes but explicit save and project switches flush changes', async () => {
+  const { bridge, options, signal, stored } = setup();
+  options.saveOnCommit = false;
+  await bridge.manageProjects({ action: 'create', title: 'Initial' }, signal);
+  const initial = bridge.getProject()!;
+  await bridge.commit({ ...initial, title: 'First edit' });
+  await bridge.commit({ ...bridge.getProject()!, title: 'Second edit' });
+  assert.equal(stored.get(initial.id)?.title, 'Initial');
+  await bridge.manageProjects({ action: 'save', projectId: initial.id }, signal);
+  assert.equal(stored.get(initial.id)?.title, 'Second edit');
+
+  await bridge.commit({ ...bridge.getProject()!, title: 'Before switch' });
+  await bridge.manageProjects({ action: 'create', title: 'Other' }, signal);
+  assert.equal(stored.get(initial.id)?.title, 'Before switch');
+});
+
 test('rejects a stale concurrent commit even before the UI publishes its new project', async () => {
   const { bridge, options, signal, stored } = setup();
   let release!: () => void;
@@ -137,4 +153,54 @@ test('rejects a stale concurrent commit even before the UI publishes its new pro
   release();
   assert.match((await slow).message, /changed while preparing/);
   assert.equal(stored.get(original.id)?.title, 'Fast');
+});
+
+test('manageProjects save supports optional versionInfo and rejects blank info', async () => {
+  const { bridge, options, signal } = setup();
+  const savedVersions: Array<{ projectId: string; info: string }> = [];
+  options.saveVersion = async (project, info) => {
+    savedVersions.push({ projectId: project.id, info });
+    return {
+      id: 'ver-1',
+      projectId: project.id,
+      info,
+      createdAt: 123,
+      title: project.title,
+      pageCount: project.pages?.length ?? 1,
+      width: project.pageInfo.width,
+      height: project.pageInfo.height
+    };
+  };
+  await bridge.manageProjects({ action: 'create', title: 'Versioned' }, signal);
+  const projectId = bridge.getProject()!.id;
+
+  const plainSave = await bridge.manageProjects({ action: 'save', projectId }, signal);
+  assert.deepEqual(plainSave, { success: true, projectId });
+  assert.equal(savedVersions.length, 0);
+
+  const versionSave = await bridge.manageProjects({ action: 'save', projectId, versionInfo: '  Before hero tweak  ' }, signal);
+  assert.deepEqual(versionSave, { success: true, projectId, versionId: 'ver-1', versionInfo: 'Before hero tweak' });
+  assert.deepEqual(savedVersions, [{ projectId, info: 'Before hero tweak' }]);
+
+  await assert.rejects(bridge.manageProjects({ action: 'save', projectId, versionInfo: '   ' }, signal), /Invalid versionInfo/);
+});
+
+test('manageProjects save embeds versions inside project data by default', async () => {
+  const { bridge, stored, signal } = setup();
+  await bridge.manageProjects({ action: 'create', title: 'Embedded' }, signal);
+  const projectId = bridge.getProject()!.id;
+
+  const result = await bridge.manageProjects({ action: 'save', projectId, versionInfo: 'Snapshot A' }, signal) as {
+    success: boolean;
+    projectId: string;
+    versionId: string;
+    versionInfo: string;
+  };
+  assert.equal(result.success, true);
+  assert.equal(result.versionInfo, 'Snapshot A');
+
+  const active = bridge.getProject()!;
+  assert.equal(active.versions?.length, 1);
+  assert.equal(active.versions?.[0].id, result.versionId);
+  assert.equal(stored.get(projectId)?.versions?.length, 1);
 });

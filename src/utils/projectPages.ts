@@ -22,7 +22,7 @@ export function copyPage(page: ProjectPage): ProjectPage {
 }
 
 export function copyProject(project: ProjectState, title: string): ProjectState {
-  const document = writeProject(project);
+  const { versions: _versions, ...document } = writeProject(project);
   return readProject({ ...document, id: generateId(), title, updatedAt: Date.now(), pages: document.pages.map(copyPage) });
 }
 

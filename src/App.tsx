@@ -3,7 +3,8 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Sidebar from './components/Sidebar.tsx';
 import Canvas from './components/Canvas.tsx';
 import LayersPanel from './components/LayersPanel.tsx';
-import LayerClipboardPanel from './components/LayerClipboardPanel.tsx';
+import EditorHeader from './components/EditorHeader.tsx';
+import { analyzeLayerArrangement, type ArrangeAction } from './components/ArrangeLayersMenu.tsx';
 import Toast from './components/Toast.tsx';
 import ConfirmModal from './components/ConfirmModal.tsx';
 import BackgroundCropModal from './components/BackgroundCropModal.tsx';
@@ -12,6 +13,7 @@ import LandingView from './views/LandingView.tsx';
 import ProjectPresetModal from './components/ProjectPresetModal.tsx';
 import ExportModal from './components/ExportModal.tsx';
 import ProjectPreview from './components/ProjectPreview.tsx';
+import VersionManagerModal from './components/VersionManagerModal.tsx';
 import PagesPanel from './components/PagesPanel.tsx';
 import { useProjectPreviews } from './hooks/useProjectPreviews.ts';
 import AiAssistant from './features/ai/components/AiAssistant.tsx';
@@ -19,7 +21,7 @@ import { createWorkspaceBridge, type WorkspaceOptions } from './features/ai/serv
 import { executeClipboardTool } from './features/ai/tools/clipboard.ts';
 import { LayerClipboard } from './utils/layerClipboard.ts';
 import { clonePlainData } from './utils/clonePlainData.ts';
-import { updateProjectLayer } from './features/ai/domain/layerOperations.ts';
+import { editLayers, updateProjectLayer } from './features/ai/domain/layerOperations.ts';
 import { ensureProjectFonts, projectFontEmbedCSS } from './features/ai/services/fontLoading.ts';
 import { applyRemovalResult } from './utils/backgroundRemovalResult.ts';
 import type { BinaryRemovalResult } from './utils/backgroundRemovalResult.ts';
@@ -35,6 +37,14 @@ import { useProjectHistory } from './hooks/useProjectHistory.ts';
 import { useProjectAutoSave } from './hooks/useProjectAutoSave.ts';
 import { useEditorShortcuts } from './hooks/useEditorShortcuts.ts';
 import { ProjectState, Layer, DecorationTemplate, PresetRatio } from './types.ts';
+import {
+  appendProjectVersion,
+  getProjectVersionState,
+  listProjectVersionSummaries,
+  mergeProjectVersionChanges,
+  removeProjectVersion,
+  restoreProjectFromVersion
+} from './storage/versionStore.ts';
 import {
   createIndexedDBAdapter,
   createLocalFileAdapter,
@@ -65,7 +75,7 @@ import { computeCroppedLayerGeometry } from './utils/imageLayer.ts';
 import { encodeWebp, MAX_IMAGE_EDGE } from 'sang-ai-kit/image-attachments';
 import { type Area } from 'react-easy-crop';
 import {
-  Download, ArrowLeft, Type as TextIcon, ImagePlus, FileOutput, Undo2, Redo2, X, Save, Bot, Presentation, LoaderCircle
+  Type as TextIcon, ImagePlus, X, LoaderCircle
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import packageInfo from '../package.json';
@@ -97,7 +107,6 @@ const App: React.FC = () => {
   const [storageFolderRevision, setStorageFolderRevision] = useState(0);
   const storageFolderRevisionRef = useRef(0);
   const pickingStorageFolderRef = useRef(false);
-  const storageReadyRef = useRef(false);
   
   const [view, setView] = useState<'landing' | 'editor'>('landing');
   const [aiBusy, setAiBusy] = useState(false);
@@ -121,7 +130,7 @@ const App: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' | 'warning' } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [confirmDialog, setConfirmDialog] = useState<{ message: string, onConfirm: () => void } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ message: string, onConfirm: () => void, confirmLabel?: string, tone?: 'danger' | 'primary' } | null>(null);
   const [isStorageSettingsOpen, setIsStorageSettingsOpen] = useState(false);
   const [projectSearchTerm, setProjectSearchTerm] = useState('');
   const [cloudPage, setCloudPage] = useState(1);
@@ -139,6 +148,11 @@ const App: React.FC = () => {
   }));
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [previewProject, setPreviewProject] = useState<ProjectState | null>(null);
+  const versionPreviewSessionRef = useRef<ProjectImageSession | null>(null);
+  const [isVersionsModalOpen, setIsVersionsModalOpen] = useState(false);
+  const projectVersions = useMemo(() => listProjectVersionSummaries(project), [project]);
+  const [versionsBusy, setVersionsBusy] = useState(false);
+  const [exitingEditor, setExitingEditor] = useState(false);
   const [exportRange, setExportRange] = useState<'current' | 'multiple' | 'all'>('current');
   const [exportPageIds, setExportPageIds] = useState<string[]>([]);
   const [exportProgress, setExportProgress] = useState<{ done: number; total: number } | null>(null);
@@ -257,7 +271,6 @@ const App: React.FC = () => {
     let folderChangeStarted = false;
     try {
       await localFileAdapter.pickFolder(() => { storageFolderRevisionRef.current += 1; folderChangeStarted = true; });
-      storageReadyRef.current = false;
       setStorageFolderName(localFileAdapter.getFolderName());
       if (storageType !== 'localfile') setStorageType('localfile');
     } catch (error) {
@@ -276,7 +289,6 @@ const App: React.FC = () => {
       await handlePickStorageFolder();
       return;
     }
-    storageReadyRef.current = false;
     setStorageType(nextType);
   }, [handlePickStorageFolder, storageType]);
 
@@ -309,7 +321,6 @@ const App: React.FC = () => {
   useEffect(() => {
     if (view !== 'landing') return;
     let active = true;
-    storageReadyRef.current = false;
 
     const loadProjects = async () => {
       try {
@@ -322,8 +333,6 @@ const App: React.FC = () => {
           setProjects([]);
           return;
         }
-        storageReadyRef.current = true;
-
         if (isCloudMode) {
           // Cloud 模式的数据加载由单独的分页/搜索逻辑处理
           return;
@@ -339,8 +348,6 @@ const App: React.FC = () => {
         }
       } catch (err) {
         if (active) reportStorageError(err, 'load-projects', t.storageLoadFailed);
-      } finally {
-        if (active) storageReadyRef.current = true;
       }
     };
 
@@ -350,11 +357,225 @@ const App: React.FC = () => {
     };
   }, [storageAdapter, storageType, localFileAdapter, storageFolderRevision, t.storageLoadFailed, isCloudMode, reportStorageError, view]);
 
-  const { performAutoSave, persistProject, saveActiveProject, latestProjectRef, cancelPendingSave } = useProjectAutoSave({
-    project, view, storageAdapter, storageReadyRef, isCloudMode, isTauri, activeLocalFilePath,
+  const {
+    saveStatus,
+    hasUnsavedChanges,
+    lastSavedAt,
+    performAutoSave,
+    flushSave,
+    persistProject,
+    saveActiveProject,
+    markProjectSaved,
+    latestProjectRef,
+    cancelPendingSave
+  } = useProjectAutoSave({
+    project, view, storageAdapter, isCloudMode, isTauri, activeLocalFilePath,
     saveLocalProjectToFile, clearActiveLocalFilePath, showToast, reportStorageError,
-    savedMessage: t.save || 'Saved', saveFailedMessage: t.storageSaveFailed
+    savedMessage: t.saveStatusSaved, saveFailedMessage: t.storageSaveFailed
   });
+
+  useEffect(() => () => {
+    versionPreviewSessionRef.current?.close();
+    versionPreviewSessionRef.current = null;
+  }, []);
+
+  const closePreviewProject = useCallback(() => {
+    setPreviewProject(null);
+    versionPreviewSessionRef.current?.close();
+    versionPreviewSessionRef.current = null;
+  }, []);
+
+  const handleSaveNewVersion = useCallback(async (info: string) => {
+    const currentProject = latestProjectRef.current ?? project;
+    if (!currentProject) return;
+    const canSaveLocal = Boolean(activeLocalFilePath && isTauri);
+    const path = canSaveLocal ? activeLocalFilePath! : undefined;
+    setVersionsBusy(true);
+    try {
+      const { project: versioned } = appendProjectVersion(currentProject, info);
+      const nextProject = { ...versioned, updatedAt: Date.now() };
+      const saved = await saveActiveProject(nextProject, path, true);
+      const current = latestProjectRef.current;
+      if (current?.id === currentProject.id) {
+        const merged = current === currentProject ? saved : mergeProjectVersionChanges(current, currentProject, saved);
+        latestProjectRef.current = merged;
+        setProject(merged);
+        if (current === currentProject) markProjectSaved(saved, path);
+        else await saveActiveProject(merged, path, true);
+        setProjects(prev => prev.map(item => item.id === merged.id ? summarizeProject(merged) : item));
+      }
+      showToast(t.versionSaved);
+    } catch (error) {
+      reportStorageError(error, 'save-version', t.versionSaveFailed, currentProject.id, path);
+      throw error;
+    } finally {
+      setVersionsBusy(false);
+    }
+  }, [
+    project,
+    latestProjectRef,
+    activeLocalFilePath,
+    isTauri,
+    saveActiveProject,
+    setProject,
+    markProjectSaved,
+    showToast,
+    t.versionSaved,
+    reportStorageError,
+    t.versionSaveFailed
+  ]);
+
+  const handlePreviewVersion = useCallback(async (versionId: string) => {
+    const currentProject = latestProjectRef.current ?? project;
+    if (!currentProject) return;
+    const session = new ProjectImageSession();
+    setVersionsBusy(true);
+    try {
+      const loaded = getProjectVersionState(currentProject, versionId);
+      if (!loaded) throw new Error(t.versionLoadFailed);
+      const adopted = await session.adopt(loaded);
+      versionPreviewSessionRef.current?.close();
+      versionPreviewSessionRef.current = session;
+      setPreviewProject(syncProjectPages(adopted));
+    } catch (error) {
+      session.close();
+      reportStorageError(error, 'preview-version', t.versionLoadFailed, currentProject.id);
+    } finally {
+      setVersionsBusy(false);
+    }
+  }, [project, latestProjectRef, reportStorageError, t.versionLoadFailed]);
+
+  const handleSwitchVersion = useCallback(async (versionId: string, saveCurrentVersionInfo?: string) => {
+    const currentProject = latestProjectRef.current ?? project;
+    if (!currentProject) return;
+    const canSaveLocal = Boolean(activeLocalFilePath && isTauri);
+    const path = canSaveLocal ? activeLocalFilePath! : undefined;
+    const nextSession = new ProjectImageSession();
+    setVersionsBusy(true);
+    try {
+      const baseProject = saveCurrentVersionInfo
+        ? appendProjectVersion(currentProject, saveCurrentVersionInfo).project
+        : currentProject;
+      const restored = restoreProjectFromVersion(baseProject, versionId);
+      const adopted = await nextSession.adopt(restored);
+      const opened = adopted.pages?.[0]
+        ? selectProjectPage(adopted, adopted.pages[0].id)
+        : syncProjectPages({ ...adopted, selectedLayerId: null });
+      if (latestProjectRef.current !== currentProject) throw new Error('Project changed while switching versions. Please retry.');
+      const saved = await saveActiveProject(opened, path, true);
+      if (latestProjectRef.current !== currentProject) {
+        const current = latestProjectRef.current;
+        if (current?.id === currentProject.id) await saveActiveProject(current, path, true);
+        throw new Error('Project changed while switching versions. Please retry.');
+      }
+      closePreviewProject();
+      switchImageSession(nextSession);
+      latestProjectRef.current = saved;
+      setProject(saved);
+      setSelectedLayerIds([]);
+      setBgCropModal(null);
+      setCroppingImageLayerId(null);
+      initProjectHistory(saved);
+      markProjectSaved(saved, path);
+      setProjects(prev => prev.map(item => item.id === saved.id ? summarizeProject(saved) : item));
+      setIsVersionsModalOpen(false);
+      showToast(t.versionSwitched);
+    } catch (error) {
+      nextSession.close();
+      reportStorageError(error, 'switch-version', t.versionLoadFailed, currentProject.id, path);
+    } finally {
+      setVersionsBusy(false);
+    }
+  }, [
+    project,
+    latestProjectRef,
+    activeLocalFilePath,
+    isTauri,
+    saveActiveProject,
+    closePreviewProject,
+    setProject,
+    initProjectHistory,
+    markProjectSaved,
+    showToast,
+    t.versionLoadFailed,
+    t.versionSwitched,
+    reportStorageError
+  ]);
+
+  const handleDeleteVersion = useCallback(async (versionId: string) => {
+    const currentProject = latestProjectRef.current ?? project;
+    if (!currentProject) return;
+    const canSaveLocal = Boolean(activeLocalFilePath && isTauri);
+    const path = canSaveLocal ? activeLocalFilePath! : undefined;
+    setVersionsBusy(true);
+    try {
+      const nextProject = { ...removeProjectVersion(currentProject, versionId), updatedAt: Date.now() };
+      const saved = await saveActiveProject(nextProject, path, true);
+      const current = latestProjectRef.current;
+      if (current?.id === currentProject.id) {
+        const merged = current === currentProject ? saved : mergeProjectVersionChanges(current, currentProject, saved);
+        latestProjectRef.current = merged;
+        setProject(merged);
+        if (current === currentProject) markProjectSaved(saved, path);
+        else await saveActiveProject(merged, path, true);
+        setProjects(prev => prev.map(item => item.id === merged.id ? summarizeProject(merged) : item));
+      }
+      showToast(t.versionDeleted);
+    } catch (error) {
+      reportStorageError(error, 'delete-version', t.storageDeleteFailed, currentProject.id, path);
+    } finally {
+      setVersionsBusy(false);
+    }
+  }, [
+    project,
+    latestProjectRef,
+    activeLocalFilePath,
+    isTauri,
+    saveActiveProject,
+    setProject,
+    markProjectSaved,
+    showToast,
+    t.versionDeleted,
+    reportStorageError,
+    t.storageDeleteFailed
+  ]);
+
+  const finishExitEditor = useCallback(() => {
+    cancelPendingSave();
+    clearActiveLocalFilePath();
+    closePreviewProject();
+    setIsVersionsModalOpen(false);
+    latestProjectRef.current = null;
+    switchImageSession(null);
+    setProject(null);
+    setView('landing');
+  }, [cancelPendingSave, clearActiveLocalFilePath, closePreviewProject, latestProjectRef, setProject]);
+
+  const handleExitEditor = useCallback(async () => {
+    const currentProject = latestProjectRef.current ?? project;
+    if (exitingEditor) return;
+    if (!currentProject) {
+      finishExitEditor();
+      return;
+    }
+    setExitingEditor(true);
+    try {
+      setProjects(prev => prev.map(item => item.id === currentProject.id ? summarizeProject({ ...currentProject, updatedAt: Date.now() }) : item));
+      const savedOk = await flushSave('leave');
+      if (!savedOk) {
+        setConfirmDialog({
+          message: t.confirmLeaveWithUnsavedError,
+          confirmLabel: t.leaveAnyway,
+          tone: 'danger',
+          onConfirm: () => finishExitEditor()
+        });
+        return;
+      }
+      finishExitEditor();
+    } finally {
+      setExitingEditor(false);
+    }
+  }, [exitingEditor, project, latestProjectRef, flushSave, finishExitEditor, t.confirmLeaveWithUnsavedError, t.leaveAnyway]);
 
   const removeStoredProject = useCallback(async (projectId: string) => {
     try {
@@ -822,6 +1043,34 @@ const App: React.FC = () => {
       const nextOrder = toFront ? [...staying, ...moving] : [...moving, ...staying];
       return { ...p, layers: nextOrder.map((l, i) => ({ ...l, zIndex: i + 1 })) };
     });
+  };
+
+  const handleArrangeLayers = (action: ArrangeAction, mode?: string, targetIds: string[] = selectedLayerIds) => {
+    const current = latestProjectRef.current ?? project;
+    if (!current || targetIds.length === 0) return;
+    const arrangement = analyzeLayerArrangement(current, targetIds);
+    const idsForAction = action === 'group' ? arrangement.selectedIds : arrangement.independentIds;
+    if (idsForAction.length === 0) return;
+    try {
+      const next = editLayers(
+        current,
+        action,
+        idsForAction,
+        action === 'group' ? { name: t.groupName } : {},
+        mode
+      );
+      modifyProject(() => next);
+      if (action === 'group' && next.selectedLayerId) {
+        setSelectedLayerIds([next.selectedLayerId]);
+      } else if (action === 'ungroup') {
+        const ungroupedChildIds = current.layers
+          .filter(layer => idsForAction.includes(layer.id) && layer.type === 'group')
+          .flatMap(group => group.children || []);
+        setSelectedLayerIds(ungroupedChildIds);
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : String(error), 'error');
+    }
   };
 
   const handleGroupLayers = (ids: string[]) => {
@@ -1580,6 +1829,7 @@ const App: React.FC = () => {
     onSearch: setProjectSearchTerm,
     saveLocal: saveLocalProjectToFile,
     saveActive: saveActiveProject,
+    saveOnCommit: false,
     readLocal: readLocalProject
   };
   clipboardWorkspaceRef.current = {
@@ -1686,7 +1936,17 @@ const App: React.FC = () => {
       >
         {openingProject && <div role="status" aria-live="polite" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 text-sm text-white"><div className="flex items-center gap-2 rounded-md bg-slate-900 px-4 py-3 shadow-xl"><LoaderCircle className="h-4 w-4 animate-spin" />{t.loading}</div></div>}
         {toast && <Toast message={toast.msg} type={toast.type} />}
-        {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
+        {confirmDialog && (
+          <ConfirmModal
+            isOpen={true}
+            message={confirmDialog.message}
+            lang={lang}
+            confirmLabel={confirmDialog.confirmLabel}
+            tone={confirmDialog.tone}
+            onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }}
+            onCancel={() => setConfirmDialog(null)}
+          />
+        )}
         {!isCloudMode && renderStorageSettingsModal()}
         <ProjectPresetModal
           isOpen={isPresetModalOpen}
@@ -1708,9 +1968,33 @@ const App: React.FC = () => {
       </LandingView>
       ) : project ? (
       <div inert={aiBusy} className="flex flex-col h-screen bg-slate-950 text-slate-200 overflow-hidden">
-      {previewProject && <ProjectPreview project={previewProject} lang={lang} onClose={() => setPreviewProject(null)} />}
+      {previewProject && <ProjectPreview project={previewProject} lang={lang} onClose={closePreviewProject} />}
+      <VersionManagerModal
+        isOpen={isVersionsModalOpen}
+        lang={lang}
+        projectTitle={project.title}
+        hasUnsavedChanges={hasUnsavedChanges}
+        versions={projectVersions}
+        loading={false}
+        busy={versionsBusy}
+        onClose={() => setIsVersionsModalOpen(false)}
+        onSaveVersion={handleSaveNewVersion}
+        onPreviewVersion={handlePreviewVersion}
+        onSwitchVersion={handleSwitchVersion}
+        onDeleteVersion={handleDeleteVersion}
+      />
       {toast && <Toast message={toast.msg} type={toast.type} />}
-      {confirmDialog && <ConfirmModal isOpen={true} message={confirmDialog.message} lang={lang} onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} onCancel={() => setConfirmDialog(null)} />}
+      {confirmDialog && (
+        <ConfirmModal
+          isOpen={true}
+          message={confirmDialog.message}
+          lang={lang}
+          confirmLabel={confirmDialog.confirmLabel}
+          tone={confirmDialog.tone}
+          onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }}
+          onCancel={() => setConfirmDialog(null)}
+        />
+      )}
       <ProjectPresetModal
         isOpen={isPageModalOpen} lang={lang} presets={PRESET_RATIOS} selectedPreset={selectedPreset} size={customPresetSize}
         pageName={newPageName} onPageNameChange={setNewPageName} pagePlaceholder={pageNumber((project.pages?.findIndex(page => page.id === project.activePageId) ?? 0) + 1)}
@@ -1798,97 +2082,36 @@ const App: React.FC = () => {
           setCroppingImageLayerId(null);
         }}
       />
-      <header className="h-14 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between px-6 z-50">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <button
-            onClick={() => {
-              setProjects(prev => prev.map(item => item.id === project.id ? summarizeProject({ ...project, updatedAt: Date.now() }) : item));
-              performAutoSave('leave');
-              switchImageSession(null);
-              setProject(null);
-              setView('landing');
-            }}
-            className="p-2 hover:bg-slate-800 rounded-lg shrink-0"
-          >
-            <ArrowLeft className="w-5 h-5 text-slate-400" />
-          </button>
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="inline-grid items-center min-w-[60px] max-w-xs">
-              <span className="invisible col-start-1 row-start-1 px-1.5 py-1 font-bold text-sm whitespace-pre truncate pointer-events-none">
-                {project.title || ' '}
-              </span>
-              <input
-                value={project.title}
-                onChange={(e) => modifyProject(p => ({ ...p, title: e.target.value }))}
-                className="col-start-1 row-start-1 bg-transparent font-bold text-sm outline-none hover:bg-slate-800 focus:bg-slate-800 rounded px-1.5 py-1 w-full min-w-0 transition-colors"
-              />
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <LayerClipboardPanel clipboard={layerClipboard} bridge={clipboardBridge} project={project} lang={lang} />
-          
-          <div className="flex items-center gap-1 mr-4 bg-slate-800 p-1 rounded-lg">
-            <button 
-              onClick={handleUndo} 
-              disabled={!canUndo}
-              className="p-1.5 rounded hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-all text-slate-300"
-              title="Undo (Ctrl+Z)"
-            >
-              <Undo2 className="w-4 h-4" />
-            </button>
-            <button 
-              onClick={handleRedo} 
-              disabled={!canRedo}
-              className="p-1.5 rounded hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-all text-slate-300"
-              title="Redo (Ctrl+Shift+Z)"
-            >
-              <Redo2 className="w-4 h-4" />
-            </button>
-          </div>
-          {/* 云端或 Tauri 的本地文件模式才显示保存按钮 */}
-          {(isCloudMode || (activeLocalFilePath && isTauri)) && (
-            <button
-              onClick={() => performAutoSave('manual')}
-              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300 border border-slate-700 transition-colors"
-            >
-              <Save className="w-4 h-4" />
-              {t.save || 'Save'}
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setIsAiOpen(prev => !prev)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-              isAiOpen
-                ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-sm shadow-emerald-950/40'
-                : 'bg-slate-800/90 hover:bg-slate-700 text-slate-300 border-slate-700 hover:text-white hover:border-emerald-500/40'
-            }`}
-            title={lang === 'en' ? 'AI Assistant' : 'AI 助手'}
-            aria-label={lang === 'en' ? 'AI Assistant' : 'AI 助手'}
-            aria-expanded={isAiOpen}
-          >
-            <Bot className={`w-4 h-4 ${isAiOpen ? 'text-emerald-400' : 'text-emerald-500'}`} />
-            <span>{lang === 'en' ? 'AI Assistant' : 'AI 助手'}</span>
-            {aiBusy && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />}
-          </button>
-          
-          <button type="button" onClick={() => setPreviewProject(syncProjectPages(project))} disabled={isExporting || aiBusy} title={t.previewProject} aria-label={t.previewProject}
-            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300 border border-slate-700 transition-colors disabled:opacity-50">
-            <Presentation className="w-4 h-4" />
-            <span className="hidden sm:inline">{t.preview}</span>
-          </button>
-          <button onClick={() => handleExportJson(project)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300 border border-slate-700 transition-colors">
-            <FileOutput className="w-4 h-4" />
-            {t.exportJson}
-          </button>
-          <button onClick={() => { setExportRange('current'); setExportPageIds([project.activePageId!]); setIsExportModalOpen(true); }} disabled={isExporting} className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white shadow-lg shadow-blue-900/20 disabled:opacity-50">
-            {isExporting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
-            {t.export}
-          </button>
-        </div>
-      </header>
+      <EditorHeader
+        lang={lang}
+        project={project}
+        selectedLayerIds={selectedLayerIds}
+        exitingEditor={exitingEditor}
+        onBack={() => { void handleExitEditor(); }}
+        onTitleChange={(title) => modifyProject(p => ({ ...p, title }))}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onArrangeAction={(action, mode) => handleArrangeLayers(action, mode)}
+        layerClipboard={layerClipboard}
+        clipboardBridge={clipboardBridge}
+        saveStatus={saveStatus}
+        lastSavedAt={lastSavedAt}
+        onSave={() => { void flushSave('manual'); }}
+        onOpenVersions={() => setIsVersionsModalOpen(true)}
+        isAiOpen={isAiOpen}
+        aiBusy={aiBusy}
+        onToggleAi={() => setIsAiOpen(prev => !prev)}
+        onPreview={() => setPreviewProject(syncProjectPages(project))}
+        onExportProject={() => handleExportJson(project)}
+        onExportImage={() => {
+          setExportRange('current');
+          setExportPageIds([project.activePageId!]);
+          setIsExportModalOpen(true);
+        }}
+        isExporting={isExporting}
+      />
       <main className="flex-1 flex overflow-hidden min-h-0 relative">
         <Sidebar 
           lang={lang} 
@@ -2085,6 +2308,8 @@ const App: React.FC = () => {
           onCopyToClipboard={copyToClipboard}
           onDeleteLayers={(ids) => setConfirmDialog({ message: t.confirmDelete, onConfirm: () => handleDeleteLayers(ids) })}
           onMoveLayersTop={(ids) => handleMoveLayers(ids, true)}
+          onMoveLayersForward={(ids) => handleArrangeLayers('forward', undefined, ids)}
+          onMoveLayersBackward={(ids) => handleArrangeLayers('backward', undefined, ids)}
           onMoveLayersBottom={(ids) => handleMoveLayers(ids, false)}
           onGroupLayers={handleGroupLayers}
           onUngroupLayer={handleUngroupLayer}

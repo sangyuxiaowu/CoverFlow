@@ -1,10 +1,16 @@
-import { ProjectDocument, ProjectPage, ProjectState } from '../types.ts';
+import { ProjectDocument, ProjectPage, ProjectState, ProjectVersion } from '../types.ts';
 import { ListProjectsOptions, StorageAdapter, StorageAdapterType, type ProjectSummary, summarizeProject } from './StorageAdapter.ts';
 import { readProject, writeProject } from './projectCompatibility.ts';
 import { notifyProjectPreview, pagePreviewFingerprint, pagePreviewFingerprintAsync, rememberProjectPreview } from './projectPreviews.ts';
 import { hasLegacyIndexedDBImages, migrateLegacyIndexedDBImages, readLegacyIndexedDBProject, sameLegacyIndexedDBRecord } from './legacyCfj.ts';
 import { packImagePages, unpackImagePages, type ImageAsset, type ImageCache } from './indexedDbImages.ts';
-import { captureImageAssets } from './imageAssets.ts';
+import { captureImageAssets, collectProjectImagePages, imageAssets } from './imageAssets.ts';
+import {
+  appendProjectVersion,
+  getProjectVersionState,
+  listProjectVersionSummaries,
+  removeProjectVersion
+} from './versionStore.ts';
 
 const DB_NAME = 'coverflow_projects_db_v1';
 const STORE_NAME = 'projects';
@@ -21,13 +27,13 @@ let lastImages: { factory: IDBFactory; projectId: string; cache: ImageCache } | 
 let cacheEpoch = 0;
 const projectWrites = new WeakMap<IDBFactory, Map<string, Promise<void>>>();
 
-const enqueueProjectWrite = (projectId: string, operation: () => Promise<void>) => {
+const enqueueProjectWrite = <Result = void>(projectId: string, operation: () => Promise<Result>): Promise<Result> => {
   const factory = indexedDB;
   let queue = projectWrites.get(factory);
   if (!queue) { queue = new Map(); projectWrites.set(factory, queue); }
   const writes = queue;
   const result = (writes.get(projectId) ?? Promise.resolve()).then(operation);
-  const settled = result.catch(() => {});
+  const settled = result.then(() => {}, () => {});
   writes.set(projectId, settled);
   void settled.then(() => { if (writes.get(projectId) === settled) writes.delete(projectId); });
   return result;
@@ -47,7 +53,13 @@ const isPagedProject = (value: unknown): value is PagedProject => Boolean(value 
 const readStoredProject = async (value: unknown, records: StoredPage[], assets: StoredAsset[], owner?: symbol) => {
   if (!isPagedProject(value)) {
     const project = readLegacyIndexedDBProject(value);
-    return { project: owner ? readProject({ ...writeProject(project), pages: await migrateLegacyIndexedDBImages(project.pages!, owner) }) : project, cache: new Map() as ImageCache };
+    if (!owner) return { project, cache: new Map() as ImageCache };
+    const doc = writeProject(project);
+    const pages = await migrateLegacyIndexedDBImages(doc.pages, owner);
+    const versions = doc.versions?.length
+      ? await Promise.all(doc.versions.map(async version => ({ ...version, pages: await migrateLegacyIndexedDBImages(version.pages, owner) })))
+      : undefined;
+    return { project: readProject({ ...doc, pages, ...(versions ? { versions } : {}) }), cache: new Map() as ImageCache };
   }
   if (!Array.isArray(value.pageIds) || typeof value.revision !== 'string' || !value.revision) throw new Error('Invalid stored project index.');
   const pages = new Map(records.filter(record => record.projectId === value.id).map(record => [record.pageId, record.page]));
@@ -56,9 +68,22 @@ const readStoredProject = async (value: unknown, records: StoredPage[], assets: 
     if (!page || page.id !== id) throw new Error('Missing stored project page.');
     return page;
   });
-  const unpacked = await unpackImagePages(ordered, assets.filter(asset => asset.projectId === value.id), owner);
+  const projectAssets = assets.filter(asset => asset.projectId === value.id);
+  const unpacked = await unpackImagePages(ordered, projectAssets, owner);
   const resolvedPages = owner ? await migrateLegacyIndexedDBImages(unpacked.pages, owner) : unpacked.pages;
-  return { project: readProject({ ...value, pages: resolvedPages }), cache: unpacked.cache };
+  let resolvedVersions: ProjectVersion[] | undefined;
+  if (Array.isArray(value.versions) && value.versions.length) {
+    resolvedVersions = await Promise.all(value.versions.map(async version => {
+      const unpackedVersion = await unpackImagePages(version.pages, projectAssets, owner);
+      const versionPages = owner ? await migrateLegacyIndexedDBImages(unpackedVersion.pages, owner) : unpackedVersion.pages;
+      for (const [key, item] of unpackedVersion.cache) unpacked.cache.set(key, item);
+      return { ...version, pages: versionPages };
+    }));
+  }
+  return {
+    project: readProject({ ...value, pages: resolvedPages, ...(resolvedVersions ? { versions: resolvedVersions } : {}) }),
+    cache: unpacked.cache
+  };
 };
 
 const requestValue = <Value,>(request: IDBRequest<Value>) => new Promise<Value>((resolve, reject) => {
@@ -127,6 +152,16 @@ const upsertProject = async (project: ProjectState, held: Map<string, Blob>, exp
   const previousPages = lastPages;
   const previousImages = lastImages?.factory === indexedDB && lastImages.projectId === project.id ? lastImages.cache : undefined;
   const packed = await packImagePages(document.pages, cache, previousImages, held);
+  const packedAssets = new Map(packed.assets);
+  let packedVersions: ProjectVersion[] | undefined;
+  if (document.versions?.length) {
+    packedVersions = [];
+    for (const version of document.versions) {
+      const packedVersion = await packImagePages(version.pages, cache, previousImages, held);
+      for (const [id, asset] of packedVersion.assets) packedAssets.set(id, asset);
+      packedVersions.push({ ...version, pages: packedVersion.pages });
+    }
+  }
   const db = await openIndexedDb();
   const tx = db.transaction([STORE_NAME, SUMMARY_STORE, PAGE_STORE, ASSET_STORE], 'readwrite');
   const store = tx.objectStore(STORE_NAME);
@@ -142,16 +177,23 @@ const upsertProject = async (project: ProjectState, held: Map<string, Blob>, exp
       if (!Array.isArray(previous.pageIds) || typeof previous.revision !== 'string' || !previous.revision) { tx.abort(); return; }
       const ids = new Set(document.pages.map(page => page.id));
       for (const id of previous.pageIds) if (!ids.has(id)) pages.delete([project.id, id]);
-      for (const id of previous.assetIds ?? []) if (!packed.assets.has(id)) images.delete([project.id, id]);
+      for (const id of previous.assetIds ?? []) if (!packedAssets.has(id)) images.delete([project.id, id]);
     }
     const cached = previousImages && previousPages?.factory === indexedDB && previousPages.projectId === project.id && isPagedProject(previous) && Array.isArray(previous.assetIds) && previousPages.revision === previous.revision ? previousPages : null;
     for (const [index, page] of document.pages.entries()) {
       if (!cached?.pages.includes(page)) pages.put({ projectId: project.id, pageId: page.id, page: packed.pages[index] } satisfies StoredPage);
     }
     const existingAssets = new Set(isPagedProject(previous) ? previous.assetIds ?? [] : []);
-    for (const asset of packed.assets.values()) if (!existingAssets.has(asset.id)) images.put({ projectId: project.id, ...asset } satisfies StoredAsset);
-    const { pages: _pages, ...metadata } = document;
-    store.put({ ...metadata, storageFormat: 'paged-v1', pageIds: document.pages.map(page => page.id), revision, assetIds: [...packed.assets.keys()] } satisfies PagedProject);
+    for (const asset of packedAssets.values()) if (!existingAssets.has(asset.id)) images.put({ projectId: project.id, ...asset } satisfies StoredAsset);
+    const { pages: _pages, versions: _versions, ...metadata } = document;
+    store.put({
+      ...metadata,
+      ...(packedVersions ? { versions: packedVersions } : {}),
+      storageFormat: 'paged-v1',
+      pageIds: document.pages.map(page => page.id),
+      revision,
+      assetIds: [...packedAssets.keys()]
+    } satisfies PagedProject);
     tx.objectStore(SUMMARY_STORE).put(summary);
   };
   return new Promise<void>((resolve, reject) => {
@@ -180,6 +222,18 @@ const deleteProject = async (projectId: string) => {
   });
 };
 
+const mergeStoredVersions = (incoming?: ProjectVersion[], stored?: ProjectVersion[]): ProjectVersion[] | undefined => {
+  const merged = [...(incoming ?? [])];
+  const seen = new Set(merged.map(item => item.id));
+  for (const item of stored ?? []) {
+    if (!seen.has(item.id)) {
+      seen.add(item.id);
+      merged.push(item);
+    }
+  }
+  return merged.length ? merged : undefined;
+};
+
 // IndexedDB 存储适配器。
 export class IndexedDBAdapter implements StorageAdapter {
   type: StorageAdapterType = 'indexeddb';
@@ -201,9 +255,10 @@ export class IndexedDBAdapter implements StorageAdapter {
       ]);
       if (stored === undefined) return null;
       const { project, cache } = await readStoredProject(stored, pages as StoredPage[], assets as StoredAsset[], owner);
-      const needsMigration = !isPagedProject(stored) || hasLegacyIndexedDBImages((pages as StoredPage[]).map(record => record.page));
+      const versionPages = isPagedProject(stored) && stored.versions ? stored.versions.flatMap(version => version.pages) : [];
+      const needsMigration = !isPagedProject(stored) || hasLegacyIndexedDBImages([...(pages as StoredPage[]).map(record => record.page), ...versionPages]);
       if (owner && needsMigration) {
-        const held = captureImageAssets(writeProject(project).pages);
+        const held = captureImageAssets(collectProjectImagePages(writeProject(project)));
         await enqueueProjectWrite(projectId, () => upsertProject(project, held, stored));
       }
       if (epoch === cacheEpoch) {
@@ -303,13 +358,59 @@ export class IndexedDBAdapter implements StorageAdapter {
 
   saveProject = async (project: ProjectState) => {
     if (!this.isAvailable()) return;
-    const held = captureImageAssets(writeProject(project).pages);
+    const held = captureImageAssets(collectProjectImagePages(writeProject(project)));
     await enqueueProjectWrite(project.id, () => upsertProject(project, held));
   };
 
   deleteProject = async (projectId: string) => {
     if (!this.isAvailable()) return;
     await enqueueProjectWrite(projectId, () => deleteProject(projectId));
+  };
+
+  listProjectVersions = async (projectId: string) => {
+    if (!this.isAvailable()) return [];
+    const loaded = await this.getProject(projectId);
+    return listProjectVersionSummaries(loaded);
+  };
+
+  saveProjectVersion = async (project: ProjectState, info: string) => {
+    if (!this.isAvailable()) throw new Error('IndexedDB is unavailable.');
+    return enqueueProjectWrite(project.id, async () => {
+      const owner = imageAssets.createOwner();
+      try {
+        const existing = await this.getProject(project.id, owner);
+        const mergedVersions = mergeStoredVersions(project.versions, existing?.versions);
+        const target = mergedVersions ? { ...project, versions: mergedVersions } : project;
+        const { project: nextProject, summary } = appendProjectVersion(target, info);
+        const held = captureImageAssets(collectProjectImagePages(writeProject(nextProject)));
+        await upsertProject(nextProject, held);
+        return summary;
+      } finally {
+        imageAssets.release(owner);
+      }
+    });
+  };
+
+  getProjectVersion = async (projectId: string, versionId: string, imageOwner?: symbol) => {
+    if (!this.isAvailable()) return null;
+    const loaded = await this.getProject(projectId, imageOwner);
+    return loaded ? getProjectVersionState(loaded, versionId) : null;
+  };
+
+  deleteProjectVersion = async (projectId: string, versionId: string) => {
+    if (!this.isAvailable()) return;
+    await enqueueProjectWrite(projectId, async () => {
+      const owner = imageAssets.createOwner();
+      try {
+        const existing = await this.getProject(projectId, owner);
+        if (!existing) return;
+        const nextProject = removeProjectVersion(existing, versionId);
+        const held = captureImageAssets(collectProjectImagePages(writeProject(nextProject)));
+        await upsertProject(nextProject, held);
+      } finally {
+        imageAssets.release(owner);
+      }
+    });
   };
 }
 

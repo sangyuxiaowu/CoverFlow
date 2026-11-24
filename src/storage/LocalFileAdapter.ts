@@ -1,11 +1,17 @@
-import { ProjectState } from '../types.ts';
+import { ProjectState, ProjectVersion, ProjectVersionSummary } from '../types.ts';
 import { ListProjectsOptions, StorageAdapter, StorageAdapterType, type ProjectSummary, summarizeProject } from './StorageAdapter.ts';
 import { decodeProjectArchive, encodeProjectArchive, prepareProjectArchivePreviews, readProjectArchiveManifest, sameStoredValue } from './projectArchive.ts';
 import { readLegacyCfj } from './legacyCfj.ts';
 import { readFileBlob, readFileBytes, readFileText, writeFileContent, writeFileContentOnce } from './fileAccess.ts';
 import { writeProject } from './projectCompatibility.ts';
 import { notifyProjectPreview, projectPreviews } from './projectPreviews.ts';
-import { captureImageAssets } from './imageAssets.ts';
+import { captureImageAssets, collectProjectImagePages, imageAssets } from './imageAssets.ts';
+import {
+  appendProjectVersion,
+  getProjectVersionState,
+  listProjectVersionSummaries,
+  removeProjectVersion
+} from './versionStore.ts';
 
 const FS_DB_NAME = 'coverflow_fs_handles_v1';
 const FS_STORE_NAME = 'handles';
@@ -29,6 +35,18 @@ const isIndex = (value: unknown): value is ProjectIndex => {
     item.project?.kind === 'summary' && typeof item.project.id === 'string' && typeof item.project.title === 'string' &&
     typeof item.project.updatedAt === 'number' && typeof item.project.width === 'number' && typeof item.project.height === 'number' &&
     typeof item.project.pageCount === 'number' && typeof item.project.layerCount === 'number');
+};
+
+const mergeStoredVersions = (incoming?: ProjectVersion[], stored?: ProjectVersion[]): ProjectVersion[] | undefined => {
+  const merged = [...(incoming ?? [])];
+  const seen = new Set(merged.map(item => item.id));
+  for (const item of stored ?? []) {
+    if (!seen.has(item.id)) {
+      seen.add(item.id);
+      merged.push(item);
+    }
+  }
+  return merged.length ? merged : undefined;
 };
 
 const openFsHandleDb = () => new Promise<IDBDatabase>((resolve, reject) => {
@@ -230,13 +248,15 @@ export class LocalFileAdapter implements StorageAdapter {
     return operation;
   };
 
-  getProject = async (projectId: string, imageOwner?: symbol): Promise<ProjectState | null> => {
-    if (!await this.ensureReady({ prompt: false }) || !this.rootHandle) return null;
+  private readProjectFromDisk = async (projectId: string, imageOwner?: symbol): Promise<ProjectState | null> => {
+    if (!this.rootHandle) return null;
     if (!this.indexEntries.length) await this.listProjectSummaries();
     const candidates = this.indexEntries.filter(item => item.project.id === projectId)
       .sort((left, right) => Number(right.name.toLowerCase().endsWith('.cfjx')) - Number(left.name.toLowerCase().endsWith('.cfjx')) || right.lastModified - left.lastModified);
     const data = await this.rootHandle.getDirectoryHandle(DATA_DIR, { create: true });
+    const tried = new Set<string>();
     for (const item of candidates) {
+      tried.add(item.name);
       try {
         const handle = await data.getFileHandle(item.name);
         const project = item.name.toLowerCase().endsWith('.cfjx')
@@ -245,7 +265,20 @@ export class LocalFileAdapter implements StorageAdapter {
         if (project.id === projectId) return project;
       } catch (error) { console.warn('[CoverFlow project read]', item.name, error); }
     }
+    const fallbackName = `${projectId}.${PROJECT_FILE_EXT}`;
+    if (!tried.has(fallbackName)) {
+      try {
+        const handle = await data.getFileHandle(fallbackName);
+        const project = await decodeProjectArchive(await readFileBytes(handle), imageOwner);
+        if (project.id === projectId) return project;
+      } catch {}
+    }
     return null;
+  };
+
+  getProject = async (projectId: string, imageOwner?: symbol): Promise<ProjectState | null> => {
+    if (!await this.ensureReady({ prompt: false }) || !this.rootHandle) return null;
+    return this.readProjectFromDisk(projectId, imageOwner);
   };
 
   getProjectPreview = async (projectId: string): Promise<Blob | undefined> => {
@@ -339,40 +372,42 @@ export class LocalFileAdapter implements StorageAdapter {
     }, 3000));
   };
 
+  private writeProjectToDisk = async (project: ProjectState, assets: Record<string, Blob>) => {
+    await this.ensureIndexLoaded();
+    const dataHandle = await this.rootHandle!.getDirectoryHandle(DATA_DIR, { create: true });
+    try {
+      const existing = await dataHandle.getFileHandle(`${project.id}.${PROJECT_FILE_EXT}`);
+      const file = await existing.getFile();
+      const indexed = this.indexEntries.find(item => item.name === existing.name);
+      if (!indexed || indexed.size !== file.size || indexed.lastModified !== file.lastModified) {
+        const previous = await readProjectArchiveManifest(await readFileBytes(existing));
+        if (previous.id !== project.id) throw new Error('The project file name is already used by another project.');
+      } else if (indexed.project.id !== project.id) {
+        throw new Error('The project file name is already used by another project.');
+      }
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
+    }
+    const fileHandle = await dataHandle.getFileHandle(`${project.id}.${PROJECT_FILE_EXT}`, { create: true });
+    const bytes = await encodeProjectArchive(project, undefined, assets);
+    await writeFileContent(fileHandle, new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/zip' }));
+    try {
+      const file = await fileHandle.getFile();
+      const cover = projectPreviews(project)[project.pages?.[0]?.id ?? ''];
+      if (cover) await this.writeCover(fileHandle.name, cover);
+      const entry: IndexEntry = { name: fileHandle.name, size: file.size, lastModified: file.lastModified, project: summarizeProject(project), ...(cover ? { previewStamp: `${file.size}:${file.lastModified}` } : {}) };
+      this.indexEntries = [...this.indexEntries.filter(item => item.name !== fileHandle.name), entry];
+      await this.persistIndex();
+      if (cover) notifyProjectPreview(project.id);
+    } catch (error) { console.warn('[CoverFlow project index update]', error); }
+  };
+
   saveProject = async (project: ProjectState) => {
-    const assets = Object.fromEntries(captureImageAssets(writeProject(project).pages));
+    const assets = Object.fromEntries(captureImageAssets(collectProjectImagePages(writeProject(project))));
     const ready = await this.ensureReady({ prompt: false });
     if (!ready || !this.rootHandle) throw new Error('Project storage folder is unavailable or write permission was not granted.');
 
-    const operation = this.writeQueue.then(async () => {
-      await this.ensureIndexLoaded();
-      const dataHandle = await this.rootHandle!.getDirectoryHandle(DATA_DIR, { create: true });
-      try {
-        const existing = await dataHandle.getFileHandle(`${project.id}.${PROJECT_FILE_EXT}`);
-        const file = await existing.getFile();
-        const indexed = this.indexEntries.find(item => item.name === existing.name);
-        if (!indexed || indexed.size !== file.size || indexed.lastModified !== file.lastModified) {
-          const previous = await readProjectArchiveManifest(await readFileBytes(existing));
-          if (previous.id !== project.id) throw new Error('The project file name is already used by another project.');
-        } else if (indexed.project.id !== project.id) {
-          throw new Error('The project file name is already used by another project.');
-        }
-      } catch (error) {
-        if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
-      }
-      const fileHandle = await dataHandle.getFileHandle(`${project.id}.${PROJECT_FILE_EXT}`, { create: true });
-      const bytes = await encodeProjectArchive(project, undefined, assets);
-      await writeFileContent(fileHandle, new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/zip' }));
-      try {
-        const file = await fileHandle.getFile();
-        const cover = projectPreviews(project)[project.pages?.[0]?.id ?? ''];
-        if (cover) await this.writeCover(fileHandle.name, cover);
-        const entry: IndexEntry = { name: fileHandle.name, size: file.size, lastModified: file.lastModified, project: summarizeProject(project), ...(cover ? { previewStamp: `${file.size}:${file.lastModified}` } : {}) };
-        this.indexEntries = [...this.indexEntries.filter(item => item.name !== fileHandle.name), entry];
-        await this.persistIndex();
-        if (cover) notifyProjectPreview(project.id);
-      } catch (error) { console.warn('[CoverFlow project index update]', error); }
-    });
+    const operation = this.writeQueue.then(() => this.writeProjectToDisk(project, assets));
 
     this.writeQueue = operation.catch(() => {});
     return operation;
@@ -416,6 +451,60 @@ export class LocalFileAdapter implements StorageAdapter {
     });
 
     this.writeQueue = operation.catch(() => {});
+    return operation;
+  };
+
+  listProjectVersions = async (projectId: string): Promise<ProjectVersionSummary[]> => {
+    const project = await this.getProject(projectId);
+    return listProjectVersionSummaries(project);
+  };
+
+  saveProjectVersion = async (project: ProjectState, rawInfo: string): Promise<ProjectVersionSummary> => {
+    const ready = await this.ensureReady({ prompt: false });
+    if (!ready || !this.rootHandle) throw new Error('Project storage folder is unavailable or write permission was not granted.');
+
+    const operation = this.writeQueue.then(async () => {
+      const owner = imageAssets.createOwner();
+      try {
+        const existing = await this.readProjectFromDisk(project.id, owner);
+        const mergedVersions = mergeStoredVersions(project.versions, existing?.versions);
+        const target = mergedVersions ? { ...project, versions: mergedVersions } : project;
+        const { project: nextProject, summary } = appendProjectVersion(target, rawInfo);
+        const assets = Object.fromEntries(captureImageAssets(collectProjectImagePages(writeProject(nextProject))));
+        await this.writeProjectToDisk(nextProject, assets);
+        return summary;
+      } finally {
+        imageAssets.release(owner);
+      }
+    });
+
+    this.writeQueue = operation.then(() => {}, () => {});
+    return operation;
+  };
+
+  getProjectVersion = async (projectId: string, versionId: string, imageOwner?: symbol): Promise<ProjectState | null> => {
+    const project = await this.getProject(projectId, imageOwner);
+    return project ? getProjectVersionState(project, versionId) : null;
+  };
+
+  deleteProjectVersion = async (projectId: string, versionId: string): Promise<void> => {
+    const ready = await this.ensureReady({ prompt: false });
+    if (!ready || !this.rootHandle) throw new Error('Project storage folder is unavailable or write permission was not granted.');
+
+    const operation = this.writeQueue.then(async () => {
+      const owner = imageAssets.createOwner();
+      try {
+        const existing = await this.readProjectFromDisk(projectId, owner);
+        if (!existing) return;
+        const nextProject = removeProjectVersion(existing, versionId);
+        const assets = Object.fromEntries(captureImageAssets(collectProjectImagePages(writeProject(nextProject))));
+        await this.writeProjectToDisk(nextProject, assets);
+      } finally {
+        imageAssets.release(owner);
+      }
+    });
+
+    this.writeQueue = operation.then(() => {}, () => {});
     return operation;
   };
 

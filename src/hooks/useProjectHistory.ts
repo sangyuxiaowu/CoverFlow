@@ -25,6 +25,13 @@ const sameContent = (left: ProjectState | undefined, right: ProjectState) => {
   return left.id === right.id && left.title === right.title && left.version === right.version && left.pages.length === right.pages.length && left.pages.every((page, index) => page === right.pages![index]);
 };
 
+const preserveVersions = (target: ProjectState, current: ProjectState | null): ProjectState => {
+  const next = { ...target };
+  if (current?.versions?.length) next.versions = current.versions;
+  else delete next.versions;
+  return next;
+};
+
 export interface AiProjectHistory {
   begin: (project?: ProjectState | null) => symbol | null;
   isValid: (token: symbol) => boolean;
@@ -80,7 +87,7 @@ export function useProjectHistory(project: ProjectState | null, setProject: Disp
     },
     restore: token => {
       if (!isCheckpointValid(token)) { clearCheckpoint(); return null; }
-      const restored = cloneProject(checkpoint.current!.snapshot);
+      const restored = preserveVersions(cloneProject(checkpoint.current!.snapshot), project);
       clearCheckpoint();
       return restored;
     },
@@ -119,7 +126,7 @@ export function useProjectHistory(project: ProjectState | null, setProject: Disp
     clearCheckpoint();
     isUndoRedoAction.current = true;
     setProject(current => {
-      const restored = cloneProject(history[historyIndex - 1]);
+      const restored = preserveVersions(cloneProject(history[historyIndex - 1]), current);
       return current?.activePageId && restored.pages?.some(page => page.id === current.activePageId) ? selectProjectPage(restored, current.activePageId) : restored;
     });
     setHistoryIndex(historyIndex - 1);
@@ -130,7 +137,7 @@ export function useProjectHistory(project: ProjectState | null, setProject: Disp
     clearCheckpoint();
     isUndoRedoAction.current = true;
     setProject(current => {
-      const restored = cloneProject(history[historyIndex + 1]);
+      const restored = preserveVersions(cloneProject(history[historyIndex + 1]), current);
       return current?.activePageId && restored.pages?.some(page => page.id === current.activePageId) ? selectProjectPage(restored, current.activePageId) : restored;
     });
     setHistoryIndex(historyIndex + 1);

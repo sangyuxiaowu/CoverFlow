@@ -1,9 +1,9 @@
 import JSZip from 'jszip';
 import { sha256 } from '@noble/hashes/sha2.js';
-import type { ProjectDocument, ProjectState } from '../types.ts';
-import { readProject, writeProject } from './projectCompatibility.ts';
+import type { ProjectDocument, ProjectPage, ProjectState, ProjectVersion } from '../types.ts';
+import { readProject, sameStoredValue, writeProject } from './projectCompatibility.ts';
 import { pagePreviewFingerprintAsync, projectPreviews, rememberProjectPreview } from './projectPreviews.ts';
-import { imageAssets, isImageAsset } from './imageAssets.ts';
+import { collectProjectImagePages, imageAssets, isImageAsset } from './imageAssets.ts';
 
 const FORMAT = 'coverflow-project';
 const FORMAT_VERSION = 2;
@@ -15,23 +15,14 @@ const MAX_PROJECT_SIZE = 32 * 1024 * 1024;
 const MAX_PREVIEW_SIZE = 2 * 1024 * 1024;
 const IMAGE_PATH = /^images\/([a-f0-9]{64})\.([a-z0-9.+-]+)$/;
 const PAGE_PATH = /^pages\/[^/]+\.json$/;
+const VERSION_PATH = /^versions\/[^/]+\.json$/;
 const PREVIEW_PATH = /^previews\/(0|[1-9][0-9]?)\.webp$/;
 let archiveQueue: Promise<void> = Promise.resolve();
 
 const pagePath = (id: string) => `pages/${encodeURIComponent(id)}.json`;
+const versionPath = (id: string) => `versions/${encodeURIComponent(id)}.json`;
 
-export const sameStoredValue = (left: unknown, right: unknown): boolean => {
-  if (left === right) return true;
-  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
-  if (Array.isArray(left) || Array.isArray(right)) {
-    return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => sameStoredValue(item, right[index]));
-  }
-  const leftObject = left as Record<string, unknown>;
-  const rightObject = right as Record<string, unknown>;
-  const keys = Object.keys(leftObject).filter(key => leftObject[key] !== undefined);
-  return keys.length === Object.keys(rightObject).filter(key => rightObject[key] !== undefined).length &&
-    keys.every(key => Object.hasOwn(rightObject, key) && sameStoredValue(leftObject[key], rightObject[key]));
-};
+export { sameStoredValue } from './projectCompatibility.ts';
 
 type ArchiveTask = { kind: 'encode'; project: ProjectState; previews: Record<string, Uint8Array>; assets: Record<string, Blob> } |
   { kind: 'previews'; project: ProjectState; previews: Record<string, Uint8Array>; bytes: Uint8Array };
@@ -86,18 +77,31 @@ const toBase64 = (bytes: Uint8Array) => {
   return btoa(binary);
 };
 
-const mapImages = async (document: ProjectDocument, transform: (value: string) => Promise<string>): Promise<ProjectDocument> => ({
-  ...document,
-  pages: await Promise.all(document.pages.map(async page => ({
+const mapPagesImages = (pages: ProjectPage[], transform: (value: string) => Promise<string>): Promise<ProjectPage[]> =>
+  Promise.all(pages.map(async page => ({
     ...page,
     pageInfo: { ...page.pageInfo, background: page.pageInfo.background.type === 'image' ? { ...page.pageInfo.background, value: await transform(page.pageInfo.background.value) } : page.pageInfo.background },
     layers: await Promise.all(page.layers.map(async layer => layer.type === 'image' ? { ...layer, content: await transform(layer.content) } : layer))
-  })))
-});
+  })));
+
+const mapImages = async (document: ProjectDocument, transform: (value: string) => Promise<string>): Promise<ProjectDocument> => {
+  const pages = await mapPagesImages(document.pages, transform);
+  const versions = document.versions?.length
+    ? await Promise.all(document.versions.map(async version => ({
+      ...version,
+      pages: await mapPagesImages(version.pages, transform)
+    })))
+    : undefined;
+  return {
+    ...document,
+    pages,
+    ...(versions ? { versions } : {})
+  };
+};
 
 export async function encodeProjectArchive(project: ProjectState, previews: Record<string, Uint8Array> = projectPreviews(project), suppliedAssets?: Record<string, Blob>): Promise<Uint8Array> {
   const assets: Record<string, Blob> = {};
-  for (const page of writeProject(project).pages) {
+  for (const page of collectProjectImagePages(writeProject(project))) {
     const values = page.layers.filter(layer => layer.type === 'image').map(layer => layer.content);
     if (page.pageInfo.background.type === 'image') values.push(page.pageInfo.background.value);
     for (const value of values) {
@@ -145,7 +149,7 @@ async function encodeProjectArchiveDirect(project: ProjectState, previews: Recor
     const preview = previews[page.id];
     return preview && preview.length <= MAX_PREVIEW_SIZE && isWebP(preview) ? pagePreviewFingerprintAsync(page) : null;
   }));
-  const { pages, ...metadata } = document;
+  const { pages, versions, ...metadata } = document;
   for (const page of pages) {
     const text = JSON.stringify(page);
     const size = new TextEncoder().encode(text).length;
@@ -153,7 +157,25 @@ async function encodeProjectArchiveDirect(project: ProjectState, previews: Recor
     expandedSize += size;
     zip.file(pagePath(page.id), text, { compression: 'DEFLATE' });
   }
-  const manifest = JSON.stringify({ format: FORMAT, formatVersion: FORMAT_VERSION, project: { ...metadata, pageIds: pages.map(page => page.id) }, previews: previewFingerprints });
+  if (versions?.length) {
+    for (const version of versions) {
+      const text = JSON.stringify(version);
+      const size = new TextEncoder().encode(text).length;
+      if (size > MAX_PROJECT_SIZE) throw new Error('Project version exceeds the size limit.');
+      expandedSize += size;
+      zip.file(versionPath(version.id), text, { compression: 'DEFLATE' });
+    }
+  }
+  const manifest = JSON.stringify({
+    format: FORMAT,
+    formatVersion: FORMAT_VERSION,
+    project: {
+      ...metadata,
+      pageIds: pages.map(page => page.id),
+      ...(versions?.length ? { versionIds: versions.map(version => version.id) } : {})
+    },
+    previews: previewFingerprints
+  });
   const manifestSize = new TextEncoder().encode(manifest).length;
   if (manifestSize > MAX_PROJECT_SIZE || expandedSize + manifestSize > MAX_EXPANDED_SIZE) throw new Error('Project manifest exceeds the size limit.');
   zip.file('project.json', manifest, { compression: 'DEFLATE' });
@@ -182,14 +204,15 @@ async function openProjectArchive(bytes: Uint8Array): Promise<{ zip: JSZip; proj
     if (entry.dir) continue;
     const size = unsafe._data?.uncompressedSize;
     if (PREVIEW_PATH.test(entry.name) && (!Number.isSafeInteger(size) || size! < 0 || size! > MAX_PREVIEW_SIZE)) continue;
-    if (!Number.isSafeInteger(size) || size! < 0 || size! > (entry.name === 'project.json' || PAGE_PATH.test(entry.name) ? MAX_PROJECT_SIZE : MAX_IMAGE_SIZE)) throw new Error('Invalid project archive entry size.');
-    if (entry.name !== 'project.json' && !PAGE_PATH.test(entry.name) && !IMAGE_PATH.test(entry.name) && !PREVIEW_PATH.test(entry.name)) throw new Error('Unexpected project archive entry.');
+    const isJsonEntry = entry.name === 'project.json' || PAGE_PATH.test(entry.name) || VERSION_PATH.test(entry.name);
+    if (!Number.isSafeInteger(size) || size! < 0 || size! > (isJsonEntry ? MAX_PROJECT_SIZE : MAX_IMAGE_SIZE)) throw new Error('Invalid project archive entry size.');
+    if (!isJsonEntry && !IMAGE_PATH.test(entry.name) && !PREVIEW_PATH.test(entry.name)) throw new Error('Unexpected project archive entry.');
     expandedSize += size!;
     if (expandedSize > MAX_EXPANDED_SIZE) throw new Error('Project archive expands beyond the size limit.');
   }
   const projectFile = zip.file('project.json');
   if (!projectFile) throw new Error('Missing project manifest.');
-  const manifest = JSON.parse(await projectFile.async('string')) as { format?: unknown; formatVersion?: unknown; project?: { pageIds?: unknown }; previews?: unknown };
+  const manifest = JSON.parse(await projectFile.async('string')) as { format?: unknown; formatVersion?: unknown; project?: { pageIds?: unknown; versionIds?: unknown }; previews?: unknown };
   if (manifest.format !== FORMAT || manifest.formatVersion !== FORMAT_VERSION) throw new Error('Unsupported project archive format.');
   const ids = manifest.project?.pageIds;
   if (!Array.isArray(ids) || !ids.length || ids.length > 99 || ids.some(id => typeof id !== 'string' || !id) || new Set(ids).size !== ids.length) throw new Error('Invalid project page index.');
@@ -202,7 +225,31 @@ async function openProjectArchive(bytes: Uint8Array): Promise<{ zip: JSZip; proj
   }));
   const expectedPages = new Set(ids.map(pagePath));
   if (Object.values(zip.files).some(file => !file.dir && PAGE_PATH.test(file.name) && !expectedPages.has(file.name))) throw new Error('Unexpected project page.');
-  return { zip, project: readProject({ ...manifest.project, pages }), previewFingerprints: manifest.previews };
+
+  const versionIds = manifest.project?.versionIds;
+  let versions: ProjectVersion[] | undefined;
+  if (versionIds !== undefined) {
+    if (!Array.isArray(versionIds) || versionIds.some(id => typeof id !== 'string' || !id) || new Set(versionIds).size !== versionIds.length) {
+      throw new Error('Invalid project version index.');
+    }
+    if (versionIds.length > 0) {
+      versions = await Promise.all(versionIds.map(async id => {
+        const file = zip.file(versionPath(id));
+        if (!file) throw new Error('Missing project version.');
+        const record = JSON.parse(await file.async('string')) as ProjectVersion;
+        if (record.id !== id) throw new Error('Invalid project version ID.');
+        return record;
+      }));
+    }
+  }
+  const expectedVersions = new Set((Array.isArray(versionIds) ? versionIds : []).map(versionPath));
+  if (Object.values(zip.files).some(file => !file.dir && VERSION_PATH.test(file.name) && !expectedVersions.has(file.name))) throw new Error('Unexpected project version.');
+
+  return {
+    zip,
+    project: readProject({ ...manifest.project, pages, ...(versions?.length ? { versions } : {}) }),
+    previewFingerprints: manifest.previews
+  };
 }
 
 export async function readProjectArchiveManifest(bytes: Uint8Array): Promise<ProjectState> {
@@ -222,7 +269,7 @@ export async function replaceProjectArchivePreviews(bytes: Uint8Array, project: 
   const manifestSize = new TextEncoder().encode(text).length;
   let expandedSize = manifestSize;
   for (const entry of Object.values(zip.files)) {
-    if (IMAGE_PATH.test(entry.name) || PAGE_PATH.test(entry.name)) expandedSize += (entry as JSZip.JSZipObject & { _data: { uncompressedSize: number } })._data.uncompressedSize;
+    if (IMAGE_PATH.test(entry.name) || PAGE_PATH.test(entry.name) || VERSION_PATH.test(entry.name)) expandedSize += (entry as JSZip.JSZipObject & { _data: { uncompressedSize: number } })._data.uncompressedSize;
   }
   if (manifestSize > MAX_PROJECT_SIZE || expandedSize > MAX_EXPANDED_SIZE) throw new Error('Project manifest exceeds the size limit.');
   zip.file('project.json', text, { compression: 'DEFLATE' });
@@ -289,7 +336,7 @@ export async function decodeProjectArchive(bytes: Uint8Array, owner?: symbol): P
 
 export function prepareProjectArchivePreviews(bytes: Uint8Array, project: ProjectState, previews: Record<string, Uint8Array>): Promise<PreviewUpdate> {
   return runArchiveTask({ kind: 'previews', bytes, project, previews }, async () => {
-    const pages = writeProject(project).pages;
+    const pages = collectProjectImagePages(writeProject(project));
     const binary = pages.some(page => page.layers.some(layer => layer.type === 'image' && isImageAsset(layer.content)) ||
       (page.pageInfo.background.type === 'image' && isImageAsset(page.pageInfo.background.value)));
     const owner = binary ? imageAssets.createOwner() : undefined;

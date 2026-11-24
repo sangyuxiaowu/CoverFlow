@@ -1,9 +1,10 @@
-import type { ProjectState } from '../../../types.ts';
+import type { ProjectState, ProjectVersionSummary } from '../../../types.ts';
 import type { ProjectSummary, StorageAdapter } from '../../../storage/StorageAdapter.ts';
 import type { WorkspaceBridge } from '../types.ts';
 import { parseManageProjectsRequest } from '../tools/requests.ts';
 import { generateId } from '../../../utils/helpers.ts';
 import { syncProjectPages } from '../../../storage/projectCompatibility.ts';
+import { appendProjectVersion } from '../../../storage/versionStore.ts';
 import { copyProject } from '../../../utils/projectPages.ts';
 import type { AiProjectHistory } from '../../../hooks/useProjectHistory.ts';
 import type { LayerClipboard } from '../../../utils/layerClipboard.ts';
@@ -31,6 +32,8 @@ export interface WorkspaceOptions {
   onSearch: (query: string) => void;
   saveLocal: (path: string, project: ProjectState) => Promise<unknown>;
   saveActive?: (project: ProjectState, localPath?: string) => Promise<unknown>;
+  saveOnCommit?: boolean;
+  saveVersion?: (project: ProjectState, info: string) => Promise<ProjectVersionSummary>;
   readLocal?: (path: string) => Promise<ProjectState>;
 }
 
@@ -124,7 +127,7 @@ export function createWorkspaceBridge(
       if (read().project !== options.project || current !== previous) throw new Error('Active project changed while preparing images.');
       current = syncProjectPages(prepared);
       options.onCommit(current);
-      await save(current, options.activeLocalPath || undefined);
+      if (options.saveOnCommit !== false) await save(current, options.activeLocalPath || undefined);
     },
     manageProjects: async (input, signal) => {
       signal.throwIfAborted();
@@ -162,7 +165,26 @@ export function createWorkspaceBridge(
         await open(target.project, target.localPath);
         return { success: true, projectId: id, title: target.project.title };
       }
-      if (args.action === 'save') { await save(target.project, target.localPath); return { success: true, projectId: id }; }
+      if (args.action === 'save') {
+        if (args.versionInfo) {
+          if (options.saveVersion) {
+            await save(target.project, target.localPath);
+            const version = await options.saveVersion(target.project, args.versionInfo);
+            return { success: true, projectId: id, versionId: version.id, versionInfo: version.info };
+          }
+          const { project: versioned, summary } = appendProjectVersion(target.project, args.versionInfo);
+          const nextProject = { ...versioned, updatedAt: Date.now() };
+          if (current?.id === id) {
+            current = nextProject;
+            options.onCommit(nextProject);
+          }
+          await save(nextProject, target.localPath);
+          options.onUpsert(nextProject);
+          return { success: true, projectId: id, versionId: summary.id, versionInfo: summary.info };
+        }
+        await save(target.project, target.localPath);
+        return { success: true, projectId: id };
+      }
       if (args.action === 'delete') {
         if (!await confirm(`删除项目「${target.project.title}」？${target.localPath ? '仅移除最近打开记录，不删除磁盘文件。' : '此操作不可撤销。'}`, signal)) throw new Error('User cancelled project deletion.');
         signal.throwIfAborted();

@@ -117,12 +117,33 @@ export interface ProjectPage {
   pageInfo: PageInfo;
 }
 
+export interface ProjectVersionSummary {
+  id: string;
+  projectId: string;
+  info: string;
+  createdAt: number;
+  title: string;
+  pageCount: number;
+  width: number;
+  height: number;
+}
+
+export interface ProjectVersion {
+  id: string;
+  info: string;
+  createdAt: number;
+  title: string;
+  version?: string;
+  pages: ProjectPage[];
+}
+
 export interface ProjectDocument {
   id: string;
   version: string;
   schemaVersion: number;
   title: string;
   pages: ProjectPage[];
+  versions?: ProjectVersion[];
   updatedAt: number;
 }
 
@@ -131,12 +152,15 @@ export interface ProjectState {
   version?: string;
   title: string;
   pages?: ProjectPage[];
+  versions?: ProjectVersion[];
   activePageId?: string;
   layers: Layer[];
   pageInfo: PageInfo;
   selectedLayerId: string | null;
   updatedAt: number;
 }
+
+export type ProjectSaveStatus = 'saved' | 'unsaved' | 'saving' | 'error';
 
 export interface PresetRatio {
   name: string;

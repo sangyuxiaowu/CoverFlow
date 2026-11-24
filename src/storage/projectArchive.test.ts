@@ -5,6 +5,7 @@ import { readLegacyCfj, readLegacyCfjx } from './legacyCfj.ts';
 import * as hashes from '@noble/hashes/sha2.js';
 import { pagePreviewFingerprint, pagePreviewFingerprintAsync } from './projectPreviews.ts';
 import { imageAssets } from './imageAssets.ts';
+import { appendProjectVersion } from './versionStore.ts';
 
 const image = 'data:image/png;base64,AQIDBA==';
 const legacy = JSON.stringify({ id: 'legacy', title: 'Test', version: '9.2.7', updatedAt: 1, pages: [{ id: 'page', name: '', layers: [{ id: 'image', type: 'image', content: image }], background: { type: 'image', value: image, overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 }, canvasConfig: { width: 900, height: 383, ratio: '2.35:1' } }] });
@@ -319,6 +320,34 @@ describe('project archive', () => {
       expect(await decodeProjectArchive(await encodeProjectArchive(project))).toEqual(project);
     } finally {
       vi.unstubAllGlobals();
+    }
+  });
+
+  it('embeds version records in .cfjx, shares deduplicated images, and validates version entries', async () => {
+    const owner = imageAssets.createOwner();
+    try {
+      const base = await decodeProjectArchive(await encodeProjectArchive(readLegacyCfj(legacy), {}), owner);
+      const { project: withV1, summary: v1 } = appendProjectVersion(base, 'With image', 1000);
+      const withoutLayer = {
+        ...withV1,
+        title: 'Edited active',
+        layers: [],
+        pages: [{ ...withV1.pages![0], layers: [] }]
+      };
+      const bytes = await encodeProjectArchive(withoutLayer, {});
+      const archive = await JSZip.loadAsync(bytes);
+      expect(Object.keys(archive.files).filter(name => name.startsWith('images/') && !archive.files[name].dir)).toHaveLength(1);
+      expect(archive.file(`versions/${encodeURIComponent(v1.id)}.json`)).toBeTruthy();
+
+      const decoded = await decodeProjectArchive(bytes);
+      expect(decoded.versions).toHaveLength(1);
+      expect(decoded.versions![0].info).toBe('With image');
+      expect(decoded.versions![0].pages[0].layers[0].content).toBe(image);
+
+      archive.file('versions/unexpected.json', JSON.stringify({ id: 'unexpected', info: 'x', createdAt: 1, title: 'x', pages: [] }));
+      await expect(decodeProjectArchive(await archive.generateAsync({ type: 'uint8array' }))).rejects.toThrow('Unexpected project version');
+    } finally {
+      imageAssets.release(owner);
     }
   });
 });

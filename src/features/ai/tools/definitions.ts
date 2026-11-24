@@ -37,7 +37,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   tool('manage_projects', '打开、重命名、复制、删除或保存项目。删除会触发授权弹窗。', object('', {
     action: enumeration('操作', Object.keys(PROJECT_MANAGE_RULES)),
     projectId: string('目标项目 ID，来自 get_context 或 search_projects，不限于当前项目。'),
-    title: string('项目名称，rename 必填，duplicate 省略时自动追加 (copy)。')
+    title: string('项目名称，rename 必填，duplicate 省略时自动追加 (copy)。'),
+    versionInfo: { ...string('仅 save 可选；提供时保存项目并同时保存一个带该说明的新版本快照（最多 200 字）。'), maxLength: 200 }
   }, ['action', 'projectId'])),
   // 素材管理
   tool('search_assets', '搜索素材文件夹中的素材。', object('搜索条件', {

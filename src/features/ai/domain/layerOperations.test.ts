@@ -193,3 +193,15 @@ test('image provenance survives transforms and copies but clears when the image 
   assert.equal(described.layers[0].imageSource, 'upload');
   assert.equal(described.layers[0].imageDescription, 'My photo');
 });
+
+test('one-step ordering moves an interleaved group as a unit in either direction', () => {
+  const original = project();
+  const grouped = editLayers(original, 'group', ['a', 'b']);
+  const groupId = grouped.selectedLayerId!;
+  assert.deepEqual(grouped.layers.sort((left, right) => left.zIndex - right.zIndex).map(item => item.id), ['a', 'b', 'c', groupId]);
+  const forward = editLayers(grouped, 'forward', [groupId]);
+  assert.deepEqual(forward.layers.map(item => item.id), ['c', 'a', 'b', groupId]);
+  const backward = editLayers(forward, 'backward', [groupId]);
+  assert.deepEqual(backward.layers.map(item => item.id), ['a', 'b', groupId, 'c']);
+  assert.deepEqual(editLayers(forward, 'forward', ['c']).layers.map(item => item.id), ['a', 'b', groupId, 'c']);
+});

@@ -8,16 +8,23 @@ const ConfirmModal = ({
   message,
   onConfirm,
   onCancel,
-  lang
+  lang,
+  confirmLabel,
+  tone = 'danger'
 }: {
   isOpen: boolean;
   message: string;
   onConfirm: () => void;
   onCancel: () => void;
   lang: Language;
+  confirmLabel?: string;
+  tone?: 'danger' | 'primary';
 }) => {
   if (!isOpen) return null;
   const t = translations[lang];
+  const confirmButtonClass = tone === 'primary'
+    ? 'px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-900/20 transition-all active:scale-95'
+    : 'px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-900/20 transition-all active:scale-95';
 
   return (
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -39,9 +46,9 @@ const ConfirmModal = ({
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-900/20 transition-all active:scale-95"
+            className={confirmButtonClass}
           >
-            {t.confirmDeleteAction}
+            {confirmLabel ?? t.confirmDeleteAction}
           </button>
         </div>
       </div>

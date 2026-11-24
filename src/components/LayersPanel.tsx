@@ -30,7 +30,7 @@ import {
   Eye, EyeOff, Lock, Unlock, Trash2, Hash, RotateCw, Maximize2, 
   Type as TextIcon, Image as ImageIcon, GripVertical, Link as LinkIcon, Link2Off, MoveHorizontal, MoveVertical,
   Palette, Sliders, AlignLeft, AlignCenter, AlignRight, Type, Search, ChevronDown, Check, Folder,
-  Copy, Trash, ArrowUpToLine, ArrowDownToLine, Layers, Ungroup, PanelRightClose, PanelRightOpen,
+  Copy, Trash, ArrowUpToLine, ArrowDownToLine, ArrowUp, ArrowDown, Layers, Ungroup, PanelRightClose, PanelRightOpen,
   FlipHorizontal2, FlipVertical2, Crop as CropIcon, RotateCcw, ClipboardPlus
 } from 'lucide-react';
 
@@ -51,6 +51,8 @@ interface LayersPanelProps {
   onCopyToClipboard: (ids: string[]) => void;
   onDeleteLayers: (ids: string[]) => void;
   onMoveLayersTop: (ids: string[]) => void;
+  onMoveLayersForward?: (ids: string[]) => void;
+  onMoveLayersBackward?: (ids: string[]) => void;
   onMoveLayersBottom: (ids: string[]) => void;
   onGroupLayers: (ids: string[]) => void;
   onUngroupLayer: (id: string) => void;
@@ -110,6 +112,8 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   onCopyToClipboard,
   onDeleteLayers,
   onMoveLayersTop,
+  onMoveLayersForward,
+  onMoveLayersBackward,
   onMoveLayersBottom,
   onGroupLayers,
   onUngroupLayer,
@@ -1484,6 +1488,24 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
             <ArrowUpToLine className="w-3.5 h-3.5" />
             {t.bringToFront}
           </button>
+          {onMoveLayersForward && (
+            <button
+              className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors flex items-center gap-2"
+              onClick={() => { onMoveLayersForward(menuSelection); setContextMenu(null); }}
+            >
+              <ArrowUp className="w-3.5 h-3.5" />
+              {t.bringForward}
+            </button>
+          )}
+          {onMoveLayersBackward && (
+            <button
+              className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors flex items-center gap-2"
+              onClick={() => { onMoveLayersBackward(menuSelection); setContextMenu(null); }}
+            >
+              <ArrowDown className="w-3.5 h-3.5" />
+              {t.sendBackward}
+            </button>
+          )}
           <button
             className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors flex items-center gap-2"
             onClick={() => { onMoveLayersBottom(menuSelection); setContextMenu(null); }}

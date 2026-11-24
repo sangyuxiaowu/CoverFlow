@@ -1,10 +1,23 @@
-import type { ProjectDocument, ProjectPage, ProjectState } from '../types.ts';
+import type { ProjectDocument, ProjectPage, ProjectState, ProjectVersion } from '../types.ts';
 import { generateId } from '../utils/helpers.ts';
 import { migrateLegacyProject } from './legacyCfj.ts';
 
 export const PROJECT_FORMAT_VERSION = '9.0.0';
 export const MAX_PROJECT_PAGES = 99;
 type StoredData = Record<string, unknown>;
+
+export const sameStoredValue = (left: unknown, right: unknown): boolean => {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => sameStoredValue(item, right[index]));
+  }
+  const leftObject = left as Record<string, unknown>;
+  const rightObject = right as Record<string, unknown>;
+  const keys = Object.keys(leftObject).filter(key => leftObject[key] !== undefined);
+  return keys.length === Object.keys(rightObject).filter(key => rightObject[key] !== undefined).length &&
+    keys.every(key => Object.hasOwn(rightObject, key) && sameStoredValue(leftObject[key], rightObject[key]));
+};
 
 const versionNumber = (version: unknown): number[] => {
   if (version === undefined) return [0, 0, 0];
@@ -21,14 +34,10 @@ const compareVersions = (left: unknown, right: string) => {
   return 0;
 };
 
-export function migrateProject(input: unknown): ProjectDocument {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid project data.');
-  const data = migrateLegacyProject({ ...input } as StoredData);
-  if (data.schemaVersion !== 1) throw new Error('Unsupported project schema version.');
-  if (typeof data.id !== 'string' || !data.id || typeof data.title !== 'string') throw new Error('Invalid project metadata.');
-  if (!Array.isArray(data.pages) || !data.pages.length || data.pages.length > MAX_PROJECT_PAGES) throw new Error('A project must contain 1-99 pages.');
+const normalizePages = (rawPages: unknown): ProjectPage[] => {
+  if (!Array.isArray(rawPages) || !rawPages.length || rawPages.length > MAX_PROJECT_PAGES) throw new Error('A project must contain 1-99 pages.');
   const ids = new Set<string>();
-  const pages = data.pages.map((item): ProjectPage => {
+  return rawPages.map((item): ProjectPage => {
     if (!item || typeof item !== 'object') throw new Error('Invalid page.');
     const page = item as ProjectPage;
     if (typeof page.id !== 'string' || !page.id || ids.has(page.id)) throw new Error('Invalid or duplicate page ID.');
@@ -36,7 +45,49 @@ export function migrateProject(input: unknown): ProjectDocument {
     ids.add(page.id);
     return { id: page.id, name: typeof page.name === 'string' ? page.name : '', layers: page.layers, pageInfo: { width: page.pageInfo.width, height: page.pageInfo.height, background: page.pageInfo.background } };
   });
-  return { id: data.id, title: data.title, version: typeof data.version === 'string' ? data.version : PROJECT_FORMAT_VERSION, schemaVersion: 1, pages, updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : Date.now() };
+};
+
+const normalizeVersions = (rawVersions: unknown): ProjectVersion[] | undefined => {
+  if (rawVersions === undefined) return undefined;
+  if (!Array.isArray(rawVersions)) throw new Error('Invalid project versions.');
+  if (!rawVersions.length) return undefined;
+  const ids = new Set<string>();
+  return rawVersions.map((item): ProjectVersion => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('Invalid project version entry.');
+    const record = item as Record<string, unknown>;
+    if (typeof record.id !== 'string' || !record.id || ids.has(record.id)) throw new Error('Invalid or duplicate project version ID.');
+    if (typeof record.info !== 'string' || !record.info.trim() || record.info.trim().length > 200) throw new Error('Invalid project version info.');
+    if (typeof record.createdAt !== 'number' || !Number.isFinite(record.createdAt)) throw new Error('Invalid project version timestamp.');
+    if (typeof record.title !== 'string') throw new Error('Invalid project version title.');
+    if (record.version !== undefined) versionNumber(record.version);
+    ids.add(record.id);
+    return {
+      id: record.id,
+      info: record.info.trim(),
+      createdAt: record.createdAt,
+      title: record.title,
+      ...(typeof record.version === 'string' ? { version: record.version } : {}),
+      pages: normalizePages(record.pages)
+    };
+  });
+};
+
+export function migrateProject(input: unknown): ProjectDocument {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid project data.');
+  const data = migrateLegacyProject({ ...input } as StoredData);
+  if (data.schemaVersion !== 1) throw new Error('Unsupported project schema version.');
+  if (typeof data.id !== 'string' || !data.id || typeof data.title !== 'string') throw new Error('Invalid project metadata.');
+  const pages = normalizePages(data.pages);
+  const versions = normalizeVersions(data.versions);
+  return {
+    id: data.id,
+    title: data.title,
+    version: typeof data.version === 'string' ? data.version : PROJECT_FORMAT_VERSION,
+    schemaVersion: 1,
+    pages,
+    ...(versions ? { versions } : {}),
+    updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : Date.now()
+  };
 }
 
 export function readProject(input: unknown): ProjectState {
@@ -46,18 +97,33 @@ export function readProject(input: unknown): ProjectState {
 }
 
 export function syncProjectPages(project: ProjectState): ProjectState {
+  const versions = project.versions?.length ? project.versions : undefined;
   if (!project.pages?.length) {
     const page: ProjectPage = { id: generateId(), name: '', layers: project.layers, pageInfo: project.pageInfo };
-    return { ...project, version: PROJECT_FORMAT_VERSION, pages: [page], activePageId: page.id };
+    const next: ProjectState = { ...project, version: PROJECT_FORMAT_VERSION, pages: [page], activePageId: page.id };
+    if (versions) next.versions = versions;
+    else delete next.versions;
+    return next;
   }
   const active = project.pages.find(page => page.id === project.activePageId) ?? project.pages[0];
   const pages = active.layers === project.layers && active.pageInfo === project.pageInfo
     ? project.pages
     : project.pages.map(page => page.id !== active.id ? page : { ...page, layers: project.layers, pageInfo: project.pageInfo });
-  return { ...project, version: project.version && compareVersions(project.version, PROJECT_FORMAT_VERSION) >= 0 ? project.version : PROJECT_FORMAT_VERSION, activePageId: active.id, pages };
+  const next: ProjectState = { ...project, version: project.version && compareVersions(project.version, PROJECT_FORMAT_VERSION) >= 0 ? project.version : PROJECT_FORMAT_VERSION, activePageId: active.id, pages };
+  if (versions) next.versions = versions;
+  else delete next.versions;
+  return next;
 }
 
 export function writeProject(project: ProjectState): ProjectDocument {
   const synced = syncProjectPages(project);
-  return { id: synced.id, title: synced.title, version: synced.version ?? PROJECT_FORMAT_VERSION, schemaVersion: 1, updatedAt: synced.updatedAt, pages: synced.pages! };
+  return {
+    id: synced.id,
+    title: synced.title,
+    version: synced.version ?? PROJECT_FORMAT_VERSION,
+    schemaVersion: 1,
+    updatedAt: synced.updatedAt,
+    pages: synced.pages!,
+    ...(synced.versions?.length ? { versions: synced.versions } : {})
+  };
 }

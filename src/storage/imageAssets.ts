@@ -1,5 +1,5 @@
 import { sha256 } from '@noble/hashes/sha2.js';
-import type { ProjectPage } from '../types.ts';
+import type { ProjectPage, ProjectVersion } from '../types.ts';
 
 const PREFIX = 'asset-image:';
 type Entry = { blob: Blob; owners: Set<symbol>; url?: string };
@@ -76,6 +76,12 @@ export class ImageAssetCache {
 export const isImageAsset = (value: string) => value.startsWith(PREFIX);
 export const imageAssets = new ImageAssetCache();
 export const resolveImageSource = (value: string) => isImageAsset(value) ? imageAssets.url(value) : value;
+
+export function collectProjectImagePages(project: { pages?: ProjectPage[]; versions?: ProjectVersion[] }): ProjectPage[] {
+  const pages = project.pages ?? [];
+  if (!project.versions?.length) return pages;
+  return [...pages, ...project.versions.flatMap(version => version.pages)];
+}
 
 export function captureImageAssets(pages: ProjectPage[]): Map<string, Blob> {
   const blobs = new Map<string, Blob>();

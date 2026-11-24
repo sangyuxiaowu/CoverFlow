@@ -261,3 +261,42 @@ it('clears undo history when the project is closed', async () => {
     expect(state!.canRedo).toBe(false);
   } finally { await act(async () => root.unmount()); vi.unstubAllGlobals(); }
 });
+
+it('preserves embedded versions across undo, redo, and AI checkpoint restore', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const initial = syncProjectPages({ id: 'ver-hist', title: 'Initial', layers: [], selectedLayerId: null, updatedAt: 1,
+    pageInfo: { width: 100, height: 100, background: { type: 'color', value: '#fff', overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 } } });
+  let state: ReturnType<typeof useProjectHistory> & { project: ProjectState | null };
+  function Harness() {
+    const [project, setProject] = useState<ProjectState | null>(initial);
+    state = { ...useProjectHistory(project, setProject), project };
+    return null;
+  }
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(<Harness />));
+    await act(async () => state!.initProjectHistory(initial));
+    await act(async () => state!.modifyProject(current => ({ ...current, title: 'Edited' })));
+    const savedVersion = { id: 'v1', info: 'Snapshot', createdAt: 100, title: 'Edited', pages: state!.project!.pages! };
+    await act(async () => state!.modifyProject(current => ({ ...current, versions: [savedVersion] }), false));
+    await act(async () => state!.handleUndo());
+    expect(state!.project!.title).toBe('Initial');
+    expect(state!.project!.versions).toEqual([savedVersion]);
+    await act(async () => state!.handleRedo());
+    expect(state!.project!.title).toBe('Edited');
+    expect(state!.project!.versions).toEqual([savedVersion]);
+
+    let token!: symbol;
+    await act(async () => { token = state!.aiHistory.begin()!; });
+    const laterVersion = { id: 'v2', info: 'After AI', createdAt: 200, title: 'AI Title', pages: state!.project!.pages! };
+    await act(async () => state!.aiHistory.commit({ ...state!.project!, title: 'AI Title', versions: [laterVersion, savedVersion] }));
+    state!.aiHistory.setRunning(token, false);
+    let restored: ProjectState | null = null;
+    await act(async () => { restored = state!.aiHistory.restore(token); });
+    expect(restored?.title).toBe('Edited');
+    expect(restored?.versions).toEqual([laterVersion, savedVersion]);
+  } finally {
+    await act(async () => root.unmount());
+    vi.unstubAllGlobals();
+  }
+});

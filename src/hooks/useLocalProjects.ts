@@ -4,7 +4,7 @@ import { decodeProjectArchive, encodeProjectArchive } from '../storage/projectAr
 import { readLegacyCfj } from '../storage/legacyCfj.ts';
 import { summarizeProject, type ProjectSummary } from '../storage/StorageAdapter.ts';
 import { pagePreviewFingerprint } from '../storage/projectPreviews.ts';
-import { captureImageAssets } from '../storage/imageAssets.ts';
+import { captureImageAssets, collectProjectImagePages } from '../storage/imageAssets.ts';
 import { writeProject } from '../storage/projectCompatibility.ts';
 import { ProjectImageSession } from '../storage/projectImageSession.ts';
 
@@ -128,7 +128,7 @@ export const useLocalProjects = ({
   }, [isTauri, openLocalProjectFromPath]);
 
   const saveLocalProjectToFile = useCallback(async (path: string, projectData: ProjectState) => {
-    const assets = Object.fromEntries(captureImageAssets(writeProject(projectData).pages));
+    const assets = Object.fromEntries(captureImageAssets(collectProjectImagePages(writeProject(projectData))));
     const { writeFile } = await import('@tauri-apps/plugin-fs');
     const nextProject = { ...projectData, updatedAt: Date.now() };
     let targetPath = path;

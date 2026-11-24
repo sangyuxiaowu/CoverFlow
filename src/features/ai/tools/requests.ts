@@ -68,6 +68,7 @@ interface ProjectFields {
   pageSize: number;
   width: number;
   height: number;
+  versionInfo: string;
 }
 
 export const PROJECT_RULES = {
@@ -77,7 +78,7 @@ export const PROJECT_RULES = {
   rename: { required: ['projectId', 'title'], optional: [] },
   duplicate: { required: ['projectId'], optional: ['title'] },
   delete: { required: ['projectId'], optional: [] },
-  save: { required: ['projectId'], optional: [] }
+  save: { required: ['projectId'], optional: ['versionInfo'] }
 } as const satisfies Record<string, { required: readonly (keyof ProjectFields)[]; optional: readonly (keyof ProjectFields)[] }>;
 
 export const PROJECT_MANAGE_RULES = {
@@ -150,6 +151,11 @@ export function parseManageProjectsRequest(input: unknown): ManageProjectsReques
     page: value => integer(value, 'page', 100000),
     pageSize: value => integer(value, 'pageSize', 50),
     width: value => number(value, 'width', 10, 10000),
-    height: value => number(value, 'height', 10, 10000)
+    height: value => number(value, 'height', 10, 10000),
+    versionInfo: value => {
+      const trimmed = text(value, 'versionInfo').trim();
+      if (trimmed.length > 200) throw new Error('Invalid versionInfo');
+      return trimmed;
+    }
   }) as ManageProjectsRequest;
 }

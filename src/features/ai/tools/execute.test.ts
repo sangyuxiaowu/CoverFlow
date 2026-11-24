@@ -664,7 +664,7 @@ test('flat tool schemas and runtime action contracts stay aligned', () => {
 
 test('action parsers accept every valid action and reject every cross-action field', () => {
   const layerSamples: Record<string, unknown> = { projectId: 'p1', layerIds: ['a', 'b', 'c'], properties: { layerInfo: { opacity: 0.5 } }, name: 'Group', mode: 'left' };
-  const projectSamples: Record<string, unknown> = { projectId: 'p1', title: 'Title', page: 1, pageSize: 20, query: 'Find', width: 800, height: 600 };
+  const projectSamples: Record<string, unknown> = { projectId: 'p1', title: 'Title', page: 1, pageSize: 20, query: 'Find', width: 800, height: 600, versionInfo: 'Initial milestone' };
   for (const [rules, samples, parse] of [[EDIT_LAYER_RULES, layerSamples, parseEditLayersRequest], [PROJECT_RULES, projectSamples, parseManageProjectsRequest]] as const) {
     for (const [action, rule] of Object.entries(rules)) {
       const allowed: readonly string[] = [...rule.required, ...rule.optional];

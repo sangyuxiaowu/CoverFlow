@@ -40,7 +40,7 @@ export class ProjectImageSession {
       }
       return result;
     };
-    const pages = await Promise.all(synced.pages!.map(async page => {
+    const convertPages = (sourcePages: ProjectPage[]) => Promise.all(sourcePages.map(async page => {
       const layers = await Promise.all(page.layers.map(async layer => {
         if (layer.type !== 'image') return layer;
         const content = await convert(layer.content);
@@ -50,12 +50,19 @@ export class ProjectImageSession {
       const value = background.type === 'image' ? await convert(background.value) : background.value;
       const changedLayers = layers.some((layer, index) => layer !== page.layers[index]);
       if (!changedLayers && value === background.value) return page;
-      return { ...page, layers: changedLayers ? layers : page.layers,
-        pageInfo: value === background.value ? page.pageInfo : { ...page.pageInfo, background: { ...background, value } } };
+      return {
+        ...page,
+        layers: changedLayers ? layers : page.layers,
+        pageInfo: value === background.value ? page.pageInfo : { ...page.pageInfo, background: { ...background, value } }
+      };
     }));
+    const pages = await convertPages(synced.pages!);
+    const versions = synced.versions?.length
+      ? await Promise.all(synced.versions.map(async version => ({ ...version, pages: await convertPages(version.pages) })))
+      : undefined;
     if (this.closed) throw new Error('Project image session has been closed.');
     const active = pages.find(page => page.id === synced.activePageId)!;
-    return { ...synced, pages, layers: active.layers, pageInfo: active.pageInfo };
+    return { ...synced, pages, ...(versions ? { versions } : {}), layers: active.layers, pageInfo: active.pageInfo };
   }
 
   reconcile(projects: ProjectState[]): void {
@@ -63,7 +70,9 @@ export class ProjectImageSession {
     const live = new Set<string>();
     const visited = new Set<ProjectPage>();
     for (const project of projects) {
-      for (const page of syncProjectPages(project).pages!) {
+      const synced = syncProjectPages(project);
+      const allPages = [...synced.pages!, ...(synced.versions?.flatMap(version => version.pages) ?? [])];
+      for (const page of allPages) {
         if (visited.has(page)) continue;
         visited.add(page);
         let references = this.pageReferences.get(page);
@@ -88,7 +97,8 @@ export class ProjectImageSession {
 
 export async function embedProjectImageAssets(project: ProjectState): Promise<ProjectState> {
   const synced = syncProjectPages(project);
-  const blobs = captureImageAssets(synced.pages!);
+  const allPages = [...synced.pages!, ...(synced.versions?.flatMap(version => version.pages) ?? [])];
+  const blobs = captureImageAssets(allPages);
   const values = new Map<string, string>();
   await Promise.all([...blobs].map(async ([reference, blob]) => {
     const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -96,11 +106,20 @@ export async function embedProjectImageAssets(project: ProjectState): Promise<Pr
     for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
     values.set(reference, `data:${blob.type};base64,${btoa(binary)}`);
   }));
-  const pages = synced.pages!.map(page => ({ ...page,
+  const replacePages = (sourcePages: ProjectPage[]) => sourcePages.map(page => ({
+    ...page,
     layers: page.layers.map(layer => layer.type === 'image' && values.has(layer.content) ? { ...layer, content: values.get(layer.content)! } : layer),
-    pageInfo: { ...page.pageInfo, background: page.pageInfo.background.type === 'image' && values.has(page.pageInfo.background.value)
-      ? { ...page.pageInfo.background, value: values.get(page.pageInfo.background.value)! } : page.pageInfo.background }
+    pageInfo: {
+      ...page.pageInfo,
+      background: page.pageInfo.background.type === 'image' && values.has(page.pageInfo.background.value)
+        ? { ...page.pageInfo.background, value: values.get(page.pageInfo.background.value)! }
+        : page.pageInfo.background
+    }
   }));
+  const pages = replacePages(synced.pages!);
+  const versions = synced.versions?.length
+    ? synced.versions.map(version => ({ ...version, pages: replacePages(version.pages) }))
+    : undefined;
   const active = pages.find(page => page.id === synced.activePageId)!;
-  return { ...synced, pages, layers: active.layers, pageInfo: active.pageInfo };
+  return { ...synced, pages, ...(versions ? { versions } : {}), layers: active.layers, pageInfo: active.pageInfo };
 }

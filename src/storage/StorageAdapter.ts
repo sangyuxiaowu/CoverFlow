@@ -1,4 +1,4 @@
-import { ProjectState } from '../types.ts';
+import { ProjectState, ProjectVersionSummary } from '../types.ts';
 
 export type StorageAdapterType = 'indexeddb' | 'localfile' | 'cloud';
 
@@ -27,6 +27,8 @@ export type ProjectSummary = {
   fingerprint?: string;
 };
 
+export type { ProjectVersionSummary };
+
 export const summarizeProject = (project: ProjectState): ProjectSummary => {
   const first = project.pages?.[0];
   const pageInfo = first?.pageInfo ?? project.pageInfo;
@@ -46,4 +48,8 @@ export interface StorageAdapter {
   listProjects: (options?: ListProjectsOptions) => Promise<ListProjectsResult>;
   saveProject: (project: ProjectState) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
+  listProjectVersions?: (projectId: string) => Promise<ProjectVersionSummary[]>;
+  saveProjectVersion?: (project: ProjectState, info: string) => Promise<ProjectVersionSummary>;
+  getProjectVersion?: (projectId: string, versionId: string, imageOwner?: symbol) => Promise<ProjectState | null>;
+  deleteProjectVersion?: (projectId: string, versionId: string) => Promise<void>;
 }

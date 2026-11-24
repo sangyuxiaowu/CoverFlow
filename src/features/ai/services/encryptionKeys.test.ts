@@ -184,3 +184,77 @@ it('reads the original CoverFlow backup format after extraction', async () => {
   expect(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, restored, encrypted))).toBe('compatible');
   raw.fill(0);
 });
+
+it('preserves orphaned browser secrets and their key while initializing browser settings', async () => {
+  const fileContents = new Map<string, string>();
+  const files: ChatFileAccess = {
+    read: async path => fileContents.get(path) ?? null, write: async (path, value) => { fileContents.set(path, value); },
+    readBinary: async () => null, writeBinary: async () => {}, remove: async () => {}, removeDirectory: async () => {}, list: async () => []
+  };
+  const fileStore = createFileChatStore(files, 'orphan-test');
+  const fileConfig = defaultConfig();
+  fileConfig.endpoints[0].apiKey = 'file-api-key';
+  await fileStore.saveConfig(fileConfig);
+  const originalFile = fileContents.get('chat/config.json');
+  const orphanConfig = defaultConfig();
+  orphanConfig.endpoints[0].apiKey = 'orphan-api-key';
+  const orphanSecrets = await encryptEndpointKeys(orphanConfig);
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(AI_DATABASE_NAME);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const setup = db.transaction(['settings', 'endpoint-secrets'], 'readwrite');
+  setup.objectStore('settings').delete('config');
+  setup.objectStore('endpoint-secrets').clear();
+  orphanSecrets.forEach(secret => setup.objectStore('endpoint-secrets').put(secret));
+  await new Promise<void>((resolve, reject) => { setup.oncomplete = () => resolve(); setup.onerror = () => reject(setup.error); });
+
+  const browser = createBrowserChatStore();
+  const [config] = await Promise.all([browser.loadConfig(), browser.loadConfig()]);
+  expect(await browser.encryption!.status()).toBe('ready');
+  expect(config.endpoints[0].apiKey).toBe('');
+  expect((await fileStore.loadConfig()).endpoints[0].apiKey).toBe('file-api-key');
+  config.endpoints[0].apiKey = 'browser-api-key';
+  await browser.saveConfig(config);
+  const rotated = await browser.encryption!.generate('rotate');
+  rotated.fill(0);
+  expect((await browser.loadConfig()).endpoints[0].apiKey).toBe('browser-api-key');
+  const backups = await new Promise<{ key: CryptoKey; secrets: typeof orphanSecrets }[]>((resolve, reject) => {
+    const request = db.transaction('settings').objectStore('settings').getAll();
+    request.onsuccess = () => resolve(request.result.filter(value => value?.orphanedSecrets === true));
+    request.onerror = () => reject(request.error);
+  });
+  expect(backups).toHaveLength(1);
+  expect((await decryptEndpointKeys(orphanConfig, backups[0].secrets, backups[0].key)).endpoints[0].apiKey).toBe('orphan-api-key');
+  expect(fileContents.get('chat/config.json')).toBe(originalFile);
+  db.close();
+});
+
+it('preserves orphaned secrets when their original master key is missing', async () => {
+  const orphanConfig = defaultConfig();
+  orphanConfig.endpoints[0].apiKey = 'missing-key-secret';
+  const orphanSecrets = await encryptEndpointKeys(orphanConfig);
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(AI_DATABASE_NAME);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const setup = db.transaction(['settings', 'encryption-key', 'endpoint-secrets'], 'readwrite');
+  setup.objectStore('settings').delete('config');
+  setup.objectStore('encryption-key').delete('master');
+  setup.objectStore('endpoint-secrets').clear();
+  orphanSecrets.forEach(secret => setup.objectStore('endpoint-secrets').put(secret));
+  await new Promise<void>((resolve, reject) => { setup.oncomplete = () => resolve(); setup.onerror = () => reject(setup.error); });
+  const store = createBrowserChatStore();
+  expect(await store.encryption!.status()).toBe('missing');
+  const generated = await store.encryption!.generate('create');
+  generated.fill(0);
+  const backups = await new Promise<{ key?: CryptoKey; secrets: typeof orphanSecrets }[]>((resolve, reject) => {
+    const request = db.transaction('settings').objectStore('settings').getAll();
+    request.onsuccess = () => resolve(request.result.filter(value => value?.orphanedSecrets === true));
+    request.onerror = () => reject(request.error);
+  });
+  expect(backups.some(backup => !backup.key && backup.secrets[0].endpointId === orphanConfig.endpoints[0].id)).toBe(true);
+  db.close();
+});

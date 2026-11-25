@@ -286,6 +286,21 @@ describe('HTML decorations', () => {
     expect(detectDecorationFormat('background: red;')).toBe('css');
     expect(detectDecorationFormat('<!doctype html><html><head><style>.card {color:red}</style></head><body><div class="card">Hi</div></body></html>')).toBe('html');
   });
+  it.each([
+    'background: red;',
+    'content: "<div>";',
+    '<!-- comment -->',
+    '<!doctype html><html><head></head><body>Text</body></html>',
+    '<p>Page {{PAGE_INDEX}}</p>',
+    '<style>.card { color: red }</style>',
+    '<noscript><div>Fallback</div></noscript>',
+    '<table><tr><td>Cell</td></tr></table>'
+  ])('matches DOM format detection without DOMParser: %s', (source) => {
+    const expected = detectDecorationFormat(source);
+    vi.stubGlobal('DOMParser', undefined);
+    try { expect(detectDecorationFormat(source)).toBe(expected); }
+    finally { vi.unstubAllGlobals(); }
+  });
   it('scopes all selectors including document roots and pseudo-elements', () => {
     const result = sanitizeDecorationHtml('<style>body {color: red} .card, p::before { content: "hi"; border: 1px solid red; }</style><div class="card">Hello</div>', 'test');
     expect(result.issues).toEqual([]);

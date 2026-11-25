@@ -1,5 +1,6 @@
 import DOMPurify from 'dompurify';
 import * as csstree from 'css-tree';
+import { parse } from 'parse5';
 import type { CSSProperties } from 'react';
 import type { Layer } from '../types.ts';
 import { resolveImageSource } from '../storage/imageAssets.ts';
@@ -24,6 +25,12 @@ const parseCss = (source: string, context: 'declarationList' | 'stylesheet') => 
 
 export const detectDecorationFormat = (source: string): DecorationFormat => {
   if (!/<[a-z!][\s\S]*?>/i.test(source)) return 'css';
+  if (typeof DOMParser === 'undefined') {
+    const html = parse(source, { scriptingEnabled: false }).childNodes.find(node => node.nodeName === 'html');
+    return html && 'childNodes' in html && html.childNodes.some(node =>
+      (node.nodeName === 'head' || node.nodeName === 'body') && 'childNodes' in node && node.childNodes.some(child => 'tagName' in child)
+    ) ? 'html' : 'css';
+  }
   const parsed = new DOMParser().parseFromString(source, 'text/html');
   return parsed.head.children.length || parsed.body.children.length ? 'html' : 'css';
 };

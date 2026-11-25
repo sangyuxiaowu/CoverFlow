@@ -143,6 +143,27 @@ describe('project archive', () => {
     expect((await decodeProjectArchiveWithPreviews(await archive.generateAsync({ type: 'uint8array' }))).previews).toEqual({});
   });
 
+  it('handles HTML decorations and dynamic fields without DOMParser', async () => {
+    const original = readLegacyCfj(legacy);
+    const first = { ...original.pages![0], layers: [{ ...original.layers[0], type: 'decoration' as const, content: '<p>Page {{PAGE_INDEX}} / {{TOTAL_PAGES}}</p>' }] };
+    const second = { ...first, id: 'second', layers: [{ ...first.layers[0], content: '<div>Static decoration</div>' }] };
+    const project = { ...original, layers: first.layers, pages: [first, second] };
+    const preview = new Uint8Array([82, 73, 70, 70, 4, 0, 0, 0, 87, 69, 66, 80]);
+    vi.stubGlobal('DOMParser', undefined);
+    try {
+      const bytes = await encodeProjectArchive(project, { [first.id]: preview, [second.id]: preview });
+      const decoded = await decodeProjectArchiveWithPreviews(bytes);
+      expect(decoded.previews).toEqual({ [first.id]: preview, [second.id]: preview });
+      const update = await prepareProjectArchivePreviews(bytes, project, { [first.id]: preview });
+      expect(update).toEqual({ matches: true });
+      const archive = await JSZip.loadAsync(bytes);
+      const manifest = JSON.parse(await archive.file('project.json')!.async('string'));
+      manifest.previews[0] = projectPagePreviewFingerprint({ ...project, pages: [first] }, first);
+      archive.file('project.json', JSON.stringify(manifest));
+      expect((await decodeProjectArchiveWithPreviews(await archive.generateAsync({ type: 'uint8array' }))).previews).toEqual({ [second.id]: preview });
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it('round-trips legacy projects and deduplicates embedded image bytes', async () => {
     const project = readLegacyCfj(legacy);
     const bytes = await encodeProjectArchive(project);

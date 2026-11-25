@@ -4,6 +4,7 @@ import { detectDecorationFormat, resolveDecorationLayerImages, sanitizeBackgroun
 import { sanitizeDecorationCss } from './decorationStyles.ts';
 import { buildImageAppearanceCss, buildImageFilterCss, hasActiveImageCrop, normalizeImageCrop } from './imageLayer.ts';
 import { imageAssets, isImageAsset } from '../storage/imageAssets.ts';
+import { resolveDynamicFields } from './dynamicFields.ts';
 
 const escapeXml = (value: string): string =>
   value
@@ -367,7 +368,7 @@ export const buildProjectSvg = (project: ProjectState): string => {
     if (layer.type === 'svg') {
       innerMarkup = buildSvgLayerMarkup(layer);
     } else if (layer.type === 'text') {
-      innerMarkup = buildTextLayerSvg(layer);
+      innerMarkup = buildTextLayerSvg({ ...layer, content: resolveDynamicFields(layer, project) });
     } else if (layer.type === 'image') {
       const filterCss = buildImageFilterCss(layer.imageFilters);
       const appearanceCss = buildImageAppearanceCss(layer.imageAppearance);
@@ -410,7 +411,7 @@ export const buildProjectSvg = (project: ProjectState): string => {
         innerMarkup = `<image href="${escapeXml(layer.content)}" x="0" y="0" width="${layer.width}" height="${layer.height}" preserveAspectRatio="${par}"${imgTransformAttr}${filterStyleAttr} />`;
       }
     } else if (layer.type === 'decoration') {
-      innerMarkup = buildDecorationLayerSvg(layer, project.layers);
+      innerMarkup = buildDecorationLayerSvg({ ...layer, content: resolveDynamicFields(layer, project) }, project.layers);
     }
 
     if (innerMarkup) {

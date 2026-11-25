@@ -4,11 +4,12 @@ import { pageProject } from '../utils/projectPages.ts';
 import { renderProjectImage } from '../utils/renderProjectImage.tsx';
 import { projectPreviews, rememberProjectPreview } from '../storage/projectPreviews.ts';
 import { waitForPreviewTask } from '../utils/previewIdle.ts';
+import { pageDynamicFieldsKey } from '../utils/dynamicFields.ts';
 
 export function useProjectPreviews(project: ProjectState | null, onPreview: (project: ProjectState, pageId: string, blob: Blob) => void) {
   const [urls, setUrls] = useState<Record<string, string>>({});
   const callback = useRef(onPreview);
-  const cache = useRef(new Map<string, { layers: ProjectPage['layers']; pageInfo: ProjectPage['pageInfo']; url: string }>());
+  const cache = useRef(new Map<string, { layers: ProjectPage['layers']; pageInfo: ProjectPage['pageInfo']; fieldsKey: string; url: string }>());
   callback.current = onPreview;
 
   useEffect(() => {
@@ -35,7 +36,8 @@ export function useProjectPreviews(project: ProjectState | null, onPreview: (pro
       for (const page of pages) {
         if (controller.signal.aborted) return;
         const previous = cache.current.get(page.id);
-        if (previous?.layers === page.layers && previous.pageInfo === page.pageInfo) continue;
+        const fieldsKey = pageDynamicFieldsKey(project, page);
+        if (previous?.layers === page.layers && previous.pageInfo === page.pageInfo && previous.fieldsKey === fieldsKey) continue;
         try {
           const bytes = cached[page.id];
           let blob: Blob;
@@ -59,7 +61,7 @@ export function useProjectPreviews(project: ProjectState | null, onPreview: (pro
           } else if (page.id === project.pages![0].id) callback.current(project, page.id, blob);
           const url = URL.createObjectURL(blob);
           if (previous) URL.revokeObjectURL(previous.url);
-          cache.current.set(page.id, { layers: page.layers, pageInfo: page.pageInfo, url });
+          cache.current.set(page.id, { layers: page.layers, pageInfo: page.pageInfo, fieldsKey, url });
           publish();
         } catch (error) {
           if (controller.signal.aborted) return;

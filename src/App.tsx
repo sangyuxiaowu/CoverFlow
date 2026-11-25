@@ -32,7 +32,7 @@ import { useLocalProjects } from './hooks/useLocalProjects.ts';
 import type { BrowserProjectItem } from './views/ProjectBrowser.tsx';
 import { summarizeProject, type ProjectSummary, type StorageAdapter } from './storage/StorageAdapter.ts';
 import { releaseProjectStorageCache } from './storage/IndexedDBAdapter.ts';
-import { pagePreviewFingerprint } from './storage/projectPreviews.ts';
+import { projectPagePreviewFingerprint } from './storage/projectPreviews.ts';
 import { useProjectHistory } from './hooks/useProjectHistory.ts';
 import { useProjectAutoSave } from './hooks/useProjectAutoSave.ts';
 import { useEditorShortcuts } from './hooks/useEditorShortcuts.ts';
@@ -217,7 +217,7 @@ const App: React.FC = () => {
       if (!cancelled) showToast(error instanceof Error ? error.message : String(error), 'error');
     });
     return () => { cancelled = true; };
-  }, [project?.layers, showToast]);
+  }, [project?.layers, project?.pages, project?.activePageId, showToast]);
 
   const reportStorageError = useCallback((error: unknown, operation: string, message: string, projectId?: string, path?: string | null) => {
     console.error('[CoverFlow storage]', { operation, storageType: path ? 'tauri-file' : storageAdapter.type, projectId, path }, error);
@@ -1964,7 +1964,7 @@ const App: React.FC = () => {
           if (item.source === 'storage' && storageAdapter.getProjectPreview) return storageAdapter.getProjectPreview(item.project.id);
           const first = 'kind' in item.project ? undefined : item.project.pages?.[0];
           const pageId = 'kind' in item.project ? item.project.firstPageId : first?.id;
-          const fingerprint = 'kind' in item.project ? item.project.fingerprint : first && pagePreviewFingerprint(first);
+          const fingerprint = 'kind' in item.project ? item.project.fingerprint : first && projectPagePreviewFingerprint(item.project, first);
           return pageId && fingerprint ? indexedDbAdapter.getPagePreview(item.project.id, pageId, fingerprint) : Promise.resolve(undefined);
         }}
         openPresetModal={openPresetModal} openLocalProjectDialog={openLocalProjectDialog} handleImportJson={handleImportJson}

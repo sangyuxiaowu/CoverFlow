@@ -12,6 +12,7 @@ import DecorationContent from './DecorationContent.tsx';
 import ImageLayerContent from './ImageLayerContent.tsx';
 import { translations, Language } from '../translations.ts';
 import { pageNumber } from '../utils/projectPages.ts';
+import { resolveDynamicFields } from '../utils/dynamicFields.ts';
 import { ChevronDown, Maximize, MessageSquareText, Minus, PencilLine, Plus, RotateCw } from 'lucide-react';
 
 interface Guideline {
@@ -642,12 +643,12 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, select
                         />
                       ) : (
                         <div style={textStyle}>
-                          {layer.content}
+                          {resolveDynamicFields(layer, project)}
                         </div>
                       )
                     ) : layer.type === 'decoration' ? (
                       <div className="w-full h-full pointer-events-none" style={{ opacity: layer.opacity }}>
-                        <DecorationContent content={layer.content} layers={project.layers} />
+                        <DecorationContent content={resolveDynamicFields(layer, project)} layers={project.layers} />
                       </div>
                     ) : (
                       <ImageLayerContent layer={layer} />

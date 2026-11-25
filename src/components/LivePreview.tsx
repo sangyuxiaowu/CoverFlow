@@ -5,6 +5,7 @@ import DecorationContent from './DecorationContent.tsx';
 import ImageLayerContent from './ImageLayerContent.tsx';
 import { applySvgAspectRatio } from '../utils/helpers.ts';
 import { ensureProjectFonts } from '../features/ai/services/fontLoading.ts';
+import { resolveDynamicFields } from '../utils/dynamicFields.ts';
 
 // 实时缩放预览组件。
 const LivePreview: React.FC<{
@@ -27,7 +28,7 @@ const LivePreview: React.FC<{
       if (!cancelled) setFontError(error instanceof Error ? error.message : String(error));
     });
     return () => { cancelled = true; };
-  }, [project.layers]);
+  }, [project.layers, project.pages, project.activePageId]);
 
   // 根据容器变化自适应缩放比例
   useLayoutEffect(() => {
@@ -148,11 +149,11 @@ const LivePreview: React.FC<{
                   </div>
                 ) : layer.type === 'text' ? (
                   <div className="w-full h-full" style={textStyle}>
-                    {layer.content}
+                    {resolveDynamicFields(layer, project)}
                   </div>
                 ) : layer.type === 'decoration' ? (
                   <div className="w-full h-full" style={{ opacity: layer.opacity }}>
-                    <DecorationContent content={layer.content} layers={project.layers} />
+                    <DecorationContent content={resolveDynamicFields(layer, project)} layers={project.layers} />
                   </div>
                 ) : layer.type === 'image' ? (
                   <ImageLayerContent layer={layer} />

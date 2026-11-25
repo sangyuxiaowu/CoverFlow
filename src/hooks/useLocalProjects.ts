@@ -3,7 +3,7 @@ import { ProjectState } from '../types.ts';
 import { decodeProjectArchive, encodeProjectArchive } from '../storage/projectArchive.ts';
 import { readLegacyCfj } from '../storage/legacyCfj.ts';
 import { summarizeProject, type ProjectSummary } from '../storage/StorageAdapter.ts';
-import { pagePreviewFingerprint } from '../storage/projectPreviews.ts';
+import { projectPagePreviewFingerprint } from '../storage/projectPreviews.ts';
 import { captureImageAssets, collectProjectImagePages } from '../storage/imageAssets.ts';
 import { writeProject } from '../storage/projectCompatibility.ts';
 import { ProjectImageSession } from '../storage/projectImageSession.ts';
@@ -36,7 +36,7 @@ type LocalRecentMeta = {
 
 const localSummary = (project: ProjectState): ProjectSummary => {
   const first = project.pages?.[0];
-  return { ...summarizeProject(project), ...(first ? { firstPageId: first.id, fingerprint: pagePreviewFingerprint(first) } : {}) };
+  return { ...summarizeProject(project), ...(first ? { firstPageId: first.id, fingerprint: projectPagePreviewFingerprint(project, first) } : {}) };
 };
 
 type UseLocalProjectsOptions = {

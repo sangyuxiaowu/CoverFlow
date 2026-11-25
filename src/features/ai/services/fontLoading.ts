@@ -1,14 +1,15 @@
 import type { ProjectState } from '../../../types.ts';
 import { GOOGLE_FONTS, type ManagedFont } from 'sang-ai-kit/fonts';
 import { generate, parse, walk } from 'css-tree';
+import { resolveDynamicFields } from '../../../utils/dynamicFields.ts';
 
 const stylesheets = new Map<string, Promise<void>>();
 const embeddedFonts = new Map<string, Promise<string>>();
 
-export async function projectFontEmbedCSS(project: Pick<ProjectState, 'layers'>): Promise<string> {
+export async function projectFontEmbedCSS(project: Pick<ProjectState, 'layers' | 'pages' | 'activePageId'>): Promise<string> {
   return (await Promise.all(projectGoogleFonts(project).map(font => {
     const layers = project.layers.filter(layer => layer.type === 'text' && projectGoogleFonts({ layers: [layer] })[0]?.family === font.family);
-    const text = Array.from(new Set(layers.flatMap(layer => Array.from(layer.content ?? '')))).sort().join('');
+    const text = Array.from(new Set(layers.flatMap(layer => Array.from(resolveDynamicFields(layer, project))))).sort().join('');
     if (!text) return '';
     const weights = Array.from(new Set(layers.map(layer => {
       const requested = !layer.fontWeight || layer.fontWeight === 'bold' ? 700 : Number(layer.fontWeight) || 400;
@@ -84,7 +85,7 @@ function loadStylesheet(font: ManagedFont): Promise<void> {
   return loading;
 }
 
-export async function ensureProjectFonts(project: Pick<ProjectState, 'layers'>): Promise<void> {
+export async function ensureProjectFonts(project: Pick<ProjectState, 'layers' | 'pages' | 'activePageId'>): Promise<void> {
   const fonts = projectGoogleFonts(project);
   if (!fonts.length) return;
   await Promise.all(fonts.map(loadStylesheet));
@@ -95,7 +96,7 @@ export async function ensureProjectFonts(project: Pick<ProjectState, 'layers'>):
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
-        document.fonts.load(`${layer.fontWeight || 400} ${layer.fontSize || 48}px ${JSON.stringify(font.family)}`, layer.content),
+        document.fonts.load(`${layer.fontWeight || 400} ${layer.fontSize || 48}px ${JSON.stringify(font.family)}`, resolveDynamicFields(layer, project)),
         new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error(`字体文件加载超时：${font.family}`)), 20000); })
       ]);
     } catch (cause) {

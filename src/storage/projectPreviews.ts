@@ -1,7 +1,8 @@
 import type { ProjectPage, ProjectState } from '../types.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
+import { pageDynamicFieldsKey } from '../utils/dynamicFields.ts';
 
-const previews = new WeakMap<ProjectPage['layers'], WeakMap<ProjectPage['pageInfo'], Uint8Array>>();
+const previews = new WeakMap<ProjectPage['layers'], WeakMap<ProjectPage['pageInfo'], { bytes: Uint8Array; fieldsKey: string }>>();
 const fingerprints = new WeakMap<ProjectPage['layers'], WeakMap<ProjectPage['pageInfo'], string>>();
 const pendingFingerprints = new WeakMap<ProjectPage['layers'], WeakMap<ProjectPage['pageInfo'], Promise<string>>>();
 let fingerprintQueue: Promise<void> = Promise.resolve();
@@ -84,17 +85,31 @@ export function pagePreviewFingerprintAsync(page: ProjectPage): Promise<string> 
   return pending;
 }
 
-export function rememberProjectPreview(_project: ProjectState, page: ProjectPage, bytes: Uint8Array) {
+const contextualFingerprint = (fingerprint: string, fieldsKey: string): string => {
+  if (!fieldsKey) return fingerprint;
+  return Array.from(sha256(new TextEncoder().encode(`${fingerprint}:${fieldsKey}`)), byte => byte.toString(16).padStart(2, '0')).join('');
+};
+
+export function projectPagePreviewFingerprint(project: ProjectState, page: ProjectPage): string {
+  return contextualFingerprint(pagePreviewFingerprint(page), pageDynamicFieldsKey(project, page));
+}
+
+export async function projectPagePreviewFingerprintAsync(project: ProjectState, page: ProjectPage): Promise<string> {
+  return contextualFingerprint(await pagePreviewFingerprintAsync(page), pageDynamicFieldsKey(project, page));
+}
+
+export function rememberProjectPreview(project: ProjectState, page: ProjectPage, bytes: Uint8Array) {
+  const fieldsKey = pageDynamicFieldsKey(project, page);
   let entries = previews.get(page.layers);
   if (!entries) { entries = new WeakMap(); previews.set(page.layers, entries); }
-  entries.set(page.pageInfo, bytes);
+  entries.set(page.pageInfo, { bytes, fieldsKey });
 }
 
 export function projectPreviews(project: ProjectState): Record<string, Uint8Array> {
   const result: Record<string, Uint8Array> = {};
   for (const page of project.pages ?? []) {
-    const bytes = previews.get(page.layers)?.get(page.pageInfo);
-    if (bytes) result[page.id] = bytes;
+    const entry = previews.get(page.layers)?.get(page.pageInfo);
+    if (entry && entry.fieldsKey === pageDynamicFieldsKey(project, page)) result[page.id] = entry.bytes;
   }
   return result;
 }

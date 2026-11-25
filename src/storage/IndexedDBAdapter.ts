@@ -1,7 +1,7 @@
 import { ProjectDocument, ProjectPage, ProjectState, ProjectVersion } from '../types.ts';
 import { ListProjectsOptions, StorageAdapter, StorageAdapterType, type ProjectSummary, summarizeProject } from './StorageAdapter.ts';
 import { readProject, writeProject } from './projectCompatibility.ts';
-import { notifyProjectPreview, pagePreviewFingerprint, pagePreviewFingerprintAsync, rememberProjectPreview } from './projectPreviews.ts';
+import { notifyProjectPreview, projectPagePreviewFingerprint, projectPagePreviewFingerprintAsync, rememberProjectPreview } from './projectPreviews.ts';
 import { hasLegacyIndexedDBImages, migrateLegacyIndexedDBImages, readLegacyIndexedDBProject, sameLegacyIndexedDBRecord } from './legacyCfj.ts';
 import { packImagePages, unpackImagePages, type ImageAsset, type ImageCache } from './indexedDbImages.ts';
 import { captureImageAssets, collectProjectImagePages, imageAssets } from './imageAssets.ts';
@@ -93,7 +93,7 @@ const requestValue = <Value,>(request: IDBRequest<Value>) => new Promise<Value>(
 
 const createSummary = async (project: ProjectState): Promise<StoredSummary> => {
   const page = project.pages![0];
-  return { ...summarizeProject(project), firstPageId: page.id, fingerprint: await pagePreviewFingerprintAsync(page) };
+  return { ...summarizeProject(project), firstPageId: page.id, fingerprint: await projectPagePreviewFingerprintAsync(project, page) };
 };
 
 const openIndexedDb = () => new Promise<IDBDatabase>((resolve, reject) => {
@@ -111,7 +111,7 @@ const openIndexedDb = () => new Promise<IDBDatabase>((resolve, reject) => {
         try {
           const project = readProject(item.value);
           const page = project.pages![0];
-          summaries.put({ ...summarizeProject(project), firstPageId: page.id, fingerprint: pagePreviewFingerprint(page) });
+          summaries.put({ ...summarizeProject(project), firstPageId: page.id, fingerprint: projectPagePreviewFingerprint(project, page) });
         }
         catch (error) { console.warn('[CoverFlow summary migration]', error); }
         item.continue();
@@ -274,7 +274,7 @@ export class IndexedDBAdapter implements StorageAdapter {
       }); } catch (error) { console.warn('[CoverFlow preview read]', error); }
       for (const page of project.pages ?? []) {
         const record = records.find(item => item.pageId === page.id);
-        if (record?.blob instanceof Blob && record.fingerprint === await pagePreviewFingerprintAsync(page)) {
+        if (record?.blob instanceof Blob && record.fingerprint === await projectPagePreviewFingerprintAsync(project, page)) {
           try { rememberProjectPreview(project, page, new Uint8Array(await record.blob.arrayBuffer())); }
           catch (error) { console.warn('[CoverFlow preview read]', error); }
         }
@@ -329,7 +329,7 @@ export class IndexedDBAdapter implements StorageAdapter {
     const page = project.pages?.find(item => item.id === pageId);
     if (!page || !this.isAvailable()) return;
     await enqueueProjectWrite(project.id, async () => {
-      const fingerprint = await pagePreviewFingerprintAsync(page);
+      const fingerprint = await projectPagePreviewFingerprintAsync(project, page);
       const db = await openIndexedDb();
       try {
         await new Promise<void>((resolve, reject) => {

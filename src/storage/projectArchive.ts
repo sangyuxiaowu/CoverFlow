@@ -2,7 +2,7 @@ import JSZip from 'jszip';
 import { sha256 } from '@noble/hashes/sha2.js';
 import type { ProjectDocument, ProjectPage, ProjectState, ProjectVersion } from '../types.ts';
 import { readProject, sameStoredValue, writeProject } from './projectCompatibility.ts';
-import { pagePreviewFingerprintAsync, projectPreviews, rememberProjectPreview } from './projectPreviews.ts';
+import { projectPagePreviewFingerprintAsync, projectPreviews, rememberProjectPreview } from './projectPreviews.ts';
 import { collectProjectImagePages, imageAssets, isImageAsset } from './imageAssets.ts';
 
 const FORMAT = 'coverflow-project';
@@ -147,7 +147,7 @@ async function encodeProjectArchiveDirect(project: ProjectState, previews: Recor
   const sourcePages = writeProject(project).pages;
   const previewFingerprints = await Promise.all(sourcePages.map(async page => {
     const preview = previews[page.id];
-    return preview && preview.length <= MAX_PREVIEW_SIZE && isWebP(preview) ? pagePreviewFingerprintAsync(page) : null;
+    return preview && preview.length <= MAX_PREVIEW_SIZE && isWebP(preview) ? projectPagePreviewFingerprintAsync(project, page) : null;
   }));
   const { pages, versions, ...metadata } = document;
   for (const page of pages) {
@@ -262,7 +262,7 @@ export async function replaceProjectArchivePreviews(bytes: Uint8Array, project: 
   const pages = writeProject(project).pages;
   const fingerprints = await Promise.all(pages.map(async page => {
     const preview = previews[page.id];
-    return preview && preview.length <= MAX_PREVIEW_SIZE && isWebP(preview) ? pagePreviewFingerprintAsync(page) : null;
+    return preview && preview.length <= MAX_PREVIEW_SIZE && isWebP(preview) ? projectPagePreviewFingerprintAsync(project, page) : null;
   }));
   manifest.previews = fingerprints;
   const text = JSON.stringify(manifest);
@@ -318,7 +318,7 @@ export async function decodeProjectArchiveWithPreviews(bytes: Uint8Array, owner?
       if (!file) continue;
       const size = (file as JSZip.JSZipObject & { _data?: { uncompressedSize?: number } })._data?.uncompressedSize;
       if (!Number.isSafeInteger(size) || size! < 0 || size! > MAX_PREVIEW_SIZE) continue;
-      if (previewFingerprints[index] !== await pagePreviewFingerprintAsync(page)) continue;
+      if (previewFingerprints[index] !== await projectPagePreviewFingerprintAsync(project, page)) continue;
       const preview = await file.async('uint8array');
       if (preview.length <= MAX_PREVIEW_SIZE && isWebP(preview)) {
         previews[page.id] = preview;

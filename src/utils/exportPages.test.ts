@@ -286,3 +286,17 @@ it('shows notes for the current exported page and keeps them out of print', () =
     expect(html).toContain('nav,.notes-panel{display:none!important}');
   } finally { frame.remove(); }
 });
+
+it('uses project page numbers when exporting only one selected page', async () => {
+  const target = project();
+  const page = target.pages![1];
+  const layer = { id: 'number', name: '', type: 'text' as const, content: '{{PAGE_INDEX}}/{{TOTAL_PAGES}}', x: 0, y: 0, width: 100, height: 20, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 };
+  target.pages = [target.pages![0], { ...page, layers: [layer] }];
+  target.layers = [layer];
+  const result = await exportProjectPages(target, [page.id], { format: 'svg', pixelRatio: 1, compression: 'lossless', pptResolution: 'hd' });
+  const svg = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsText(result.blob);
+  });
+  expect(svg).toContain('2/2');
+  expect(svg).not.toContain('{{PAGE_INDEX}}');
+});

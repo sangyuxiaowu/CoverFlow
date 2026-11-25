@@ -3,7 +3,7 @@ import JSZip from 'jszip';
 import { encodeProjectArchive, decodeProjectArchive, decodeProjectArchiveWithPreviews, prepareProjectArchivePreviews, replaceProjectArchivePreviews } from './projectArchive.ts';
 import { readLegacyCfj, readLegacyCfjx } from './legacyCfj.ts';
 import * as hashes from '@noble/hashes/sha2.js';
-import { pagePreviewFingerprint, pagePreviewFingerprintAsync } from './projectPreviews.ts';
+import { pagePreviewFingerprint, pagePreviewFingerprintAsync, projectPagePreviewFingerprint } from './projectPreviews.ts';
 import { imageAssets } from './imageAssets.ts';
 import { appendProjectVersion } from './versionStore.ts';
 
@@ -126,6 +126,21 @@ describe('project archive', () => {
     archive.file('previews/0.webp', new Uint8Array(2 * 1024 * 1024 + 1));
     expect(await decodeProjectArchiveWithPreviews(await archive.generateAsync({ type: 'uint8array' }))).toEqual({ project, previews: {} });
     expect((await decodeProjectArchiveWithPreviews(await encodeProjectArchive(project))).previews).toEqual({});
+  });
+
+  it('persists dynamic previews only when their page context matches', async () => {
+    const original = readLegacyCfj(legacy);
+    const first = { ...original.pages![0], layers: [{ ...original.layers[0], type: 'text' as const, content: '{{PAGE_INDEX}}/{{TOTAL_PAGES}}' }] };
+    const second = { ...first, id: 'second', layers: [] };
+    const project = { ...original, layers: first.layers, pages: [first, second] };
+    const preview = new Uint8Array([82, 73, 70, 70, 4, 0, 0, 0, 87, 69, 66, 80]);
+    const bytes = await encodeProjectArchive(project, { [first.id]: preview });
+    expect((await decodeProjectArchiveWithPreviews(bytes)).previews[first.id]).toEqual(preview);
+    const archive = await JSZip.loadAsync(bytes);
+    const manifest = JSON.parse(await archive.file('project.json')!.async('string'));
+    manifest.previews[0] = projectPagePreviewFingerprint({ ...project, pages: [first] }, first);
+    archive.file('project.json', JSON.stringify(manifest));
+    expect((await decodeProjectArchiveWithPreviews(await archive.generateAsync({ type: 'uint8array' }))).previews).toEqual({});
   });
 
   it('round-trips legacy projects and deduplicates embedded image bytes', async () => {

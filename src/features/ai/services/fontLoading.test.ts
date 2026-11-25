@@ -92,3 +92,14 @@ it.each(['changed', 'aborted'])('does not commit an AI layer after font loading 
   await rejected;
   expect(commit).not.toHaveBeenCalled();
 });
+
+it('embeds the resolved page numbers instead of placeholder characters', async () => {
+  const fetcher = vi.fn(async (_url: string) => ({ ok: true, text: async () => '' }));
+  vi.stubGlobal('fetch', fetcher);
+  const { projectFontEmbedCSS } = await import('./fontLoading.ts');
+  const textLayer = { ...layer('ZCOOL KuaiLe'), content: '{{PAGE_INDEX}}/{{TOTAL_PAGES}}' };
+  const pageInfo = { width: 100, height: 100, background: { type: 'color' as const, value: '#fff', overlayType: 'none' as const, overlayColor: '#000', overlayOpacity: 0, overlayScale: 20 } };
+  const pages = Array.from({ length: 12 }, (_, index) => ({ id: String(index), name: '', layers: [textLayer], pageInfo }));
+  await projectFontEmbedCSS({ layers: [textLayer], pages, activePageId: '9' });
+  expect(new Set(new URL(fetcher.mock.calls[0][0]).searchParams.get('text'))).toEqual(new Set('10/12'));
+});

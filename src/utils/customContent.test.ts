@@ -46,6 +46,22 @@ describe('decoration rendering boundaries', () => {
     { name: 'live preview', render: (state: ProjectState) => createElement(LivePreview, { project: state }) }
   ];
 
+  it.each(['text', 'decoration'] as const)('resolves page fields in %s across renderers without changing source', (type) => {
+    const source = type === 'text' ? 'Page {{PAGE_INDEX}} / {{TOTAL_PAGES}} {{UNKNOWN}}' : '<p>Page {{PAGE_INDEX}} / {{TOTAL_PAGES}} {{UNKNOWN}}</p>';
+    const layer = { ...project.layers[0], type, content: source };
+    const pages = [0, 1, 2].map(index => ({ id: `page-${index}`, name: '', layers: [layer], pageInfo: project.pageInfo }));
+    for (const [index, page] of pages.entries()) {
+      const state = { ...project, pages, activePageId: page.id, layers: page.layers };
+      const output = [...renderers.map(({ render }) => renderToStaticMarkup(render(state))), buildProjectSvg(state)];
+      for (const markup of output) expect(markup).toContain(`Page ${index + 1} / 3 {{UNKNOWN}}`);
+      expect(state.layers[0].content).toBe(source);
+    }
+    const single = { ...project, layers: [layer] };
+    for (const markup of [...renderers.map(({ render }) => renderToStaticMarkup(render(single))), buildProjectSvg(single)]) {
+      expect(markup).toContain('Page 1 / 1 {{UNKNOWN}}');
+    }
+  });
+
   it.each([undefined, 0, 3.5, -1.5])('preserves text letter spacing %s in rendering and SVG export', (letterSpacing) => {
     const state: ProjectState = { ...project, layers: [{ ...project.layers[0], type: 'text', content: 'Spacing', letterSpacing }] };
     for (const { render } of renderers) {

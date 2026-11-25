@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ChevronLeft, ChevronRight, Maximize, Pause, Play, Printer } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Maximize, MessageSquareText, Pause, Play, Printer } from 'lucide-react';
 import type { ProjectState } from '../types.ts';
 import { projectFontEmbedCSS } from '../features/ai/services/fontLoading.ts';
 import { buildEmbeddedProjectSvg } from './svgExport.ts';
@@ -8,6 +8,7 @@ import { buildEmbeddedProjectSvg } from './svgExport.ts';
 interface HtmlPage {
   svg: string;
   name: string;
+  notes?: string;
   width: number;
   height: number;
 }
@@ -44,11 +45,11 @@ export async function buildHtmlSvg(project: ProjectState): Promise<string> {
 export function buildHtmlExport(title: string, pages: HtmlPage[], language = 'zh'): string {
   const english = language === 'en';
   const labels = english
-    ? { previous: 'Previous page', next: 'Next page', play: 'Play', pause: 'Pause', interval: 'Interval', seconds: 'seconds', fullscreen: 'Fullscreen', print: 'Print / PDF', page: 'Page' }
-    : { previous: '上一页', next: '下一页', play: '播放', pause: '暂停', interval: '播放间隔', seconds: '秒', fullscreen: '全屏', print: '打印 / PDF', page: '页面' };
+    ? { previous: 'Previous page', next: 'Next page', play: 'Play', pause: 'Pause', interval: 'Interval', seconds: 'seconds', fullscreen: 'Fullscreen', print: 'Print / PDF', page: 'Page', notes: 'Page notes', noNotes: 'No notes for this page' }
+    : { previous: '上一页', next: '下一页', play: '播放', pause: '暂停', interval: '播放间隔', seconds: '秒', fullscreen: '全屏', print: '打印 / PDF', page: '页面', notes: '页注释', noNotes: '此页面暂无备注' };
   const icon = (component: typeof Play) => renderToStaticMarkup(createElement(component, { width: 18, height: 18, 'aria-hidden': true }));
   const button = (id: string, label: string, content: string) => `<button id="${id}" type="button" title="${label}" aria-label="${label}">${content}</button>`;
-  const slides = pages.map((page, index) => `<section class="page" data-index="${index}" aria-label="${escapeHtml(page.name)}"${index ? ' hidden' : ''} style="--ratio:${page.width}/${page.height};page:sheet${index}"><img width="${page.width}" height="${page.height}" alt="${escapeHtml(page.name)}" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(page.svg)}"></section>`).join('\n');
+  const slides = pages.map((page, index) => `<section class="page" data-index="${index}" aria-label="${escapeHtml(page.name)}"${index ? ' hidden' : ''} style="--ratio:${page.width}/${page.height};page:sheet${index}"><img width="${page.width}" height="${page.height}" alt="${escapeHtml(page.name)}" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(page.svg)}"><div class="page-notes-source" hidden>${escapeHtml(page.notes ?? '')}</div></section>`).join('\n');
   const printPages = pages.map((page, index) => `@page sheet${index}{size:${page.width}px ${page.height}px;margin:0}`).join('\n');
   return `<!doctype html>
 <html lang="${english ? 'en' : 'zh-CN'}">
@@ -57,10 +58,13 @@ export function buildHtmlExport(title: string, pages: HtmlPage[], language = 'zh
 <style>
 *{box-sizing:border-box}body{margin:0;background:#202124;color:#f5f5f5;font-family:"Segoe UI","Microsoft YaHei",sans-serif;letter-spacing:0}
 main{height:100dvh;padding:16px;display:grid;place-items:center;overflow:hidden}
+body.notes-open main{height:calc(100dvh - clamp(120px,25dvh,240px))}
 .page{width:100%;height:100%;min-height:0;display:grid;place-items:center}.page[hidden]{display:none}
 .page img{display:block;width:100%;height:100%;object-fit:contain;min-height:0;min-width:0}
 nav{position:fixed;z-index:10;bottom:max(12px,env(safe-area-inset-bottom));left:50%;transform:translate(-50%,6px);display:flex;align-items:center;justify-content:center;gap:8px;padding:6px;background:#14151699;backdrop-filter:blur(12px);border:1px solid #ffffff24;border-radius:6px;max-width:calc(100% - 16px);opacity:0;pointer-events:none;transition:opacity .18s,transform .18s}
+body.notes-open nav{bottom:calc(clamp(120px,25dvh,240px) + 12px)}
 body.controls-visible nav{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
+.notes-panel{position:fixed;bottom:0;left:0;right:0;height:clamp(120px,25dvh,240px);padding:12px 20px;overflow:auto;background:#14191f;border-top:1px solid #39424b;font-size:14px;line-height:1.5}.notes-panel[hidden]{display:none}.notes-panel h2{margin:0 0 8px;color:#a8c9da;font-size:13px}.notes-panel p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
 button,select{height:30px;border:1px solid transparent;border-radius:4px;background:#ffffff08;color:inherit;cursor:pointer}
 button{width:30px;display:grid;place-items:center;flex-shrink:0}button:hover,select:hover{background:#ffffff24}button:disabled{opacity:.3;cursor:default}
 button:focus-visible,select:focus-visible{outline:2px solid #5cc8ed;outline-offset:2px}button[aria-pressed=true]{color:#5cc8ed}
@@ -68,14 +72,15 @@ output{min-width:52px;text-align:center;font-variant-numeric:tabular-nums;font-s
 @media(max-width:480px){main{padding:8px}nav{gap:4px}output{min-width:44px}select{max-width:58px}}
 @media(prefers-reduced-motion:reduce){nav{transition:none}}
 ${printPages}
-@media print{html,body{background:white;margin:0;padding:0}nav{display:none!important}main{display:block;height:auto;padding:0;overflow:visible}.page,.page[hidden]{display:block!important;width:100%;height:auto;break-after:page;break-inside:avoid;aspect-ratio:var(--ratio);overflow:hidden}.page:last-child{break-after:auto}.page img{width:100%;height:100%;object-fit:contain}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+@media print{html,body{background:white;margin:0;padding:0}nav,.notes-panel{display:none!important}main,body.notes-open main{display:block;height:auto;padding:0;overflow:visible}.page,.page[hidden]{display:block!important;width:100%;height:auto;break-after:page;break-inside:avoid;aspect-ratio:var(--ratio);overflow:hidden}.page:last-child{break-after:auto}.page img{width:100%;height:100%;object-fit:contain}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 </style></head>
 <body><main>${slides}</main>
+<aside id="notes-panel" class="notes-panel" aria-label="${labels.notes}" hidden><h2>${labels.notes}</h2><p id="notes-content"></p></aside>
 <nav aria-label="${labels.page}">
 ${button('previous', labels.previous, icon(ChevronLeft))}<output id="counter" aria-live="polite"></output>${button('next', labels.next, icon(ChevronRight))}
 ${button('play', labels.play, `<span id="play-icon">${icon(Play)}</span><span id="pause-icon" hidden>${icon(Pause)}</span>`)}
 <select id="interval" title="${labels.interval}" aria-label="${labels.interval}">${[3, 5, 10, 15, 30].map(seconds => `<option value="${seconds * 1000}"${seconds === 5 ? ' selected' : ''}>${seconds} ${labels.seconds}</option>`).join('')}</select>
-${button('fullscreen', labels.fullscreen, icon(Maximize))}${button('print', labels.print, icon(Printer))}
+${button('notes', labels.notes, icon(MessageSquareText))}${button('fullscreen', labels.fullscreen, icon(Maximize))}${button('print', labels.print, icon(Printer))}
 </nav>
 <script>
 (() => {
@@ -84,6 +89,9 @@ ${button('fullscreen', labels.fullscreen, icon(Maximize))}${button('print', labe
   const next = document.getElementById('next');
   const play = document.getElementById('play');
   const interval = document.getElementById('interval');
+  const notesButton = document.getElementById('notes');
+  const notesPanel = document.getElementById('notes-panel');
+  const notesContent = document.getElementById('notes-content');
   const toolbar = document.querySelector('nav');
   let hideTimer = null;
   function concealControls() {
@@ -114,6 +122,8 @@ ${button('fullscreen', labels.fullscreen, icon(Maximize))}${button('print', labe
   function show(target) {
     index = (target + pages.length) % pages.length;
     pages.forEach((page, position) => { page.hidden = position !== index; });
+    notesContent.textContent = pages[index].querySelector('.page-notes-source').textContent || '${labels.noNotes}';
+    notesPanel.scrollTop = 0;
     document.getElementById('counter').textContent = (index + 1) + ' / ' + pages.length;
     previous.disabled = index === 0;
     next.disabled = index === pages.length - 1;
@@ -139,6 +149,13 @@ ${button('fullscreen', labels.fullscreen, icon(Maximize))}${button('print', labe
   next.onclick = () => { stop(); show(index + 1); concealControls(); };
   play.onclick = () => timer === null ? start() : stop();
   interval.onchange = () => { if (timer !== null) start(); };
+  notesButton.setAttribute('aria-pressed', 'false');
+  notesButton.setAttribute('aria-controls', 'notes-panel');
+  notesButton.onclick = () => {
+    notesPanel.hidden = !notesPanel.hidden;
+    notesButton.setAttribute('aria-pressed', String(!notesPanel.hidden));
+    document.body.classList.toggle('notes-open', !notesPanel.hidden);
+  };
   play.disabled = interval.disabled = pages.length < 2;
   const fullscreen = document.getElementById('fullscreen');
   fullscreen.disabled = !document.fullscreenEnabled;

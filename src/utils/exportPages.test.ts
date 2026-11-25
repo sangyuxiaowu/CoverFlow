@@ -91,6 +91,7 @@ it('creates an actual image-based PPTX with one image per slide and a uniform as
 it('exports selected SVG pages in one standalone HTML with playback and print pagination', async () => {
   const target = project();
   target.title = '</title><script>alert(1)</script>';
+  target.pages = target.pages!.map((page, index) => ({ ...page, notes: index === 0 ? 'First & <script>\n  note' : 'Second note' }));
   const progress = vi.fn();
   const result = await exportProjectPages(target, target.pages!.map(page => page.id).reverse(), { format: 'html', pixelRatio: 2, compression: 'lossless', pptResolution: 'hd' }, progress);
   expect(result.filename.endsWith('.html')).toBe(true);
@@ -101,6 +102,7 @@ it('exports selected SVG pages in one standalone HTML with playback and print pa
   const document = new DOMParser().parseFromString(html, 'text/html');
   expect(document.title).toBe(target.title);
   expect(document.querySelectorAll('script')).toHaveLength(1);
+  expect(Array.from(document.querySelectorAll('.page-notes-source'), source => source.textContent)).toEqual(['First & <script>\n  note', 'Second note']);
   const images = Array.from(document.querySelectorAll('main img'));
   expect(images).toHaveLength(2);
   expect(decodeURIComponent(images[0].getAttribute('src')!)).toContain('width="900"');
@@ -108,6 +110,7 @@ it('exports selected SVG pages in one standalone HTML with playback and print pa
   expect(document.querySelectorAll('section[hidden]')).toHaveLength(1);
   expect(document.querySelector('#play')).not.toBeNull();
   expect(document.querySelector('#print')).not.toBeNull();
+  expect(document.querySelector('#notes')).not.toBeNull();
   expect(document.querySelectorAll('script[src],link[href],img[src^="http"]')).toHaveLength(0);
   expect(html).toContain('@page sheet0{size:900px 383px;margin:0}');
   expect(html).toContain('break-after:page');
@@ -251,4 +254,35 @@ it('releases the export lease when exporting fails', async () => {
     })).rejects.toThrow('Export cancelled');
     expect(imageAssets.blob(reference)).toBeUndefined();
   } finally { imageAssets.release(owner); }
+});
+
+it('shows notes for the current exported page and keeps them out of print', () => {
+  const html = buildHtmlExport('Notes', [
+    { svg: '<svg xmlns="http://www.w3.org/2000/svg"/>', name: 'First', notes: 'First\n  <note> & more', width: 800, height: 600 },
+    { svg: '<svg xmlns="http://www.w3.org/2000/svg"/>', name: 'Second', width: 800, height: 600 }
+  ], 'en');
+  const parsed = new DOMParser().parseFromString(html, 'text/html');
+  const frame = document.createElement('iframe');
+  document.body.append(frame);
+  const player = frame.contentDocument!;
+  player.body.innerHTML = parsed.body.innerHTML;
+  try {
+    new Function('document', 'window', parsed.querySelector('script')!.textContent!)(player, frame.contentWindow);
+    const notesButton = player.querySelector<HTMLButtonElement>('#notes')!;
+    const panel = player.querySelector<HTMLElement>('#notes-panel')!;
+    expect(panel.hidden).toBe(true);
+    notesButton.click();
+    expect(panel.hidden).toBe(false);
+    expect(notesButton.getAttribute('aria-pressed')).toBe('true');
+    expect(panel.querySelector('#notes-content')?.textContent).toBe('First\n  <note> & more');
+    expect(panel.querySelector('note')).toBeNull();
+    player.querySelector<HTMLButtonElement>('#next')!.click();
+    expect(panel.querySelector('#notes-content')?.textContent).toBe('No notes for this page');
+    player.querySelector<HTMLButtonElement>('#previous')!.click();
+    expect(panel.querySelector('#notes-content')?.textContent).toBe('First\n  <note> & more');
+    notesButton.click();
+    expect(panel.hidden).toBe(true);
+    expect(notesButton.getAttribute('aria-pressed')).toBe('false');
+    expect(html).toContain('nav,.notes-panel{display:none!important}');
+  } finally { frame.remove(); }
 });

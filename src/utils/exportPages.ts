@@ -64,7 +64,7 @@ async function exportSelectedProjectPages(project: ProjectState, pages: ProjectP
     for (const [index, page] of pages.entries()) {
       const svg = await buildHtmlSvg(pageProject(synced, page));
       onProgress?.(index + 1, pages.length);
-      slides.push({ svg, name: page.name || pageNumber(synced.pages!.indexOf(page)), width: page.pageInfo.width, height: page.pageInfo.height });
+      slides.push({ svg, name: page.name || pageNumber(synced.pages!.indexOf(page)), notes: page.notes, width: page.pageInfo.width, height: page.pageInfo.height });
     }
     return { blob: new Blob([buildHtmlExport(project.title, slides, language)], { type: 'text/html;charset=utf-8' }), filename: `${title}.html` };
   }

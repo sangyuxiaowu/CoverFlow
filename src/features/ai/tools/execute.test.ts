@@ -853,11 +853,11 @@ test('manage_pages creates, updates and reports notes without changing other pag
   assert.equal(duplicate.pages[1].notes, 'First\n  line');
   const blank = await executeTool('manage_pages', { action: 'create', autoSwitch: false }, bridge, signal) as { pages: { id: string; notes: string }[] };
   assert.equal(blank.pages[1].notes, '');
-  await executeTool('manage_pages', { action: 'update', pageId: firstId, notes: 'x'.repeat(500) }, bridge, signal);
-  assert.equal(bridge.getProject()!.pages!.find(page => page.id === firstId)!.notes?.length, 500);
+  await executeTool('manage_pages', { action: 'update', pageId: firstId, notes: 'x'.repeat(1024) }, bridge, signal);
+  assert.equal(bridge.getProject()!.pages!.find(page => page.id === firstId)!.notes?.length, 1024);
   const before = structuredClone(bridge.getProject());
   for (const args of [
-    { action: 'create', notes: 'x'.repeat(501) },
+    { action: 'create', notes: 'x'.repeat(1025) },
     { action: 'update', pageId: firstId, notes: null },
     { action: 'switch', pageId: firstId, notes: 'Invalid' }
   ]) await assert.rejects(executeTool('manage_pages', args, bridge, signal));

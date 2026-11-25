@@ -6,6 +6,7 @@ import { renderProjectImage } from './renderProjectImage.tsx';
 import { previewImageAssets } from './previewImageAssets.ts';
 import { cachedProjectImage } from '../storage/IndexedDBAdapter.ts';
 
+vi.hoisted(() => { vi.resetModules(); });
 vi.mock('html-to-image', () => ({ toCanvas: vi.fn() }));
 vi.mock('../components/LivePreview.tsx', () => ({ default: ({ previewRef }: { previewRef: { current: HTMLDivElement | null } }) => <div ref={previewRef} /> }));
 vi.mock('../features/ai/services/fontLoading.ts', () => ({ ensureProjectFonts: vi.fn(async () => {}), projectFontEmbedCSS: vi.fn(async () => '') }));

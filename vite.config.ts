@@ -11,6 +11,16 @@ export default defineConfig(({ mode }) => {
     if (!base.endsWith('/')) {
       base += '/';
     }
+    const projectFileHandler = {
+      action: base,
+      accept: { 'application/x-coverflow-project': ['.cfjx'] },
+      name: 'CoverFlow Project',
+      icons: [
+        { src: `${base}icons/file-128.png`, sizes: '128x128', type: 'image/png' },
+        { src: `${base}icons/file-512.png`, sizes: '512x512', type: 'image/png' }
+      ],
+      launch_type: 'multiple-clients'
+    };
     const plugins = [
       react(),
       tailwindcss(),
@@ -30,6 +40,7 @@ export default defineConfig(({ mode }) => {
           background_color: '#0f172a',
           theme_color: '#0f172a',
           categories: ['design', 'graphics', 'productivity', 'utilities'],
+          file_handlers: [projectFileHandler],
           icons: [
             {
               src: `${base}icons/icon-192.png`,

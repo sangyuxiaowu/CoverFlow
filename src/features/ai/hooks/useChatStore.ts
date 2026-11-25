@@ -4,7 +4,7 @@ import { createBrowserChatStore, createFileChatStore } from '../services/chatSto
 import { createDirectoryChatAccess, createTauriChatAccess } from '../services/chatFileAccess.ts';
 
 export function useChatStore(workspace: WorkspaceOptions) {
-  const filePath = workspace.activeLocalPath;
+  const filePath = workspace.localFileIsBrowser ? null : workspace.activeLocalPath;
   const key = filePath ? 'tauri:' + filePath.replace(/[/\\][^/\\]+$/, '') : workspace.storage.type === 'localfile' ? workspace.chatStorageKey || 'directory' : 'indexeddb';
   return useMemo(() => {
     if (filePath) return createFileChatStore(createTauriChatAccess(filePath), key);

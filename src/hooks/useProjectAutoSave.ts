@@ -181,7 +181,7 @@ export function useProjectAutoSave({
 
   const flushSave = useCallback(async (reason: SaveReason): Promise<boolean> => {
     cancelPendingSave();
-    const canSaveLocal = Boolean(activeLocalFilePath && isTauri);
+    const canSaveLocal = Boolean(activeLocalFilePath);
     const currentProject = latestProjectRef.current;
     if (!currentProject) return true;
     if (canSaveLocal && (reason === 'auto' || reason === 'page-switch')) return true;
@@ -240,7 +240,7 @@ export function useProjectAutoSave({
 
   useEffect(() => {
     latestProjectRef.current = project;
-    const canSaveLocal = Boolean(activeLocalFilePath && isTauri);
+    const canSaveLocal = Boolean(activeLocalFilePath);
     const path = canSaveLocal ? activeLocalFilePath! : undefined;
 
     if (!project) {
@@ -345,6 +345,7 @@ export function useProjectAutoSave({
   return {
     saveStatus,
     hasUnsavedChanges,
+    hasPendingChanges: () => hasUnsavedRef.current || Boolean(pendingRef.current),
     lastSavedAt,
     performAutoSave,
     flushSave,

@@ -30,6 +30,11 @@ it('keeps each directory store bound to its original handle even when folder nam
     await store.listSessions();
     expect(first).toHaveBeenCalledOnce();
     expect(second).toHaveBeenCalledOnce();
+    const directoryStore = store;
+    await act(async () => root.render(<Harness workspace={{ ...base, activeLocalPath: 'pwa:1:cover.cfjx', localFileIsBrowser: true, chatStorageKey: 'same:2', getChatDirectory: second }} />));
+    expect(store).toBe(directoryStore);
+    await store.listSessions();
+    expect(second).toHaveBeenCalledTimes(2);
   } finally {
     await act(async () => root.unmount());
     vi.unstubAllGlobals();

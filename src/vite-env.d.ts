@@ -14,3 +14,14 @@ interface FileSystemDirectoryHandle {
   requestPermission(descriptor?: FileSystemHandlePermissionDescriptor): Promise<PermissionState>;
 }
 
+interface FileSystemFileHandle {
+  queryPermission(descriptor?: FileSystemHandlePermissionDescriptor): Promise<PermissionState>;
+  requestPermission(descriptor?: FileSystemHandlePermissionDescriptor): Promise<PermissionState>;
+}
+
+interface Window {
+  launchQueue?: {
+    setConsumer(consumer: (params: { files: FileSystemHandle[] }) => void): void;
+  };
+}
+

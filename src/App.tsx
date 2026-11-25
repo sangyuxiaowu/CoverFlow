@@ -28,7 +28,7 @@ import type { BinaryRemovalResult } from './utils/backgroundRemovalResult.ts';
 import { PWAUpdatePrompt } from './components/pwa/PWAUpdatePrompt.tsx';
 import { OfflineIndicator } from './components/pwa/OfflineIndicator.tsx';
 // Tauri 环境下的本地文件适配器
-import { readLocalProject, useLocalProjects } from './hooks/useLocalProjects.ts';
+import { useLocalProjects } from './hooks/useLocalProjects.ts';
 import type { BrowserProjectItem } from './views/ProjectBrowser.tsx';
 import { summarizeProject, type ProjectSummary, type StorageAdapter } from './storage/StorageAdapter.ts';
 import { releaseProjectStorageCache } from './storage/IndexedDBAdapter.ts';
@@ -236,6 +236,8 @@ const App: React.FC = () => {
     activeLocalFilePath,
     openLocalProjectDialog,
     openLocalProjectFromPath,
+    openBrowserProject,
+    readProjectFromLocalPath,
     removeLocalRecentByPath,
     saveLocalProjectToFile,
     clearActiveLocalFilePath
@@ -243,8 +245,9 @@ const App: React.FC = () => {
     view,
     parseFailedMessage: t.parseFailed,
     showToast,
-    onOpenProject: async (nextProject, session) => {
+    onOpenProject: async (nextProject, session, beforeCommit) => {
       const opened = await session.adopt(nextProject);
+      if (beforeCommit && !beforeCommit()) throw new Error('Project changed while opening a file.');
       warnIfNewerProject(opened);
       switchImageSession(session);
       setProject(opened);
@@ -257,7 +260,7 @@ const App: React.FC = () => {
   });
 
   const pageThumbnails = useProjectPreviews(view === 'editor' ? project : null, (snapshot, pageId, preview) => {
-    const adapter = (activeLocalFilePath && isTauri) || !storageAdapter.saveProjectPreview ? indexedDbAdapter : storageAdapter;
+    const adapter = activeLocalFilePath || !storageAdapter.saveProjectPreview ? indexedDbAdapter : storageAdapter;
     void adapter.saveProjectPreview?.(snapshot, pageId, preview).catch(error => console.warn('[CoverFlow preview save]', error));
   });
 
@@ -360,6 +363,7 @@ const App: React.FC = () => {
   const {
     saveStatus,
     hasUnsavedChanges,
+    hasPendingChanges,
     lastSavedAt,
     performAutoSave,
     flushSave,
@@ -373,6 +377,35 @@ const App: React.FC = () => {
     saveLocalProjectToFile, clearActiveLocalFilePath, showToast, reportStorageError,
     savedMessage: t.saveStatusSaved, saveFailedMessage: t.storageSaveFailed
   });
+
+  const launchConsumerRef = useRef<(handle: FileSystemFileHandle) => Promise<void>>(async () => {});
+  const launchQueueRef = useRef<Promise<void>>(Promise.resolve());
+  launchConsumerRef.current = async handle => {
+    const opened = await openBrowserProject(handle, async () => {
+      if (!await flushSave('leave')) return null;
+      if (hasPendingChanges()) {
+        showToast(t.storageSaveFailed, 'error');
+        return null;
+      }
+      const savedProject = latestProjectRef.current;
+      return () => latestProjectRef.current === savedProject;
+    });
+    if (opened) {
+      latestProjectRef.current = opened.project;
+      markProjectSaved(opened.project, opened.path);
+    }
+  };
+  useEffect(() => {
+    if (isTauri || !window.launchQueue) return;
+    window.launchQueue.setConsumer(({ files }) => {
+      for (const handle of files) {
+        if (handle.kind !== 'file') continue;
+        launchQueueRef.current = launchQueueRef.current.then(() => launchConsumerRef.current(handle as FileSystemFileHandle)).catch(error => {
+          console.error('[CoverFlow file launch]', error);
+        });
+      }
+    });
+  }, [isTauri]);
 
   useEffect(() => () => {
     versionPreviewSessionRef.current?.close();
@@ -388,7 +421,7 @@ const App: React.FC = () => {
   const handleSaveNewVersion = useCallback(async (info: string) => {
     const currentProject = latestProjectRef.current ?? project;
     if (!currentProject) return;
-    const canSaveLocal = Boolean(activeLocalFilePath && isTauri);
+    const canSaveLocal = Boolean(activeLocalFilePath);
     const path = canSaveLocal ? activeLocalFilePath! : undefined;
     setVersionsBusy(true);
     try {
@@ -448,7 +481,7 @@ const App: React.FC = () => {
   const handleSwitchVersion = useCallback(async (versionId: string, saveCurrentVersionInfo?: string) => {
     const currentProject = latestProjectRef.current ?? project;
     if (!currentProject) return;
-    const canSaveLocal = Boolean(activeLocalFilePath && isTauri);
+    const canSaveLocal = Boolean(activeLocalFilePath);
     const path = canSaveLocal ? activeLocalFilePath! : undefined;
     const nextSession = new ProjectImageSession();
     setVersionsBusy(true);
@@ -505,7 +538,7 @@ const App: React.FC = () => {
   const handleDeleteVersion = useCallback(async (versionId: string) => {
     const currentProject = latestProjectRef.current ?? project;
     if (!currentProject) return;
-    const canSaveLocal = Boolean(activeLocalFilePath && isTauri);
+    const canSaveLocal = Boolean(activeLocalFilePath);
     const path = canSaveLocal ? activeLocalFilePath! : undefined;
     setVersionsBusy(true);
     try {
@@ -1764,6 +1797,7 @@ const App: React.FC = () => {
     storage: storageAdapter,
     localProjects: localRecentItems,
     activeLocalPath: activeLocalFilePath,
+    localFileIsBrowser: Boolean(activeLocalFilePath && !isTauri),
     chatStorageKey: `directory:${storageFolderName}:${storageFolderRevision}`,
     getChatDirectory: async () => {
       if (chatDirectory) return chatDirectory;
@@ -1794,7 +1828,8 @@ const App: React.FC = () => {
     },
     onOpen: async (next, localPath) => {
       if (localPath) {
-        const opened = await openLocalProjectFromPath(localPath);
+        if (!isTauri && localPath === activeLocalFilePath) return latestProjectRef.current ?? next;
+        const opened = await openLocalProjectFromPath(localPath, false);
         if (!opened) throw new Error('Unable to open local project.');
         return opened;
       }
@@ -1830,7 +1865,7 @@ const App: React.FC = () => {
     saveLocal: saveLocalProjectToFile,
     saveActive: saveActiveProject,
     saveOnCommit: false,
-    readLocal: readLocalProject
+    readLocal: readProjectFromLocalPath
   };
   clipboardWorkspaceRef.current = {
     ...aiWorkspace,
@@ -1861,7 +1896,7 @@ const App: React.FC = () => {
   })();
 
   const resolveRecentProject = async (item: BrowserProjectItem, imageOwner?: symbol): Promise<ProjectState> => {
-    if (item.source === 'local' && item.localPath) return readLocalProject(item.localPath, imageOwner);
+    if (item.source === 'local' && item.localPath) return readProjectFromLocalPath(item.localPath, imageOwner, true);
     if (!('kind' in item.project)) return item.project;
     const loaded = await storageAdapter.getProject?.(item.project.id, imageOwner);
     if (!loaded) throw new Error('Project not found.');
@@ -1876,7 +1911,7 @@ const App: React.FC = () => {
     if (openingProjectRef.current) return;
     openingProjectRef.current = true;
     setOpeningProject(true);
-    window.setTimeout(() => {
+    const open = () => {
       const operation = item.source === 'local' && item.localPath
         ? openLocalProjectFromPath(item.localPath)
         : (async () => {
@@ -1896,7 +1931,9 @@ const App: React.FC = () => {
         openingProjectRef.current = false;
         setOpeningProject(false);
       });
-    }, 0);
+    };
+    if (item.source === 'local' && !isTauri) open();
+    else window.setTimeout(open, 0);
   };
 
   const handleDeleteRecentProject = (item: BrowserProjectItem) => {

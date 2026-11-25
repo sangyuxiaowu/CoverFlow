@@ -22,6 +22,7 @@ export interface WorkspaceOptions {
   storage: StorageAdapter;
   localProjects: { project: ProjectState | ProjectSummary; localPath?: string }[];
   activeLocalPath: string | null;
+  localFileIsBrowser?: boolean;
   chatStorageKey?: string;
   getChatDirectory?: () => Promise<FileSystemDirectoryHandle>;
   prepareCommit?: (project: ProjectState) => Promise<ProjectState>;

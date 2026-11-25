@@ -314,6 +314,7 @@ it('tracks saving status during async writes and keeps unsaved if edited mid-fli
   });
   expect(harness.getResult().saveStatus).toBe('unsaved');
   expect(harness.getResult().hasUnsavedChanges).toBe(true);
+  expect(harness.getResult().hasPendingChanges()).toBe(true);
 });
 
 it('autosaves an undo made while an older snapshot is being written', async () => {
@@ -370,6 +371,16 @@ it('uses only the Tauri file path for manual/leave saves even when the adapter i
   expect(saveLocal.mock.calls[0][1].title).toBe('Native');
   expect(harness.options.storageAdapter.saveProject).not.toHaveBeenCalled();
   expect(harness.getResult().saveStatus).toBe('saved');
+});
+
+it('saves an associated browser file to its handle instead of the project library', async () => {
+  const harness = await mount({ isTauri: false, activeLocalFilePath: 'pwa:1:cover.cfjx' });
+  await harness.render({ project: { ...initial, title: 'Edited' } });
+  await act(async () => vi.advanceTimersByTime(DEFAULT_AUTO_SAVE_IDLE_MS));
+  expect(harness.options.saveLocalProjectToFile).not.toHaveBeenCalled();
+  await act(async () => { expect(await harness.getResult().flushSave('manual')).toBe(true); });
+  expect(harness.options.saveLocalProjectToFile).toHaveBeenCalledWith('pwa:1:cover.cfjx', expect.objectContaining({ title: 'Edited' }));
+  expect(harness.options.storageAdapter.saveProject).not.toHaveBeenCalled();
 });
 
 it('checks the adapter and reports unavailable storage for dirty saves', async () => {

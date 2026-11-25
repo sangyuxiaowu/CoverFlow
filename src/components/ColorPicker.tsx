@@ -6,6 +6,7 @@ import { PRESET_COLORS } from '../constants.ts';
 import { Language, translations } from '../translations.ts';
 import { detectColorFormat, formatColor, getColorChannels, parseColor, updateColorChannel, type ColorFormat } from '../utils/colors.ts';
 import { isTauriRuntime } from '../utils/tauriRuntime.ts';
+import PageEyedropper from './PageEyedropper.tsx';
 import './ColorPicker.css';
 
 interface Props {
@@ -25,6 +26,7 @@ const ColorPicker: React.FC<Props> = ({ lang, name, value, onChange }) => {
   const pickAbortRef = useRef<AbortController | null>(null);
   const [open, setOpen] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [pagePicking, setPagePicking] = useState(false);
   const [pickError, setPickError] = useState(false);
   const [hexDraft, setHexDraft] = useState(() => formatColor(value, 'hex'));
   const [position, setPosition] = useState({ left: 12, top: 12, width: 240 });
@@ -32,7 +34,8 @@ const ColorPicker: React.FC<Props> = ({ lang, name, value, onChange }) => {
   const format = detectColorFormat(value);
   const channels = getColorChannels(value, format);
   const EyeDropper = typeof window === 'undefined' ? undefined : (window as Window & { EyeDropper?: EyeDropperConstructor }).EyeDropper;
-  const canPickScreenColor = Boolean(EyeDropper) && !isTauriRuntime();
+  const usePagePicker = isTauriRuntime();
+  const canPickScreenColor = Boolean(EyeDropper) && !usePagePicker;
 
   useEffect(() => setHexDraft(formatColor(value, 'hex')), [value]);
 
@@ -119,7 +122,7 @@ const ColorPicker: React.FC<Props> = ({ lang, name, value, onChange }) => {
           <div className="cf-color-controls">
             <RgbaColorPicker color={color} onChange={(next) => onChange(formatColor(next, format))} />
             <div className="cf-color-toolbar">
-              <button type="button" title={canPickScreenColor ? t.colorPickerEyedropper : t.colorPickerEyedropperUnavailable} aria-label={t.colorPickerEyedropper} disabled={!canPickScreenColor || picking} onClick={pickScreenColor}><Pipette size={15} /></button>
+              <button type="button" title={usePagePicker ? t.colorPickerPageEyedropper : canPickScreenColor ? t.colorPickerEyedropper : t.colorPickerEyedropperUnavailable} aria-label={usePagePicker ? t.colorPickerPageEyedropper : t.colorPickerEyedropper} disabled={(!usePagePicker && !canPickScreenColor) || picking || pagePicking} onClick={() => { if (usePagePicker) { setPickError(false); setPagePicking(true); } else void pickScreenColor(); }}><Pipette size={15} /></button>
               <div className="cf-color-preview"><span style={{ backgroundColor: value }} /></div>
             </div>
           </div>
@@ -138,9 +141,10 @@ const ColorPicker: React.FC<Props> = ({ lang, name, value, onChange }) => {
           <div className="cf-color-palette">
             {[...PRESET_COLORS, 'transparent'].map((preset) => <button key={preset} type="button" className="cf-color-swatch" title={preset} aria-label={`${t.colorPickerPreset} ${preset}`} onClick={() => onChange(formatColor(preset, format))}><span style={{ backgroundColor: preset }} /></button>)}
           </div>
-          {pickError && <div role="status" className="cf-color-error">{t.colorPickerEyedropperFailed}</div>}
+          {pickError && <div role="status" className="cf-color-error">{usePagePicker ? t.colorPickerPageFailed : t.colorPickerEyedropperFailed}</div>}
         </div>, document.body
       )}
+      {open && pagePicking && <PageEyedropper lang={lang} onPick={(picked) => { const next = parseColor(picked); if (next) onChange(formatColor({ ...next, a: color.a }, format)); setPagePicking(false); }} onCancel={(failed) => { setPagePicking(false); if (failed) setPickError(true); }} />}
     </>
   );
 };

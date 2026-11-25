@@ -177,7 +177,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     afterPageId: string('仅 create/duplicate/move 可用；省略则为当前页。'),
     autoSwitch: { type: 'boolean', description: '[可选]，是否在创建、移动或复制成功后自动切换到新页，多页则为第一个新页，默认 true。' },
     name: { ...string('仅 create/update 可用的页面名称，最多 100 字符；新建时省略或空白表示沿用当前页，更新时省略保持不变，空白表示清除名称。'), maxLength: 100 },
-    notes: { ...string('仅 create/update 可用的页面备注，最多 500 字符；更新时省略保持不变，空白表示清除备注。'), maxLength: 500 },
+    notes: { ...string('仅 create/update 可用的页面备注，更新时省略保持不变，空白表示清除备注。'), maxLength: 1024 },
     pageInfo: { ...object('仅 create/update 可用的画布和背景属性；新建时省略字段沿用当前页，更新时省略的字段保持不变。update 至少提供 name、notes 或 pageInfo。', {
       width: numeric('画布宽度（px）。', 10, 10000),
       height: numeric('画布高度（px）。', 10, 10000),

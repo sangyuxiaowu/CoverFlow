@@ -40,7 +40,7 @@ export async function executePageTool(input: unknown, bridge: WorkspaceBridge, s
     if (action === 'update' && args.name === undefined && args.notes === undefined && args.pageInfo === undefined) throw new Error('Provide name, notes or pageInfo to update.');
     if (Object.keys(pageInfo).some(field => !['width', 'height', 'background'].includes(field))) throw new Error('Unsupported pageInfo parameter.');
     if (args.name !== undefined && (typeof args.name !== 'string' || args.name.length > 100)) throw new Error('Page name must contain at most 100 characters.');
-    if (args.notes !== undefined && (typeof args.notes !== 'string' || args.notes.length > 500)) throw new Error('Page notes must contain at most 500 characters.');
+    if (args.notes !== undefined && (typeof args.notes !== 'string' || args.notes.length > 1024)) throw new Error('Page notes must contain at most 1024 characters.');
     const notes = typeof args.notes === 'string' ? (args.notes.trim() ? args.notes : '') : undefined;
     const source = action === 'create' ? project.pages!.find(page => page.id === project.activePageId)! : target;
     const name = args.name === undefined || (action === 'create' && !(args.name as string).trim()) ? source.name : (args.name as string).trim();

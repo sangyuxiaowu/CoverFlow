@@ -148,13 +148,16 @@ test('project creation and search use dedicated tools and preserve bridge action
 test('read_layers accepts an optional pageId and reads the target page without switching', async () => {
   const { bridge, signal } = setup();
   const initialId = bridge.getProject()!.activePageId!;
-  const created = await executeTool('manage_pages', { action: 'create', afterPageId: initialId, name: 'Second' }, bridge, signal) as { pageId: string };
+  const created = await executeTool('manage_pages', { action: 'create', afterPageId: initialId, name: 'Second', notes: 'Second page notes' }, bridge, signal) as { pageId: string };
   await executeSingleLayerTool({ type: 'text', properties: { text: { content: 'Second page layer' } } }, bridge, signal);
   await executeTool('manage_pages', { action: 'switch', pageId: initialId }, bridge, signal);
 
-  const read = await executeTool('read_layers', { pageId: created.pageId }, bridge, signal) as Record<string, unknown>[];
-  assert.equal(read.length, 1);
-  assert.equal((read[0].text as Record<string, unknown>).content, 'Second page layer');
+  const read = await executeTool('read_layers', { pageId: created.pageId }, bridge, signal) as { pageId: string; name: string; notes: string; layers: Record<string, unknown>[] };
+  assert.equal(read.pageId, created.pageId);
+  assert.equal(read.name, 'Second');
+  assert.equal(read.notes, 'Second page notes');
+  assert.equal(read.layers.length, 1);
+  assert.equal((read.layers[0].text as Record<string, unknown>).content, 'Second page layer');
   assert.equal(bridge.getProject()!.activePageId, initialId);
   await assert.rejects(executeTool('read_layers', { pageId: 'missing' }, bridge, signal), /Page not found/);
   await assert.rejects(executeTool('read_layers', { projectId: 'p1' }, bridge, signal), /unsupported field projectId/);
@@ -184,7 +187,7 @@ test('context exposes only common layer properties and preserves group relations
     { id: 'image', name: 'Photo', type: 'image', layerInfo: info() },
     { id: 'svg', name: 'Icon', type: 'svg', layerInfo: info() }
   ]);
-  const details = await executeTool('read_layers', {}, bridge, signal);
+  const details = await executeTool('read_layers', {}, bridge, signal) as { layers: unknown[] };
   const expected = [
     { id: 'group', name: 'Group', type: 'group', layerInfo: info(), group: { children: ['text', 'decoration'] } },
     { id: 'text', name: 'Title', type: 'text', parentId: 'group', layerInfo: info(), text: { content: 'Hello', fontSize: 64, fontFamily: 'sans-serif', fontWeight: 700, textAlign: 'center', color: '#fff' } },
@@ -192,9 +195,9 @@ test('context exposes only common layer properties and preserves group relations
     { id: 'image', name: 'Photo', type: 'image', layerInfo: info(), image: { content: '[embedded image]', imageSource: 'upload', imageDescription: 'A photo', imageCrop: { x: 10, y: 10, width: 80, height: 80 }, backgroundRemoved: true } },
     { id: 'svg', name: 'Icon', type: 'svg', layerInfo: info(), svg: { content: '<svg></svg>', color: '#000' } }
   ];
-  assert.deepEqual(details, expected);
-  const filtered = await executeTool('read_layers', { layerIds: ['text', 'decoration'], query: 'Hello' }, bridge, signal);
-  assert.deepEqual(filtered, [expected[1]]);
+  assert.deepEqual(details.layers, expected);
+  const filtered = await executeTool('read_layers', { layerIds: ['text', 'decoration'], query: 'Hello' }, bridge, signal) as { layers: unknown[] };
+  assert.deepEqual(filtered.layers, [expected[1]]);
   const selected = await executeTool('get_selected_layers', {}, { ...bridge, getSelection: () => ['group', 'text', 'decoration', 'svg'] }, signal) as { layers: unknown[] };
   assert.deepEqual(selected.layers, expected.filter(layer => layer.type !== 'image'));
 });
@@ -324,7 +327,7 @@ test('layer tools use matching type groups for input and output', async () => {
   for (const [type, properties] of cases) {
     await executeSingleLayerTool( { type, properties }, bridge, signal);
     const layerId = bridge.getProject()!.selectedLayerId!;
-    const [details] = await executeTool('read_layers', { layerIds: [layerId] }, bridge, signal) as Record<string, unknown>[];
+    const { layers: [details] } = await executeTool('read_layers', { layerIds: [layerId] }, bridge, signal) as { layers: Record<string, unknown>[] };
     assert.deepEqual(details[type], { ...(type === 'text' ? { fontFamily: 'Inter, sans-serif', fontWeight: 700, textAlign: 'left' } : type === 'image' ? { imageDescription: '' } : {}), ...properties[type] as object });
     for (const field of ['color', 'fontSize', 'letterSpacing', 'lineHeight', 'fontFamily', 'imageSource', 'flipX']) assert.equal(field in details, false);
     await executeTool('update_layers', { layerIds: [layerId], properties }, bridge, signal);
@@ -358,7 +361,7 @@ test('text color, gradient and shadow update together under text without replaci
     textShadow: { enabled: true, color: 'rgba(0,0,0,0.55)', blur: 22, offsetX: 0, offsetY: 6 }
   };
   await executeTool('update_layers', { layerIds: [layerId], properties: { layerInfo: { x: 52, y: 84, width: 720, height: 100 }, text: styles } }, bridge, signal);
-  const [details] = await executeTool('read_layers', { layerIds: [layerId] }, bridge, signal) as Record<string, unknown>[];
+  const { layers: [details] } = await executeTool('read_layers', { layerIds: [layerId] }, bridge, signal) as { layers: Record<string, unknown>[] };
   assert.deepEqual(details.text, { content: 'Keep title', ...styles, fontFamily: 'serif', textAlign: 'left' });
   assert.equal('content' in details, false);
   assert.equal((details.layerInfo as Record<string, unknown>).x, 52);
@@ -379,7 +382,7 @@ test('content belongs to each layer type for both writes and reads', async () =>
   for (const [type, content, updated] of cases) {
     await executeSingleLayerTool( { type, properties: { [type]: { content } } }, bridge, signal);
     const id = bridge.getProject()!.selectedLayerId!;
-    const [details] = await executeTool('read_layers', { layerIds: [id] }, bridge, signal) as Record<string, unknown>[];
+    const { layers: [details] } = await executeTool('read_layers', { layerIds: [id] }, bridge, signal) as { layers: Record<string, unknown>[] };
     assert.equal('content' in details, false);
     assert.equal((details[type] as { content: string }).content, type === 'image' ? '[embedded image]' : content);
     const selected = await executeTool('get_selected_layers', {}, { ...bridge, getSelection: () => [id] }, signal) as { layers: Record<string, unknown>[] };
@@ -423,7 +426,7 @@ test('tools follow the current project and page without target parameters and re
   assert.equal(result.projectId, 'p1');
   assert.equal(result.pageId, pages.pageId);
   await executeTool('manage_pages', { action: 'switch', pageId: pages.pages[0].id }, bridge, signal);
-  assert.deepEqual(await executeTool('read_layers', {}, bridge, signal), []);
+  assert.deepEqual(await executeTool('read_layers', {}, bridge, signal), { pageId: pages.pages[0].id, name: '', notes: '', layers: [] });
   await executePageUpdate( { width: 1000 }, bridge, signal);
   await executeTool('manage_pages', { action: 'switch', pageId: pages.pageId }, bridge, signal);
   assert.equal(bridge.getProject()!.pageInfo.width, 800);
@@ -795,7 +798,7 @@ test('layerInfo groups common properties for create, update and reads', async ()
     }
   }, bridge, signal);
   const layerId = bridge.getProject()!.selectedLayerId!;
-  const read = async () => (await executeTool('read_layers', { layerIds: [layerId] }, bridge, signal) as Record<string, unknown>[])[0];
+  const read = async () => (await executeTool('read_layers', { layerIds: [layerId] }, bridge, signal) as { layers: Record<string, unknown>[] }).layers[0];
   assert.equal((await read()).name, 'Heading');
   assert.deepEqual((await read()).layerInfo, {
     x: 24, y: 36, width: 420, height: 100, rotation: 0,
@@ -824,4 +827,53 @@ test('context hides embedded backgrounds and returns page dimensions', async () 
   assert.equal(context.pageInfo.background.value, '[embedded image]');
   assert.deepEqual(context.pages.map(page => page.canvas), ['800x600']);
   assert.doesNotMatch(JSON.stringify(context), /base64/);
+});
+
+test('manage_pages creates, updates and reports notes without changing other pages', async () => {
+  const { bridge, signal } = setup();
+  const firstId = bridge.getProject()!.activePageId!;
+  const firstPageInfo = bridge.getProject()!.pageInfo;
+  await executeTool('manage_pages', { action: 'update', pageId: firstId, notes: 'First\n  line' }, bridge, signal);
+  assert.equal(bridge.getProject()!.pageInfo, firstPageInfo);
+  const created = await executeTool('manage_pages', { action: 'create', count: 2, notes: 'Batch notes', autoSwitch: false }, bridge, signal) as { pages: { id: string; name: string; notes: string }[] };
+  assert.equal(bridge.getProject()!.activePageId, firstId);
+  assert.deepEqual(created.pages.map(page => page.notes), ['First\n  line', 'Batch notes', 'Batch notes']);
+  const secondId = created.pages[1].id;
+  await executeTool('manage_pages', { action: 'update', pageId: secondId, name: 'Updated' }, bridge, signal);
+  assert.equal(bridge.getProject()!.pages![1].notes, 'Batch notes');
+  await executeTool('manage_pages', { action: 'update', pageId: secondId, notes: '  \n ' }, bridge, signal);
+  assert.equal(bridge.getProject()!.pages![1].notes, '');
+  const listing = await executeTool('manage_pages', { action: 'list' }, bridge, signal) as { pages: { notes: string }[] };
+  const context = await executeTool('get_context', {}, bridge, signal) as { pages: { notes: string }[] };
+  assert.deepEqual(listing.pages.map(page => page.notes), ['First\n  line', '', 'Batch notes']);
+  assert.deepEqual(context.pages.map(page => page.notes), ['First\n  line', '', 'Batch notes']);
+  const emptyRead = await executeTool('read_layers', { pageId: secondId, query: 'missing' }, bridge, signal) as { name: string; notes: string; layers: unknown[] };
+  assert.deepEqual(emptyRead, { pageId: secondId, name: 'Updated', notes: '', layers: [] });
+  const duplicate = await executeTool('manage_pages', { action: 'duplicate', pageId: firstId, autoSwitch: false }, bridge, signal) as { pages: { id: string; notes: string }[] };
+  assert.equal(duplicate.pages[1].notes, 'First\n  line');
+  const blank = await executeTool('manage_pages', { action: 'create', autoSwitch: false }, bridge, signal) as { pages: { id: string; notes: string }[] };
+  assert.equal(blank.pages[1].notes, '');
+  await executeTool('manage_pages', { action: 'update', pageId: firstId, notes: 'x'.repeat(500) }, bridge, signal);
+  assert.equal(bridge.getProject()!.pages!.find(page => page.id === firstId)!.notes?.length, 500);
+  const before = structuredClone(bridge.getProject());
+  for (const args of [
+    { action: 'create', notes: 'x'.repeat(501) },
+    { action: 'update', pageId: firstId, notes: null },
+    { action: 'switch', pageId: firstId, notes: 'Invalid' }
+  ]) await assert.rejects(executeTool('manage_pages', args, bridge, signal));
+  assert.deepEqual(bridge.getProject(), before);
+});
+
+test('allows notes on pages with an existing internal image background', async () => {
+  const { bridge, signal } = setup();
+  const project = bridge.getProject()!;
+  const background = { ...project.pageInfo.background, type: 'image' as const, value: 'asset-image:existing' };
+  await bridge.commit({ ...project, pageInfo: { ...project.pageInfo, background } });
+  await executeTool('manage_pages', { action: 'update', pageId: project.activePageId, notes: 'Background notes' }, bridge, signal);
+  assert.equal(bridge.getProject()!.pages![0].notes, 'Background notes');
+  const created = await executeTool('manage_pages', { action: 'create', notes: 'New notes' }, bridge, signal) as { pageId: string };
+  assert.equal(bridge.getProject()!.pages!.find(page => page.id === created.pageId)!.notes, 'New notes');
+  assert.equal(bridge.getProject()!.pageInfo.background.value, background.value);
+  await assert.rejects(executeTool('manage_pages', { action: 'update', pageId: created.pageId, notes: 'Invalid', pageInfo: { background: { type: 'image', value: 'javascript:alert(1)' } } }, bridge, signal));
+  assert.equal(bridge.getProject()!.pages!.find(page => page.id === created.pageId)!.notes, 'New notes');
 });

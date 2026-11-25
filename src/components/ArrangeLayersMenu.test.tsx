@@ -220,7 +220,6 @@ describe('EditorHeader', () => {
       commit: async () => {},
       manageProjects: async () => ({})
     };
-    const onPreview = vi.fn();
     const onExportProject = vi.fn();
     const onExportImage = vi.fn();
     const onSave = vi.fn();
@@ -255,7 +254,6 @@ describe('EditorHeader', () => {
               isAiOpen={false}
               aiBusy={false}
               onToggleAi={() => {}}
-              onPreview={onPreview}
               onExportProject={onExportProject}
               onExportImage={onExportImage}
               isExporting={false}
@@ -285,14 +283,6 @@ describe('EditorHeader', () => {
 
       await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Version History"]')!.click());
       expect(onOpenVersions).toHaveBeenCalledTimes(1);
-
-      // More menu exposes Preview and Export Project (.cfjx) without header clutter
-      await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="More project actions"]')!.click());
-      const previewItem = [...host.querySelectorAll('[role="menuitem"]')].find((el) =>
-        el.textContent?.includes('Full-screen project preview')
-      ) as HTMLButtonElement;
-      await act(async () => previewItem.click());
-      expect(onPreview).toHaveBeenCalledTimes(1);
 
       await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="More project actions"]')!.click());
       const exportProjItem = [...host.querySelectorAll('[role="menuitem"]')].find((el) =>

@@ -89,7 +89,12 @@ export async function executeTool(name: string, input: unknown, bridge: Workspac
     const pageId = args.pageId === undefined ? synced.activePageId : text(args.pageId, 'pageId');
     const page = synced.pages?.find(item => item.id === pageId);
     if (!page) throw new Error('Page not found.');
-    return page.layers.filter(layer => (!selected || selected.includes(layer.id)) && (!query || (layer.name + ' ' + layer.content).toLowerCase().includes(query))).map(layer => layerDetails({ ...layer, content: layer.content.startsWith('data:') || isImageAsset(layer.content) ? '[embedded image]' : layer.content }));
+    return {
+      pageId: page.id,
+      name: page.name,
+      notes: page.notes ?? '',
+      layers: page.layers.filter(layer => (!selected || selected.includes(layer.id)) && (!query || (layer.name + ' ' + layer.content).toLowerCase().includes(query))).map(layer => layerDetails({ ...layer, content: layer.content.startsWith('data:') || isImageAsset(layer.content) ? '[embedded image]' : layer.content }))
+    };
   }
   let next = project;
   let createdLayerIds: string[] | undefined;

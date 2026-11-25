@@ -98,6 +98,7 @@ async function exportSelectedProjectPages(project: ProjectState, pages: ProjectP
       const slide = pptx.addSlide();
       slide.background = { color: 'FFFFFF' };
       slide.addImage({ data: await toDataUrl(blob), ...containImage(page.pageInfo.width, page.pageInfo.height, slideWidth, slideHeight), altText: page.name || pageNumber(synced.pages!.indexOf(page)) });
+      if (page.notes) slide.addNotes(page.notes);
     } else if (pages.length === 1) single = blob;
     else zip.file(`${pageNumber(synced.pages!.indexOf(page))}${page.name ? `-${safeExportName(page.name)}` : ''}.${extension}`, await blob.arrayBuffer());
     onProgress?.(index + 1, pages.length);

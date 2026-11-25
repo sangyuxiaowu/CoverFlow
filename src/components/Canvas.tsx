@@ -11,7 +11,8 @@ import { applyCanvasLayerUpdates, boundsOfLayers, rootSelectionIds, selectionBou
 import DecorationContent from './DecorationContent.tsx';
 import ImageLayerContent from './ImageLayerContent.tsx';
 import { translations, Language } from '../translations.ts';
-import { RotateCw } from 'lucide-react';
+import { pageNumber } from '../utils/projectPages.ts';
+import { ChevronDown, Maximize, MessageSquareText, Minus, PencilLine, Plus, RotateCw } from 'lucide-react';
 
 interface Guideline {
   type: 'h' | 'v';
@@ -31,12 +32,16 @@ interface CanvasProps {
   onKeyboardCommit: (modifier: (project: ProjectState) => ProjectState) => void;
   onCommit: () => void;
   onOpenImageCrop?: (layerId: string) => void;
+  onPreview?: () => void;
+  previewDisabled?: boolean;
+  onNotesChange?: (pageId: string, notes: string) => void;
+  children?: React.ReactNode;
 }
 
 const SNAP_THRESHOLD = 8;
 
 // 画布交互与渲染组件。
-const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, selectedLayerIds = committedProject.selectedLayerId ? [committedProject.selectedLayerId] : [], onSelectLayer, updateLayer, onKeyboardCommit, onCommit, onOpenImageCrop }) => {
+const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, selectedLayerIds = committedProject.selectedLayerId ? [committedProject.selectedLayerId] : [], onSelectLayer, updateLayer, onKeyboardCommit, onCommit, onOpenImageCrop, onPreview, previewDisabled, onNotesChange, children }) => {
   const [draft, setDraft] = useState<{ pageKey: string; updates: CanvasLayerUpdate[] } | null>(null);
   const draftRef = useRef<typeof draft>(null);
   const [keyboardDraft, setKeyboardDraft] = useState<KeyboardLayerTransform | null>(null);
@@ -54,12 +59,24 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, select
   const fittedPageKeyRef = useRef<string | null>(null);
   const pageKey = `${project.id}:${project.activePageId ?? ''}`;
   const [zoom, setZoom] = useState(0.8);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesHeight, setNotesHeight] = useState(144);
+  const notesResizeRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null);
+  const notesToggleRef = useRef<HTMLButtonElement>(null);
   const [guidelines, setGuidelines] = useState<Guideline[]>([]);
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
   const textEditRef = useRef<HTMLTextAreaElement | null>(null);
   const lastEditIdRef = useRef<string | null>(null);
   const t = translations[lang];
+  const activePageIndex = Math.max(0, (committedProject.pages ?? []).findIndex(page => page.id === committedProject.activePageId));
+  const activePage = committedProject.pages?.[activePageIndex];
+  const notes = activePage?.notes ?? '';
+  const selectedIds = new Set(selectedLayerIds);
+  const selectedLayers = committedProject.layers.filter(layer => selectedIds.has(layer.id));
+  const selectionLabel = selectedLayers.length === 0 ? t.noLayersSelected
+    : selectedLayers.length === 1 ? t.selectedLayerName.replace('{name}', selectedLayers[0].name)
+      : t.arrangeSelectedCount.replace('{count}', String(selectedLayers.length));
 
   // 鼠标交互状态：用于拖拽、缩放、旋转
   const [interaction, setInteraction] = useState<{
@@ -478,7 +495,8 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, select
   };
 
   return (
-    <div className="flex-1 relative">
+    <div className="flex-1 min-h-0 min-w-0 flex flex-col">
+      <div className="flex-1 min-h-0 relative">
       <div 
         ref={scrollContainerRef}
         className="absolute inset-0 overflow-auto bg-slate-950 canvas-checkerboard"
@@ -786,28 +804,90 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, select
         </div>
       </div>
       
-      <div className="absolute bottom-4 right-4 bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl px-2 py-1 flex items-center gap-1.5 text-slate-200 shadow-xl z-50">
-        <button
-          onClick={() => setZoom(z => Math.max(0.05, z - 0.1))}
-          className="hover:text-blue-400 hover:bg-slate-700/80 font-bold w-5 h-5 flex items-center justify-center rounded-md bg-slate-800 border border-slate-700/60 transition-all active:scale-95 text-xs text-slate-300 leading-none"
-          title="Zoom out"
-        >
-          －
+      {children}
+      </div>
+          <div role="separator" tabIndex={0} aria-label={t.resizePageNotes} aria-orientation="horizontal" aria-valuemin={0} aria-valuemax={340} aria-valuenow={notesOpen ? notesHeight : 0} title={t.resizePageNotes}
+            className="h-0 shrink-0 relative z-21 cursor-ns-resize touch-none flex items-center justify-center group focus-visible:outline focus-visible:outline-1 focus-visible:outline-blue-400"
+            onPointerDown={event => {
+              if (event.button !== 0) return;
+              event.preventDefault();
+              notesResizeRef.current = { pointerId: event.pointerId, startY: event.clientY, startHeight: notesOpen ? notesHeight : 0 };
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={event => {
+              const drag = notesResizeRef.current;
+              if (drag?.pointerId !== event.pointerId) return;
+              const height = drag.startHeight + drag.startY - event.clientY;
+              if (!notesOpen && height <= 0) return;
+              if (!notesOpen) setNotesOpen(true);
+              setNotesHeight(Math.max(76, Math.min(340, height)));
+            }}
+            onPointerUp={() => { notesResizeRef.current = null; }}
+            onPointerCancel={() => { notesResizeRef.current = null; }}
+            onLostPointerCapture={() => { notesResizeRef.current = null; }}
+            onKeyDown={event => {
+              if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+              event.preventDefault();
+              if (!notesOpen) {
+                if (event.key === 'ArrowUp') setNotesOpen(true);
+                return;
+              }
+              setNotesHeight(height => Math.max(76, Math.min(340, height + (event.key === 'ArrowUp' ? 10 : -10))));
+            }}>
+            <div className="h-1 w-9 rounded-full bg-[#2a364f] transition-[width,background-color] group-hover:w-12 group-hover:bg-blue-500" />
+          </div>
+      {notesOpen && (
+        <div style={{ height: notesHeight, maxHeight: 'calc(100% - 88px)' }} className="shrink-0 relative z-20 bg-[#0f1522] flex flex-col">
+          <div className="h-7 shrink-0 px-3.5 flex items-center gap-2 border-b border-[#192133]">
+            <label htmlFor="page-notes" className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-slate-200"><PencilLine className="h-3.5 w-3.5 text-blue-400" />{t.pageNotes}</label>
+            <span title={activePage?.name} className="min-w-0 truncate rounded border border-[#263554] bg-[#192338] px-1.5 text-[10px] font-mono text-blue-400">{pageNumber(activePageIndex)}{activePage?.name ? ` · ${activePage.name}` : ''}</span>
+            <span className="flex-1" />
+            <span className="shrink-0 text-[11px] font-mono tabular-nums text-slate-500">{t.pageNotesCharacterCount.replace('{count}', String(Array.from(notes).length))}</span>
+            <button type="button" title={t.collapsePageNotes} aria-label={t.collapsePageNotes} onClick={() => { setNotesOpen(false); notesToggleRef.current?.focus(); }} className="h-5 w-5 shrink-0 flex items-center justify-center rounded text-slate-400 hover:bg-[#1c2538] hover:text-white">
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <textarea id="page-notes" className="flex-1 min-h-0 w-full resize-none bg-transparent px-3.5 py-2 text-[12px] leading-relaxed text-slate-200 placeholder:text-slate-500 outline-none" placeholder={t.pageNotesPlaceholder} value={notes} onChange={event => {
+            if (committedProject.activePageId) onNotesChange?.(committedProject.activePageId, event.target.value);
+          }} />
+        </div>
+      )}
+      <div role="toolbar" aria-label={t.editorStatusBar} className="h-7 shrink-0 border-t border-[#1c2436] bg-[#0b0f18] px-3 flex items-center gap-1 text-slate-300">
+        <div className="min-w-0 flex-1 flex items-center gap-3 text-[11px]">
+          <span className="shrink-0 text-slate-300">{t.pages} {activePageIndex + 1} / {committedProject.pages?.length ?? 1}</span>
+          <span className="text-[#263147]">|</span>
+          <span title={selectionLabel} className="min-w-0 flex items-center gap-1.5 text-slate-400"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${selectedLayers.length ? 'bg-blue-400' : 'bg-slate-600'}`} /><span className="truncate">{selectionLabel}</span></span>
+        </div>
+        <button ref={notesToggleRef} type="button" onClick={() => setNotesOpen(open => !open)} aria-pressed={notesOpen} title={t.pageNotes} className={`h-6 shrink-0 px-1.5 flex items-center gap-1 rounded border text-[11px] ${notesOpen ? 'bg-[#18233c] border-blue-500/30 text-blue-400 hover:bg-[#1f2d4d]' : 'border-transparent text-slate-400 hover:bg-[#1a2234] hover:text-slate-200'}`}>
+          <MessageSquareText className="w-3.5 h-3.5" /><span>{t.pageNotes}</span>
         </button>
-        <span className="w-9 text-center font-mono text-[11px] font-medium tracking-tight text-slate-200 select-none">
+        <button type="button" onClick={onPreview} disabled={previewDisabled || !onPreview} title={t.previewProject} aria-label={t.previewProject} className="h-6 w-6 shrink-0 flex items-center justify-center rounded hover:bg-[#1a2234] disabled:opacity-40">
+          <Maximize className="w-3.5 h-3.5" />
+        </button>
+        <div className="w-px h-3 bg-slate-700" />
+        <button
+          type="button"
+          onClick={() => setZoom(z => Math.max(0.05, z - 0.1))}
+          className="h-6 w-6 flex items-center justify-center rounded hover:bg-slate-800"
+          title={t.zoomOut} aria-label={t.zoomOut}
+        >
+          <Minus className="w-3.5 h-3.5" />
+        </button>
+        <span className="w-10 text-center font-mono text-[11px] tabular-nums text-slate-200 select-none">
           {Math.round(zoom * 100)}%
         </span>
         <button
+          type="button"
           onClick={() => setZoom(z => Math.min(5, z + 0.1))}
-          className="hover:text-blue-400 hover:bg-slate-700/80 font-bold w-5 h-5 flex items-center justify-center rounded-md bg-slate-800 border border-slate-700/60 transition-all active:scale-95 text-xs text-slate-300 leading-none"
-          title="Zoom in"
+          className="h-6 w-6 flex items-center justify-center rounded hover:bg-slate-800"
+          title={t.zoomIn} aria-label={t.zoomIn}
         >
-          ＋
+          <Plus className="w-3.5 h-3.5" />
         </button>
-        <div className="w-px h-3.5 bg-slate-800" />
         <button
+          type="button"
           onClick={fitCanvas}
-          className="hover:text-blue-400 text-slate-400 px-1.5 py-0.5 rounded hover:bg-slate-800 transition-colors text-[10px] font-medium tracking-tight whitespace-nowrap"
+          className="h-6 px-1.5 rounded hover:bg-slate-800 text-[11px] whitespace-nowrap"
         >
           {t.fitCanvas}
         </button>

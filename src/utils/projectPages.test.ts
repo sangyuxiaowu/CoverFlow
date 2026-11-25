@@ -46,6 +46,15 @@ describe('project pages', () => {
     expect(renameProjectPage(copied, copied.activePageId!, ' ').pages![0].name).toBe('');
   });
 
+  it('copies notes with a page and project but not when inserting a blank page', () => {
+    const base = initial();
+    const withNotes = { ...base, pages: [{ ...base.pages![0], notes: 'First page notes' }] };
+    const duplicate = insertProjectPage(withNotes, '', withNotes.pageInfo, withNotes.activePageId);
+    expect(duplicate.pages![1].notes).toBe('First page notes');
+    expect(copyProject(duplicate, 'Copy').pages!.map(page => page.notes)).toEqual(['First page notes', 'First page notes']);
+    expect(insertProjectPage(duplicate, 'Blank').pages![2].notes).toBeUndefined();
+  });
+
   it('duplicates and regenerates 41 image pages without structured-cloning their payloads', () => {
     const base = initial();
     let project = syncProjectPages({ ...base, layers: [{ id: 'image', name: 'Image', type: 'image',

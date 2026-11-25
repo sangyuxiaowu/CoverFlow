@@ -12,6 +12,7 @@ import { useProjectHistory } from '../hooks/useProjectHistory.ts';
 import { syncProjectPages } from '../storage/projectCompatibility.ts';
 import { PANEL_LAYER_DRAFT } from '../utils/panelLayerDraft.ts';
 import { selectionBounds } from '../utils/canvasLayerTransform.ts';
+import { insertProjectPage, selectProjectPage } from '../utils/projectPages.ts';
 
 let host: HTMLDivElement;
 let root: Root;
@@ -61,7 +62,7 @@ it('preserves manual zoom on the same page and refits page switches without repl
   await renderCanvas(first);
   const viewport = scrollContainer();
   const canvas = host.querySelector('#export-target');
-  await act(async () => host.querySelector<HTMLButtonElement>('button[title="Zoom in"]')!.click());
+  await act(async () => host.querySelector<HTMLButtonElement>('button[title="放大"]')!.click());
   expect(parseFloat(frame().style.width)).toBeCloseTo(1032);
   await renderCanvas({ ...first, title: 'Renamed', selectedLayerId: 'selection' });
   expect(parseFloat(frame().style.width)).toBeCloseTo(1032);
@@ -381,4 +382,96 @@ it('renders panel drafts locally without changing the committed project', async 
   expect(layer.style.transform).toContain('rotate(45deg)');
   expect(updateLayer).not.toHaveBeenCalled();
   expect(current.layers[0].x).toBe(100);
+});
+
+it('edits notes per page and opens preview from the status bar', async () => {
+  const first = syncProjectPages(project('first'));
+  const initial = insertProjectPage(first, 'Second');
+  const onPreview = vi.fn();
+  function Editor() {
+    const [current, setCurrent] = useState(initial);
+    return <>
+      <button onClick={() => setCurrent(value => selectProjectPage(value, first.activePageId!))}>First page</button>
+      <button onClick={() => setCurrent(value => selectProjectPage(value, initial.activePageId!))}>Second page</button>
+      <Canvas lang="en" project={current} onSelectLayer={() => {}} updateLayer={() => {}} onKeyboardCommit={() => {}} onCommit={() => {}} onPreview={onPreview}
+        onNotesChange={(pageId, notes) => setCurrent(value => ({ ...value, pages: value.pages!.map(page => page.id === pageId ? { ...page, notes } : page) }))} />
+    </>;
+  }
+  await act(async () => root.render(<Editor />));
+  const toolbar = host.querySelector('[role="toolbar"][aria-label="Editor status bar"]')!;
+  await act(async () => toolbar.querySelector<HTMLButtonElement>('button[aria-label="Full-screen project preview"]')!.click());
+  expect(onPreview).toHaveBeenCalledOnce();
+  await act(async () => toolbar.querySelector<HTMLButtonElement>('button[title="Page notes"]')!.click());
+  const input = host.querySelector<HTMLTextAreaElement>('#page-notes')!;
+  expect(host.textContent).toContain('0 characters');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Second page notes🙂');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(input.value).toBe('Second page notes🙂');
+  expect(host.textContent).toContain('18 characters');
+  await act(async () => host.querySelector<HTMLButtonElement>('button')!.click());
+  expect(input.value).toBe('');
+  expect(host.textContent).toContain('0 characters');
+  await act(async () => host.querySelectorAll<HTMLButtonElement>('button')[1].click());
+  expect(input.value).toBe('Second page notes🙂');
+  expect(host.textContent).toContain('18 characters');
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Collapse page notes"]')!.click());
+  expect(host.querySelector('#page-notes')).toBeNull();
+  expect(document.activeElement).toBe(toolbar.querySelector('button[title="Page notes"]'));
+  expect(toolbar.querySelector('button[title="Page notes"]')?.getAttribute('aria-pressed')).toBe('false');
+});
+
+it('resizes page notes with pointer and keyboard and preserves the height when reopened', async () => {
+  await renderCanvas(syncProjectPages(project('notes')));
+  const toggle = host.querySelector<HTMLButtonElement>('button[title="页注释"]')!;
+  await act(async () => toggle.click());
+  const separator = host.querySelector<HTMLElement>('[role="separator"][aria-label="调整页注释高度"]')!;
+  const panel = host.querySelector<HTMLElement>('#page-notes')!.parentElement!;
+  separator.setPointerCapture = vi.fn();
+  const pointer = async (type: string, clientY: number) => act(async () => {
+    const event = new MouseEvent(type, { bubbles: true, button: 0, clientY });
+    Object.defineProperty(event, 'pointerId', { value: 1 });
+    separator.dispatchEvent(event);
+  });
+  await pointer('pointerdown', 200);
+  await pointer('pointermove', 140);
+  expect(panel.style.height).toBe('204px');
+  await pointer('pointermove', -200);
+  expect(panel.style.height).toBe('340px');
+  await pointer('pointerup', -200);
+  await act(async () => separator.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+  expect(panel.style.height).toBe('330px');
+  await act(async () => toggle.click());
+  await act(async () => toggle.click());
+  expect(host.querySelector<HTMLElement>('#page-notes')!.parentElement!.style.height).toBe('330px');
+  await act(async () => toggle.click());
+  expect(host.querySelector('#page-notes')).toBeNull();
+  expect(host.querySelector('[role="separator"]')).toBe(separator);
+  expect(separator.getAttribute('aria-valuenow')).toBe('0');
+  await pointer('pointerdown', 200);
+  await pointer('pointermove', 220);
+  expect(host.querySelector('#page-notes')).toBeNull();
+  await pointer('pointermove', 100);
+  expect(host.querySelector<HTMLElement>('#page-notes')!.parentElement!.style.height).toBe('100px');
+  await pointer('pointermove', 60);
+  expect(host.querySelector<HTMLElement>('#page-notes')!.parentElement!.style.height).toBe('140px');
+  await pointer('pointerup', 60);
+  await act(async () => toggle.click());
+  await act(async () => separator.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true })));
+  expect(host.querySelector<HTMLElement>('#page-notes')!.parentElement!.style.height).toBe('140px');
+});
+
+it('shows the current layer selection in the status bar', async () => {
+  const properties = { type: 'text' as const, content: 'Text', x: 0, y: 0, width: 100, height: 50, rotation: 0, zIndex: 1, visible: true, locked: false, opacity: 1 };
+  const current = { ...project('selection'), layers: [{ ...properties, id: 'one', name: 'Title' }, { ...properties, id: 'two', name: 'Subtitle' }] };
+  const render = async (selectedLayerIds: string[]) => act(async () => root.render(<Canvas lang="en" project={current} selectedLayerIds={selectedLayerIds} onSelectLayer={() => {}} updateLayer={() => {}} onKeyboardCommit={() => {}} onCommit={() => {}} />));
+  await render([]);
+  expect(host.querySelector('[role="toolbar"]')!.textContent).toContain('No layer selected');
+  await render(['one']);
+  expect(host.querySelector('[role="toolbar"]')!.textContent).toContain('Selected: Title');
+  await render(['one', 'two']);
+  expect(host.querySelector('[role="toolbar"]')!.textContent).toContain('2 selected');
+  await render(['missing']);
+  expect(host.querySelector('[role="toolbar"]')!.textContent).toContain('No layer selected');
 });

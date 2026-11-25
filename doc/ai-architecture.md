@@ -109,7 +109,7 @@ chat/
 用户消息 -> SDK Responses -> 工具 Schema -> 运行时校验 -> WorkspaceBridge -> App 状态 / StorageAdapter -> function_call_output -> 模型最终回复。
 
 - 工具从实时桥接状态读取，不依赖请求发出时的 React 闭包快照。
-- 图层读取、修改、画布更新、素材放置、生图、抠图和页面管理使用当前项目；无项目时明确报错。普通图层工具只针对当前页，跨页图层操作先通过 `manage_pages` 切换；`clipboard` 是跨项目、跨页引用的例外。`manage_pages` 可通过 `pageId` 更新指定页面的名称、画布和背景，不切换当前页；除 list 外的动作均要求目标 `pageId`。`manage_projects` 保留目标 `projectId`，工具结果中的项目、页面及对象 ID 保持不变。
+- 图层读取、修改、画布更新、素材放置、生图、抠图和页面管理使用当前项目；无项目时明确报错。图层修改针对当前页，`read_layers` 可指定页面而不切换；`clipboard` 支持跨项目、跨页引用。`manage_pages` 可通过 `pageId` 更新指定页面的名称、备注、画布和背景，不切换当前页；除 list/create 外的动作均要求目标 `pageId`。`manage_projects` 保留目标 `projectId`，工具结果中的项目、页面及对象 ID 保持不变。
 - 工具按模型响应中的顺序执行。切页、打开项目及会改变活动项目/页面的新建、复制页面、删除操作失败后，同一响应批次尚未执行的全部工具均返回明确的跳过错误，不执行读写、组件内置工具或其他管理调用；失败前已完成的操作保留，不回滚。每个调用仍保存配对的结果，模型收到错误后可在下一批次重新规划。无法解析的项目/页面管理调用同样阻断本批后续执行；已识别的页面列表、页面更新及项目重命名、复制、保存失败不触发该规则。用户取消仍按原逻辑结束本轮。
 - 素材读取、生图和抠图在异步操作前后检查项目与页面身份，提交时读取实时内容。同页其他编辑不会被旧快照覆盖；图层原图改变或锁定时拒绝应用。结果正常情况下直接写入画布，不创建中间会话图片。
 - 每次图层修改提交完整 ProjectState，进入现有历史，并等待存储结果。保存失败会作为工具错误报告；已经显示在画布上的修改不会自动回滚。
@@ -166,7 +166,7 @@ chat/
 
 ## 页面工具
 
-`get_context` 与 `manage_pages` 返回 `pageId/pageCount/pages`，每项包含 `id/number/name/canvas/layerCount/active`。`number` 是当前顺序的 `P01-P99`，会随排序变化，不能代替稳定 `pageId`。模型以工具读取到的页面 ID 为目标操作；成品导出仅由人工界面提供。
+`get_context` 与 `manage_pages` 返回 `pageId/pageCount/pages`，每项包含 `id/index/name/notes/canvas/layerCount/active`。`index` 是从 1 开始的当前顺序，会随排序变化，不能代替稳定页面 ID。`read_layers` 返回 `{pageId, name, notes, layers}`，可指定页面 ID 读取非活动页，过滤条件仅影响图层。无备注时返回空字符串。模型以工具读取到的页面 ID 为目标操作；成品导出仅由人工界面提供。
 
 `manage_pages` 的 `list` 返回示例（ID 仅作示意，实际调用必须使用工具读取到的值）：
 
@@ -178,9 +178,10 @@ chat/
   "pages": [
     {
       "id": "page-demo",
-      "number": "P01",
+      "index": 1,
       "name": "",
-      "canvas": { "width": 1920, "height": 1080, "ratio": "16:9" },
+      "notes": "演示备注",
+      "canvas": "1920x1080",
       "layerCount": 0,
       "active": true
     }
@@ -191,14 +192,14 @@ chat/
 | manage_pages 动作 | 必需字段 | 可选字段与行为 |
 | --- | --- | --- |
 | list | action | 读取全部页面元数据，不修改项目 |
-| create | action、pageId | 在目标页后插入 1–99 页并切换到第一张；顶层 `name` 省略或空白时沿用当前页名称，`pageInfo` 省略的字段沿用当前页 |
+| create | action | 在 `afterPageId`（默认当前页）后插入 1–99 页，默认切换到第一张；`name` 省略或空白时沿用当前页名称，`notes` 默认空白，`pageInfo` 省略的字段沿用当前页 |
 | switch | action、pageId | 切换真实页面 ID，清理图层选区 |
-| duplicate | action、pageId | 在当前页后插入 1–99 个目标页的独立副本并切换到第一张 |
-| move | action、pageId | 将目标页移动到当前页之后，不切换页面 |
-| update | action、pageId | 顶层 `name` 或 `pageInfo` 至少提供一项，更新目标页名称、画布尺寸或背景；未提供的字段不变，空白名称清除名称，不切换页面或缩放图层 |
+| duplicate | action、pageId | 在 `afterPageId`（默认当前页）后插入 1–99 个目标页的独立副本，包含备注，默认切换到第一张 |
+| move | action、pageId | 将目标页移动到 `afterPageId`（默认当前页）之后，默认切换到目标页 |
+| update | action、pageId | 顶层 `name`、`notes` 或 `pageInfo` 至少提供一项；未提供的字段不变，空白名称或备注清除对应内容，不切换页面或缩放图层 |
 | delete | action、pageId | 用户确认后删除；不可删最后一页，确认期间项目变化则拒绝提交 |
 
-`name` 是顶层字段，最多 100 字符；`pageInfo` 仅包含 `width`、`height` 和 `background`，提供时必须非空，宽高各为 10–10000；背景沿用图层工具的安全校验。参数按动作白名单校验，未知字段和跨动作参数报错；所有动作操作当前项目，不接受 `projectId`。切页清理图层选区，但不单独提交内容历史；新增、更新、复制和删除通过工作区桥接提交完整项目。页面隔离与异步结果校验遵循“数据流”中的统一规则。
+`name` 和 `notes` 是顶层字段，分别最多 100 和 500 字符；非空备注保留原始换行和空格。`pageInfo` 仅包含 `width`、`height` 和 `background`，提供时必须非空，宽高各为 10–10000；背景沿用图层工具的安全校验。`create`、`duplicate` 和 `move` 可用 `autoSwitch: false` 保持当前页。参数按动作白名单校验，未知字段和跨动作参数报错；所有动作操作当前项目，不接受 `projectId`。切页清理图层选区，但不单独提交内容历史；新增、更新、复制和删除通过工作区桥接提交完整项目。页面隔离与异步结果校验遵循“数据流”中的统一规则。
 
 ## 素材搜索与放置
 

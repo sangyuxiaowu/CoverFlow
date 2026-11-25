@@ -31,7 +31,7 @@ const sameDocument = (left: ProjectDocument | null, right: ProjectDocument) => B
   sameVersions(left.versions, right.versions) &&
   left.pages.length === right.pages.length && left.pages.every((page, index) => {
     const other = right.pages[index];
-    return page.id === other.id && page.name === other.name && sameStoredValue(page.layers, other.layers) && sameStoredValue(page.pageInfo, other.pageInfo);
+    return page.id === other.id && page.name === other.name && page.notes === other.notes && sameStoredValue(page.layers, other.layers) && sameStoredValue(page.pageInfo, other.pageInfo);
   }));
 
 type AutoSaveOptions = {

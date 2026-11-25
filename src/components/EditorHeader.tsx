@@ -7,7 +7,6 @@ import {
   History,
   LoaderCircle,
   MoreHorizontal,
-  Presentation,
   Redo2,
   Save,
   Undo2
@@ -40,7 +39,6 @@ interface EditorHeaderProps {
   isAiOpen: boolean;
   aiBusy: boolean;
   onToggleAi: () => void;
-  onPreview: () => void;
   onExportProject: () => void;
   onExportImage: () => void;
   isExporting: boolean;
@@ -67,7 +65,6 @@ export default function EditorHeader({
   isAiOpen,
   aiBusy,
   onToggleAi,
-  onPreview,
   onExportProject,
   onExportImage,
   isExporting
@@ -265,19 +262,6 @@ export default function EditorHeader({
               aria-label={t.moreActions}
               className="absolute right-0 top-full mt-2 w-48 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl shadow-black/75 py-1.5 z-[100] text-xs"
             >
-              <button
-                type="button"
-                role="menuitem"
-                disabled={isExporting || aiBusy}
-                onClick={() => {
-                  setMoreOpen(false);
-                  onPreview();
-                }}
-                className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:pointer-events-none whitespace-nowrap"
-              >
-                <Presentation className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span>{t.previewProject}</span>
-              </button>
               <button
                 type="button"
                 role="menuitem"

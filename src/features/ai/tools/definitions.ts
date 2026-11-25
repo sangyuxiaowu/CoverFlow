@@ -67,7 +67,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     pageId: string('[可选] 仅 paste 使用，目标页面 ID，省略时使用当前页面。')
   }, ['action'])),
   tool('get_context', '读取项目页面列表、当前页画布、背景、选区及图层元数据。图层工具仅操作当前页，跨页前使用 manage_pages 切换。', noParameters),
-  tool('read_layers', '读取图层属性，含图层详细内容，内嵌图片内容使用占位符。可按 ID 或名称/内容关键词筛选，同时提供时取交集。修改已有内容前先调用。', object('', {
+  tool('read_layers', '读取目标页面的名称、备注和图层属性，含图层详细内容，内嵌图片内容使用占位符。可按 ID 或名称/内容关键词筛选图层，同时提供时取交集。修改已有内容前先调用。', object('', {
     pageId: string('[可选]目标页面 ID，省略时读取当前页面。'),
     layerIds: layerIds('可选；省略时读取所有匹配图层。'),
     query: string('可选名称或内容关键词，不区分大小写；省略时不过滤，提供时不得为空白。')
@@ -170,14 +170,15 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     mode: enumeration('horizontal 为水平等间距，vertical 为垂直等间距。', [...DISTRIBUTE_MODES])
   }, ['layerIds', 'mode'])),
   // 画布与背景
-  tool('manage_pages', '管理项目页面。获取页面列表，更新页面画布大小、背景及名称，页面切换，页面移动，批量新增与复制；调整页面画布尺寸不会缩放已有图层；删除会触发授权弹窗。', object('页面操作参数。', {
+  tool('manage_pages', '管理项目页面。获取页面列表，更新页面画布大小、背景、名称及备注，页面切换，页面移动，批量新增与复制；调整页面画布尺寸不会缩放已有图层；删除会触发授权弹窗。', object('页面操作参数。', {
     action: enumeration('list 读取页面列表；create 在 afterPageId 后新增空白页；switch 切页；duplicate 复制目标页到 afterPageId 后；move 移动目标页到 afterPageId 后；update 更新目标页属性；delete 删除目标页，至少保留一页。', ['list', 'create', 'switch', 'duplicate', 'delete', 'move', 'update']),
     count: { type: 'integer', description: '仅 create/duplicate 可用；批量创建或复制的页面数量，默认 1。', minimum: 1, maximum: 99 },
     pageId: string('目标页，除 list/create 外均需填写，使用 get_context 或 list 返回的稳定页面 ID，不是顺序编号。'),
     afterPageId: string('仅 create/duplicate/move 可用；省略则为当前页。'),
     autoSwitch: { type: 'boolean', description: '[可选]，是否在创建、移动或复制成功后自动切换到新页，多页则为第一个新页，默认 true。' },
     name: { ...string('仅 create/update 可用的页面名称，最多 100 字符；新建时省略或空白表示沿用当前页，更新时省略保持不变，空白表示清除名称。'), maxLength: 100 },
-    pageInfo: { ...object('仅 create/update 可用的画布和背景属性；新建时省略字段沿用当前页，更新时省略的字段保持不变。update 至少提供 name 或 pageInfo。', {
+    notes: { ...string('仅 create/update 可用的页面备注，最多 500 字符；更新时省略保持不变，空白表示清除备注。'), maxLength: 500 },
+    pageInfo: { ...object('仅 create/update 可用的画布和背景属性；新建时省略字段沿用当前页，更新时省略的字段保持不变。update 至少提供 name、notes 或 pageInfo。', {
       width: numeric('画布宽度（px）。', 10, 10000),
       height: numeric('画布高度（px）。', 10, 10000),
       background: object('背景部分更新。切换 type 时应同时提供对应格式的 value。', {

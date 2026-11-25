@@ -150,7 +150,7 @@ export function useEditorShortcuts({ view, project, aiBusy, selectedLayerIds, ha
       if (e.key === 'Enter') {
         if (layer.type === 'text') {
           e.preventDefault();
-          const textarea = document.querySelector('textarea');
+          const textarea = document.querySelector<HTMLTextAreaElement>('#export-target textarea');
           if (textarea) textarea.focus();
           return;
         }

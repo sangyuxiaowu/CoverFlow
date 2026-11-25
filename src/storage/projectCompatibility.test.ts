@@ -55,4 +55,13 @@ describe('project format upgrades', () => {
     expect(document.pages).toHaveLength(1);
     expect(readProject(document).layers).toEqual(legacy.layers);
   });
+
+  it('preserves page and version notes through serialization', () => {
+    const project = readProject(legacy);
+    const page = { ...project.pages![0], notes: 'Speaker notes\nSecond line' };
+    const document = writeProject({ ...project, pages: [page], versions: [{ id: 'version', info: 'Snapshot', createdAt: 1, title: 'Article', pages: [page] }] });
+    const restored = readProject(document);
+    expect(restored.pages![0].notes).toBe(page.notes);
+    expect(restored.versions![0].pages[0].notes).toBe(page.notes);
+  });
 });

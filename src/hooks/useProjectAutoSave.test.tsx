@@ -4,11 +4,13 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { DEFAULT_AUTO_SAVE_IDLE_MS, useProjectAutoSave } from './useProjectAutoSave.ts';
 import type { ProjectState } from '../types.ts';
-import { selectProjectPage } from '../utils/projectPages.ts';
+import { insertProjectPage, selectProjectPage } from '../utils/projectPages.ts';
 import { Blob as NodeBlob } from 'node:buffer';
 import { imageAssets } from '../storage/imageAssets.ts';
 import { syncProjectPages } from '../storage/projectCompatibility.ts';
 import { useProjectHistory } from './useProjectHistory.ts';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
+import { IndexedDBAdapter } from '../storage/IndexedDBAdapter.ts';
 
 type Options = Parameters<typeof useProjectAutoSave>[0];
 const initial: ProjectState = {
@@ -139,6 +141,49 @@ it('ignores selection changes and same-content edits without redundant saves', a
   await harness.render({ project: { ...changed, layers: [...changed.layers] } });
   await act(async () => vi.advanceTimersByTime(DEFAULT_AUTO_SAVE_IDLE_MS));
   expect(save).toHaveBeenCalledTimes(1);
+});
+
+it('marks new page notes dirty and saves them manually and after idle', async () => {
+  const harness = await mount({ project: syncProjectPages(initial) });
+  const save = vi.mocked(harness.options.storageAdapter.saveProject);
+  const newPage = insertProjectPage(syncProjectPages(initial), 'New page');
+  await harness.render({ project: newPage });
+  await act(async () => { await harness.getResult().flushSave('manual'); });
+  save.mockClear();
+
+  const edited = { ...newPage, pages: newPage.pages!.map(page => page.id === newPage.activePageId ? { ...page, notes: 'First note' } : page) };
+  await harness.render({ project: edited });
+  expect(harness.getResult().saveStatus).toBe('unsaved');
+  await act(async () => { await harness.getResult().flushSave('manual'); });
+  expect(save).toHaveBeenCalledOnce();
+  expect(save.mock.calls[0][0].pages![1].notes).toBe('First note');
+  expect(harness.getResult().saveStatus).toBe('saved');
+
+  const changed = { ...edited, pages: edited.pages!.map(page => page.id === edited.activePageId ? { ...page, notes: 'Updated note' } : page) };
+  await harness.render({ project: changed });
+  expect(harness.getResult().saveStatus).toBe('unsaved');
+  await act(async () => vi.advanceTimersByTime(DEFAULT_AUTO_SAVE_IDLE_MS));
+  expect(save).toHaveBeenCalledTimes(2);
+  expect(save.mock.calls[1][0].pages![1].notes).toBe('Updated note');
+  expect(harness.getResult().saveStatus).toBe('saved');
+});
+
+it('reopens notes saved on a newly added page from IndexedDB', async () => {
+  vi.useRealTimers();
+  vi.stubGlobal('indexedDB', new IDBFactory());
+  vi.stubGlobal('IDBKeyRange', IDBKeyRange);
+  const adapter = new IndexedDBAdapter();
+  const initialProject = syncProjectPages(initial);
+  await adapter.saveProject(initialProject);
+  const harness = await mount({ project: initialProject, storageAdapter: adapter });
+  const newPage = insertProjectPage(initialProject, 'New page');
+  await harness.render({ project: newPage });
+  await act(async () => { expect(await harness.getResult().flushSave('manual')).toBe(true); });
+  const edited = { ...newPage, pages: newPage.pages!.map(page => page.id === newPage.activePageId ? { ...page, notes: 'Persisted notes' } : page) };
+  await harness.render({ project: edited });
+  await act(async () => { expect(await harness.getResult().flushSave('manual')).toBe(true); });
+  const reopened = await adapter.getProject(initialProject.id);
+  expect(reopened?.pages?.find(page => page.id === newPage.activePageId)?.notes).toBe('Persisted notes');
 });
 
 it('marks actual undo and redo snapshots according to the last saved content', async () => {

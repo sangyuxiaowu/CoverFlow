@@ -2103,7 +2103,6 @@ const App: React.FC = () => {
         isAiOpen={isAiOpen}
         aiBusy={aiBusy}
         onToggleAi={() => setIsAiOpen(prev => !prev)}
-        onPreview={() => setPreviewProject(syncProjectPages(project))}
         onExportProject={() => handleExportJson(project)}
         onExportImage={() => {
           setExportRange('current');
@@ -2272,7 +2271,10 @@ const App: React.FC = () => {
             onKeyboardCommit={modifyProject}
             onCommit={saveHistorySnapshot}
             onOpenImageCrop={(id) => setCroppingImageLayerId(id)}
-          />
+            onPreview={() => setPreviewProject(syncProjectPages(project))}
+            previewDisabled={isExporting || aiBusy}
+            onNotesChange={(pageId, notes) => modifyProject(current => ({ ...current, pages: current.pages?.map(page => page.id === pageId ? { ...page, notes } : page), updatedAt: Date.now() }))}
+          >
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl px-2 py-1 shadow-xl z-40">
             <button
               onClick={handleAddText}
@@ -2294,6 +2296,7 @@ const App: React.FC = () => {
               <span>{t.addImage}</span>
             </button>
           </div>
+          </Canvas>
         </div>
         <LayersPanel
           lang={lang}

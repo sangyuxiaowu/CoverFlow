@@ -126,11 +126,11 @@ it('keeps single-page preview usable without fullscreen and isolates keyboard, p
     window.dispatchEvent(new Event('paste', { bubbles: true, cancelable: true }));
     expect(editorKey).not.toHaveBeenCalled();
     expect(editorPaste).not.toHaveBeenCalled();
-    button('Exit preview').focus();
+    button('Page notes').focus();
     await press('Tab');
     expect(document.activeElement).toBe(button('Enter full screen'));
     await press('Tab', true);
-    expect(document.activeElement).toBe(button('Exit preview'));
+    expect(document.activeElement).toBe(button('Page notes'));
     await press('Escape');
     expect(close).toHaveBeenCalledOnce();
     await act(async () => root.render(null));
@@ -220,4 +220,17 @@ it('reuses viewport measurement across page changes and only remeasures on resiz
   } finally {
     measure.mockRestore();
   }
+});
+
+it('shows notes for the current page while navigating', async () => {
+  const original = makeProject();
+  const project = { ...original, pages: original.pages!.map((page, index) => ({ ...page, notes: `Notes ${index + 1}` })) };
+  await act(async () => root.render(<ProjectPreview lang="en" project={project} onClose={() => {}} />));
+  expect(document.querySelector('section[aria-label="Page notes"]')).toBeNull();
+  await act(async () => button('Page notes').click());
+  expect(document.querySelector('section[aria-label="Page notes"]')?.textContent).toContain('Notes 3');
+  await act(async () => button('Previous page').click());
+  expect(document.querySelector('section[aria-label="Page notes"]')?.textContent).toContain('Notes 2');
+  await act(async () => button('Page notes').click());
+  expect(document.querySelector('section[aria-label="Page notes"]')).toBeNull();
 });

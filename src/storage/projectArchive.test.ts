@@ -11,6 +11,13 @@ const image = 'data:image/png;base64,AQIDBA==';
 const legacy = JSON.stringify({ id: 'legacy', title: 'Test', version: '9.2.7', updatedAt: 1, pages: [{ id: 'page', name: '', layers: [{ id: 'image', type: 'image', content: image }], background: { type: 'image', value: image, overlayType: 'none', overlayColor: '#fff', overlayOpacity: 0, overlayScale: 20 }, canvasConfig: { width: 900, height: 383, ratio: '2.35:1' } }] });
 
 describe('project archive', () => {
+  it('round-trips page notes in a CFJX archive', async () => {
+    const original = readLegacyCfj(legacy);
+    const project = { ...original, pages: original.pages!.map(page => ({ ...page, notes: '演示备注\nSecond line' })) };
+    const restored = await decodeProjectArchive(await encodeProjectArchive(project, {}));
+    expect(restored.pages![0].notes).toBe('演示备注\nSecond line');
+  });
+
   it('uses the archive worker and propagates encoding errors', async () => {
     const project = readLegacyCfj(legacy);
     const messages: unknown[] = [];

@@ -1,6 +1,6 @@
 import { useEffectEvent, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, Maximize, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Maximize, MessageSquareText, X } from 'lucide-react';
 import type { ProjectState } from '../types.ts';
 import { translations, type Language } from '../translations.ts';
 import { syncProjectPages } from '../storage/projectCompatibility.ts';
@@ -18,6 +18,7 @@ export default function ProjectPreview({ project, lang, onClose }: ProjectPrevie
   const pages = snapshot.pages!;
   const [index, setIndex] = useState(() => Math.max(0, pages.findIndex(page => page.id === snapshot.activePageId)));
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const touchRef = useRef<{ x: number; y: number } | null>(null);
   const close = useEffectEvent(onClose);
@@ -102,7 +103,7 @@ export default function ProjectPreview({ project, lang, onClose }: ProjectPrevie
 
   return createPortal(
     <div ref={rootRef} role="dialog" aria-modal="true" aria-label={t.previewProject} tabIndex={-1}
-      className="fixed inset-0 z-[250] grid grid-rows-[48px_minmax(0,1fr)_56px] bg-[#0c0c0e] text-slate-200 outline-none">
+      className={`fixed inset-0 z-[250] grid ${notesOpen ? 'grid-rows-[48px_minmax(0,1fr)_minmax(0,120px)_56px]' : 'grid-rows-[48px_minmax(0,1fr)_56px]'} bg-[#0c0c0e] text-slate-200 outline-none`}>
       <header className="flex min-w-0 items-center gap-3 px-3 sm:px-6">
         <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={snapshot.title}>{snapshot.title}</span>
         {!isFullscreen && typeof document.documentElement.requestFullscreen === 'function' && (
@@ -127,8 +128,17 @@ export default function ProjectPreview({ project, lang, onClose }: ProjectPrevie
       }} onPointerCancel={() => { touchRef.current = null; }}>
         <LivePreview project={pageViews[index]} />
       </div>
+      {notesOpen && (
+        <section aria-label={t.pageNotes} className="min-h-0 overflow-auto border-t border-white/10 px-4 py-3 sm:px-6">
+          <div className="text-xs font-medium text-slate-400">{t.pageNotes}</div>
+          <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-200">{page.notes || t.noPageNotes}</p>
+        </section>
+      )}
       <footer className="flex min-w-0 items-center gap-3 px-3 sm:px-6">
         <span className="min-w-0 flex-1 truncate text-xs text-slate-400" title={page.name}>{pageNumber(index)}{page.name ? ` ${page.name}` : ''}</span>
+        <button type="button" onClick={() => setNotesOpen(open => !open)} aria-pressed={notesOpen} className={`${iconButton} ${notesOpen ? 'bg-white/10 text-white' : ''}`} title={t.pageNotes} aria-label={t.pageNotes}>
+          <MessageSquareText className="h-4 w-4" />
+        </button>
         <nav className="flex shrink-0 items-center gap-1" aria-label={t.pages}>
           <button type="button" onClick={() => navigate(-1)} disabled={index === 0} className={iconButton} title={t.previousPage} aria-label={t.previousPage}>
             <ChevronLeft className="h-5 w-5" />

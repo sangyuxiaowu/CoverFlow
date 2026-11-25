@@ -113,6 +113,7 @@ export interface PageInfo {
 export interface ProjectPage {
   id: string;
   name: string;
+  notes?: string;
   layers: Layer[];
   pageInfo: PageInfo;
 }

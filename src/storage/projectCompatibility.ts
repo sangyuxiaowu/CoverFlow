@@ -43,7 +43,7 @@ const normalizePages = (rawPages: unknown): ProjectPage[] => {
     if (typeof page.id !== 'string' || !page.id || ids.has(page.id)) throw new Error('Invalid or duplicate page ID.');
     if (!Array.isArray(page.layers) || !page.pageInfo || !page.pageInfo.background || !Number.isFinite(page.pageInfo.width) || !Number.isFinite(page.pageInfo.height) || page.pageInfo.width <= 0 || page.pageInfo.height <= 0) throw new Error('Invalid page content.');
     ids.add(page.id);
-    return { id: page.id, name: typeof page.name === 'string' ? page.name : '', layers: page.layers, pageInfo: { width: page.pageInfo.width, height: page.pageInfo.height, background: page.pageInfo.background } };
+    return { id: page.id, name: typeof page.name === 'string' ? page.name : '', ...(typeof page.notes === 'string' ? { notes: page.notes } : {}), layers: page.layers, pageInfo: { width: page.pageInfo.width, height: page.pageInfo.height, background: page.pageInfo.background } };
   });
 };
 

@@ -67,12 +67,15 @@ it('prepares Office-compatible SVG with a high-resolution raster fallback size',
 
 it('creates an actual image-based PPTX with one image per slide and a uniform aspect ratio', async () => {
   const target = project();
+  target.pages = target.pages!.map((page, index) => ({ ...page, notes: `Speaker note ${index + 1} & details` }));
   const result = await exportProjectPages(target, target.pages!.map(page => page.id), { format: 'pptx', pixelRatio: 1, compression: 'lossless', pptResolution: 'hd' });
   expect(result.filename).toBe('Article.pptx');
   const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
     const reader = new FileReader(); reader.onload = () => resolve(reader.result as ArrayBuffer); reader.onerror = reject; reader.readAsArrayBuffer(result.blob);
   });
   const archive = await JSZip.loadAsync(bytes);
+  expect(await archive.file('ppt/notesSlides/notesSlide1.xml')!.async('string')).toContain('Speaker note 1 &amp; details');
+  expect(await archive.file('ppt/notesSlides/notesSlide2.xml')!.async('string')).toContain('Speaker note 2 &amp; details');
   expect(Object.keys(archive.files).filter(name => /^ppt\/slides\/slide\d+\.xml$/.test(name))).toHaveLength(2);
   expect(Object.keys(archive.files).filter(name => /^ppt\/media\/.*\.png$/.test(name))).toHaveLength(2);
   expect(Object.keys(archive.files).filter(name => /^ppt\/media\/.*\.svg$/.test(name))).toHaveLength(2);

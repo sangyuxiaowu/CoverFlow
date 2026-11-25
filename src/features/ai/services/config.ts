@@ -21,17 +21,8 @@ export const DEFAULT_IMAGE_TOOL_PROMPT = `## 生图
 - 参考生图提示词建议描述为：[改变要求] + [新风格 / 场景] + [需要添加或移除的元素] + [需要保留的元素]
 `;
 
-const LEGACY_IMAGE_FLOW = `- generate_image、remove_background 只返回图片 ID，不会修改画布；需要上画布时继续调用 place_image。
-- 使用已有图层作为参考或抠图前，read_layers 设置 includeImages:true，使用返回的原图 imageId，不用预览图。保留 sourceRevision，应用结果时传回。
-`;
-const LEGACY_IMAGE_PROMPTS = [
-  ...[
-    '- place_image 必须传当前 projectId 和图片 imageId，放置到当前页；应用到原图层时传 layerId、sourceRevision，默认保留并隐藏原图。抠图结果设置 backgroundRemoved:true。\n',
-    '- place_image 必须传目标 projectId、pageId；应用到原图层时传 layerId、sourceRevision，默认保留并隐藏原图。抠图结果设置 backgroundRemoved:true。\n'
-  ].map(line => DEFAULT_IMAGE_TOOL_PROMPT.replace('- 作背景时置底并锁定', LEGACY_IMAGE_FLOW + line + '- 作背景时置底并锁定'))
-];
 function imageToolPrompt(value: unknown): string {
-  return typeof value !== 'string' || LEGACY_IMAGE_PROMPTS.includes(value) ? DEFAULT_IMAGE_TOOL_PROMPT : value;
+  return typeof value === 'string' ? value : DEFAULT_IMAGE_TOOL_PROMPT;
 }
 
 export const SYSTEM_PROMPT = `你是 CoverFlow 封面和 PPT 设计助手。请直接操作画布完成设计，不要只输出修改方案。

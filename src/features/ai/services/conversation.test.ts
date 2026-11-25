@@ -405,17 +405,13 @@ test('custom prompts are not silently extended with visual capability instructio
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('migrates only the previous default image workflow prompt, preserving custom prompts', () => {
+test('defaults missing image prompts and preserves custom prompts', () => {
   const profiles = configuredConfig();
   profiles.imageModels = profiles.imageModels?.map(model => ({ ...model, enabled: true, endpointId: profiles.endpoints[0].id }));
-  const previous = DEFAULT_IMAGE_TOOL_PROMPT.replace('- 作背景时置底并锁定', `- generate_image、remove_background 只返回图片 ID，不会修改画布；需要上画布时继续调用 place_image。
-- 使用已有图层作为参考或抠图前，read_layers 设置 includeImages:true，使用返回的原图 imageId，不用预览图。保留 sourceRevision，应用结果时传回。
-- place_image 必须传当前 projectId 和图片 imageId，放置到当前页；应用到原图层时传 layerId、sourceRevision，默认保留并隐藏原图。抠图结果设置 backgroundRemoved:true。
-- 作背景时置底并锁定`);
-  assert.equal(normalizeConfig({ ...profiles, imageToolPrompt: previous }).imageToolPrompt, DEFAULT_IMAGE_TOOL_PROMPT);
-  assert.equal(toRequestConfig({ ...profiles, imageToolPrompt: previous }).systemPrompt, `${profiles.systemPrompt}\n\n${DEFAULT_IMAGE_TOOL_PROMPT}`);
-  assert.equal(normalizeConfig({ ...profiles, imageToolPrompt: `${previous}\n自定义` }).imageToolPrompt, `${previous}\n自定义`);
-  assert.doesNotMatch(DEFAULT_IMAGE_TOOL_PROMPT, /place_image|includeImages|sourceRevision/);
+  assert.equal(normalizeConfig({ ...profiles, imageToolPrompt: undefined }).imageToolPrompt, DEFAULT_IMAGE_TOOL_PROMPT);
+  assert.equal(toRequestConfig({ ...profiles, imageToolPrompt: undefined }).systemPrompt, `${profiles.systemPrompt}\n\n${DEFAULT_IMAGE_TOOL_PROMPT}`);
+  assert.equal(normalizeConfig({ ...profiles, imageToolPrompt: '自定义' }).imageToolPrompt, '自定义');
+  assert.equal(normalizeConfig({ ...profiles, imageToolPrompt: '' }).imageToolPrompt, '');
 });
 
 test('Responses text deltas and final output are returned', async () => {

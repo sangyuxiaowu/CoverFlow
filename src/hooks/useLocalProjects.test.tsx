@@ -46,7 +46,7 @@ it('opens and writes an associated CFJX file, preserving it when permission or w
   });
   let hook!: ReturnType<typeof useLocalProjects>;
   function Harness() {
-    hook = useLocalProjects({ view: 'landing', parseFailedMessage: 'Invalid', showToast, onOpenProject, onUpdateProject: () => {} });
+    hook = useLocalProjects({ view: 'landing', parseFailedMessage: 'Invalid', fileNotFoundMessage: 'File missing', showToast, onOpenProject, onUpdateProject: () => {} });
     return null;
   }
   const root = createRoot(document.createElement('div'));
@@ -100,7 +100,7 @@ it('restores recent files and requests permission when reopening, without deleti
   const onOpenProject = vi.fn(async (opened: typeof project) => opened);
   let hook!: ReturnType<typeof useLocalProjects>;
   function Harness() {
-    hook = useLocalProjects({ view: 'landing', parseFailedMessage: 'Invalid', showToast, onOpenProject, onUpdateProject: () => {} });
+    hook = useLocalProjects({ view: 'landing', parseFailedMessage: 'Invalid', fileNotFoundMessage: 'File missing', showToast, onOpenProject, onUpdateProject: () => {} });
     return null;
   }
   const first = createRoot(document.createElement('div'));
@@ -119,9 +119,14 @@ it('restores recent files and requests permission when reopening, without deleti
     requestPermission.mockResolvedValueOnce('granted');
     await act(async () => { await hook.openLocalProjectFromPath(path); });
     expect(hook.activeLocalFilePath).toBe(path);
+    vi.mocked(handle.getFile).mockRejectedValueOnce(new DOMException('Missing', 'NotFoundError'));
+    requestPermission.mockResolvedValueOnce('granted');
+    await act(async () => { await hook.openLocalProjectFromPath(path); });
+    expect(showToast).toHaveBeenLastCalledWith('File missing', 'error');
+    expect(hook.localRecentItems).toHaveLength(1);
     await act(async () => { hook.removeLocalRecentByPath(path); });
     expect(hook.localRecentItems).toHaveLength(0);
     expect(recentFiles.size).toBe(0);
-    expect(handle.getFile).toHaveBeenCalledTimes(2);
+    expect(handle.getFile).toHaveBeenCalledTimes(3);
   } finally { await act(async () => second.unmount()); }
 });

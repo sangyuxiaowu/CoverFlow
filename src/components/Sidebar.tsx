@@ -45,6 +45,7 @@ interface SidebarProps {
   localFileAdapter: LocalFileAdapter;
   pagesPanel?: React.ReactNode;
   onAddPage?: () => void;
+  aiBusy?: boolean;
 }
 
 interface ExternalAssetItem {
@@ -430,7 +431,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   storageType,
   localFileAdapter,
   pagesPanel,
-  onAddPage
+  onAddPage,
+  aiBusy
 }) => {
   const FA_PAGE_SIZE = 180;
   const [searchTerm, setSearchTerm] = useState('');
@@ -1551,7 +1553,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {!isCollapsed && (
-        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        <div inert={aiBusy} className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
           <div className="p-5 pb-2 border-b border-slate-800/50 flex items-center justify-between">
             <h2 className="text-base font-bold flex items-center gap-2 text-slate-100 uppercase tracking-tighter">
               {activeTab === 'pages' ? t.pages : activeTab === 'assets'
@@ -1664,7 +1666,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
       )}
-      {renderAssetSettingsModal()}
+      <div inert={aiBusy}>{renderAssetSettingsModal()}</div>
     </div>
   );
 };

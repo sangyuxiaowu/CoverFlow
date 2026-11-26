@@ -35,6 +35,7 @@ interface CanvasProps {
   onOpenImageCrop?: (layerId: string) => void;
   onPreview?: () => void;
   previewDisabled?: boolean;
+  aiBusy?: boolean;
   onNotesChange?: (pageId: string, notes: string) => void;
   children?: React.ReactNode;
 }
@@ -42,7 +43,7 @@ interface CanvasProps {
 const SNAP_THRESHOLD = 8;
 
 // 画布交互与渲染组件。
-const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, selectedLayerIds = committedProject.selectedLayerId ? [committedProject.selectedLayerId] : [], onSelectLayer, updateLayer, onKeyboardCommit, onCommit, onOpenImageCrop, onPreview, previewDisabled, onNotesChange, children }) => {
+const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, selectedLayerIds = committedProject.selectedLayerId ? [committedProject.selectedLayerId] : [], onSelectLayer, updateLayer, onKeyboardCommit, onCommit, onOpenImageCrop, onPreview, previewDisabled, aiBusy, onNotesChange, children }) => {
   const [draft, setDraft] = useState<{ pageKey: string; updates: CanvasLayerUpdate[] } | null>(null);
   const draftRef = useRef<typeof draft>(null);
   const [keyboardDraft, setKeyboardDraft] = useState<KeyboardLayerTransform | null>(null);
@@ -497,7 +498,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, select
 
   return (
     <div className="flex-1 min-h-0 min-w-0 flex flex-col">
-      <div className="flex-1 min-h-0 relative">
+      <div inert={aiBusy} className="flex-1 min-h-0 relative">
       <div 
         ref={scrollContainerRef}
         className="absolute inset-0 overflow-auto bg-slate-950 canvas-checkerboard"
@@ -848,7 +849,7 @@ const Canvas: React.FC<CanvasProps> = ({ lang, project: committedProject, select
               <ChevronDown className="h-3.5 w-3.5" />
             </button>
           </div>
-          <textarea id="page-notes" className="flex-1 min-h-0 w-full resize-none bg-transparent px-3.5 py-2 text-[12px] leading-relaxed text-slate-200 placeholder:text-slate-500 outline-none" placeholder={t.pageNotesPlaceholder} value={notes} onChange={event => {
+          <textarea id="page-notes" readOnly={aiBusy} className="flex-1 min-h-0 w-full resize-none bg-transparent px-3.5 py-2 text-[12px] leading-relaxed text-slate-200 placeholder:text-slate-500 outline-none" placeholder={t.pageNotesPlaceholder} value={notes} onChange={event => {
             if (committedProject.activePageId) onNotesChange?.(committedProject.activePageId, event.target.value);
           }} />
         </div>

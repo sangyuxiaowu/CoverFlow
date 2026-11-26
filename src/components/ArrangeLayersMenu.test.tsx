@@ -209,7 +209,7 @@ describe('ArrangeLayersMenu UI', () => {
 });
 
 describe('EditorHeader', () => {
-  it('renders consolidated 3-zone header and opens More menu actions', async () => {
+  it('renders consolidated 3-zone header and exposes export actions', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const project = makeProject([makeLayer('a', 1)]);
     const clipboard = new LayerClipboard();
@@ -284,11 +284,8 @@ describe('EditorHeader', () => {
       await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Version History"]')!.click());
       expect(onOpenVersions).toHaveBeenCalledTimes(1);
 
-      await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="More project actions"]')!.click());
-      const exportProjItem = [...host.querySelectorAll('[role="menuitem"]')].find((el) =>
-        el.textContent?.includes('Export Project')
-      ) as HTMLButtonElement;
-      await act(async () => exportProjItem.click());
+      expect(host.querySelector('button[aria-label="More project actions"]')).toBeNull();
+      await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Export Project"]')!.click());
       expect(onExportProject).toHaveBeenCalledTimes(1);
 
       const exportImgBtn = [...host.querySelectorAll('button')].find((btn) =>

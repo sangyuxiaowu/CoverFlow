@@ -244,6 +244,7 @@ const App: React.FC = () => {
   } = useLocalProjects({
     view,
     parseFailedMessage: t.parseFailed,
+    fileNotFoundMessage: t.localFileNotFound,
     showToast,
     onOpenProject: async (nextProject, session, beforeCommit) => {
       const opened = await session.adopt(nextProject);
@@ -2004,7 +2005,8 @@ const App: React.FC = () => {
         />
       </LandingView>
       ) : project ? (
-      <div inert={aiBusy} className="flex flex-col h-screen bg-slate-950 text-slate-200 overflow-hidden">
+      <div className="flex flex-col h-screen bg-slate-950 text-slate-200 overflow-hidden">
+      <div inert={aiBusy} className="contents">
       {previewProject && <ProjectPreview project={previewProject} lang={lang} onClose={closePreviewProject} />}
       <VersionManagerModal
         isOpen={isVersionsModalOpen}
@@ -2119,6 +2121,8 @@ const App: React.FC = () => {
           setCroppingImageLayerId(null);
         }}
       />
+      </div>
+      <div inert={aiBusy} className="contents">
       <EditorHeader
         lang={lang}
         project={project}
@@ -2148,8 +2152,10 @@ const App: React.FC = () => {
         }}
         isExporting={isExporting}
       />
+      </div>
       <main className="flex-1 flex overflow-hidden min-h-0 relative">
         <Sidebar 
+          aiBusy={aiBusy}
           lang={lang} 
           activeTab={activeTab} 
           setActiveTab={setActiveTab} 
@@ -2299,6 +2305,7 @@ const App: React.FC = () => {
         />
         <div className="flex-1 flex flex-col min-h-0 relative">
           <Canvas
+            aiBusy={aiBusy}
             key={project.id}
             lang={lang}
             project={isExportModalOpen ? { ...project, selectedLayerId: null } : project}
@@ -2336,6 +2343,7 @@ const App: React.FC = () => {
           </Canvas>
         </div>
         <LayersPanel
+          aiBusy={aiBusy}
           lang={lang}
           project={project}
           selectedLayerIds={selectedLayerIds}

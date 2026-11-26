@@ -58,6 +58,7 @@ interface LayersPanelProps {
   onUngroupLayer: (id: string) => void;
   onCommit: () => void;
   onOpenImageCrop?: (layerId: string) => void;
+  aiBusy?: boolean;
 }
 
 const COMMON_FONTS = [
@@ -118,7 +119,8 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   onGroupLayers,
   onUngroupLayer,
   onCommit,
-  onOpenImageCrop
+  onOpenImageCrop,
+  aiBusy
 }) => {
   const [panelDraft, setPanelDraft] = useState<PanelLayerDraft | null>(null);
   const panelDraftRef = useRef<PanelLayerDraft | null>(null);
@@ -544,7 +546,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-hide">
+        <div inert={aiBusy} className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-hide">
           {selectedLayer ? (
             <div className="space-y-3">
               {/* 第 1 行：X 与 Y */}
@@ -1230,7 +1232,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
       </div>
 
       {/* 图层列表区域 */}
-      <div className="flex-1 flex flex-col min-h-0 bg-slate-900/50">
+      <div inert={aiBusy} className="flex-1 flex flex-col min-h-0 bg-slate-900/50">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800/50 bg-slate-900 flex-shrink-0">
           <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{t.layers}</h3>
           <button
@@ -1464,7 +1466,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
         </div>
       </div>
 
-      {contextMenu && (
+      {!aiBusy && contextMenu && (
         <div
           ref={contextMenuRef}
           className="fixed z-[200] min-w-[170px] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden text-[11px]"
@@ -1540,7 +1542,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
           </button>
         </div>
       )}
-      <ImageLayerCropModal
+      <div inert={aiBusy} className="contents"><ImageLayerCropModal
         isOpen={Boolean(internalCropLayerId)}
         layer={project.layers.find((l) => l.id === internalCropLayerId && l.type === 'image') || null}
         lang={lang}
@@ -1560,7 +1562,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
           }
           setInternalCropLayerId(null);
         }}
-      />
+      /></div>
       </div>
       )}
     </div>

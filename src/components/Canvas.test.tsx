@@ -3,6 +3,9 @@ import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import Canvas from './Canvas.tsx';
+import Sidebar from './Sidebar.tsx';
+import LayersPanel from './LayersPanel.tsx';
+import type { LocalFileAdapter } from '../storage/storage.ts';
 import type { ProjectState } from '../types.ts';
 import * as decorationStyles from '../utils/decorationStyles.ts';
 import * as imageLayer from '../utils/imageLayer.ts';
@@ -474,4 +477,50 @@ it('shows the current layer selection in the status bar', async () => {
   expect(host.querySelector('[role="toolbar"]')!.textContent).toContain('2 selected');
   await render(['missing']);
   expect(host.querySelector('[role="toolbar"]')!.textContent).toContain('No layer selected');
+});
+
+it('keeps layout controls available while AI editing locks project changes', async () => {
+  const current = syncProjectPages(project('busy'));
+  function Harness() {
+    const [activeTab, setActiveTab] = useState<string | null>('pages');
+    return <>
+      <Sidebar lang="zh" aiBusy activeTab={activeTab} setActiveTab={setActiveTab} project={current}
+        selectedLayerIds={[]} background={current.pageInfo.background} storageType="indexeddb" localFileAdapter={{} as LocalFileAdapter}
+        onAddLayer={() => {}} onApplyTemplate={() => {}} onUpdateBackground={() => {}} onOpenBackgroundCrop={() => {}}
+        pagesPanel={<button>页面编辑</button>} />
+      <Canvas lang="zh" aiBusy project={current} onSelectLayer={() => {}} updateLayer={() => {}} onKeyboardCommit={() => {}} onCommit={() => {}} />
+      <LayersPanel lang="zh" aiBusy project={current} selectedLayerIds={[]} onUpdateLayer={() => {}} onRemoveBackground={() => {}}
+        onDeleteLayer={() => {}} onSelectLayer={() => {}} onReorderLayers={() => {}} onCloneLayers={() => {}}
+        onCopyToClipboard={() => {}} onDeleteLayers={() => {}} onMoveLayersTop={() => {}} onMoveLayersBottom={() => {}}
+        onGroupLayers={() => {}} onUngroupLayer={() => {}} onCommit={() => {}} />
+    </>;
+  }
+  await act(async () => root.render(<Harness />));
+  const pages = host.querySelector<HTMLButtonElement>('button[aria-label="页面"]')!;
+  expect(pages.closest('[inert]')).toBeNull();
+  expect([...host.querySelectorAll('button')].find(button => button.textContent === '页面编辑')!.closest('[inert]')).not.toBeNull();
+  await act(async () => pages.click());
+  expect(host.textContent).not.toContain('页面编辑');
+  await act(async () => host.querySelector<HTMLButtonElement>('button[title="资源库"]')!.click());
+  expect(host.querySelector<HTMLButtonElement>('button[title^="资源库"]')!.closest('[inert]')).toBeNull();
+
+  expect(scrollContainer().closest('[inert]')).not.toBeNull();
+  const notesButton = host.querySelector<HTMLButtonElement>('button[title="页注释"]')!;
+  expect(notesButton.closest('[inert]')).toBeNull();
+  await act(async () => notesButton.click());
+  expect(host.querySelector<HTMLTextAreaElement>('#page-notes')!.readOnly).toBe(true);
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="收起页注释"]')!.click());
+  expect(host.querySelector('#page-notes')).toBeNull();
+  await act(async () => host.querySelector<HTMLButtonElement>('button[title="放大"]')!.click());
+  expect(parseFloat(frame().style.width)).toBeCloseTo(1032);
+  await act(async () => [...host.querySelectorAll('button')].find(button => button.textContent === '适应画布')!.click());
+  expect(parseFloat(frame().style.width)).toBeCloseTo(872);
+
+  const collapse = host.querySelector<HTMLButtonElement>('button[aria-label="收起面板"]')!;
+  expect(collapse.closest('[inert]')).toBeNull();
+  await act(async () => collapse.click());
+  const expand = host.querySelector<HTMLButtonElement>('button[aria-label="展开面板"]')!;
+  expect(expand.closest('[inert]')).toBeNull();
+  await act(async () => expand.click());
+  expect(host.querySelector('button[aria-label="收起面板"]')).not.toBeNull();
 });

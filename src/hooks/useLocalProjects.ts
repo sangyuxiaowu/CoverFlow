@@ -42,6 +42,7 @@ const localSummary = (project: ProjectState): ProjectSummary => {
 type UseLocalProjectsOptions = {
   view: 'landing' | 'editor';
   parseFailedMessage: string;
+  fileNotFoundMessage: string;
   showToast: (msg: string, type?: 'success' | 'error') => void;
   onOpenProject: (project: ProjectState, session: ProjectImageSession, beforeCommit?: () => boolean) => Promise<ProjectState>;
   onUpdateProject: (project: ProjectState, source: ProjectState) => void;
@@ -67,6 +68,7 @@ const writeLocalRecentMeta = (items: LocalRecentMeta[]) => {
 export const useLocalProjects = ({
   view,
   parseFailedMessage,
+  fileNotFoundMessage,
   showToast,
   onOpenProject,
   onUpdateProject
@@ -148,9 +150,9 @@ export const useLocalProjects = ({
     } catch (err) {
       session.close();
       if (isTauri) removeLocalRecentByPath(path);
-      showToast(parseFailedMessage, 'error');
+      showToast(!isTauri && err instanceof DOMException && err.name === 'NotFoundError' ? fileNotFoundMessage : parseFailedMessage, 'error');
     }
-  }, [isTauri, onOpenProject, parseFailedMessage, readProjectFromLocalPath, rememberBrowserProject, removeLocalRecentByPath, showToast, updateLocalRecentMeta]);
+  }, [fileNotFoundMessage, isTauri, onOpenProject, parseFailedMessage, readProjectFromLocalPath, rememberBrowserProject, removeLocalRecentByPath, showToast, updateLocalRecentMeta]);
 
   const openLocalProjectDialog = useCallback(async () => {
     if (!isTauri) return;

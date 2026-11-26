@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 import {
   ArrowLeft,
   Bot,
@@ -6,7 +6,6 @@ import {
   FileOutput,
   History,
   LoaderCircle,
-  MoreHorizontal,
   Redo2,
   Save,
   Undo2
@@ -70,29 +69,6 @@ export default function EditorHeader({
   isExporting
 }: EditorHeaderProps) {
   const t = translations[lang];
-  const [moreOpen, setMoreOpen] = useState(false);
-  const moreRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!moreOpen) return;
-    const handleMouseDown = (event: MouseEvent) => {
-      if (!moreRef.current?.contains(event.target as Node)) {
-        setMoreOpen(false);
-      }
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setMoreOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleMouseDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handleMouseDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [moreOpen]);
-
   const aiLabel = lang === 'en' ? 'AI Assistant' : 'AI 助手';
   const saveStatusText = saveStatus === 'saving'
     ? t.saveStatusSaving
@@ -240,43 +216,16 @@ export default function EditorHeader({
           <span className="hidden lg:inline">{aiLabel}</span>
         </button>
 
-        <div ref={moreRef} className="relative shrink-0">
-          <button
-            type="button"
-            onClick={() => setMoreOpen((prev) => !prev)}
-            title={t.moreActions}
-            aria-label={t.moreActions}
-            aria-expanded={moreOpen}
-            className={`h-8 w-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer ${
-              moreOpen
-                ? 'bg-slate-700 border-slate-600 text-white'
-                : 'bg-slate-800/70 hover:bg-slate-700/80 border-slate-700/80 text-slate-300 hover:text-white'
-            }`}
-          >
-            <MoreHorizontal className="w-4 h-4" />
-          </button>
-
-          {moreOpen && (
-            <div
-              role="menu"
-              aria-label={t.moreActions}
-              className="absolute right-0 top-full mt-2 w-48 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl shadow-black/75 py-1.5 z-[100] text-xs"
-            >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMoreOpen(false);
-                  onExportProject();
-                }}
-                className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-200 hover:bg-slate-800 transition-colors whitespace-nowrap"
-              >
-                <FileOutput className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span>{t.exportJson} (.cfjx)</span>
-              </button>
-            </div>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={onExportProject}
+          title={`${t.exportJson} (.cfjx)`}
+          aria-label={t.exportJson}
+          className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-lg border border-slate-700/80 bg-slate-800/70 text-xs font-semibold text-slate-300 hover:bg-slate-700/80 hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+        >
+          <FileOutput className="w-3.5 h-3.5 shrink-0" />
+          <span className="hidden lg:inline">{t.exportJson}</span>
+        </button>
 
         <button
           type="button"

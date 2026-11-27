@@ -12,8 +12,6 @@ import type { ChatStore } from '../services/chatStore.ts';
 import { ConversationAbortError, runConversation, sanitizeResponseItems, type ConversationAbortSource } from '../services/conversation.ts';
 import { createWorkspaceBridge, type WorkspaceOptions } from '../services/workspace.ts';
 
-interface Confirmation { message: string; resolve: (accepted: boolean) => void }
-
 export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy: boolean) => void, store: ChatStore, switching = false) {
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
@@ -30,17 +28,45 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
   const [loadError, setLoadError] = useState('');
   const [keyError, setKeyError] = useState(false);
   const [configError, setConfigError] = useState('');
-  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const mounted = useRef(false);
   const retrying = useRef(false);
   const abortSource = useRef<ConversationAbortSource>('assistant_disposed');
   const checkpoint = useRef<{ token: symbol; sessionId: string; entryId: string; storeId: string } | null>(null);
+  const assistantRef = useRef<ReturnType<typeof useAssistant> | null>(null);
   const bridgeRef = useRef<ReturnType<typeof createWorkspaceBridge> | null>(null);
   if (!bridgeRef.current) bridgeRef.current = createWorkspaceBridge(() => workspaceRef.current, (message, signal) => new Promise<boolean>((resolve, reject) => {
-    const cancel = () => { setConfirmation(null); reject(signal.reason); };
-    if (signal.aborted) { reject(signal.reason); return; }
+    let settled = false;
+    const cancel = () => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', cancel);
+      assistantRef.current?.confirmation?.resolve(false);
+      reject(signal.reason);
+    };
+    if (signal.aborted) { cancel(); return; }
     signal.addEventListener('abort', cancel, { once: true });
-    setConfirmation({ message, resolve: accepted => { signal.removeEventListener('abort', cancel); setConfirmation(null); resolve(accepted); } });
+    const confirm = assistantRef.current?.confirm;
+    if (!confirm) {
+      settled = true;
+      signal.removeEventListener('abort', cancel);
+      resolve(false);
+      return;
+    }
+    void confirm(message, {
+      confirmLabel: '删除',
+      cancelLabel: '取消',
+      danger: true
+    }).then(accepted => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', cancel);
+      resolve(accepted);
+    }, error => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', cancel);
+      reject(error);
+    });
   }));
   const storage = useMemo(() => createAssistantStorage(store, () => workspaceRef.current.project?.id), [store]);
 
@@ -147,6 +173,7 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
       return true;
     }
   });
+  assistantRef.current = assistant;
 
   const loadConfig = async () => {
     const target = store;
@@ -271,7 +298,6 @@ export function useAiAssistant(workspace: WorkspaceOptions, onBusyChange: (busy:
     loadError: loadError || assistant.loadError,
     keyError,
     configError: configError || assistant.configError,
-    confirmation,
     canRegenerate: Boolean(assistant.canRegenerate && !loading && !saving && !loadError && !keyError && canRegenerate()),
     newSession, startSession: newSession,
     selectSession: async id => {

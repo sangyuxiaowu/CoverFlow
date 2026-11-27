@@ -8,5 +8,6 @@ export const AI_FEATURES: Readonly<AiFeatures> = {
   onlineFonts: true,
   backgroundRemoval: true,
   placeholders: true,
-  sessionToolPicker: true
+  sessionToolPicker: true,
+  askQuestions: false
 };

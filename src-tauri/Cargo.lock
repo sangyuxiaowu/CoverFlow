@@ -540,7 +540,7 @@ dependencies = [
 
 [[package]]
 name = "coverflow"
-version = "9.5.2"
+version = "9.5.3"
 dependencies = [
  "serde_json",
  "tauri",
